@@ -273,12 +273,11 @@ function Roadmap() {
       <div className="roadmap-header">
         <div>
           <p className="section-label">living roadmap</p>
-          <h2 id="roadmap-title">one page that can keep up with the build.</h2>
+          <h2 id="roadmap-title">see the latest updates with the build.</h2>
         </div>
         <p>
-          the project already treats <code>docs/ROADMAP.md</code> as memory. this
-          site can mirror that same source so testers see what is shipped, what is
-          messy, and what is intentionally later. last synced {generatedDate}.
+          updates auto synced from <code>docs/ROADMAP.md</code> so there's no unanswered questions.
+          last synced {generatedDate}.
         </p>
       </div>
       <ol className="roadmap-list">
