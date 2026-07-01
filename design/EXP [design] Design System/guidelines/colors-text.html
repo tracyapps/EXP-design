@@ -1,0 +1,23 @@
+<!-- @dsCard group="Colors" viewport="700x180" name="Text tiers" subtitle="Hierarchy built from opacity, not just size" -->
+<!DOCTYPE html>
+<html lang="en" class="exp-dark">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  body { margin:0; background:var(--surface-window); font-family:var(--font-sans);
+         padding:22px; }
+  .line { display:flex; align-items:baseline; gap:14px; padding:5px 0; }
+  .line .t { font-size:17px; font-weight:var(--w-light); flex:1; }
+  .line .m { font-family:var(--font-mono); font-size:10px; color:var(--text-tertiary); }
+</style>
+</head>
+<body>
+  <div class="line"><div class="t" style="color:var(--text-primary)">Primary — 100%</div><div class="m">--text-primary</div></div>
+  <div class="line"><div class="t" style="color:var(--text-secondary)">Secondary — 62%</div><div class="m">--text-secondary</div></div>
+  <div class="line"><div class="t" style="color:var(--text-tertiary)">Tertiary — 42%</div><div class="m">--text-tertiary</div></div>
+  <div class="line"><div class="t" style="color:var(--text-quaternary)">Quaternary — 28%</div><div class="m">--text-quaternary</div></div>
+  <div class="line"><div class="t" style="color:var(--text-accent)">Accent link</div><div class="m">--text-accent</div></div>
+  <div class="line"><div class="t" style="color:var(--text-brand)">Brand lime</div><div class="m">--text-brand</div></div>
+</body>
+</html>

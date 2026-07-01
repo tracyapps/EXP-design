@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  Declares the native ".design" document type so Finder associates the files
+	  with the app and double-click opens them. (".exp" was avoided because macOS
+	  also ships a "Symbol Export" type for it; ".design" is clean.) The in-app
+	  Open panel still accepts old ".exp" files (see
+	  ExpDocument.readableContentTypes) for migration. Only the document-type keys
+	  live here; with GENERATE_INFOPLIST_FILE = YES, Xcode merges its generated
+	  keys (bundle name, version, etc.) on top at build time.
+	  IMPORTANT: changing the extension only takes effect after LaunchServices
+	  re-registers — do a Clean Build Folder + run, and if needed `lsregister -f`.
+	-->
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>EXP Design Document</string>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>LSHandlerRank</key>
+			<string>Owner</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>tapps.exp-design.designfile</string>
+			</array>
+		</dict>
+	</array>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>tapps.exp-design.designfile</string>
+			<key>UTTypeDescription</key>
+			<string>EXP Design Document</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.json</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>design</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
+</dict>
+</plist>

@@ -1,0 +1,23 @@
+<!-- @dsCard group="Type" viewport="700x230" name="Families" subtitle="SF Pro, SF Pro Display, SF Compact, SF Mono" -->
+<!DOCTYPE html>
+<html lang="en" class="exp-dark">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  body { margin:0; background:var(--surface-window); padding:22px; }
+  .fam { display:flex; align-items:baseline; gap:16px; padding:7px 0;
+         border-bottom:1px solid var(--hairline); }
+  .fam:last-child { border-bottom:none; }
+  .fam .s { font-size:26px; font-weight:var(--w-light); color:var(--text-primary); flex:1; }
+  .fam .l { font-family:var(--font-mono); font-size:10px; color:var(--text-tertiary);
+            width:150px; text-align:right; }
+</style>
+</head>
+<body>
+  <div class="fam"><div class="s" style="font-family:var(--font-sans)">Get out of your way</div><div class="l">SF Pro · sans</div></div>
+  <div class="fam"><div class="s" style="font-family:var(--font-display);font-weight:var(--w-ultralight)">Design, undisturbed</div><div class="l">SF Pro Display · ultralight</div></div>
+  <div class="fam"><div class="s" style="font-family:var(--font-condensed)">Layer · Component · Group</div><div class="l">SF Compact · condensed</div></div>
+  <div class="fam"><div class="s" style="font-family:var(--font-mono);font-size:20px">393 × 852  ·  100%</div><div class="l">SF Mono · numeric</div></div>
+</body>
+</html>

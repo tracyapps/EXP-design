@@ -1,0 +1,70 @@
+/* ============================================================================
+   EXP [design] — SPACING, RADII, STROKE, LAYOUT METRICS
+   Lifted directly from DESIGN-ASSETS.md / VISUAL-HANDOFF.md. The app's rhythm
+   is 2 / 4 / 6 / 8 / 12 / 16. Inspector horizontal padding is 12. Don't snap
+   these to an 8-grid — the source uses 6 and 12 deliberately.
+   ========================================================================== */
+
+:root {
+  /* ---- Spacing scale ---------------------------------------------------- */
+  --space-xxs:  2px;
+  --space-xs:   4px;
+  --space-sm:   6px;
+  --space-md:   8px;
+  --space-lg:  12px;   /* the panel's standard horizontal padding            */
+  --space-xl:  16px;
+  --space-2xl: 24px;
+  --space-3xl: 32px;
+
+  --panel-pad-h:    12px;   /* every inspector section                       */
+  --row-gap:         6px;   /* VStack(spacing:) in rows                       */
+  --section-gap:     8px;   /* between sections (+4 above a header)           */
+  --section-head-gap:12px;
+
+  /* ---- Corner radii ----------------------------------------------------- */
+  --radius-row:      6px;   /* effect rows, layer rows, cards                 */
+  --radius-field:    5px;   /* roundedBorder text fields (system metric)      */
+  --radius-button:   8px;   /* primary/glass buttons                         */
+  --radius-tool:     6px;   /* tool-strip & icon buttons                      */
+  --radius-drop:     4px;   /* drop-into highlight                            */
+  --radius-card:     6px;
+  --radius-panel:   12px;   /* floating panel / popover outer corner          */
+  --radius-pill:   999px;
+  --radius-control: 7px;    /* segmented control container                    */
+
+  /* ---- Stroke widths ---------------------------------------------------- */
+  --stroke-hairline:  1px;
+  --stroke-selection: 1.5px;
+  --stroke-dropline:  2px;
+  --stroke-focus:     2px;
+
+  /* ---- Selection / handle metrics (canvas) ------------------------------ */
+  --handle-size:   8px;
+  --handle-grab:  12px;
+  --rotate-offset:22px;
+  --ruler-size:   20px;
+  --guide-tol:     4px;
+
+  /* ---- Layout: dock & window -------------------------------------------- */
+  --dock-left-width:   264px;
+  --dock-right-width:  332px;
+  --tools-strip-width:  44px;
+  --window-min-width:  900px;
+  --window-min-height: 600px;
+  --titlebar-height:    52px;
+  --panel-header-height:38px;
+
+  /* ---- Control sizing --------------------------------------------------- */
+  --control-h:        24px;   /* standard field / small control height       */
+  --control-h-lg:     30px;   /* tool button, primary button                  */
+  --icon-btn:         24px;   /* icon-button frame width (24 × 20 in app)     */
+  --hit-target:       28px;   /* minimum actionable area (a11y)               */
+  --field-w-numeric:  56px;
+
+  /* ---- Motion ----------------------------------------------------------- */
+  --ease-standard: cubic-bezier(0.22, 0.61, 0.36, 1);   /* @kind other */
+  --ease-emphasis: cubic-bezier(0.34, 1.2, 0.4, 1);     /* @kind other */
+  --dur-fast:   120ms;   /* @kind other */
+  --dur-base:   180ms;   /* @kind other */
+  --dur-slow:   260ms;   /* @kind other */
+}

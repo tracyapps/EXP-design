@@ -1,0 +1,25 @@
+<!-- @dsCard group="Colors" viewport="700x150" name="Accent — system blue" subtitle="Interactive accent and its states; selection blue" -->
+<!DOCTYPE html>
+<html lang="en" class="exp-dark">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  body { margin:0; background:var(--surface-window); font-family:var(--font-sans);
+         padding:20px; display:flex; gap:14px; align-items:flex-end; }
+  .chip { width:120px; height:88px; border-radius:var(--radius-button);
+          display:flex; flex-direction:column; justify-content:flex-end; padding:8px;
+          box-sizing:border-box; box-shadow:var(--shadow-1); }
+  .chip .n { font-size:11px; font-weight:var(--w-medium); color:#fff; }
+  .chip .h { font-family:var(--font-mono); font-size:9px; color:rgba(255,255,255,0.7); }
+  .chip.sub { border:1px solid var(--accent); }
+  .chip.sub .n, .chip.sub .h { color:var(--text-accent); }
+</style>
+</head>
+<body>
+  <div class="chip" style="background:var(--accent)"><div class="n">accent</div><div class="h">#0a84ff</div></div>
+  <div class="chip" style="background:var(--accent-hover)"><div class="n">hover</div><div class="h">#3b9bff</div></div>
+  <div class="chip" style="background:var(--accent-press)"><div class="n">press</div><div class="h">#0060df</div></div>
+  <div class="chip sub" style="background:var(--accent-subtle)"><div class="n">subtle</div><div class="h">row-selected</div></div>
+</body>
+</html>

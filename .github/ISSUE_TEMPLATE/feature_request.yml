@@ -1,0 +1,39 @@
+name: "✨ Idea / feature request"
+description: A new capability or improvement for EXP [design].
+labels: ["feature", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: "Ideas welcome — even half-formed ones. (Fields mirror docs/BACKLOG.md.)"
+  - type: input
+    id: title
+    attributes:
+      label: One-line summary
+      placeholder: "Recent + saved colors in the color popover"
+    validations: { required: true }
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options: [canvas, inspector, layers/panels, components, color, text/type, export, chrome/window, performance, other]
+    validations: { required: true }
+  - type: dropdown
+    id: priority
+    attributes:
+      label: How much would this help you?
+      options: ["P1 — would use constantly", "P2 — would use often", "P3 — nice someday"]
+    validations: { required: true }
+  - type: textarea
+    id: what
+    attributes:
+      label: What's the idea?
+    validations: { required: true }
+  - type: textarea
+    id: why
+    attributes:
+      label: What are you trying to do? (the use case)
+      description: The problem behind the idea — helps find the best solution.
+  - type: textarea
+    id: refs
+    attributes:
+      label: References / how other tools do it (optional)

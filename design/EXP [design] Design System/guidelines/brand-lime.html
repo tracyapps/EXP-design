@@ -1,0 +1,25 @@
+<!-- @dsCard group="Brand" viewport="700x150" name="Brand lime" subtitle="Reserved accent — the mark, focus glow, never large fills" -->
+<!DOCTYPE html>
+<html lang="en" class="exp-dark">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  body { margin:0; background:var(--surface-window); padding:22px;
+         display:flex; gap:16px; align-items:center; font-family:var(--font-sans); }
+  .chip { width:120px; height:88px; border-radius:var(--radius-button); padding:8px;
+          box-sizing:border-box; display:flex; flex-direction:column; justify-content:flex-end; }
+  .chip .n { font-size:11px; font-weight:var(--w-medium); }
+  .chip .h { font-family:var(--font-mono); font-size:9px; }
+  .note { font-size:11.5px; font-weight:var(--w-light); color:var(--text-secondary);
+          max-width:230px; line-height:1.5; }
+  .note b { color:var(--brand-lime); font-weight:var(--w-regular); }
+</style>
+</head>
+<body>
+  <div class="chip" style="background:var(--brand-lime)"><div class="n" style="color:#0a2400">lime</div><div class="h" style="color:rgba(0,40,0,0.65)">#4ce62e</div></div>
+  <div class="chip" style="background:var(--brand-ink);border:1px solid var(--brand-lime);box-shadow:var(--glow-lime)"><div class="n" style="color:var(--brand-lime)">neon</div><div class="h" style="color:var(--brand-lime)">#3dff1a glow</div></div>
+  <div class="chip" style="background:var(--brand-ink)"><div class="n" style="color:#fff">ink</div><div class="h" style="color:rgba(255,255,255,0.5)">#121212</div></div>
+  <p class="note">Lime is a <b>spice, not a sauce</b>. Use it for the mark, a focus ring's glow, or one live status dot — never a large fill or a button. Blue owns interaction.</p>
+</body>
+</html>

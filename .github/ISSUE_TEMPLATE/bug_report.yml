@@ -1,0 +1,50 @@
+name: "🐞 Bug report"
+description: Something's broken or wrong in EXP [design].
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: "Thanks for testing EXP! The more concrete the steps, the faster it gets fixed. (Fields mirror docs/BACKLOG.md so it drops straight into the queue.)"
+  - type: input
+    id: title
+    attributes:
+      label: One-line summary
+      placeholder: "Rotating a grouped selection drops the rotation on click-out"
+    validations: { required: true }
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options: [canvas, inspector, layers/panels, components, color, text/type, export, chrome/window, performance, other, not sure]
+    validations: { required: true }
+  - type: dropdown
+    id: priority
+    attributes:
+      label: How much does it get in your way?
+      options: ["P1 — blocks me / data loss", "P2 — annoying but workaroundable", "P3 — minor / cosmetic"]
+    validations: { required: true }
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. New document, draw two rectangles
+        2. Select both, ⌘G to group
+        3. Rotate via the knob, then click empty canvas
+      description: Number the steps if you can.
+    validations: { required: true }
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected vs. what happened
+    validations: { required: true }
+  - type: input
+    id: version
+    attributes:
+      label: App version + macOS version
+      placeholder: "EXP 0.x (build …) · macOS 26.x"
+  - type: textarea
+    id: extra
+    attributes:
+      label: Screenshots / screen recording / anything else
+      description: Drag media in here. If it involves a specific file, describe it (don't upload private work).

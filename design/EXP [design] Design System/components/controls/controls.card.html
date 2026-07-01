@@ -1,0 +1,66 @@
+<!-- @dsCard group="Components" viewport="700x300" name="Controls" subtitle="Buttons, icon buttons, segmented, switch, checkbox, slider" -->
+<!DOCTYPE html>
+<html lang="en" class="exp-dark">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../../styles.css">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/bold/style.css">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>
+  body { margin:0; background:var(--surface-window); font-family:var(--font-sans);
+         padding:22px; }
+  .grp { display:flex; flex-direction:column; gap:14px; }
+  .row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .cap { font-family:var(--font-mono); font-size:10px; color:var(--text-tertiary);
+         width:74px; flex:none; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { Button, IconButton, SegmentedControl, Switch, Checkbox, Slider } = window.EXPDesignDesignSystem_fb82b2;
+function Demo() {
+  const [seg, setSeg] = React.useState("selection");
+  const [on, setOn] = React.useState(true);
+  const [chk, setChk] = React.useState(true);
+  const [zoom, setZoom] = React.useState(64);
+  const [tool, setTool] = React.useState("select");
+  return (
+    <div className="grp">
+      <div className="row"><span className="cap">buttons</span>
+        <Button variant="primary" icon="plus">New Artboard</Button>
+        <Button variant="secondary">Cancel</Button>
+        <Button variant="ghost" icon="trash">Delete</Button>
+        <Button variant="destructive">Delete forever</Button>
+        <Button variant="primary" disabled>Disabled</Button>
+      </div>
+      <div className="row"><span className="cap">icon</span>
+        {["cursor","bezier-curve","square","circle","triangle","pen-nib","text-t"].map(i =>
+          <IconButton key={i} icon={i} size="lg" active={tool===i} title={i} onClick={()=>setTool(i)} />)}
+      </div>
+      <div className="row"><span className="cap">segmented</span>
+        <SegmentedControl options={[{value:"selection",label:"Selection"},{value:"artboard",label:"Artboard"}]} value={seg} onChange={setSeg} />
+        <SegmentedControl options={[{value:"row",icon:"arrow-right"},{value:"col",icon:"arrow-down"}]} value="row" onChange={()=>{}} fill="neutral" />
+      </div>
+      <div className="row"><span className="cap">toggles</span>
+        <Switch checked={on} onChange={setOn} />
+        <Switch checked={!on} onChange={()=>setOn(!on)} size="small" />
+        <Checkbox checked={chk} onChange={setChk} label="Show grid" />
+        <Checkbox checked={!chk} onChange={()=>setChk(!chk)} label="Snap to grid" />
+      </div>
+      <div className="row"><span className="cap">slider</span>
+        <div style={{width:200,display:"flex"}}><Slider value={zoom} min={5} max={400} onChange={setZoom} /></div>
+        <span className="exp-numeric">{zoom}%</span>
+      </div>
+    </div>
+  );
+}
+ReactDOM.createRoot(document.getElementById("root")).render(<Demo/>);
+</script>
+</body>
+</html>

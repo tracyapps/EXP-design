@@ -6,14 +6,81 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		89BA6E682FE720550056C6DC /* QuickLookThumbnailing.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 89BA6E672FE720550056C6DC /* QuickLookThumbnailing.framework */; };
+		89BA6E6A2FE720550056C6DC /* Quartz.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 89BA6E692FE720550056C6DC /* Quartz.framework */; };
+		89BA6E712FE720550056C6DC /* EXPThumbnail.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 89BA6E652FE720550056C6DC /* EXPThumbnail.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		89BA6E6F2FE720550056C6DC /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 89BA6DF62FD083870056C6DC /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 89BA6E642FE720550056C6DC;
+			remoteInfo = EXPThumbnail;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		89BA6E762FE720550056C6DC /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				89BA6E712FE720550056C6DC /* EXPThumbnail.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
 		89BA6DFE2FD083870056C6DC /* EXP [design].app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "EXP [design].app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		89BA6E652FE720550056C6DC /* EXPThumbnail.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = EXPThumbnail.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		89BA6E672FE720550056C6DC /* QuickLookThumbnailing.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuickLookThumbnailing.framework; path = System/Library/Frameworks/QuickLookThumbnailing.framework; sourceTree = SDKROOT; };
+		89BA6E692FE720550056C6DC /* Quartz.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Quartz.framework; path = System/Library/Frameworks/Quartz.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		89BA6E722FE720550056C6DC /* Exceptions for "EXPThumbnail" folder in "EXPThumbnail" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 89BA6E642FE720550056C6DC /* EXPThumbnail */;
+		};
+		89BA6E782FE723650056C6DC /* Exceptions for "EXP [design]" folder in "EXPThumbnail" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Color/EffectsRender.swift,
+				Color/PaintRender.swift,
+				Export/ExportRenderer.swift,
+				Model/AutoLayoutEngine.swift,
+				Model/Document.swift,
+				Model/Paint.swift,
+				UI/Typography.swift,
+			);
+			target = 89BA6E642FE720550056C6DC /* EXPThumbnail */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		89BA6E002FD083870056C6DC /* EXP [design] */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				89BA6E782FE723650056C6DC /* Exceptions for "EXP [design]" folder in "EXPThumbnail" target */,
+			);
 			path = "EXP [design]";
+			sourceTree = "<group>";
+		};
+		89BA6E6B2FE720550056C6DC /* EXPThumbnail */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				89BA6E722FE720550056C6DC /* Exceptions for "EXPThumbnail" folder in "EXPThumbnail" target */,
+			);
+			path = EXPThumbnail;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -26,6 +93,15 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		89BA6E622FE720550056C6DC /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				89BA6E682FE720550056C6DC /* QuickLookThumbnailing.framework in Frameworks */,
+				89BA6E6A2FE720550056C6DC /* Quartz.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -33,6 +109,8 @@
 			isa = PBXGroup;
 			children = (
 				89BA6E002FD083870056C6DC /* EXP [design] */,
+				89BA6E6B2FE720550056C6DC /* EXPThumbnail */,
+				89BA6E662FE720550056C6DC /* Frameworks */,
 				89BA6DFF2FD083870056C6DC /* Products */,
 			);
 			sourceTree = "<group>";
@@ -41,8 +119,18 @@
 			isa = PBXGroup;
 			children = (
 				89BA6DFE2FD083870056C6DC /* EXP [design].app */,
+				89BA6E652FE720550056C6DC /* EXPThumbnail.appex */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		89BA6E662FE720550056C6DC /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				89BA6E672FE720550056C6DC /* QuickLookThumbnailing.framework */,
+				89BA6E692FE720550056C6DC /* Quartz.framework */,
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -55,10 +143,12 @@
 				89BA6DFA2FD083870056C6DC /* Sources */,
 				89BA6DFB2FD083870056C6DC /* Frameworks */,
 				89BA6DFC2FD083870056C6DC /* Resources */,
+				89BA6E762FE720550056C6DC /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				89BA6E702FE720550056C6DC /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				89BA6E002FD083870056C6DC /* EXP [design] */,
@@ -69,6 +159,28 @@
 			productName = "EXP [design]";
 			productReference = 89BA6DFE2FD083870056C6DC /* EXP [design].app */;
 			productType = "com.apple.product-type.application";
+		};
+		89BA6E642FE720550056C6DC /* EXPThumbnail */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 89BA6E732FE720550056C6DC /* Build configuration list for PBXNativeTarget "EXPThumbnail" */;
+			buildPhases = (
+				89BA6E612FE720550056C6DC /* Sources */,
+				89BA6E622FE720550056C6DC /* Frameworks */,
+				89BA6E632FE720550056C6DC /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				89BA6E6B2FE720550056C6DC /* EXPThumbnail */,
+			);
+			name = EXPThumbnail;
+			packageProductDependencies = (
+			);
+			productName = EXPThumbnail;
+			productReference = 89BA6E652FE720550056C6DC /* EXPThumbnail.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -81,6 +193,9 @@
 				LastUpgradeCheck = 2630;
 				TargetAttributes = {
 					89BA6DFD2FD083870056C6DC = {
+						CreatedOnToolsVersion = 26.3;
+					};
+					89BA6E642FE720550056C6DC = {
 						CreatedOnToolsVersion = 26.3;
 					};
 				};
@@ -100,12 +215,20 @@
 			projectRoot = "";
 			targets = (
 				89BA6DFD2FD083870056C6DC /* EXP [design] */,
+				89BA6E642FE720550056C6DC /* EXPThumbnail */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		89BA6DFC2FD083870056C6DC /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		89BA6E632FE720550056C6DC /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -122,7 +245,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		89BA6E612FE720550056C6DC /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		89BA6E702FE720550056C6DC /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 89BA6E642FE720550056C6DC /* EXPThumbnail */;
+			targetProxy = 89BA6E6F2FE720550056C6DC /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		89BA6E072FD083880056C6DC /* Debug */ = {
@@ -257,8 +395,9 @@
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
-				ENABLE_USER_SELECTED_FILES = readonly;
+				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -289,8 +428,9 @@
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
-				ENABLE_USER_SELECTED_FILES = readonly;
+				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -303,6 +443,66 @@
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		89BA6E742FE720550056C6DC /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 65LD7TZAL3;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = EXPThumbnail/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = EXPThumbnail;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "tapps.EXP--design-.EXPThumbnail";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		89BA6E752FE720550056C6DC /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 65LD7TZAL3;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = EXPThumbnail/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = EXPThumbnail;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "tapps.EXP--design-.EXPThumbnail";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
@@ -326,6 +526,15 @@
 			buildConfigurations = (
 				89BA6E0A2FD083880056C6DC /* Debug */,
 				89BA6E0B2FD083880056C6DC /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		89BA6E732FE720550056C6DC /* Build configuration list for PBXNativeTarget "EXPThumbnail" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				89BA6E742FE720550056C6DC /* Debug */,
+				89BA6E752FE720550056C6DC /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

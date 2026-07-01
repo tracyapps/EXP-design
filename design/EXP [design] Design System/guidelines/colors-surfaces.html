@@ -1,0 +1,27 @@
+<!-- @dsCard group="Colors" viewport="700x160" name="Chrome surfaces" subtitle="Window → panel → raised → card → field stacking" -->
+<!DOCTYPE html>
+<html lang="en" class="exp-dark">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  body { margin:0; background:var(--surface-window); padding:24px; font-family:var(--font-sans); }
+  .stack { display:flex; gap:0; align-items:stretch; height:96px;
+           border-radius:var(--radius-panel); overflow:hidden; box-shadow:var(--shadow-panel); }
+  .s { flex:1; padding:10px; box-sizing:border-box; display:flex; flex-direction:column;
+       justify-content:flex-end; border-right:1px solid var(--hairline); }
+  .s:last-child { border-right:none; }
+  .s .n { font-size:11px; color:var(--text-primary); font-weight:var(--w-light); }
+  .s .h { font-family:var(--font-mono); font-size:9px; color:var(--text-tertiary); }
+</style>
+</head>
+<body>
+  <div class="stack">
+    <div class="s" style="background:var(--surface-window)"><div class="n">window</div><div class="h">#181819</div></div>
+    <div class="s" style="background:var(--surface-panel-solid)"><div class="n">panel</div><div class="h">n-150</div></div>
+    <div class="s" style="background:var(--surface-raised)"><div class="n">raised</div><div class="h">n-200</div></div>
+    <div class="s" style="background:var(--surface-raised)"><div class="s" style="background:var(--surface-card);border:1px solid var(--border-soft);border-radius:6px;height:100%"><div class="n">card</div><div class="h">white 4%</div></div></div>
+    <div class="s" style="background:var(--surface-raised)"><div class="s" style="background:var(--surface-field);border:1px solid var(--border-soft);border-radius:5px;height:100%"><div class="n">field</div><div class="h">white 5%</div></div></div>
+  </div>
+</body>
+</html>

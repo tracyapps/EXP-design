@@ -1,0 +1,25 @@
+<!-- @dsCard group="Materials" viewport="700x170" name="Elevation" subtitle="Layered drop shadows — flush row to floating modal" -->
+<!DOCTYPE html>
+<html lang="en" class="exp-dark">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  body { margin:0; background:var(--surface-window); font-family:var(--font-sans);
+         padding:26px; display:flex; gap:22px; align-items:center; }
+  .card { flex:1; height:84px; border-radius:var(--radius-card);
+          background:var(--n-200); border:1px solid var(--border-soft);
+          display:flex; flex-direction:column; align-items:center; justify-content:center;
+          gap:3px; }
+  .card .n { font-size:11px; color:var(--text-primary); font-weight:var(--w-medium); }
+  .card .m { font-family:var(--font-mono); font-size:9px; color:var(--text-tertiary); }
+</style>
+</head>
+<body>
+  <div class="card" style="box-shadow:var(--shadow-1)"><div class="n">1</div><div class="m">rows</div></div>
+  <div class="card" style="box-shadow:var(--shadow-2)"><div class="n">2</div><div class="m">chips</div></div>
+  <div class="card" style="box-shadow:var(--shadow-panel)"><div class="n">panel</div><div class="m">docks</div></div>
+  <div class="card" style="box-shadow:var(--shadow-popover)"><div class="n">popover</div><div class="m">menus</div></div>
+  <div class="card" style="box-shadow:var(--shadow-modal)"><div class="n">modal</div><div class="m">editor</div></div>
+</body>
+</html>

@@ -1,0 +1,11 @@
+/* ============================================================================
+   EXP [design] — DESIGN SYSTEM ENTRY POINT
+   Consumers link THIS one file. It is an import manifest only — no rules here.
+   Order: tokens → materials. Fonts are the macOS system stack (see typography
+   and the readme "Font substitution" note); no @font-face binaries are bundled.
+   ========================================================================== */
+
+@import "tokens/colors.css";
+@import "tokens/typography.css";
+@import "tokens/spacing.css";
+@import "tokens/glass.css";

@@ -1,0 +1,179 @@
+/* ============================================================================
+   EXP [design] — COLOR SYSTEM
+   macOS-native, appearance-aware. Dark is the design home; light mirrors it.
+   Neutrals carry a faint purple tint (the owner's #181819 base). Interactive
+   accent = macOS system blue. Brand accent = the logo's neon lime.
+   ----------------------------------------------------------------------------
+   The CANVAS surface is intentionally undesigned — it follows the user's
+   artboards, not the chrome. Canvas tokens are isolated below and prefixed
+   `--canvas-*` so they're never confused with chrome surfaces. Change them
+   sparingly and on purpose.
+   ========================================================================== */
+
+:root {
+  color-scheme: light dark;
+
+  /* ---- Brand constants (appearance-invariant) ---------------------------- */
+  --brand-lime:        #4ce62e;   /* logo [design] mark — refined for UI use   */
+  --brand-lime-neon:   #3dff1a;   /* raw logo neon — lockups / glow only       */
+  --brand-ink:         #121212;   /* logo plate background                     */
+
+  /* ---- Interactive accent (macOS system blue) ---------------------------- */
+  --accent:            #0a84ff;   /* dark-mode system accent (default home)    */
+  --accent-hover:      #3b9bff;
+  --accent-press:      #0060df;
+  --accent-subtle:     rgba(10, 132, 255, 0.16);
+  --accent-subtle-2:   rgba(10, 132, 255, 0.24);
+  --accent-on:         #ffffff;   /* text/icon on an accent fill               */
+
+  /* ---- Semantic status --------------------------------------------------- */
+  --green:   #32d74b;   /* success / online (system green, dark)              */
+  --red:     #ff453a;   /* destructive / error                                */
+  --orange:  #ff9f0a;   /* warning / margin overlay                           */
+  --teal:    #40c8e0;   /* guides / measurement cyan (GuideTint)              */
+  --yellow:  #ffd60a;
+}
+
+/* ============================================================================
+   DARK  —  the primary appearance (#181819 purple-tinted base)
+   ========================================================================== */
+:root,
+.exp-dark {
+  /* Neutral ramp — near-black → white, with a whisper of purple (hue ~280). */
+  --n-0:   #0e0e10;   /* deepest — wells, recessed fields                     */
+  --n-50:  #151517;
+  --n-100: #181819;   /* WINDOW BG — the owner's signature value              */
+  --n-150: #1d1d1f;   /* panel base (under glass)                            */
+  --n-200: #232325;   /* raised panel / popover plate                        */
+  --n-300: #2b2b2e;   /* cards, inset rows                                    */
+  --n-400: #3a3a3e;   /* hover fills, control bg                             */
+  --n-500: #4d4d52;   /* borders strong, disabled glyph                      */
+  --n-600: #6b6b71;   /* tertiary text                                       */
+  --n-700: #8e8e94;   /* secondary text                                      */
+  --n-800: #c7c7cc;   /* near-primary                                        */
+  --n-900: #f2f2f5;   /* primary text / pure-ish white                       */
+
+  /* Surfaces — chrome only (NOT the canvas). */
+  --surface-window:     var(--n-100);
+  --surface-panel:      rgba(30, 30, 33, 0.72);   /* glass tint sits over blur */
+  --surface-panel-solid:var(--n-150);             /* Reduce-Transparency fallbk */
+  --surface-raised:     var(--n-200);
+  --surface-card:       rgba(255, 255, 255, 0.04);/* DESIGN-ASSETS.md card bg   */
+  --surface-field:      rgba(255, 255, 255, 0.05);
+  --surface-field-focus:rgba(255, 255, 255, 0.08);
+  --surface-popover:    rgba(38, 38, 41, 0.80);
+  --surface-toolbar:    rgba(22, 22, 24, 0.60);
+
+  /* Hover / selected (chrome rows & buttons). */
+  --row-hover:     rgba(255, 255, 255, 0.06);
+  --row-active:    rgba(255, 255, 255, 0.10);
+  --row-selected:  var(--accent-subtle);
+
+  /* Text — opacity-tiered hierarchy (the app's system: 100/80/70/60). */
+  --text-primary:   rgba(242, 242, 245, 1.00);
+  --text-secondary: rgba(242, 242, 245, 0.62);
+  --text-tertiary:  rgba(242, 242, 245, 0.42);
+  --text-quaternary:rgba(242, 242, 245, 0.28);
+  --text-on-accent: #ffffff;
+  --text-accent:    #4aa3ff;
+  --text-brand:     var(--brand-lime);
+
+  /* Lines & dividers. */
+  --hairline:     rgba(255, 255, 255, 0.09);   /* separatorColor analog        */
+  --border-soft:  rgba(255, 255, 255, 0.07);
+  --border-glass: rgba(255, 255, 255, 0.12);   /* the lit top edge of glass    */
+  --border-strong:rgba(255, 255, 255, 0.18);
+
+  /* Canvas (the undesigned center surface) — isolated on purpose. */
+  --canvas-bg:        #1c1c1e;   /* the wall behind artboards                 */
+  --canvas-artboard:  #ffffff;   /* default artboard fill                     */
+  --canvas-ruler-bg:  rgba(24, 24, 25, 0.7);
+  --canvas-ruler-tick:rgba(242, 242, 245, 0.34);
+  --canvas-selection: var(--accent);
+  --canvas-guide:     var(--teal);
+}
+
+/* ============================================================================
+   LIGHT  —  mirror of the system, warm-neutral panels over a soft gray wall
+   ========================================================================== */
+@media (prefers-color-scheme: light) {
+  :root {
+    --n-0:   #ffffff;
+    --n-50:  #fbfbfc;
+    --n-100: #f4f4f6;   /* window bg (light)                                  */
+    --n-150: #eeeef0;
+    --n-200: #ffffff;   /* raised panel plate                                 */
+    --n-300: #f0f0f2;
+    --n-400: #e4e4e8;
+    --n-500: #d0d0d6;
+    --n-600: #8a8a90;
+    --n-700: #6a6a70;
+    --n-800: #3a3a40;
+    --n-900: #1a1a1c;
+
+    --accent:          #007aff;   /* light-mode system accent                 */
+    --accent-hover:    #2b90ff;
+    --accent-press:    #0060df;
+    --accent-subtle:   rgba(0, 122, 255, 0.12);
+    --accent-subtle-2: rgba(0, 122, 255, 0.20);
+
+    --green:  #28cd41;
+    --red:    #ff3b30;
+    --orange: #ff9500;
+    --teal:   #00a3c4;
+
+    --surface-window:      var(--n-100);
+    --surface-panel:       rgba(255, 255, 255, 0.66);
+    --surface-panel-solid: var(--n-200);
+    --surface-raised:      var(--n-200);
+    --surface-card:        rgba(0, 0, 0, 0.035);
+    --surface-field:       rgba(0, 0, 0, 0.045);
+    --surface-field-focus: rgba(0, 0, 0, 0.07);
+    --surface-popover:     rgba(255, 255, 255, 0.82);
+    --surface-toolbar:     rgba(248, 248, 250, 0.65);
+
+    --row-hover:    rgba(0, 0, 0, 0.05);
+    --row-active:   rgba(0, 0, 0, 0.08);
+    --row-selected: var(--accent-subtle);
+
+    --text-primary:    rgba(20, 20, 22, 1.00);
+    --text-secondary:  rgba(20, 20, 22, 0.60);
+    --text-tertiary:   rgba(20, 20, 22, 0.40);
+    --text-quaternary: rgba(20, 20, 22, 0.26);
+    --text-accent:     #007aff;
+    --text-brand:      #2aa516;   /* lime darkened for contrast on light      */
+
+    --hairline:      rgba(0, 0, 0, 0.10);
+    --border-soft:   rgba(0, 0, 0, 0.08);
+    --border-glass:  rgba(255, 255, 255, 0.7);
+    --border-strong: rgba(0, 0, 0, 0.16);
+
+    --canvas-bg:         #e8e8ea;
+    --canvas-artboard:   #ffffff;
+    --canvas-ruler-bg:   rgba(244, 244, 246, 0.8);
+    --canvas-ruler-tick: rgba(20, 20, 22, 0.34);
+  }
+}
+
+/* Explicit appearance overrides (force a scope regardless of system). */
+.exp-light {
+  --n-0:#ffffff; --n-50:#fbfbfc; --n-100:#f4f4f6; --n-150:#eeeef0; --n-200:#ffffff;
+  --n-300:#f0f0f2; --n-400:#e4e4e8; --n-500:#d0d0d6; --n-600:#8a8a90;
+  --n-700:#6a6a70; --n-800:#3a3a40; --n-900:#1a1a1c;
+  --accent:#007aff; --accent-hover:#2b90ff; --accent-press:#0060df;
+  --accent-subtle:rgba(0,122,255,0.12); --accent-subtle-2:rgba(0,122,255,0.20);
+  --green:#28cd41; --red:#ff3b30; --orange:#ff9500; --teal:#00a3c4;
+  --surface-window:var(--n-100); --surface-panel:rgba(255,255,255,0.66);
+  --surface-panel-solid:var(--n-200); --surface-raised:var(--n-200);
+  --surface-card:rgba(0,0,0,0.035); --surface-field:rgba(0,0,0,0.045);
+  --surface-field-focus:rgba(0,0,0,0.07); --surface-popover:rgba(255,255,255,0.82);
+  --surface-toolbar:rgba(248,248,250,0.65);
+  --row-hover:rgba(0,0,0,0.05); --row-active:rgba(0,0,0,0.08); --row-selected:var(--accent-subtle);
+  --text-primary:rgba(20,20,22,1); --text-secondary:rgba(20,20,22,0.60);
+  --text-tertiary:rgba(20,20,22,0.40); --text-quaternary:rgba(20,20,22,0.26);
+  --text-accent:#007aff; --text-brand:#2aa516;
+  --hairline:rgba(0,0,0,0.10); --border-soft:rgba(0,0,0,0.08);
+  --border-glass:rgba(255,255,255,0.7); --border-strong:rgba(0,0,0,0.16);
+  --canvas-bg:#e8e8ea; --canvas-artboard:#ffffff;
+  --canvas-ruler-bg:rgba(244,244,246,0.8); --canvas-ruler-tick:rgba(20,20,22,0.34);
+}

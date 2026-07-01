@@ -1,0 +1,30 @@
+<!-- @dsCard group="Brand" viewport="700x220" name="Logo lockup" subtitle="EXP. with the lime [design] bracket on the ink plate" -->
+<!DOCTYPE html>
+<html lang="en" class="exp-dark">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  body { margin:0; background:var(--surface-window); padding:24px;
+         display:flex; gap:24px; align-items:center; font-family:var(--font-sans); }
+  .plate { width:150px; height:150px; border-radius:26px; background:var(--brand-ink);
+           display:flex; align-items:center; justify-content:center; flex:none;
+           box-shadow:var(--shadow-panel); overflow:hidden; }
+  .plate img { width:100%; height:100%; object-fit:cover; }
+  .meta { display:flex; flex-direction:column; gap:10px; }
+  .meta .big { font-size:30px; font-weight:var(--w-ultralight); color:var(--text-primary);
+               letter-spacing:var(--tr-tight); }
+  .meta .big b { font-weight:var(--w-semibold); }
+  .meta .big .br { color:var(--brand-lime); font-weight:var(--w-regular); }
+  .meta p { margin:0; font-size:12px; font-weight:var(--w-light);
+            color:var(--text-secondary); max-width:300px; line-height:1.5; }
+</style>
+</head>
+<body>
+  <div class="plate"><img src="exp-logo.png" alt="EXP design logo"></div>
+  <div class="meta">
+    <div class="big"><b>EXP</b>.<span class="br"> [design]</span></div>
+    <p>The wordmark is the app. White <b>EXP.</b> set tight; the lime <span style="color:var(--brand-lime)">[design]</span> bracket is the only place the brand green carries weight. Always on the near-black ink plate.</p>
+  </div>
+</body>
+</html>

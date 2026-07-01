@@ -1,0 +1,28 @@
+<!-- @dsCard group="Materials" viewport="700x240" name="Liquid glass — thin / medium / thick" subtitle="Real backdrop blur over the canvas; two core thicknesses + modal" -->
+<!DOCTYPE html>
+<html lang="en" class="exp-dark">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  body { margin:0; font-family:var(--font-sans); height:100vh;
+    /* a colorful "canvas" so the blur has something to refract */
+    background:
+      radial-gradient(circle at 20% 30%, #5b3df0 0, transparent 42%),
+      radial-gradient(circle at 78% 22%, #ff6a3d 0, transparent 40%),
+      radial-gradient(circle at 60% 85%, #1fb6d6 0, transparent 46%),
+      var(--n-100);
+    display:flex; align-items:center; justify-content:center; gap:22px; }
+  .pane { width:180px; height:150px; border-radius:var(--radius-panel);
+          display:flex; flex-direction:column; justify-content:flex-end; padding:14px;
+          box-sizing:border-box; }
+  .pane .n { font-size:13px; font-weight:var(--w-regular); color:var(--text-primary); }
+  .pane .d { font-size:10px; color:var(--text-secondary); font-family:var(--font-mono); margin-top:2px; }
+</style>
+</head>
+<body>
+  <div class="pane glass-thin glass-edge"><div class="n">Thin</div><div class="d">blur 16 · toolbars</div></div>
+  <div class="pane glass-medium glass-edge"><div class="n">Medium</div><div class="d">blur 30 · panels</div></div>
+  <div class="pane glass-thick glass-edge"><div class="n">Thick</div><div class="d">blur 50 · modals</div></div>
+</body>
+</html>

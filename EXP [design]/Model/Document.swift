@@ -1,0 +1,1010 @@
+//
+//  Document.swift
+//  EXP [design]
+//
+//  THE FOUNDATION. Everything hangs off this model, so it's built right from
+//  the first lines: it is reference-based (a component instance points at a
+//  source, it never copies it) and it is the *data*, with no UI/AppKit imports.
+//
+//  Why value types (structs) + Codable, not classes?
+//   • Codable gives us save/open almost for free — the file format is just this
+//     tree encoded to JSON (the instant-open format the roadmap calls for).
+//   • Mutating a struct held by `@Observable AppState` reassigns the property,
+//     which is exactly the signal SwiftUI/the canvas watch to redraw.
+//   • It keeps the model UI-free: this file imports only Foundation/CoreGraphics,
+//     so the same model could be rendered, exported to SVG, or tested headless.
+//
+//  Shape on the screen, in CSS terms: Document is the stylesheet + markup, an
+//  Artboard is a page, Nodes are the DOM tree, and a component instance is like
+//  `<use href="#source">` in SVG — a reference plus a few overrides.
+//
+//  NOTE: the component/instance types exist now but aren't *edited* until
+//  Phase 4. They live here today only so the model never has to be rewritten
+//  to add references later — that retrofit is the project-killer we're avoiding.
+//
+
+import Foundation
+import CoreGraphics
+
+// MARK: - Document
+
+/// The whole design file: its artboards plus the library of component sources
+/// they can reference. This is what will be read/written by the document
+/// system (native DocumentGroup) in the next cycle.
+struct Document: Codable, Sendable {
+
+    /// Bumped when the on-disk shape changes. v2 moved shapes out of artboards
+    /// into the document-level `nodes` list (the "wall" model).
+    var formatVersion: Int = 2
+
+    /// The canvases the user designs on. Artboards are just named frames now —
+    /// they don't own their shapes; ownership is derived geometrically.
+    var artboards: [Artboard]
+
+    /// EVERY shape lives here, in document coordinates, in z-order (first =
+    /// back). Whether a shape "belongs to" an artboard — and therefore crops to
+    /// it — is computed live from the >50%-overlap rule (see `owningArtboard`),
+    /// not stored. Shapes not >50% inside any artboard live on the "wall".
+    var nodes: [Node]
+
+    /// Reusable component definitions. An instance node refers to one of these
+    /// by `id` — the reference-based heart of the model. Empty until Phase 4.
+    var sources: [ComponentSource]
+
+    /// Ruler guides (document coordinates), persisted with the file like Photoshop.
+    var guides: [Guide]
+
+    init(artboards: [Artboard] = Document.starter,
+         nodes: [Node] = [],
+         sources: [ComponentSource] = [],
+         guides: [Guide] = []) {
+        self.artboards = artboards
+        self.nodes = nodes
+        self.sources = sources
+        self.guides = guides
+    }
+
+    // Custom decode so files saved before `guides` existed still open.
+    enum CodingKeys: String, CodingKey { case formatVersion, artboards, nodes, sources, guides }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        formatVersion = try c.decodeIfPresent(Int.self, forKey: .formatVersion) ?? 2
+        artboards = try c.decode([Artboard].self, forKey: .artboards)
+        nodes = try c.decode([Node].self, forKey: .nodes)
+        sources = try c.decodeIfPresent([ComponentSource].self, forKey: .sources) ?? []
+        guides = try c.decodeIfPresent([Guide].self, forKey: .guides) ?? []
+    }
+
+    /// Bounding box enclosing every artboard, in document coordinates. Used to
+    /// center / fit the view.
+    var contentBounds: CGRect {
+        guard let first = artboards.first else { return .zero }
+        return artboards.dropFirst().reduce(first.frame) { $0.union($1.frame) }
+    }
+
+    /// Look up a component source by id (used when resolving an instance).
+    func source(for id: UUID) -> ComponentSource? {
+        sources.first { $0.id == id }
+    }
+
+    /// The fully-resolved children to draw for an instance: the source's children
+    /// with this instance's overrides + visibility applied, then run through the
+    /// auto-layout/padding engine so a button frame re-hugs an overridden label.
+    /// Children are normalised to start at (0,0) in instance-local space, so the
+    /// instance draws them at its own origin. Empty if the source is missing.
+    func resolvedChildren(of inst: ComponentInstance) -> [Node] {
+        guard let source = source(for: inst.sourceID) else { return [] }
+        let resolved = source.children
+            .filter { inst.isLayerVisible($0.id, sourceDefault: $0.isVisible) }
+            .map { inst.applyingOverrides(to: $0) }
+        // Re-hug auto-layout / auto-padding frames for THIS instance's overrides.
+        // (AutoLayoutEngine.swift must be a member of BOTH the app AND the
+        // EXPThumbnail targets, or this won't compile — do not stub this out.)
+        var laid = AutoLayoutEngine.reflowed(resolved)
+
+        // Position children relative to the source's viewBox origin, so the instance
+        // renders the viewBox exactly as laid out in the editor (SVG-style) rather
+        // than a re-hugged content box. (Keep AutoLayoutEngine.reflowed above — it is
+        // shared with the EXPThumbnail target; do not stub it.)
+        let o = source.origin
+        if o.x != 0 || o.y != 0 {
+            laid = laid.map { var n = $0; n.frame.origin.x -= o.x; n.frame.origin.y -= o.y; return n }
+        }
+        return laid
+    }
+
+    /// The size an instance occupies — its source's viewBox (SVG-style).
+    func resolvedSize(of inst: ComponentInstance) -> CGSize {
+        source(for: inst.sourceID)?.size ?? .zero
+    }
+
+    /// The artboard that owns a shape with the given document-space frame, or
+    /// nil if it's on the wall. Rule: an artboard owns the shape when it covers
+    /// MORE THAN HALF of the shape's area; ties broken by largest coverage.
+    func owningArtboard(of frame: CGRect) -> Artboard? {
+        let area = frame.width * frame.height
+        guard area > 0 else { return nil }
+        var best: (artboard: Artboard, coverage: CGFloat)?
+        for artboard in artboards {
+            let overlap = artboard.frame.intersection(frame)
+            guard !overlap.isNull else { continue }
+            let coverage = overlap.width * overlap.height
+            guard coverage > area * 0.5 else { continue }
+            if best == nil || coverage > best!.coverage { best = (artboard, coverage) }
+        }
+        return best?.artboard
+    }
+
+    /// A fresh document's starting artboards: a single board at the origin. The
+    /// canvas's initial fit centers it in the view.
+    static var starter: [Artboard] {
+        [ Artboard(name: "Artboard 1", frame: CGRect(x: 0, y: 0, width: 393, height: 852)) ]
+    }
+}
+
+// MARK: - Layout grid
+
+/// A per-artboard layout grid (Figma-style): vertical columns, horizontal rows, or
+/// a baseline grid. Persisted on the artboard.
+struct LayoutGrid: Identifiable, Codable, Sendable {
+    enum Kind: String, Codable, Sendable { case columns, rows, baseline }
+    var id = UUID()
+    var kind: Kind = .columns
+    var count: Int = 12         // columns / rows
+    var gutter: CGFloat = 16    // gap between columns / rows
+    var margin: CGFloat = 0     // outer margin (columns / rows)
+    var size: CGFloat = 8       // baseline line spacing
+    var color: RGBAColor = RGBAColor(r: 1, g: 0, b: 0, a: 0.1)
+    var visible: Bool = true
+
+    init(id: UUID = UUID(), kind: Kind = .columns, count: Int = 12, gutter: CGFloat = 16,
+         margin: CGFloat = 0, size: CGFloat = 8,
+         color: RGBAColor = RGBAColor(r: 1, g: 0, b: 0, a: 0.1), visible: Bool = true) {
+        self.id = id; self.kind = kind; self.count = count; self.gutter = gutter
+        self.margin = margin; self.size = size; self.color = color; self.visible = visible
+    }
+    init(from d: Decoder) throws {
+        let c = try d.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        kind = try c.decodeIfPresent(Kind.self, forKey: .kind) ?? .columns
+        count = try c.decodeIfPresent(Int.self, forKey: .count) ?? 12
+        gutter = try c.decodeIfPresent(CGFloat.self, forKey: .gutter) ?? 16
+        margin = try c.decodeIfPresent(CGFloat.self, forKey: .margin) ?? 0
+        size = try c.decodeIfPresent(CGFloat.self, forKey: .size) ?? 8
+        color = try c.decodeIfPresent(RGBAColor.self, forKey: .color) ?? RGBAColor(r: 1, g: 0, b: 0, a: 0.1)
+        visible = try c.decodeIfPresent(Bool.self, forKey: .visible) ?? true
+    }
+}
+
+// MARK: - Guide
+
+/// A ruler guide: an infinite straight line at a fixed document coordinate.
+/// `horizontal` guides run left-right at a given y; `vertical` guides run
+/// top-bottom at a given x.
+struct Guide: Identifiable, Codable, Sendable {
+    enum Axis: String, Codable, Sendable { case horizontal, vertical }
+    var id = UUID()
+    var axis: Axis
+    var position: CGFloat   // y for horizontal, x for vertical (document coords)
+}
+
+// MARK: - Artboard
+
+/// A named frame on the canvas. Artboards no longer own their shapes — a shape
+/// belongs to whichever artboard covers >50% of it (see Document.owningArtboard),
+/// which is what makes a shape crop the instant it crosses inside.
+struct Artboard: Identifiable, Codable, Sendable {
+    var id = UUID()
+    var name: String
+    var frame: CGRect           // document coordinates (points)
+    /// Structured handoff notes attached to this board (NOT a node/artboard).
+    /// Travels with the board on move/duplicate/delete because it lives here.
+    var notes: String = ""
+
+    /// The board's background fill (solid or gradient). Defaults to white (a board
+    /// is a screen, not a themed surface — see the architecture note).
+    var background: Paint = .white
+
+    /// Layout grids (columns / rows / baseline) drawn over this board.
+    var layoutGrids: [LayoutGrid] = []
+
+    init(id: UUID = UUID(), name: String, frame: CGRect, notes: String = "",
+         background: Paint = .white, layoutGrids: [LayoutGrid] = []) {
+        self.id = id
+        self.name = name
+        self.frame = frame
+        self.notes = notes
+        self.background = background
+        self.layoutGrids = layoutGrids
+    }
+
+    // Custom decode so files saved before these fields existed still open.
+    enum CodingKeys: String, CodingKey { case id, name, frame, notes, background, layoutGrids }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        frame = try c.decode(CGRect.self, forKey: .frame)
+        notes = try c.decodeIfPresent(String.self, forKey: .notes) ?? ""
+        background = try c.decodeIfPresent(Paint.self, forKey: .background) ?? .white
+        layoutGrids = try c.decodeIfPresent([LayoutGrid].self, forKey: .layoutGrids) ?? []
+    }
+}
+
+// MARK: - Node (a shape / layer)
+
+/// One shape. Common attributes (name, frame, visibility, lock) live here; what
+/// the node *is* lives in `content`. `frame` is in DOCUMENT coordinates now.
+/// Group children remain nested via the `.group` case.
+struct Node: Identifiable, Codable, Sendable {
+    var id = UUID()
+    var name: String
+    var frame: CGRect           // DOCUMENT coordinates (points)
+    var isVisible: Bool = true
+    var isLocked: Bool = false
+    /// Rotation in degrees, clockwise, about the frame's center. 0 = upright.
+    var rotation: Double = 0
+    /// Whole-layer opacity, 0...1 (1 = fully opaque). Multiplies everything the
+    /// node draws — fill, stroke, text, and its effects.
+    var opacity: Double = 1
+    /// Post-composite effects (drop/inner shadow), drawn back-to-front.
+    var effects: [Effect] = []
+    /// How the node composites with everything beneath it (Photoshop-style).
+    var blendMode: BlendMode = .normal
+    /// When non-nil AND this node is a `.group`, the group STACKS its children
+    /// (direction + spacing + alignment). nil = no automatic arrangement.
+    var autoLayout: AutoLayout? = nil
+    /// When non-nil AND this node is a `.group`, the group HUGS its children with
+    /// per-side padding and can draw its own background (the button/tag surface).
+    /// Independent of `autoLayout` — either, both, or neither.
+    var autoPadding: AutoPadding? = nil
+    /// Mirror flags, applied at draw time about the frame's center (like rotation).
+    /// A flip is a render transform so it works uniformly for images, text, paths,
+    /// and groups without rewriting their geometry.
+    var flipH: Bool = false
+    var flipV: Bool = false
+    /// When true AND this node is a `.group`, the group is a MASK container: its
+    /// children marked `isMaskShape` form the clip (their silhouettes, additive),
+    /// and the remaining children (the masked content) are drawn clipped to it.
+    /// Non-destructive — both the mask shape(s) and the content stay editable, like
+    /// a component. nil/false = an ordinary group.
+    var isMask: Bool = false
+    /// When true, this node is part of its mask container's clip shape (not drawn as
+    /// fill; only its silhouette clips). Only meaningful inside an `isMask` group.
+    var isMaskShape: Bool = false
+    var content: NodeContent
+
+    init(id: UUID = UUID(), name: String, frame: CGRect, isVisible: Bool = true,
+         isLocked: Bool = false, rotation: Double = 0, opacity: Double = 1,
+         effects: [Effect] = [], blendMode: BlendMode = .normal,
+         autoLayout: AutoLayout? = nil, autoPadding: AutoPadding? = nil,
+         flipH: Bool = false, flipV: Bool = false,
+         isMask: Bool = false, isMaskShape: Bool = false, content: NodeContent) {
+        self.id = id; self.name = name; self.frame = frame
+        self.isVisible = isVisible; self.isLocked = isLocked
+        self.rotation = rotation; self.opacity = opacity
+        self.effects = effects; self.blendMode = blendMode
+        self.autoLayout = autoLayout; self.autoPadding = autoPadding
+        self.flipH = flipH; self.flipV = flipV
+        self.isMask = isMask; self.isMaskShape = isMaskShape; self.content = content
+    }
+
+    // Custom decode so the newer fields (rotation/opacity/effects/blendMode/
+    // autoLayout/autoPadding/flip/mask) default cleanly when absent — synthesized
+    // Codable would throw on a missing key.
+    enum CodingKeys: String, CodingKey {
+        case id, name, frame, isVisible, isLocked, rotation, opacity, effects, blendMode
+        case autoLayout, autoPadding, flipH, flipV, isMask, isMaskShape, content
+    }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        frame = try c.decode(CGRect.self, forKey: .frame)
+        isVisible = try c.decodeIfPresent(Bool.self, forKey: .isVisible) ?? true
+        isLocked = try c.decodeIfPresent(Bool.self, forKey: .isLocked) ?? false
+        rotation = try c.decodeIfPresent(Double.self, forKey: .rotation) ?? 0
+        opacity = try c.decodeIfPresent(Double.self, forKey: .opacity) ?? 1
+        effects = try c.decodeIfPresent([Effect].self, forKey: .effects) ?? []
+        blendMode = try c.decodeIfPresent(BlendMode.self, forKey: .blendMode) ?? .normal
+        autoLayout = try c.decodeIfPresent(AutoLayout.self, forKey: .autoLayout)
+        autoPadding = try c.decodeIfPresent(AutoPadding.self, forKey: .autoPadding)
+        flipH = try c.decodeIfPresent(Bool.self, forKey: .flipH) ?? false
+        flipV = try c.decodeIfPresent(Bool.self, forKey: .flipV) ?? false
+        isMask = try c.decodeIfPresent(Bool.self, forKey: .isMask) ?? false
+        isMaskShape = try c.decodeIfPresent(Bool.self, forKey: .isMaskShape) ?? false
+        content = try c.decode(NodeContent.self, forKey: .content)
+    }
+}
+
+/// Stacking settings for a `.group` node (Figma-style "auto layout" — the
+/// spacing/arrangement half). When present, the group arranges its children along
+/// one axis with a gap or even distribution and a cross-axis alignment. Padding
+/// and the frame background live separately in `AutoPadding`, so the two can be
+/// used independently or together.
+///
+/// Geometry note: children are laid out in the group's LOCAL space (origin at the
+/// group's top-left, matching how `.group` renders children at `frame.origin`).
+/// Items are ordered by their on-canvas position along the axis, so dragging one
+/// past another reorders the stack.
+struct AutoLayout: Codable, Equatable, Sendable {
+    enum Direction: String, Codable, Sendable { case horizontal, vertical }
+    /// How items are spaced along the primary (layout) axis.
+    enum Distribution: String, Codable, Sendable {
+        case packed        // fixed `gap` between items, grouped by `primary` alignment
+        case spaceBetween  // first/last pinned to edges, equal gaps fill the rest
+    }
+    /// Alignment along an axis (start = left/top, end = right/bottom).
+    enum Align: String, Codable, Sendable { case start, center, end }
+
+    var direction: Direction = .horizontal
+    var distribution: Distribution = .packed
+    var gap: CGFloat = 8            // used when distribution == .packed
+    /// Primary-axis grouping for `.packed` (ignored for `.spaceBetween`).
+    var primary: Align = .start
+    /// Cross-axis alignment of each item (e.g. vertical centering in a row).
+    var cross: Align = .center
+
+    init() {}
+
+    enum CodingKeys: String, CodingKey { case direction, distribution, gap, primary, cross }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        direction = try c.decodeIfPresent(Direction.self, forKey: .direction) ?? .horizontal
+        distribution = try c.decodeIfPresent(Distribution.self, forKey: .distribution) ?? .packed
+        gap = try c.decodeIfPresent(CGFloat.self, forKey: .gap) ?? 8
+        primary = try c.decodeIfPresent(Align.self, forKey: .primary) ?? .start
+        cross = try c.decodeIfPresent(Align.self, forKey: .cross) ?? .center
+    }
+}
+
+/// Padding settings for a `.group` node — the "hug your contents with padding and
+/// a background" half. When present, the group hugs its children with per-side
+/// padding and can draw its own background (fill/corner/stroke) BEHIND them. This
+/// is what makes a button / tag / card: a padded surface around content. Works on
+/// its own (pads around the children's current arrangement) or alongside
+/// `AutoLayout` (which supplies the arrangement; padding insets it).
+struct AutoPadding: Codable, Equatable, Sendable {
+    // CSS box model. Inside → out:
+    //   content (children)  →  PADDING  →  background box (fill/stroke)  →  MARGIN  →  frame edge
+    // Padding is the gap between the content and the background-box edge; the
+    // background grows with it. Margin is transparent space OUTSIDE the background.
+    var paddingTop: CGFloat = 8
+    var paddingRight: CGFloat = 12
+    var paddingBottom: CGFloat = 8
+    var paddingLeft: CGFloat = 12
+
+    var marginTop: CGFloat = 0
+    var marginRight: CGFloat = 0
+    var marginBottom: CGFloat = 0
+    var marginLeft: CGFloat = 0
+
+    // The background, drawn at the PADDING box (frame inset by the margin).
+    // nil fill = transparent.
+    var fill: Paint? = nil
+    var cornerRadius: CGFloat = 0
+    var stroke: RGBAColor? = nil
+    var strokeWidth: CGFloat = 0
+
+    init() {}
+
+    enum CodingKeys: String, CodingKey {
+        case paddingTop, paddingRight, paddingBottom, paddingLeft
+        case marginTop, marginRight, marginBottom, marginLeft
+        case fill, cornerRadius, stroke, strokeWidth
+    }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        paddingTop = try c.decodeIfPresent(CGFloat.self, forKey: .paddingTop) ?? 8
+        paddingRight = try c.decodeIfPresent(CGFloat.self, forKey: .paddingRight) ?? 12
+        paddingBottom = try c.decodeIfPresent(CGFloat.self, forKey: .paddingBottom) ?? 8
+        paddingLeft = try c.decodeIfPresent(CGFloat.self, forKey: .paddingLeft) ?? 12
+        marginTop = try c.decodeIfPresent(CGFloat.self, forKey: .marginTop) ?? 0
+        marginRight = try c.decodeIfPresent(CGFloat.self, forKey: .marginRight) ?? 0
+        marginBottom = try c.decodeIfPresent(CGFloat.self, forKey: .marginBottom) ?? 0
+        marginLeft = try c.decodeIfPresent(CGFloat.self, forKey: .marginLeft) ?? 0
+        fill = try c.decodeIfPresent(Paint.self, forKey: .fill)
+        cornerRadius = try c.decodeIfPresent(CGFloat.self, forKey: .cornerRadius) ?? 0
+        stroke = try c.decodeIfPresent(RGBAColor.self, forKey: .stroke)
+        strokeWidth = try c.decodeIfPresent(CGFloat.self, forKey: .strokeWidth) ?? 0
+    }
+
+    var marginW: CGFloat { marginLeft + marginRight }
+    var marginH: CGFloat { marginTop + marginBottom }
+}
+
+/// Whole-layer blend mode — how a node composites with everything beneath it.
+/// Maps to `CGBlendMode` for drawing and CSS `mix-blend-mode` for SVG export.
+enum BlendMode: String, Codable, CaseIterable, Sendable {
+    case normal, multiply, screen, overlay, darken, lighten
+    case colorDodge, colorBurn, softLight, hardLight
+    case difference, exclusion, hue, saturation, color, luminosity
+
+    var label: String {
+        switch self {
+        case .normal: return "Normal"
+        case .multiply: return "Multiply"
+        case .screen: return "Screen"
+        case .overlay: return "Overlay"
+        case .darken: return "Darken"
+        case .lighten: return "Lighten"
+        case .colorDodge: return "Color Dodge"
+        case .colorBurn: return "Color Burn"
+        case .softLight: return "Soft Light"
+        case .hardLight: return "Hard Light"
+        case .difference: return "Difference"
+        case .exclusion: return "Exclusion"
+        case .hue: return "Hue"
+        case .saturation: return "Saturation"
+        case .color: return "Color"
+        case .luminosity: return "Luminosity"
+        }
+    }
+
+    var cg: CGBlendMode {
+        switch self {
+        case .normal: return .normal
+        case .multiply: return .multiply
+        case .screen: return .screen
+        case .overlay: return .overlay
+        case .darken: return .darken
+        case .lighten: return .lighten
+        case .colorDodge: return .colorDodge
+        case .colorBurn: return .colorBurn
+        case .softLight: return .softLight
+        case .hardLight: return .hardLight
+        case .difference: return .difference
+        case .exclusion: return .exclusion
+        case .hue: return .hue
+        case .saturation: return .saturation
+        case .color: return .color
+        case .luminosity: return .luminosity
+        }
+    }
+
+    /// CSS `mix-blend-mode` value for SVG export.
+    var cssName: String {
+        switch self {
+        case .colorDodge: return "color-dodge"
+        case .colorBurn:  return "color-burn"
+        case .softLight:  return "soft-light"
+        case .hardLight:  return "hard-light"
+        default:          return rawValue
+        }
+    }
+}
+
+// MARK: - Layer style (copy/paste appearance)
+
+/// The portable "look" of a layer — everything Copy Style carries from one node
+/// to another: its post-composite effects, how it blends with what's beneath it,
+/// and its whole-layer transparency. Appearance ONLY: it deliberately leaves
+/// geometry, fill/stroke, and content untouched (matching how every other tool
+/// treats "paste style"). Codable/Sendable so it could also ride a pasteboard
+/// later if cross-document copy is wanted.
+struct LayerStyle: Codable, Sendable {
+    var opacity: Double
+    var blendMode: BlendMode
+    var effects: [Effect]
+}
+
+extension Node {
+    /// This node's copyable appearance (effects + blend mode + opacity).
+    var layerStyle: LayerStyle {
+        LayerStyle(opacity: opacity, blendMode: blendMode, effects: effects)
+    }
+
+    /// Overwrite this node's appearance with a copied `LayerStyle`. Effects get
+    /// FRESH ids so each target owns its own copies (ids stay unique per node for
+    /// the inspector's `ForEach`); geometry / fill / content are left as-is.
+    mutating func applyLayerStyle(_ style: LayerStyle) {
+        opacity = style.opacity
+        blendMode = style.blendMode
+        effects = style.effects.map { var e = $0; e.id = UUID(); return e }
+    }
+}
+
+// MARK: - Effects
+
+/// A post-composite visual effect on a node. Today: drop + inner shadow. The
+/// geometry mirrors CSS `box-shadow` (offset x/y, blur, spread).
+struct Effect: Identifiable, Codable, Sendable {
+    enum Kind: String, Codable, Sendable { case dropShadow, innerShadow, backgroundBlur }
+    var id = UUID()
+    var kind: Kind = .dropShadow
+    var color: RGBAColor = RGBAColor(r: 0, g: 0, b: 0, a: 0.33)
+    var dx: CGFloat = 0
+    var dy: CGFloat = 2
+    var blur: CGFloat = 4
+    var spread: CGFloat = 0
+    var isEnabled: Bool = true
+
+    init(id: UUID = UUID(), kind: Kind = .dropShadow,
+         color: RGBAColor = RGBAColor(r: 0, g: 0, b: 0, a: 0.33),
+         dx: CGFloat = 0, dy: CGFloat = 2, blur: CGFloat = 4, spread: CGFloat = 0,
+         isEnabled: Bool = true) {
+        self.id = id; self.kind = kind; self.color = color
+        self.dx = dx; self.dy = dy; self.blur = blur; self.spread = spread
+        self.isEnabled = isEnabled
+    }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        kind = try c.decodeIfPresent(Kind.self, forKey: .kind) ?? .dropShadow
+        color = try c.decodeIfPresent(RGBAColor.self, forKey: .color) ?? RGBAColor(r: 0, g: 0, b: 0, a: 0.33)
+        dx = try c.decodeIfPresent(CGFloat.self, forKey: .dx) ?? 0
+        dy = try c.decodeIfPresent(CGFloat.self, forKey: .dy) ?? 2
+        blur = try c.decodeIfPresent(CGFloat.self, forKey: .blur) ?? 4
+        spread = try c.decodeIfPresent(CGFloat.self, forKey: .spread) ?? 0
+        isEnabled = try c.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
+    }
+}
+
+/// What a node actually is. Swift synthesises Codable for enums with labeled
+/// associated values, so this stays declarative. Phase 3 fleshes out the shape
+/// payloads; Phase 4 starts editing `.instance`.
+enum NodeContent: Codable, Sendable {
+    case group(children: [Node])
+    case rectangle(RectangleShape)
+    case ellipse(EllipseShape)
+    case polygon(PolygonShape)
+    case line(LineShape)
+    case path(PathShape)
+    case text(TextContent)
+    case instance(ComponentInstance)
+    case image(ImageContent)
+}
+
+/// A placed raster image (PNG/JPEG/GIF/…). The bytes live in the document (base64
+/// in the JSON), so a `.design` file is self-contained. The image is drawn to
+/// fill the node's frame; `naturalSize` is its intrinsic pixel size (for aspect).
+struct ImageContent: Codable, Sendable {
+    var data: Data
+    var naturalSize: CGSize
+}
+
+// MARK: - Shape payloads
+
+/// `strokeWidth == 0` means no stroke (matches a plain filled shape). Custom
+/// decoders default the newer stroke fields so older files still open.
+struct RectangleShape: Codable, Sendable {
+    var fill: Paint = .white
+    var cornerRadius: CGFloat = 0
+    var stroke: RGBAColor = .black
+    var strokeWidth: CGFloat = 0
+
+    init(fill: Paint = .white, cornerRadius: CGFloat = 0,
+         stroke: RGBAColor = .black, strokeWidth: CGFloat = 0) {
+        self.fill = fill; self.cornerRadius = cornerRadius
+        self.stroke = stroke; self.strokeWidth = strokeWidth
+    }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        fill = try c.decodeIfPresent(Paint.self, forKey: .fill) ?? .white
+        cornerRadius = try c.decodeIfPresent(CGFloat.self, forKey: .cornerRadius) ?? 0
+        stroke = try c.decodeIfPresent(RGBAColor.self, forKey: .stroke) ?? .black
+        strokeWidth = try c.decodeIfPresent(CGFloat.self, forKey: .strokeWidth) ?? 0
+    }
+}
+
+struct EllipseShape: Codable, Sendable {
+    var fill: Paint = .white
+    var stroke: RGBAColor = .black
+    var strokeWidth: CGFloat = 0
+
+    init(fill: Paint = .white, stroke: RGBAColor = .black, strokeWidth: CGFloat = 0) {
+        self.fill = fill; self.stroke = stroke; self.strokeWidth = strokeWidth
+    }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        fill = try c.decodeIfPresent(Paint.self, forKey: .fill) ?? .white
+        stroke = try c.decodeIfPresent(RGBAColor.self, forKey: .stroke) ?? .black
+        strokeWidth = try c.decodeIfPresent(CGFloat.self, forKey: .strokeWidth) ?? 0
+    }
+}
+
+/// A regular N-sided polygon inscribed in the node's frame (point-up). `sides` is
+/// clamped 3...25. Geometry is derived from the frame at render time, so resizing
+/// the box reshapes it like rectangle/ellipse.
+struct PolygonShape: Codable, Sendable {
+    var sides: Int = 3
+    var fill: Paint = .white
+    var stroke: RGBAColor = .black
+    var strokeWidth: CGFloat = 0
+
+    init(sides: Int = 3, fill: Paint = .white, stroke: RGBAColor = .black, strokeWidth: CGFloat = 0) {
+        self.sides = Swift.min(25, Swift.max(3, sides))
+        self.fill = fill; self.stroke = stroke; self.strokeWidth = strokeWidth
+    }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        sides = Swift.min(25, Swift.max(3, try c.decodeIfPresent(Int.self, forKey: .sides) ?? 3))
+        fill = try c.decodeIfPresent(Paint.self, forKey: .fill) ?? .white
+        stroke = try c.decodeIfPresent(RGBAColor.self, forKey: .stroke) ?? .black
+        strokeWidth = try c.decodeIfPresent(CGFloat.self, forKey: .strokeWidth) ?? 0
+    }
+
+    /// Vertices (point-up) inscribed in `rect`, in that rect's coordinate space.
+    func vertices(in rect: CGRect) -> [CGPoint] {
+        let n = Swift.min(25, Swift.max(3, sides))
+        let cx = rect.midX, cy = rect.midY, rx = rect.width / 2, ry = rect.height / 2
+        return (0..<n).map { i in
+            let a = -CGFloat.pi / 2 + CGFloat(i) * 2 * .pi / CGFloat(n)
+            return CGPoint(x: cx + rx * cos(a), y: cy + ry * sin(a))
+        }
+    }
+}
+
+/// A straight line. Endpoints are in the node's LOCAL space (relative to
+/// frame.origin), so moving the node moves the line for free; `frame` is kept as
+/// the tight bounding box of the two points.
+struct LineShape: Codable, Sendable {
+    var start: CGPoint
+    var end: CGPoint
+    var stroke: RGBAColor = .black
+    var strokeWidth: CGFloat = 2
+}
+
+/// One anchor of a path, in the node's LOCAL space (relative to frame.origin).
+/// `controlIn` / `controlOut` are the absolute local positions of the bézier
+/// handles; nil means a corner (no curve on that side).
+struct PathPoint: Codable, Sendable {
+    var point: CGPoint
+    var controlIn: CGPoint? = nil
+    var controlOut: CGPoint? = nil
+}
+
+/// A vector path. Open paths render as a stroked line; closed paths fill.
+/// Anchors are LOCAL (like LineShape); `frame` is kept as the anchors' bbox.
+///
+/// `contours` (optional) holds MULTIPLE closed subpaths filled with the even-odd
+/// rule — used by "convert text to shapes" so glyph counters (the hole in an "o")
+/// punch through. When present it drives rendering; `points` mirrors the first
+/// contour so single-path tools still have something to show.
+struct PathShape: Codable, Sendable {
+    var points: [PathPoint]
+    var closed: Bool = false
+    var fill: Paint = .white
+    var stroke: RGBAColor = .black
+    var strokeWidth: CGFloat = 2
+    var contours: [[PathPoint]]? = nil
+
+    init(points: [PathPoint], closed: Bool = false, fill: Paint = .white,
+         stroke: RGBAColor = .black, strokeWidth: CGFloat = 2, contours: [[PathPoint]]? = nil) {
+        self.points = points; self.closed = closed; self.fill = fill
+        self.stroke = stroke; self.strokeWidth = strokeWidth; self.contours = contours
+    }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        points = try c.decode([PathPoint].self, forKey: .points)
+        closed = try c.decodeIfPresent(Bool.self, forKey: .closed) ?? false
+        fill = try c.decodeIfPresent(Paint.self, forKey: .fill) ?? .white
+        stroke = try c.decodeIfPresent(RGBAColor.self, forKey: .stroke) ?? .black
+        strokeWidth = try c.decodeIfPresent(CGFloat.self, forKey: .strokeWidth) ?? 2
+        contours = try c.decodeIfPresent([[PathPoint]].self, forKey: .contours)
+    }
+
+    /// All contours to render: the multi-contour set if present, else the single
+    /// `points` contour. Each is treated as closed when filling.
+    var renderContours: [[PathPoint]] {
+        if let contours, !contours.isEmpty { return contours }
+        return points.isEmpty ? [] : [points]
+    }
+    var isMultiContour: Bool { (contours?.isEmpty == false) }
+
+    // MARK: Point editing across contours
+    //
+    // Single-contour paths edit `points`; multi-contour (outlined-text) paths edit
+    // every contour. These helpers give both a uniform (contour, index) address so
+    // the Edit-Points tool can touch *all* shapes in a glyph, not just the first.
+
+    /// Contours for editing/hit-testing: the multi set, or `points` as one contour.
+    var editContours: [[PathPoint]] { isMultiContour ? (contours ?? []) : [points] }
+
+    /// Whether the contour at `c` is closed (outlined glyphs are always closed).
+    func contourClosed(_ c: Int) -> Bool { isMultiContour ? true : closed }
+
+    func editPoint(contour c: Int, index i: Int) -> PathPoint? {
+        let cs = editContours
+        guard cs.indices.contains(c), cs[c].indices.contains(i) else { return nil }
+        return cs[c][i]
+    }
+
+    /// Mutate one anchor, writing back to `contours` (multi) or `points` (single),
+    /// keeping `points` mirrored to the first contour either way.
+    mutating func mutatePoint(contour c: Int, index i: Int, _ change: (inout PathPoint) -> Void) {
+        var cs = editContours
+        guard cs.indices.contains(c), cs[c].indices.contains(i) else { return }
+        change(&cs[c][i])
+        writeEditContours(cs)
+    }
+
+    /// Replace all edit contours (keeping `points` = first contour).
+    mutating func writeEditContours(_ cs: [[PathPoint]]) {
+        if isMultiContour { contours = cs; points = cs.first ?? [] }
+        else { points = cs.first ?? [] }
+    }
+}
+
+/// One styled span of text. `fontName` is a PostScript face ("" = system); bold/
+/// italic are captured by the face. `underline` is its own attribute.
+struct TextRun: Codable, Equatable, Sendable {
+    var string: String
+    var fontName: String = ""
+    var fontSize: CGFloat = 16
+    var color: RGBAColor = .black
+    var underline: Bool = false
+
+    init(string: String, fontName: String = "", fontSize: CGFloat = 16,
+         color: RGBAColor = .black, underline: Bool = false) {
+        self.string = string; self.fontName = fontName; self.fontSize = fontSize
+        self.color = color; self.underline = underline
+    }
+}
+
+enum TextAlign: String, Codable, Sendable { case left, center, right }
+/// `auto` grows to fit one line; `fixed` wraps to a set width (Build 2).
+enum TextBox: String, Codable, Sendable { case auto, fixed }
+
+/// CSS-style line-height units. `auto` = the font's natural leading; `multiple`
+/// = unitless (relative to text size, the CSS favorite); `px` = absolute points;
+/// `em` = multiple of the (first run's) font size.
+enum LineHeightUnit: String, Codable, Sendable { case auto, multiple, px, em }
+
+/// CSS `text-transform`, applied **non-destructively** at display/measure/export
+/// time — the stored run text is never altered, so toggling back to `none`
+/// restores the original casing exactly.
+enum TextCase: String, Codable, Sendable {
+    case none, upper, lower, sentence, title
+
+    /// Transform a string for display. `sentence` capitalizes the first letter of
+    /// each sentence; `title` capitalizes each word (CSS-ish capitalize).
+    func apply(_ s: String) -> String {
+        switch self {
+        case .none:  return s
+        case .upper: return s.localizedUppercase
+        case .lower: return s.localizedLowercase
+        case .title: return s.localizedCapitalized
+        case .sentence:
+            var result = ""
+            var capitalizeNext = true
+            for ch in s {
+                if capitalizeNext, ch.isLetter {
+                    result += String(ch).localizedUppercase
+                    capitalizeNext = false
+                } else {
+                    result.append(ch)
+                    if ch == "." || ch == "!" || ch == "?" || ch == "\n" { capitalizeNext = true }
+                }
+            }
+            return result
+        }
+    }
+}
+
+/// Rich text: a list of styled runs plus paragraph-level settings. Backward
+/// compatible — older single-style text (`{string,fontSize,color,fontName}`)
+/// decodes into one run.
+struct TextContent: Codable, Sendable {
+    var runs: [TextRun]
+    var align: TextAlign = .left
+    var lineHeight: CGFloat = 1.3       // value; meaning depends on lineHeightUnit
+    var lineHeightUnit: LineHeightUnit = .auto
+    var tracking: CGFloat = 0           // letter spacing in points
+    var box: TextBox = .auto
+    var textCase: TextCase = .none      // non-destructive CSS text-transform
+
+    /// Legacy-shaped initializer (one run) so existing call sites keep working.
+    init(string: String = "", fontSize: CGFloat = 16, color: RGBAColor = .black, fontName: String = "") {
+        runs = [TextRun(string: string, fontName: fontName, fontSize: fontSize, color: color)]
+    }
+    init(runs: [TextRun], align: TextAlign = .left, lineHeight: CGFloat = 1.3,
+         lineHeightUnit: LineHeightUnit = .auto, tracking: CGFloat = 0, box: TextBox = .auto,
+         textCase: TextCase = .none) {
+        self.runs = runs.isEmpty ? [TextRun(string: "")] : runs
+        self.align = align; self.lineHeight = lineHeight; self.lineHeightUnit = lineHeightUnit
+        self.tracking = tracking; self.box = box; self.textCase = textCase
+    }
+
+    // MARK: convenience
+
+    var plainString: String { runs.map(\.string).joined() }
+    var isEmpty: Bool { plainString.isEmpty }
+    var firstRun: TextRun { runs.first ?? TextRun(string: "") }
+
+    /// The value to show in the inspector, or nil = "Multiple".
+    var uniformFontSize: CGFloat? { let v = Set(runs.map { $0.fontSize }); return v.count == 1 ? v.first : nil }
+    var uniformFontName: String? { let v = Set(runs.map { $0.fontName }); return v.count == 1 ? v.first : nil }
+    var uniformColorKey: String? {
+        let keys = Set(runs.map { "\($0.color.r),\($0.color.g),\($0.color.b),\($0.color.a)" })
+        return keys.count == 1 ? keys.first : nil
+    }
+
+    /// Replace all text with a single run, keeping the first run's styling.
+    mutating func setPlainString(_ s: String) {
+        let a = firstRun
+        runs = [TextRun(string: s, fontName: a.fontName, fontSize: a.fontSize, color: a.color, underline: a.underline)]
+    }
+    mutating func applyToAllRuns(_ change: (inout TextRun) -> Void) {
+        for i in runs.indices { change(&runs[i]) }
+    }
+
+    // MARK: Codable (decode legacy single-style; encode runs + paragraph props)
+
+    enum CodingKeys: String, CodingKey {
+        case runs, align, lineHeight, lineHeightUnit, tracking, box, textCase
+        case string, fontName, fontSize, color   // legacy
+    }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        if let r = try? c.decode([TextRun].self, forKey: .runs), !r.isEmpty {
+            runs = r
+        } else {
+            let s = (try? c.decode(String.self, forKey: .string)) ?? ""
+            let fn = (try? c.decode(String.self, forKey: .fontName)) ?? ""
+            let fs = (try? c.decode(CGFloat.self, forKey: .fontSize)) ?? 16
+            let col = (try? c.decode(RGBAColor.self, forKey: .color)) ?? .black
+            runs = [TextRun(string: s, fontName: fn, fontSize: fs, color: col)]
+        }
+        align = (try? c.decode(TextAlign.self, forKey: .align)) ?? .left
+        lineHeight = (try? c.decode(CGFloat.self, forKey: .lineHeight)) ?? 1.3
+        lineHeightUnit = (try? c.decode(LineHeightUnit.self, forKey: .lineHeightUnit)) ?? .auto
+        tracking = (try? c.decode(CGFloat.self, forKey: .tracking)) ?? 0
+        box = (try? c.decode(TextBox.self, forKey: .box)) ?? .auto
+        textCase = (try? c.decode(TextCase.self, forKey: .textCase)) ?? .none
+    }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(runs, forKey: .runs)
+        try c.encode(align, forKey: .align)
+        try c.encode(lineHeight, forKey: .lineHeight)
+        try c.encode(lineHeightUnit, forKey: .lineHeightUnit)
+        try c.encode(tracking, forKey: .tracking)
+        try c.encode(box, forKey: .box)
+        try c.encode(textCase, forKey: .textCase)
+    }
+}
+
+// MARK: - Components (reference-based; edited in Phase 4)
+
+/// A reusable definition — the single source of truth for its instances, which
+/// reference it by `id` and never copy it (change the source, every instance
+/// updates). `children` are stored in source-local coordinates (origin 0,0) so
+/// the source editor's canvas can treat them exactly like a document's nodes.
+struct ComponentSource: Identifiable, Codable, Sendable {
+    var id = UUID()
+    var name: String
+    /// The component's viewBox ORIGIN in source-local coordinates (SVG min-x/min-y).
+    /// Together with `size` it forms the bounds the source editor shows and that an
+    /// instance renders. Defaults to .zero so older files (size-only) keep working.
+    var origin: CGPoint = .zero
+    var size: CGSize
+    var children: [Node]
+
+    /// The component's viewBox — what an instance renders, like an SVG viewBox.
+    var bounds: CGRect { CGRect(origin: origin, size: size) }
+
+    init(id: UUID = UUID(), name: String, origin: CGPoint = .zero,
+         size: CGSize, children: [Node]) {
+        self.id = id; self.name = name; self.origin = origin
+        self.size = size; self.children = children
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        name = try c.decode(String.self, forKey: .name)
+        origin = try c.decodeIfPresent(CGPoint.self, forKey: .origin) ?? .zero
+        size = try c.decode(CGSize.self, forKey: .size)
+        children = try c.decode([Node].self, forKey: .children)
+    }
+}
+
+/// A placed reference to a `ComponentSource`. Carries only what differs from the
+/// source: a bounded set of overrides plus per-layer visibility overrides (the
+/// InDesign-style behavior). It holds `sourceID`, never a copy of the source.
+struct ComponentInstance: Codable, Sendable {
+    var sourceID: UUID
+    var overrides: [InstanceOverride] = []
+
+    /// Per-layer visibility overrides for THIS instance. A true override can both
+    /// show a source-hidden layer and hide a source-visible one. Layers with no
+    /// entry here simply inherit the source's own visibility.
+    var layerVisibility: [LayerVisibilityOverride] = []
+
+    /// Effective visibility of a source layer in this instance: the override if
+    /// one exists, otherwise the source layer's own `isVisible`.
+    func isLayerVisible(_ layerID: UUID, sourceDefault: Bool) -> Bool {
+        layerVisibility.first { $0.layerID == layerID }?.isVisible ?? sourceDefault
+    }
+}
+
+/// One per-instance visibility override for a source layer.
+struct LayerVisibilityOverride: Codable, Sendable {
+    var layerID: UUID
+    var isVisible: Bool
+}
+
+/// One bounded override targeting a node inside the resolved instance.
+/// Kept as an explicit list (not a dictionary) so the JSON stays readable.
+struct InstanceOverride: Codable, Sendable {
+    enum Value: Codable, Sendable {
+        case text(String)
+        case fill(Paint)        // solid OR gradient (Paint decodes a legacy bare RGBAColor)
+
+        var textValue: String? { if case .text(let s) = self { return s }; return nil }
+        var fillValue: Paint? { if case .fill(let p) = self { return p }; return nil }
+    }
+    var targetNodeID: UUID
+    var value: Value
+}
+
+extension ComponentInstance {
+    /// The per-instance text override for a layer, if any.
+    func textOverride(for layerID: UUID) -> String? {
+        overrides.first { $0.targetNodeID == layerID }?.value.textValue
+    }
+    /// The per-instance fill override for a layer, if any.
+    func fillOverride(for layerID: UUID) -> Paint? {
+        overrides.first { $0.targetNodeID == layerID && $0.value.fillValue != nil }?.value.fillValue
+    }
+
+    /// A source layer with this instance's text/fill overrides applied — RECURSIVELY,
+    /// so overrides on layers nested inside groups resolve too (a text inside a
+    /// button frame). An overridden auto-size text node is re-measured so the frame
+    /// around it can re-hug. Instance-hidden nested layers are dropped. Used by
+    /// rendering and detach so an instance can differ from its source.
+    func applyingOverrides(to node: Node) -> Node {
+        var node = node
+        for override in overrides where override.targetNodeID == node.id {
+            switch override.value {
+            case .text(let string):
+                if case .text(var tc) = node.content {
+                    tc.setPlainString(string)
+                    node.content = .text(tc)
+                    // Hug the overridden label to a single line (grow width), so the
+                    // surrounding auto-padding/layout frame re-hugs it. Done for ANY
+                    // box mode — an overridden component label should fit its content,
+                    // which is what makes a button grow with its text.
+                    node.frame.size = tc.measuredSize()
+                }
+            case .fill(let paint):
+                switch node.content {
+                case .rectangle(var shape): shape.fill = paint; node.content = .rectangle(shape)
+                case .ellipse(var shape):   shape.fill = paint; node.content = .ellipse(shape)
+                case .polygon(var shape):   shape.fill = paint; node.content = .polygon(shape)
+                case .path(var shape):      shape.fill = paint; node.content = .path(shape)
+                case .group:
+                    // A frame's background (its auto-padding fill) — the button surface.
+                    if node.autoPadding != nil { node.autoPadding?.fill = paint }
+                default: break
+                }
+            }
+        }
+        if case .group(var kids) = node.content {
+            kids = kids
+                .filter { isLayerVisible($0.id, sourceDefault: $0.isVisible) }
+                .map { applyingOverrides(to: $0) }
+            node.content = .group(children: kids)
+        }
+        return node
+    }
+}
+
+// MARK: - Color
+
+/// A Codable color in straight sRGB components (0...1). CGColor/NSColor aren't
+/// Codable, and storing plain numbers also makes good SVG/CSS export trivial
+/// later (you already think in rgba()/hex). UI-space bridging to NSColor lives
+/// with the drawing code, not here, to keep the model UI-free.
+struct RGBAColor: Codable, Equatable, Sendable {
+    var r: Double
+    var g: Double
+    var b: Double
+    var a: Double = 1
+
+    static let white = RGBAColor(r: 1, g: 1, b: 1, a: 1)
+    static let black = RGBAColor(r: 0, g: 0, b: 0, a: 1)
+    static let clear = RGBAColor(r: 0, g: 0, b: 0, a: 0)
+}
+

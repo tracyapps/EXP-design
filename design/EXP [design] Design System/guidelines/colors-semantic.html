@@ -1,0 +1,24 @@
+<!-- @dsCard group="Colors" viewport="700x150" name="Semantic status" subtitle="Success, destructive, warning, guide cyan" -->
+<!DOCTYPE html>
+<html lang="en" class="exp-dark">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  body { margin:0; background:var(--surface-window); font-family:var(--font-sans);
+         padding:20px; display:flex; gap:14px; align-items:flex-end; }
+  .chip { flex:1; height:82px; border-radius:var(--radius-button);
+          display:flex; flex-direction:column; justify-content:flex-end; padding:8px;
+          box-sizing:border-box; box-shadow:var(--shadow-1); }
+  .chip .n { font-size:11px; font-weight:var(--w-medium); color:rgba(0,0,0,0.78); }
+  .chip .h { font-family:var(--font-mono); font-size:9px; color:rgba(0,0,0,0.55); }
+</style>
+</head>
+<body>
+  <div class="chip" style="background:var(--green)"><div class="n">green</div><div class="h">success</div></div>
+  <div class="chip" style="background:var(--red)"><div class="n">red</div><div class="h">destructive</div></div>
+  <div class="chip" style="background:var(--orange)"><div class="n">orange</div><div class="h">warning</div></div>
+  <div class="chip" style="background:var(--teal)"><div class="n">teal</div><div class="h">guide</div></div>
+  <div class="chip" style="background:var(--yellow)"><div class="n">yellow</div><div class="h">accent</div></div>
+</body>
+</html>

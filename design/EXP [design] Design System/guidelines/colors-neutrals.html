@@ -1,0 +1,39 @@
+<!-- @dsCard group="Colors" viewport="700x190" name="Neutral ramp" subtitle="Purple-tinted near-black → white, the #181819 spine" -->
+<!DOCTYPE html>
+<html lang="en" class="exp-dark">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../styles.css">
+<style>
+  body { margin:0; background:var(--surface-window); font-family:var(--font-sans);
+         padding:20px; }
+  .row { display:flex; gap:0; border-radius:var(--radius-card); overflow:hidden;
+         box-shadow:var(--shadow-1); }
+  .sw { flex:1; height:84px; display:flex; align-items:flex-end; padding:6px;
+        box-sizing:border-box; }
+  .sw span { font-family:var(--font-mono); font-size:9px; color:rgba(255,255,255,0.5); }
+  .sw.lite span { color:rgba(0,0,0,0.45); }
+  .labels { display:flex; gap:0; margin-top:8px; }
+  .labels div { flex:1; font-family:var(--font-mono); font-size:9px;
+                color:var(--text-tertiary); text-align:center; }
+</style>
+</head>
+<body>
+  <div class="row">
+    <div class="sw" style="background:var(--n-0)"><span>00</span></div>
+    <div class="sw" style="background:var(--n-100)"><span>100</span></div>
+    <div class="sw" style="background:var(--n-200)"><span>200</span></div>
+    <div class="sw" style="background:var(--n-300)"><span>300</span></div>
+    <div class="sw" style="background:var(--n-400)"><span>400</span></div>
+    <div class="sw" style="background:var(--n-500)"><span>500</span></div>
+    <div class="sw" style="background:var(--n-600)"><span>600</span></div>
+    <div class="sw lite" style="background:var(--n-700)"><span>700</span></div>
+    <div class="sw lite" style="background:var(--n-800)"><span>800</span></div>
+    <div class="sw lite" style="background:var(--n-900)"><span>900</span></div>
+  </div>
+  <div class="labels">
+    <div>well</div><div>window</div><div>panel</div><div>card</div><div>hover</div>
+    <div>border</div><div>tert</div><div>sec</div><div>—</div><div>primary</div>
+  </div>
+</body>
+</html>

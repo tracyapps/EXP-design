@@ -1,0 +1,55 @@
+<!-- @dsCard group="Components" viewport="700x360" name="Structure" subtitle="Panel, layer rows, section headers, tool strip" -->
+<!DOCTYPE html>
+<html lang="en" class="exp-dark">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="../../styles.css">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/bold/style.css">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>
+  body { margin:0; font-family:var(--font-sans); padding:22px;
+    background:
+      radial-gradient(circle at 15% 20%, #2b2456 0, transparent 45%),
+      radial-gradient(circle at 90% 80%, #143a44 0, transparent 45%),
+      var(--surface-window);
+    display:flex; gap:18px; align-items:flex-start; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { Panel, LayerRow, SectionHeader, Divider, ToolStrip, IconButton } = window.EXPDesignDesignSystem_fb82b2;
+function Demo() {
+  const [tool,setTool]=React.useState("select");
+  const [sel,setSel]=React.useState("text1");
+  return (
+    <div style={{display:"flex",gap:14,alignItems:"flex-start"}}>
+      <ToolStrip active={tool} onSelect={setTool} style={{height:316,borderRadius:"var(--radius-panel)",border:"1px solid var(--glass-border)"}}/>
+      <Panel title="Layers" icon="stack-simple" accentTitle style={{width:280,height:316}}
+        actions={<IconButton icon="dots-three" size="sm" title="Options"/>}>
+        <div style={{padding:"4px 0"}}>
+          <LayerRow name="Artboard name" kind="artboard" expandable expanded selected={sel==="ab"} onSelect={()=>setSel("ab")}/>
+          <LayerRow name="a text layer." kind="text" depth={1} selected={sel==="text1"} onSelect={()=>setSel("text1")}/>
+          <LayerRow name="Some component name" kind="component" depth={1} expandable selected={sel==="c1"} onSelect={()=>setSel("c1")}/>
+          <LayerRow name="image layer" kind="image" depth={1} selected={sel==="i1"} onSelect={()=>setSel("i1")}/>
+          <LayerRow name="another group" kind="group" depth={1} expandable locked selected={sel==="g1"} onSelect={()=>setSel("g1")}/>
+          <LayerRow name="expanded group" kind="group" depth={1} expandable expanded selected={sel==="g2"} onSelect={()=>setSel("g2")}/>
+          <LayerRow name="image layer" kind="image" depth={2} selected={sel==="i2"} onSelect={()=>setSel("i2")}/>
+          <LayerRow name="another long layer name that…" kind="path" depth={2} hidden selected={sel==="p1"} onSelect={()=>setSel("p1")}/>
+          <LayerRow name="some shape. huzzah" kind="ellipse" depth={1} selected={sel==="e1"} onSelect={()=>setSel("e1")}/>
+        </div>
+        <Divider/>
+        <SectionHeader title="Effects" action="plus"/>
+      </Panel>
+    </div>
+  );
+}
+ReactDOM.createRoot(document.getElementById("root")).render(<Demo/>);
+</script>
+</body>
+</html>
