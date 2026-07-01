@@ -926,6 +926,35 @@ font import → Phase 9, shadows → Phase 10._
 ## Progress Log
 _Newest entry on top. Update every session._
 
+- **2026-07-01 — Session 158 (website auto-sync + Vercel root deploy):**
+  Wired the website to auto-sync from project memory. Added
+  `website/scripts/sync-content.mjs`, which reads `docs/ROADMAP.md` +
+  `docs/BACKLOG.md` and generates `website/src/generated/siteContent.json`
+  before every `npm run dev` / `npm run build`. The React roadmap section now
+  imports that generated content, showing synced roadmap cards, latest progress,
+  and open backlog queue items. The generated JSON is ignored to avoid timestamp
+  churn. Added root `vercel.json` so Vercel can deploy from the repo root while
+  building `website/`, which avoids the subdirectory-root limitation where
+  `website/` cannot read `../docs`. Added `website/DEPLOYMENT.md` with exact
+  Vercel settings and daily workflow. **Verified:** `npm run build` passes;
+  Playwright smoke confirms generated content appears, tabs still update, no
+  runtime errors, and no horizontal overflow.
+
+- **2026-07-01 — Session 157 (EXP website prototype):**
+  Added a separate React + Vite `website/` package as a living public home for
+  EXP [design], using the existing design-system tokens/assets and the current
+  app screenshot. The site is a dark, Apple-adjacent scroll story with a glass
+  nav, product hero, interactive feature tabs (native canvas / source components /
+  structured notes), expandable field-guide rows, a roadmap section that is
+  written around `docs/ROADMAP.md` as the future source of truth, and a tester
+  interest/download placeholder. Captured the generated concept at
+  `website/docs/exp-website-concept.png` and verification renders at
+  `website/docs/render-desktop.png` + `website/docs/render-mobile.png`.
+  **Web build passes** (`npm run build`), Playwright smoke verified no console
+  errors, no horizontal overflow, tabs update, guide rows expand, and the tester
+  field accepts input. Deferred: real Markdown ingestion from ROADMAP/BACKLOG,
+  real signup/download wiring, and deployment/hosting decision.
+
 - **2026-06-30 — Session 156 (v1 milestone + project infrastructure):**
   Phase 17 (design-system rollout) is effectively COMPLETE — marked a solid v1. Set up the
   process scaffolding for ongoing work + friend testing:
