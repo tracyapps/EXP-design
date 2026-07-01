@@ -63,6 +63,9 @@ final class AppState {
     }
     var workspaceMode: WorkspaceMode = .single { didSet { saveLayout() } }
 
+    /// Drives the in-app feedback sheet (set by the Help ▸ Send Feedback menu).
+    var showingFeedback = false
+
     init() {
         loadLayout()
         // Seed without persisting — these reads are not user edits.

@@ -31,6 +31,12 @@ struct EXP__design_App: App {
             // responder chain to the focused canvas.
             CommandGroup(replacing: .textEditing) { }
 
+            // HELP ▸ Send Feedback (in-app bug / idea reporter).
+            CommandGroup(replacing: .help) {
+                Button("Send Feedback\u{2026}") { send("sendFeedbackAction:") }
+                    .keyboardShortcut("/", modifiers: [.command, .shift])
+            }
+
             // FILE ▸ Export (alongside the DocumentGroup's New/Open/Save/Close).
             CommandGroup(replacing: .importExport) {
                 Button("Place Image…") { send("placeImageAction:") }

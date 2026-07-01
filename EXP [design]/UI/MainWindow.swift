@@ -84,6 +84,12 @@ struct MainWindow: View {
         // Configure the NSWindow for a custom glass heading (transparent titlebar,
         // content under it, non-opaque so the heading's behind-window glass shows).
         .background(WindowConfigurator(chrome: windowChrome))
+        .sheet(isPresented: Binding(get: { app.showingFeedback },
+                                    set: { app.showingFeedback = $0 })) {
+            FeedbackSheet(app: app, document: document,
+                          isPresented: Binding(get: { app.showingFeedback },
+                                               set: { app.showingFeedback = $0 }))
+        }
     }
 
     /// Custom heading bar — full width, behind-window liquid glass + top gradient,

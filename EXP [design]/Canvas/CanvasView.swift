@@ -5647,6 +5647,7 @@ final class CanvasNSView: NSView {
     @objc func togglePanelLayers(_ sender: Any?)     { app?.togglePanel(.layers) }
     @objc func togglePanelProperties(_ sender: Any?) { app?.togglePanel(.properties) }
     @objc func togglePanelComponents(_ sender: Any?) { app?.togglePanel(.components) }
+    @objc func sendFeedbackAction(_ sender: Any?) { app?.showingFeedback = true }
     @objc func toggleLeftDock(_ sender: Any?)        { app?.showLeftPanel.toggle() }
     @objc func toggleRightDock(_ sender: Any?)       { app?.showRightPanel.toggle() }
     @objc func resetPanelLayout(_ sender: Any?)      { app?.resetWorkspace() }

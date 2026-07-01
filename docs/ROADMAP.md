@@ -926,6 +926,20 @@ font import → Phase 9, shadows → Phase 10._
 ## Progress Log
 _Newest entry on top. Update every session._
 
+- **2026-06-30 — Session 157 (In-app feedback reporter — FEAT-003):**
+  Built `UI/Feedback.swift`: Help ▸ **Send Feedback** (⇧⌘/) opens a native sheet (dogfoods
+  EXPSegmented Bug/Idea + `.exp` field + `.exp` buttons). Auto-captures PII-free CONTEXT
+  (app+build version, macOS, current tool, selection counts, doc stats: artboards/nodes/
+  components — via a recursive node count) and, on submit, opens a **prefilled GitHub New
+  Issue** (labels + title + markdown body incl. context) when `FeedbackConfig.githubRepo` is
+  set, else the website; ALWAYS copies the report to the clipboard as a fallback.
+  • Wiring: `AppState.showingFeedback` flag · `@objc sendFeedbackAction` on CanvasNSView ·
+  Help `CommandGroup(replacing: .help)` · `.sheet` in MainWindow. `validateMenuItem` default
+  = enabled. Brace-balanced.
+  • `FeedbackConfig.githubRepo` is nil for now (→ website); set it once the repo exists
+  (BACKLOG INFRA-002). Added **INFRA-001** (one-command approve → ROADMAP → roadmap.json →
+  website sync; needs the site's stack confirmed) to the backlog.
+
 - **2026-07-01 — Session 159 (website email signup + field guide copy):**
   Wired the public website tester form to a simple Vercel Function at
   `api/signup.js`. The function validates email, includes a honeypot field,

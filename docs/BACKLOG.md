@@ -114,6 +114,44 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 
 ---
 
+## 🛠 Infrastructure
+
+### INFRA-001 — One-command "approve → Roadmap → website" triage sync
+- Type: feature (workflow/tooling)
+- Priority: P2
+- Area: infra
+- Status: open
+- Repro/Detail: When the owner approves a bug/idea (here, in GitHub Issues, or from
+  the in-app reporter), it should be easy to PROMOTE it: move it out of the queue and
+  onto the ROADMAP — and have the public roadmap on expdesign.app update automatically.
+- Hypothesis / approach:
+  1. **Canonical source:** keep a machine-readable roadmap the site can read —
+     e.g. `docs/roadmap.json` (or a curated "public" subset) with `{id, title, area,
+     status: planned|in-progress|shipped, blurb}`. ROADMAP.md stays the human plan;
+     roadmap.json is the feed. (Or generate roadmap.json FROM tagged ROADMAP entries.)
+  2. **Promote step:** an agent/skill "promote <ID>" that (a) moves the BACKLOG/issue
+     item into ROADMAP.md as a phase/task, (b) appends/updates its entry in
+     roadmap.json with `status`, (c) closes the GitHub issue with a "→ roadmap" label,
+     (d) adds a ROADMAP Progress Log line.
+  3. **Website sync:** if the site is static and reads `roadmap.json` from the repo,
+     a push (or the site's build hook) republishes automatically; if the site fetches
+     at runtime, point it at the raw file / a small endpoint. NEEDS: confirm the
+     site's stack + how it currently sources roadmap/changelog content.
+- Acceptance: approving an item + running one command updates ROADMAP.md, roadmap.json,
+  and the GitHub issue in sync; the website reflects it on its next deploy with no
+  hand-editing.
+
+### INFRA-002 — Point the reporters at the real repo (small setup)
+- Type: chore
+- Priority: P1 (once the GitHub repo exists)
+- Area: infra
+- Status: open
+- Detail: Set `FeedbackConfig.githubRepo = "owner/repo"` in `UI/Feedback.swift` and
+  replace `OWNER/REPO` in `.github/ISSUE_TEMPLATE/config.yml`. Then the in-app "Send
+  Feedback" opens a prefilled New Issue instead of the website fallback.
+
+---
+
 ## Notes
 - When an item ships, set `Status: done`, keep it here for one cycle for reference,
   then prune (or move a short line to ROADMAP's Progress Log).
