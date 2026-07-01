@@ -521,6 +521,10 @@ main {
   border-color: var(--border-strong);
 }
 
+.guide-row {
+  cursor: default;
+}
+
 .guide-main strong {
   display: block;
   font-size: var(--t-lg);
@@ -673,6 +677,21 @@ code {
   gap: 12px;
 }
 
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.signup-trap {
+  display: none;
+}
+
 .invite-form label {
   color: var(--text-secondary);
   font-size: var(--t-small);
@@ -700,10 +719,24 @@ code {
   box-shadow: var(--glow-accent);
 }
 
+.invite-form button:disabled,
+.invite-form input:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
 .invite-form p {
   margin: 0;
   font-size: var(--t-small);
   color: var(--text-tertiary);
+}
+
+.form-message.success {
+  color: var(--brand-lime);
+}
+
+.form-message.error {
+  color: var(--red);
 }
 
 .site-footer {

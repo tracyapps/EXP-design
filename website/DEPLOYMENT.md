@@ -67,3 +67,24 @@ npm run build
 ```
 
 `npm run dev` and `npm run build` both run the sync first.
+
+## Email signup
+
+The tester signup form posts to `api/signup.js`, a small Vercel Function that
+sends a notification email through Resend.
+
+Set these Vercel environment variables:
+
+```text
+RESEND_API_KEY=<your Resend API key>
+SIGNUP_TO_EMAIL=<where signup notifications should go>
+SIGNUP_FROM_EMAIL=EXP [design] <hello@expdesign.app>
+```
+
+For the cleanest production setup, verify `expdesign.app` in Resend first, then
+use an address on that domain for `SIGNUP_FROM_EMAIL`. For a quick test, Resend's
+`onboarding@resend.dev` sender can be used while the domain is being verified.
+
+This first version does not store subscribers in a database. It emails each
+signup to you. If the list grows, swap the function internals to also write to a
+newsletter provider, spreadsheet, or database without changing the site UI.

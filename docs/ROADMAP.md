@@ -926,6 +926,19 @@ font import → Phase 9, shadows → Phase 10._
 ## Progress Log
 _Newest entry on top. Update every session._
 
+- **2026-07-01 — Session 159 (website email signup + field guide copy):**
+  Wired the public website tester form to a simple Vercel Function at
+  `api/signup.js`. The function validates email, includes a honeypot field,
+  and sends a notification email through Resend's REST API using
+  `RESEND_API_KEY`, `SIGNUP_TO_EMAIL`, and optional `SIGNUP_FROM_EMAIL` env vars
+  (no database yet; honest first version). Updated the tester form UX with
+  submit/success/error states and changed the Field Guide section to "coming
+  soon" copy. `website/DEPLOYMENT.md` now documents the Resend/Vercel env setup.
+  **Verified:** website build passes; API route validation handles invalid email,
+  honeypot, and wrong method; Playwright smoke with mocked `/api/signup` confirms
+  the form success state, coming-soon copy, no runtime errors, and no horizontal
+  overflow.
+
 - **2026-07-01 — Session 158 (website auto-sync + Vercel root deploy):**
   Wired the website to auto-sync from project memory. Added
   `website/scripts/sync-content.mjs`, which reads `docs/ROADMAP.md` +

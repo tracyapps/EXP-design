@@ -35,23 +35,23 @@ const featureMoments = [
 const guideRows = [
   {
     title: "set up a working wall",
-    time: "03 min",
-    body: "create artboards from presets, rearrange them as a set, and keep the canvas wide open while panels move out of the way.",
+    time: "soon",
+    body: "coming soon: a short walkthrough for artboards, presets, rearranging work, and keeping the canvas open.",
   },
   {
     title: "make a source component",
-    time: "05 min",
-    body: "select the layers, create the source, place instances, then override text or visibility without breaking the reference.",
+    time: "soon",
+    body: "coming soon: a practical component guide covering sources, instances, overrides, and detach.",
   },
   {
     title: "write notes that matter",
-    time: "04 min",
-    body: "attach structured notes to the artboard so questions, assumptions, and test ideas survive export.",
+    time: "soon",
+    body: "coming soon: a field note pattern for assumptions, testing prompts, and handoff context.",
   },
   {
     title: "export a handoff package",
-    time: "02 min",
-    body: "export PNG, PDF, SVG, or a PDF with notes pages for review and testing.",
+    time: "soon",
+    body: "coming soon: the small export checklist for PNG, PDF, SVG, and notes pages.",
   },
 ];
 
@@ -234,8 +234,9 @@ function FieldGuide() {
         <p className="section-label">field guide</p>
         <h2 id="guide-title">how-to material for people actually testing it.</h2>
         <p>
-          the site can grow into short, direct walkthroughs: the thing you need,
-          the reason it exists, and the smallest path to trying it.
+          short, direct walkthroughs are coming soon. the first pass will focus
+          on the things testers need to try the app without a tour guide hovering
+          nearby.
         </p>
       </div>
       <div className="guide-list">
@@ -248,9 +249,9 @@ function FieldGuide() {
             onClick={() => setOpen(open === index ? -1 : index)}
           >
             <span className="guide-index">{String(index + 1).padStart(2, "0")}</span>
-            <span className="guide-main">
-              <strong>{row.title}</strong>
-              <span>{open === index ? row.body : "open the walkthrough"}</span>
+              <span className="guide-main">
+                <strong>{row.title}</strong>
+              <span>{open === index ? row.body : "coming soon"}</span>
             </span>
             <span className="guide-time">{row.time}</span>
           </button>
@@ -328,6 +329,37 @@ function Roadmap() {
 }
 
 function TestingInvite() {
+  const [email, setEmail] = useState("");
+  const [website, setWebsite] = useState("");
+  const [status, setStatus] = useState("idle");
+  const [message, setMessage] = useState("no spam. just build notes, testing invites, and eventual download news.");
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    setStatus("submitting");
+    setMessage("sending...");
+
+    try {
+      const response = await fetch("/api/signup", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email, website, source: "testing invite" }),
+      });
+      const result = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(result.error ?? "signup failed");
+      }
+
+      setStatus("success");
+      setMessage("you are on the list. quiet little victory.");
+      setEmail("");
+    } catch (error) {
+      setStatus("error");
+      setMessage(error.message || "something failed. try again in a minute.");
+    }
+  }
+
   return (
     <section id="testing" className="testing-section glass-thick glass-edge" aria-labelledby="testing-title">
       <div>
@@ -339,13 +371,36 @@ function TestingInvite() {
           surface can become the download and release-note home.
         </p>
       </div>
-      <form className="invite-form" aria-label="tester interest form">
+      <form className="invite-form" aria-label="tester interest form" onSubmit={handleSubmit}>
         <label htmlFor="tester-email">tester email</label>
+        <label className="visually-hidden" htmlFor="tester-website">website</label>
+        <input
+          className="signup-trap"
+          id="tester-website"
+          type="text"
+          tabIndex="-1"
+          autoComplete="off"
+          value={website}
+          onChange={(event) => setWebsite(event.target.value)}
+        />
         <div>
-          <input id="tester-email" type="email" placeholder="name@example.com" />
-          <button type="button">note interest</button>
+          <input
+            id="tester-email"
+            type="email"
+            placeholder="name@example.com"
+            autoComplete="email"
+            required
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            disabled={status === "submitting"}
+          />
+          <button type="submit" disabled={status === "submitting"}>
+            {status === "submitting" ? "sending" : "request invite"}
+          </button>
         </div>
-        <p>prototype only: wire this to your newsletter, form tool, or repo issue flow later.</p>
+        <p className={`form-message ${status}`} role="status" aria-live="polite">
+          {message}
+        </p>
       </form>
     </section>
   );
