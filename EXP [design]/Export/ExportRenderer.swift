@@ -362,12 +362,68 @@ final class ExportRenderView: NSView {
         }
     }
 
+    /// Conservative export-space bounds of everything a node can paint — the
+    /// clip for its opacity/blend transparency layer. Mirrors the canvas's
+    /// `paintBoundsView` (leaf margin / recursive group union / instance frame).
+    private func exportPaintBounds(_ node: Node, offset: CGPoint) -> CGRect {
+        let rect = node.frame.offsetBy(dx: offset.x, dy: offset.y)
+        switch node.content {
+        case .group(let children):
+            let childOffset = CGPoint(x: rect.minX, y: rect.minY)
+            var b = rect
+            for child in children where child.isVisible {
+                b = b.union(exportPaintBounds(child, offset: childOffset))
+            }
+            if node.rotation != 0 {
+                let grow = hypot(b.width, b.height) / 2
+                b = b.insetBy(dx: -grow, dy: -grow)
+            }
+            return b.insetBy(dx: -2, dy: -2)
+        case .instance(let inst):
+            // Export draws instance children UNCLIPPED (unlike the canvas, which
+            // clips to the viewBox), so bound by the resolved children's union.
+            var b = rect
+            for child in document.resolvedChildren(of: inst) where child.isVisible {
+                b = b.union(exportPaintBounds(child, offset: rect.origin))
+            }
+            return b.insetBy(dx: -2, dy: -2)
+        default:
+            var m: CGFloat = 2
+            for e in node.effects where e.isEnabled && e.kind == .dropShadow {
+                m = max(m, max(abs(e.dx), abs(e.dy)) + e.blur * 3 + e.spread + 2)
+            }
+            m += strokeHalfWidth(node.content)
+            if node.rotation != 0 { m += hypot(rect.width, rect.height) / 2 }
+            return rect.insetBy(dx: -m, dy: -m)
+        }
+    }
+
+    /// Half the stroke width for stroked leaf content, else 0 — mirrors the
+    /// canvas's `strokeReach` (used to bound the opacity/blend layer clip).
+    private func strokeHalfWidth(_ c: NodeContent) -> CGFloat {
+        switch c {
+        case .rectangle(let s): return s.strokeWidth / 2
+        case .ellipse(let s):   return s.strokeWidth / 2
+        case .polygon(let s):   return s.strokeWidth / 2
+        case .line(let s):      return s.strokeWidth / 2
+        case .path(let s):      return s.strokeWidth / 2
+        default:                return 0
+        }
+    }
+
     private func drawExportNode(_ node: Node, offset: CGPoint, in ctx: CGContext) {
         let rect = node.frame.offsetBy(dx: offset.x, dy: offset.y)
         let groupAlpha = max(0, min(1, CGFloat(node.opacity)))
         let usesLayer = groupAlpha < 0.999 || node.blendMode != .normal
         if usesLayer {
             ctx.saveGState()
+            // Bound the layer's buffer to the node's paint reach. An unclipped
+            // transparency layer allocates a surface the size of the current
+            // clip — the whole export canvas — per semi-transparent node, which
+            // makes big exports crawl for the same reason it made the canvas
+            // snapshot take seconds. Conservative for every node kind (leaf
+            // margin / recursive group union / instance frame); correctness first.
+            ctx.clip(to: exportPaintBounds(node, offset: offset))
             ctx.setAlpha(groupAlpha)
             ctx.setBlendMode(node.blendMode.cg)
             ctx.beginTransparencyLayer(auxiliaryInfo: nil)
@@ -391,11 +447,12 @@ final class ExportRenderView: NSView {
         for e in enabled where e.kind == .dropShadow {
             if let s = sil {
                 let outset = s.path(spread: CGFloat(e.spread))
-                EffectsRender.drawDropShadow(e, scale: 1, in: ctx) {
+                EffectsRender.drawDropShadow(e, scale: 1, in: ctx,
+                                             castBounds: outset.boundingBoxOfPath) {
                     ctx.addPath(outset); ctx.setFillColor(NSColor.black.cgColor); ctx.fillPath()
                 }
             } else {
-                EffectsRender.drawDropShadow(e, scale: 1, in: ctx) {
+                EffectsRender.drawDropShadow(e, scale: 1, in: ctx, castBounds: rect) {
                     self.drawExportNodeContent(node, rect: rect, in: ctx)
                 }
             }

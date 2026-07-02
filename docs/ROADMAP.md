@@ -926,15 +926,167 @@ font import → Phase 9, shadows → Phase 10._
 ## Progress Log
 _Newest entry on top. Update every session._
 
+- **2026-07-02 — Session 161h (handoff):**
+  Owner near usage limits — full state written to **docs/PERF-HANDOFF.md**
+  (root causes with evidence, dead theories, the transparency-layer clip rule,
+  what's verified vs pending, drag-overlay-blit design, verification protocol).
+  **161g VERIFIED by the corrected final log:** blit-capture 3,325ms →
+  13–75ms typical, blit stays enabled all run, frame(blit) 0.6–2.5ms across
+  pans/zooms — pan/zoom is solved. Occasional capture spikes (~140–190ms) are
+  one-off ImageIO mip decodes when images first enter view (self-healing).
+  Remaining complaint: node DRAGS still full-render at 45–105ms/frame — the
+  drag-overlay blit (designed in PERF-HANDOFF.md §6.3) is the next lever.
+  Next session: start at PERF-HANDOFF.md §6.
+
+- **2026-07-02 — Session 161g (opacity layers, part 2 — groups/instances):**
+  161f cut capture 3,325ms → 745ms; the owner confirmed the doc is full of
+  semi-transparent items. The remaining ~720ms is the case 161f left wide:
+  GROUPS/INSTANCES with opacity/blend still opened full-canvas layers. New
+  `paintBoundsView(_:offset:)` computes conservative view-space paint bounds
+  for any node kind (leaf = frame + cull margin; group = recursive union of
+  visible children + rotation growth; instance = its viewBox, which instance
+  drawing already hard-clips to) and the opacity/blend layer now always clips
+  to it. ExportRenderer mirrors this via `exportPaintBounds` — with one
+  difference discovered on the way: export draws instance children UNCLIPPED
+  (no viewBox crop, unlike the canvas — pre-existing inconsistency, not
+  touched), so its instance bounds union the resolved children instead.
+  **Needs owner test:** Testing Mode, one pan — expect blit-capture well under
+  250ms and the blit staying enabled; then judge pan/zoom + drag feel.
+  Remaining known gap after this: drags still full-render every frame
+  (35–60ms). Planned next lever if still not smooth enough: reuse the (now
+  cheap) snapshot to blit the static scene during node drags and redraw only
+  the dragged nodes on top.
+
+- **2026-07-02 — Session 161f (FOUND IT — unclipped opacity/blend layers):**
+  161e buckets: blit-render 3,325ms; shadows 1.1 + images 6.8 + text 1.3 +
+  shapes 12.8 + boards 2.7 + makeImage 0.1 = **~25ms accounted**. All content
+  drawing is fast — the 3.3s had to be in per-node scaffolding. Culprit: the
+  whole-layer opacity/blend transparency layer in `drawNode` (any node with
+  opacity < 100% or a blend mode) opens with NO clip of its own, and a
+  transparency layer allocates a buffer the size of the CURRENT CLIP — the
+  entire canvas in the snapshot path — per semi-transparent node. It wraps the
+  whole node draw, which is exactly why no content bucket saw it. Fixed in
+  `drawNode`: leaf nodes clip the layer to `rect` grown by `nodeCullMargin`
+  (the culling invariant for a node's paint reach — stroke + shadow + rotation),
+  so output is pixel-identical; groups/instances keep the wide clip (children
+  may paint outside the frame). Same fix applied to `drawExportNode` in
+  ExportRenderer (new `strokeHalfWidth` helper) — big PNG/PDF exports paid this
+  cost too. Masks were checked: they clip by path, no layer, no issue.
+  **Needs owner test:** Testing Mode ON, one pan — blit-capture should finally
+  be ≈ one frame and the blit should stay enabled (no "disabled for this run"
+  line). Also confirm opacity/blend layers still composite correctly (a
+  semi-transparent overlapping fill+stroke shouldn't double-darken) and an
+  export still looks right.
+
+- **2026-07-02 — Session 161e (capture forensics, round 2):**
+  161d buckets came back: blit-render 3315ms, but shadows 1.2 + images 6.8 +
+  text 2.5 + makeImage 0.1 = **only ~10ms accounted for**. The colorspace theory
+  is dead too (P3 backing didn't move the number). The 3.3s therefore lives in
+  plain shape drawing, artboard backgrounds, or traversal — none of which were
+  bucketed. Added: `blit-shapes` (all leaf rect/oval/polygon/line/path drawing,
+  timed at the top of drawNodeContent, groups/instances excluded so recursion
+  doesn't double-count) and `blit-boards` (drawArtboardBackground). Also clipped
+  the artboard background shadow to board + 24px (same rule as the 161c
+  drop-shadow clip — unclipped setShadow can allocate a context-sized surface).
+  If the next log shows shapes+boards ≈ 3.3s we know the layer; if it shows a
+  large UNACCOUNTED remainder, the cost is in traversal/clipping/chrome and gets
+  bucketed next.
+  **Needs owner test:** Testing Mode ON, one pan gesture, send the blit-* line.
+
+- **2026-07-02 — Session 161d (capture instrumentation + colorspace):**
+  Round 3 of the perf log: drag-warm caches CONFIRMED working (group drags
+  320ms → 35–47ms, instCacheHit 4 throughout); pan/zoom blit frames 0.7–0.9ms.
+  But blit-capture is STILL ~3.3s — both prior theories (pixel format, shadow
+  transparency layers) failed to explain it, so the capture render is now
+  instrumented instead of guessed at. Testing Mode prints new one-shot buckets
+  on the first gesture: `blit-render` (total scene render), `blit-makeImage`
+  (bitmap copy), and `blit-shadows` / `blit-images` / `blit-text` (per-category
+  time inside that render). The dominant bucket names the real culprit.
+  Speculative fix included: the offscreen backing now uses the WINDOW's
+  colorspace (Display P3 on modern Macs) instead of generic sRGB — P3-tagged
+  photos drawn into an sRGB bitmap force per-pixel CPU color matching the
+  on-screen render never pays. Backing rebuilds if the colorspace changes
+  (value equality, not identity).
+  **Needs owner test:** Testing Mode ON, one pan gesture, send the flush line
+  containing blit-render / blit-shadows / blit-images / blit-text. If capture
+  is suddenly ≈ one frame, colorspace was the answer.
+
+- **2026-07-02 — Session 161c (shadow transparency layers + drag-warm caches):**
+  Second perf-log round-trip. Native BGRA did NOT fix the capture (still 3.4s) —
+  real cause found: `EffectsRender.drawDropShadow` opened a transparency layer
+  with **no clip**, and a transparency layer allocates its buffer at the current
+  clip size — on screen that's the dirty rect, but in the offscreen snapshot it
+  was the WHOLE canvas, per shadowed node. Fixed: new `castBounds` parameter
+  clips to caster + blur + offset (+8px pad) before the layer — pixel-identical
+  output, buffer shrinks to the node's footprint. Call sites updated in
+  CanvasView + ExportRenderer (shared files, existing membership — no new files).
+  Should also shave on-screen frame cost.
+  Second finding: group drags ran 60ms → **320ms frames** because every
+  mid-drag model bump cleared the instance-resolve cache (log: instCacheMiss 4
+  per drag frame → 4 heavy re-resolves/frame). Drag mutations are frame-only and
+  `resolvedChildren(of:)` never reads frames, so both the instance cache and the
+  text-layout cache now stay warm while `dragMode != .none`
+  (`frameOnlyGestureActive`); normal generation-clear resumes at mouseUp.
+  **Needs owner re-test:** (1) blit-capture should now be ≈ one frame — if the
+  "blit disabled" line still prints, send the number; (2) group drags should
+  hold ~60ms with instCacheHit 4; (3) confirm drop shadows look unchanged on
+  canvas AND in PNG/PDF export (the clip must be invisible).
+
+- **2026-07-02 — Session 161b (blit beach-ball fix):**
+  First test of the Session 161 blit showed 0.7ms blit frames but **4,000ms+
+  captures** (beach ball at every gesture start). Root cause: `offscreenBacking()`
+  used `premultipliedLast` (RGBA) — a NON-NATIVE pixel layout that forces Core
+  Graphics onto a swizzling software path (~70× slower than on-screen; also why
+  the old blur pass was so slow). Fixed: backing is now native BGRA
+  (`premultipliedFirst | byteOrder32Little`). Added a safety valve: any capture
+  over 250ms disables the blit for the rest of the run (logged), so it can never
+  beach-ball again. **Needs owner re-test:** blit-capture should now be ≈ one
+  frame (~60ms); if the log prints the "blit disabled" line, report the capture
+  time. Baseline full frames are 45–85ms at ~400 drawn nodes — that's the next
+  perf target (likely effects/shadows), separate from the blit.
+
+- **2026-07-02 — Session 161 (canvas performance: blit + mips + text cache; pixel honesty):**
+  Canvas felt klunky on image/layer-heavy documents. Three perf changes in
+  `Canvas/CanvasView.swift` (view-layer only — no shared model files touched, so
+  no EXPThumbnail target-membership risk):
+  1. **Pan/zoom bitmap blit** — first gesture tick renders the scene once into
+     the reusable offscreen backing; subsequent ticks blit that bitmap
+     translated/scaled; a full-quality render settles in ~120ms after motion
+     stops (same catch-up pattern as the blur path). Rulers are excluded from
+     the snapshot and drawn live so they never smear. Snapshot recaptures if
+     mid-gesture zoom drifts past 1.75×/0.6×. Perf keys: `frame(blit)`,
+     `blit-capture`.
+  2. **Downsampled image cache** — `cgImage(for:targetPx:)` now serves
+     power-of-two "mip" variants via ImageIO thumbnails (force-decoded once,
+     EXIF-aware), so a 4000px photo in a 200px frame no longer resamples the
+     full bitmap every frame. NSCache, ~256MB cost limit. Export still renders
+     full-res through its own path.
+  3. **Text layout cache** — TextKit stacks per text node were rebuilt every
+     frame; now cached by node id + content fingerprint, cleared on
+     `resolveGeneration` bump (the instance-cache pattern).
+  Also fixed the **canvas/inspector pixel mismatch** (owner decision:
+  snap + honest decimals): all draw/drag/resize gestures snap to whole document
+  pixels (**⌘ bypasses**, same modifier that skips smart guides; smart-guide
+  alignment runs after pixel snap and wins). Inspector `DimField`s and the
+  measurement HUD now show up to 2 truthful decimals instead of rounding, and
+  typed fractional values stick (⌥-arrows still step 0.1).
+  **Needs owner verification in Xcode:** build both targets, then feel-test
+  pan/zoom on a heavy doc (Testing Mode ⌃⌘T prints the perf line), check images
+  stay sharp after zoom settles, drag shapes at 133% zoom and confirm inspector
+  reads whole numbers, ⌘-drag for sub-pixel.
+
 - **2026-07-02 — Session 160 (website multi-monitor callout):**
   Added a new public-site feature callout for **Multi-window mode**, using the
   supplied multi-monitor mockup as a website asset
   (`website/public/assets/exp-multi-monitor-workspace.png`). The section sits
   between the product story and existing feature tabs, with copy focused on
   letting the canvas and panels spread across real monitor setups instead of
-  replacing any current content. **Verified:** `npm run build` passes; Playwright
-  desktop/mobile layout checks confirm the image loads at native size and there
-  is no horizontal overflow.
+  replacing any current content. Also added a first-viewport hero badge that
+  clearly says **macOS only / native Mac app** on the lower edge of the product
+  screenshot.
+  **Verified:** `npm run build` passes; in-app browser desktop/mobile checks
+  confirm the multi-monitor image loads at native size, the macOS badge is
+  visible, the roadmap CTA still navigates, and there is no horizontal overflow.
 
 - **2026-06-30 — Session 157 (In-app feedback reporter — FEAT-003):**
   Built `UI/Feedback.swift`: Help ▸ **Send Feedback** (⇧⌘/) opens a native sheet (dogfoods

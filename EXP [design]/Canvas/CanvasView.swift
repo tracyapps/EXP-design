@@ -25,6 +25,7 @@ import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
 import CoreImage
+import ImageIO   // downsampled image cache (CGImageSource thumbnails)
 
 // MARK: - SwiftUI bridge
 
@@ -1290,6 +1291,7 @@ final class CanvasNSView: NSView {
         let old = app.zoom
         let new = app.clampZoom(old * factor)
         guard new != old else { return }
+        beginPanZoomInteraction()
         let docX = (anchor.x - app.panOffset.x) / old
         let docY = (anchor.y - app.panOffset.y) / old
         app.zoom = new
@@ -1963,6 +1965,131 @@ final class CanvasNSView: NSView {
         }
     }
 
+    // MARK: Pan/zoom bitmap blit
+    //
+    // During a live pan/zoom gesture the scene doesn't change — only the view
+    // transform does. Re-rendering every visible node per tick is what made
+    // heavy documents feel klunky. Instead: on the FIRST tick of a gesture we
+    // render the scene once into a bitmap, then every subsequent tick just
+    // blits that bitmap translated/scaled (near-zero cost). ~120ms after the
+    // last tick a full-quality vector render "settles" back in — the same
+    // catch-up pattern the background-blur path uses. Rulers are excluded from
+    // the snapshot and drawn live on top so they never smear.
+    private var panZoomSnapshot: CGImage?
+    private var panZoomSnapshotZoom: CGFloat = 1
+    private var panZoomSnapshotPan: CGPoint = .zero
+    private var panZoomSnapshotSize: CGSize = .zero   // bounds (points) at capture
+    private var panZoomBlitActive = false
+    private var panZoomSettleTimer: Timer?
+    /// Safety valve: if a capture ever blows the budget (below), stop trying for
+    /// the rest of the run — a laggy-but-live gesture beats a beach ball.
+    private var panZoomBlitDisabled = false
+    private static let blitCaptureBudget: CFAbsoluteTime = 0.25   // seconds
+
+    /// Call at every pan/zoom tick, BEFORE mutating `app.zoom`/`app.panOffset`,
+    /// so a first-tick capture renders exactly what's already on screen.
+    private func beginPanZoomInteraction() {
+        guard let app, !panZoomBlitDisabled else { return }
+        // Recapture when zoom has drifted far enough from the snapshot that the
+        // scaled blit would look too soft (zooming in) or wastefully large.
+        if panZoomSnapshot != nil {
+            let k = app.zoom / panZoomSnapshotZoom
+            if k > 1.75 || k < 0.6 { panZoomSnapshot = nil }
+        }
+        if panZoomSnapshot == nil { capturePanZoomSnapshot() }
+        panZoomBlitActive = panZoomSnapshot != nil
+        panZoomSettleTimer?.invalidate()
+        // .common run-loop mode so the settle fires even while events stream in.
+        let timer = Timer(timeInterval: 0.12, repeats: false) { [weak self] _ in
+            guard let self else { return }
+            self.panZoomBlitActive = false
+            self.panZoomSnapshot = nil        // next gesture recaptures fresh
+            self.needsDisplay = true          // full-quality settle render
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        panZoomSettleTimer = timer
+    }
+
+    // Capture instrumentation (Testing Mode): the capture render has repeatedly
+    // been ~60× slower than the identical on-screen render, and two root-cause
+    // theories (pixel format, unclipped shadow layers) each explained only part
+    // of it. These buckets say where the offscreen milliseconds ACTUALLY go, so
+    // the next fix targets the measured hotspot instead of a hypothesis.
+    private var capturingSnapshot = false
+    private var capShadowMs = 0.0, capImageMs = 0.0, capTextMs = 0.0
+    private var capShapeMs = 0.0, capBoardMs = 0.0
+
+    /// One full scene render (no rulers) into the reusable offscreen backing,
+    /// kept as a CGImage together with the transform it was rendered at.
+    private func capturePanZoomSnapshot() {
+        guard let app, let cg = offscreenBacking() else { return }
+        let t0 = CFAbsoluteTimeGetCurrent()   // always timed — feeds the safety valve
+        let scale = backingScale
+        cg.saveGState()
+        cg.translateBy(x: 0, y: CGFloat(blurBackingPx.h))
+        cg.scaleBy(x: scale, y: -scale)
+        let nsctx = NSGraphicsContext(cgContext: cg, flipped: true)
+        capturingSnapshot = true
+        capShadowMs = 0; capImageMs = 0; capTextMs = 0
+        capShapeMs = 0; capBoardMs = 0
+        let tRender = CFAbsoluteTimeGetCurrent()
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = nsctx
+        renderCanvas(into: cg, includeRulers: false)
+        NSGraphicsContext.restoreGraphicsState()
+        let renderMs = (CFAbsoluteTimeGetCurrent() - tRender) * 1000
+        capturingSnapshot = false
+        cg.restoreGState()
+        let tImage = CFAbsoluteTimeGetCurrent()
+        panZoomSnapshot = cg.makeImage()
+        panZoomSnapshotZoom = app.zoom
+        panZoomSnapshotPan = app.panOffset
+        panZoomSnapshotSize = bounds.size
+        let elapsed = CFAbsoluteTimeGetCurrent() - t0
+        if perf.enabled {
+            perf.record("blit-capture", ms: elapsed * 1000)
+            perf.record("blit-render", ms: renderMs)
+            perf.record("blit-makeImage", ms: (CFAbsoluteTimeGetCurrent() - tImage) * 1000)
+            perf.record("blit-shadows", ms: capShadowMs)
+            perf.record("blit-images", ms: capImageMs)
+            perf.record("blit-text", ms: capTextMs)
+            perf.record("blit-shapes", ms: capShapeMs)
+            perf.record("blit-boards", ms: capBoardMs)
+        }
+        if elapsed > Self.blitCaptureBudget {
+            // Too slow to ever repeat — use this snapshot for the current gesture,
+            // but fall back to live rendering for the rest of the run.
+            panZoomBlitDisabled = true
+            NSLog("⏱ [EXP perf] blit-capture took %.0fms (> %.0fms budget) — pan/zoom blit disabled for this run",
+                  elapsed * 1000, Self.blitCaptureBudget * 1000)
+        }
+    }
+
+    /// Draw the cached gesture snapshot under the current pan/zoom. Pure blit —
+    /// the win over a full vector render. Returns false if there's nothing valid
+    /// to blit (caller falls through to the normal render).
+    private func drawPanZoomBlit(into ctx: CGContext) -> Bool {
+        guard let app, panZoomBlitActive, let snap = panZoomSnapshot,
+              panZoomSnapshotSize.width > 0 else { return false }
+        NSColor.underPageBackgroundColor.setFill()
+        bounds.fill()
+        let k = app.zoom / panZoomSnapshotZoom
+        let origin = CGPoint(x: app.panOffset.x - panZoomSnapshotPan.x * k,
+                             y: app.panOffset.y - panZoomSnapshotPan.y * k)
+        let size = CGSize(width: panZoomSnapshotSize.width * k,
+                          height: panZoomSnapshotSize.height * k)
+        ctx.saveGState()
+        ctx.interpolationQuality = .low   // speed over polish mid-gesture
+        // Flipped view ↔ y-up CGImage: flip within the target rect (image idiom).
+        ctx.translateBy(x: origin.x, y: origin.y + size.height)
+        ctx.scaleBy(x: 1, y: -1)
+        ctx.draw(snap, in: CGRect(origin: .zero, size: size))
+        ctx.restoreGState()
+        // Rulers are excluded from the snapshot; draw them live so they stay put.
+        if app.showRulers && !isSourceScope { drawRulers(in: ctx) }
+        return true
+    }
+
     /// A flipped (top-left origin, y-down) offscreen CGContext that matches the
     /// view's coordinate system 1:1, so renderCanvas — including NSString text,
     /// which honors `isFlipped` — draws identically to on-screen. Cached/reused.
@@ -1970,22 +2097,45 @@ final class CanvasNSView: NSView {
         let scale = backingScale
         let w = max(1, Int((bounds.width * scale).rounded()))
         let h = max(1, Int((bounds.height * scale).rounded()))
-        if blurBacking == nil || blurBackingPx != (w, h) {
-            guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+        // Match the WINDOW's colorspace (usually Display P3 on modern Macs), not
+        // generic sRGB: content tagged in other spaces (photos especially) forces
+        // a per-pixel CPU color-match into a mismatched bitmap — a conversion the
+        // on-screen render never pays. Falls back to sRGB with no window.
+        let space = window?.colorSpace?.cgColorSpace
+                 ?? CGColorSpace(name: CGColorSpace.sRGB)
+        if blurBacking == nil || blurBackingPx != (w, h)
+            || blurBackingSpace != space {   // value equality — identity would rebuild every call
+            // NATIVE pixel format (BGRA, premultipliedFirst + 32Little): the
+            // premultipliedLast (RGBA) layout is non-native on Apple hardware and
+            // can push Core Graphics onto slower software paths.
+            let native = CGImageAlphaInfo.premultipliedFirst.rawValue
+                       | CGBitmapInfo.byteOrder32Little.rawValue
+            guard let space,
                   let cg = CGContext(data: nil, width: w, height: h,
                                      bitsPerComponent: 8, bytesPerRow: 0, space: space,
-                                     bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+                                     bitmapInfo: native)
             else { return nil }
             blurBacking = cg
             blurBackingPx = (w, h)
+            blurBackingSpace = space
         }
         return blurBacking
     }
+    private var blurBackingSpace: CGColorSpace?
 
     override func draw(_ dirtyRect: NSRect) {
         guard let app, let document else { return }
         perf.enabled = (app.testingMode == true)
         let perfFrameT0 = perf.enabled ? CFAbsoluteTimeGetCurrent() : 0
+        // Live pan/zoom: blit the cached gesture snapshot instead of re-rendering
+        // the scene (see the "Pan/zoom bitmap blit" section above).
+        if let ctx = NSGraphicsContext.current?.cgContext, drawPanZoomBlit(into: ctx) {
+            if perf.enabled {
+                perf.record("frame(blit)", ms: (CFAbsoluteTimeGetCurrent() - perfFrameT0) * 1000)
+                perf.flushIfNeeded()
+            }
+            return
+        }
         // Background blur needs to sample what's behind it, which means the scene has
         // to live in a bitmap we can read back. Only pay that cost when a blur node
         // exists; otherwise draw straight to the window context as before.
@@ -2019,7 +2169,7 @@ final class CanvasNSView: NSView {
         }
     }
 
-    private func renderCanvas(into ctx: CGContext) {
+    private func renderCanvas(into ctx: CGContext, includeRulers: Bool = true) {
         guard let document else { return }
         perfCacheHit = 0; perfCacheMiss = 0   // reset per-frame instance-cache tally
 
@@ -2046,7 +2196,9 @@ final class CanvasNSView: NSView {
                 // Grow for the name label above and the soft drop shadow around it.
                 guard docToView(artboard.frame).insetBy(dx: -24, dy: -24).intersects(visible)
                 else { continue }
+                let capB = capturingSnapshot ? CFAbsoluteTimeGetCurrent() : 0
                 drawArtboardBackground(artboard, in: ctx)
+                if capB != 0 { capBoardMs += (CFAbsoluteTimeGetCurrent() - capB) * 1000 }
                 perfBoards += 1
             }
             // Shapes clipped to the artboard that owns them (or unclipped on the
@@ -2157,8 +2309,9 @@ final class CanvasNSView: NSView {
 
         if optionHeld { drawMeasurements(in: ctx) }
 
-        // Rulers are chrome at the very top, over everything else.
-        if app?.showRulers == true && !isSourceScope { drawRulers(in: ctx) }
+        // Rulers are chrome at the very top, over everything else. (Excluded from
+        // the pan/zoom gesture snapshot — the blit path draws them live instead.)
+        if includeRulers && app?.showRulers == true && !isSourceScope { drawRulers(in: ctx) }
     }
 
     // MARK: Rulers
@@ -2808,8 +2961,12 @@ final class CanvasNSView: NSView {
     }
 
     private func measureLabel(_ v: CGFloat) -> String {
-        let r = (v * 10).rounded() / 10
-        return r == r.rounded() ? String(Int(r)) : String(format: "%.1f", r)
+        // 2 decimals max, trailing zeros trimmed — same precision the inspector
+        // shows, so the canvas and the panel never disagree about a value.
+        let r = (v * 100).rounded() / 100
+        if r == r.rounded() { return String(Int(r)) }
+        let s = String(format: "%.2f", r)
+        return s.hasSuffix("0") ? String(s.dropLast()) : s
     }
 
     // MARK: - Viewport culling helpers
@@ -2858,6 +3015,10 @@ final class CanvasNSView: NSView {
         let rect = docToView(artboard.frame)
 
         ctx.saveGState()
+        // Bound the shadow's working buffer to the board + blur reach (the same
+        // clip-before-shadow rule as EffectsRender.drawDropShadow) — an unclipped
+        // shadow can allocate a surface for the whole context.
+        ctx.clip(to: rect.insetBy(dx: -24, dy: -24))
         ctx.setShadow(offset: CGSize(width: 0, height: 1), blur: 8,
                       color: NSColor.black.withAlphaComponent(0.18).cgColor)
         PaintRender.fillRect(artboard.background, rect: rect, in: ctx)
@@ -2926,6 +3087,39 @@ final class CanvasNSView: NSView {
         ctx.restoreGState()
     }
 
+    /// Conservative VIEW-space bounds of everything a node can paint — the clip
+    /// for its opacity/blend transparency layer. Leaves = frame + cull margin
+    /// (stroke/shadow/rotation, the culling invariant). Groups = union of the
+    /// padded frame and every visible child's paint bounds, recursively, grown
+    /// for the group's own rotation. Instances = their viewBox (instance drawing
+    /// hard-clips to it). Frame traversal only — no drawing, cheap per frame.
+    private func paintBoundsView(_ node: Node, offset: CGPoint) -> CGRect {
+        let frameDoc = node.frame.offsetBy(dx: offset.x, dy: offset.y)
+        let rect = docToView(frameDoc)
+        switch node.content {
+        case .group(let children):
+            let childOffset = CGPoint(x: frameDoc.minX, y: frameDoc.minY)
+            var b = rect
+            for child in children where child.isVisible {
+                b = b.union(paintBoundsView(child, offset: childOffset))
+            }
+            if node.rotation != 0 {
+                // Rotation about the centre can push the AABB out by up to half
+                // the diagonal — same safe bound as nodeCullMargin.
+                let grow = hypot(b.width, b.height) / 2
+                b = b.insetBy(dx: -grow, dy: -grow)
+            }
+            return b.insetBy(dx: -2, dy: -2)   // antialiasing fringe
+        case .instance(let inst):
+            guard let document else { return rect }
+            let box = CGRect(origin: frameDoc.origin, size: document.model.resolvedSize(of: inst))
+            return docToView(box).insetBy(dx: -2, dy: -2)
+        default:
+            let m = nodeCullMargin(node)
+            return rect.insetBy(dx: -m, dy: -m)
+        }
+    }
+
     private func drawNode(_ node: Node, offset: CGPoint, in ctx: CGContext) {
         guard let app else { return }
         // The node being inline-edited is drawn by its NSTextView overlay instead
@@ -2961,6 +3155,16 @@ final class CanvasNSView: NSView {
         let usesLayer = groupAlpha < 0.999 || node.blendMode != .normal
         if usesLayer {
             ctx.saveGState()
+            // Bound the layer's buffer to what this node can actually paint — the
+            // same clip-before-layer rule as drop shadows. An UNCLIPPED transparency
+            // layer allocates a surface the size of the current clip, which in the
+            // snapshot/export path is the ENTIRE canvas: one ~screen-sized CPU
+            // alloc + clear + composite per semi-transparent node (measured: ~3.3s
+            // of a 3.3s capture, invisible to every content bucket because it
+            // wraps them). `paintBoundsView` is conservative for every node kind —
+            // leaf cull margin / recursive group union / instance viewBox — so the
+            // output is pixel-identical.
+            ctx.clip(to: paintBoundsView(node, offset: offset))
             ctx.setAlpha(groupAlpha)
             ctx.setBlendMode(node.blendMode.cg)
             ctx.beginTransparencyLayer(auxiliaryInfo: nil)
@@ -2984,29 +3188,38 @@ final class CanvasNSView: NSView {
         // Effects: drop shadows behind the content, inner shadows on top (clipped).
         let enabled = node.effects.filter { $0.isEnabled }
         let sil = nodeSilhouette(node, frameDoc: frameDoc, rect: rect)
+        var capT0 = (capturingSnapshot && !enabled.isEmpty) ? CFAbsoluteTimeGetCurrent() : 0
         if !enabled.isEmpty {
             for e in enabled where e.kind == .dropShadow {
                 if let s = sil {
                     let outset = s.path(spread: CGFloat(e.spread) * app.zoom)
-                    EffectsRender.drawDropShadow(e, scale: app.zoom, in: ctx) {
+                    EffectsRender.drawDropShadow(e, scale: app.zoom, in: ctx,
+                                                 castBounds: outset.boundingBoxOfPath) {
                         ctx.addPath(outset); ctx.setFillColor(NSColor.black.cgColor); ctx.fillPath()
                     }
                 } else {
-                    EffectsRender.drawDropShadow(e, scale: app.zoom, in: ctx) {
+                    EffectsRender.drawDropShadow(e, scale: app.zoom, in: ctx,
+                                                 castBounds: rect) {
                         self.drawNodeContent(node, frameDoc: frameDoc, rect: rect, in: ctx)
                     }
                 }
             }
         }
 
+        // Pause the shadow timer across the content draw (content has its own
+        // image/text buckets), then resume it for the inner-shadow pass.
+        if capT0 != 0 { capShadowMs += (CFAbsoluteTimeGetCurrent() - capT0) * 1000; capT0 = 0 }
+
         drawNodeContent(node, frameDoc: frameDoc, rect: rect, in: ctx)
 
         if let s = sil {
+            capT0 = capturingSnapshot ? CFAbsoluteTimeGetCurrent() : 0
             for e in enabled where e.kind == .innerShadow {
                 EffectsRender.drawInnerShadow(e, clip: s.clip,
                                               hole: s.path(spread: -CGFloat(e.spread) * app.zoom),
                                               in: ctx, scale: app.zoom)
             }
+            if capT0 != 0 { capShadowMs += (CFAbsoluteTimeGetCurrent() - capT0) * 1000 }
         }
     }
 
@@ -3128,6 +3341,15 @@ final class CanvasNSView: NSView {
 
     private func drawNodeContent(_ node: Node, frameDoc: CGRect, rect: CGRect, in ctx: CGContext) {
         guard let app else { return }
+        // Capture instrumentation: time LEAF shape drawing (rect/oval/polygon/
+        // line/path). Groups + instances recurse (their children time themselves);
+        // image + text have their own buckets at their cases.
+        let capLeafT: CFAbsoluteTime
+        switch node.content {
+        case .group, .instance, .image, .text: capLeafT = 0
+        default: capLeafT = capturingSnapshot ? CFAbsoluteTimeGetCurrent() : 0
+        }
+        defer { if capLeafT != 0 { capShapeMs += (CFAbsoluteTimeGetCurrent() - capLeafT) * 1000 } }
         switch node.content {
         case .rectangle(let shape):
             let radius = shape.cornerRadius * app.zoom
@@ -3183,11 +3405,13 @@ final class CanvasNSView: NSView {
             // Lay the text out at TRUE size and scale the drawing, so wrapping and
             // line height are identical at every zoom (no per-zoom reflow). draw(in:)
             // clips to the box, which is the crop for a fixed/paragraph box.
+            let capT = capturingSnapshot ? CFAbsoluteTimeGetCurrent() : 0
             ctx.saveGState()
             ctx.translateBy(x: rect.minX, y: rect.minY)
             ctx.scaleBy(x: app.zoom, y: app.zoom)
-            drawText(text, in: CGRect(origin: .zero, size: frameDoc.size))
+            drawText(text, nodeID: node.id, in: CGRect(origin: .zero, size: frameDoc.size))
             ctx.restoreGState()
+            if capT != 0 { capTextMs += (CFAbsoluteTimeGetCurrent() - capT) * 1000 }
             // Overflow ("more text than fits") badge for fixed boxes.
             if text.box == .fixed,
                text.measuredSize(maxWidth: frameDoc.width).height > frameDoc.height + 0.5 {
@@ -3255,7 +3479,10 @@ final class CanvasNSView: NSView {
             }
             ctx.restoreGState()
         case .image(let img):
-            if let cg = cgImage(for: img) {
+            let capT = capturingSnapshot ? CFAbsoluteTimeGetCurrent() : 0
+            // Ask for a variant sized to what this draw actually covers on screen.
+            let targetPx = max(rect.width, rect.height) * backingScale
+            if let cg = cgImage(for: img, targetPx: targetPx) {
                 // The context is y-down (flipped view); CGImage draws y-up, so flip
                 // within the node's rect before drawing.
                 ctx.saveGState()
@@ -3264,6 +3491,7 @@ final class CanvasNSView: NSView {
                 ctx.draw(cg, in: CGRect(x: 0, y: 0, width: rect.width, height: rect.height))
                 ctx.restoreGState()
             }
+            if capT != 0 { capImageMs += (CFAbsoluteTimeGetCurrent() - capT) * 1000 }
         }
     }
 
@@ -3286,12 +3514,29 @@ final class CanvasNSView: NSView {
     /// layer's id, which is shared across every placement of that component, so
     /// caching nested resolves by id would collide between placements — those fall
     /// through to a fresh (correct) resolve.
+    /// True while a canvas gesture is mutating the model every mouse tick. Those
+    /// mid-gesture bumps are FRAME-ONLY mutations (move/resize/draw change node
+    /// frames), and `resolvedChildren(of:)` reads sources + overrides, never
+    /// frames — so caches keyed on resolveGeneration stay exact through a drag.
+    /// Clearing them anyway made a group drag re-resolve every instance every
+    /// frame (measured: 60ms frames → 320ms). Anything that CAN change a resolve
+    /// (override edits, source edits, undo, paste) happens outside a drag, where
+    /// the normal generation clear still runs.
+    private var frameOnlyGestureActive: Bool {
+        if case .none = dragMode { return false }
+        return true
+    }
+
     private func resolvedChildrenCached(for node: Node, _ inst: ComponentInstance) -> [Node] {
         guard let document else { return [] }
         if document.resolveGeneration != instanceResolveGen {
-            instanceResolveCache.removeAll(keepingCapacity: true)
-            instanceResolveGen = document.resolveGeneration
-            instanceTopLevelIDs = Set(currentNodes.map(\.id))
+            if frameOnlyGestureActive, instanceResolveGen != -1 {
+                instanceResolveGen = document.resolveGeneration   // keep the warm cache
+            } else {
+                instanceResolveCache.removeAll(keepingCapacity: true)
+                instanceResolveGen = document.resolveGeneration
+                instanceTopLevelIDs = Set(currentNodes.map(\.id))
+            }
         }
         guard instanceTopLevelIDs.contains(node.id) else {
             return document.model.resolvedChildren(of: inst)
@@ -3303,29 +3548,97 @@ final class CanvasNSView: NSView {
         return resolved
     }
 
-    /// Decoded-image cache (by image-data hash) so redraws don't re-decode bytes.
-    private var imageCache: [Int: CGImage] = [:]
-    private func cgImage(for img: ImageContent) -> CGImage? {
-        let key = img.data.hashValue
-        if let c = imageCache[key] { return c }
-        guard let ns = NSImage(data: img.data),
-              let cg = ns.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
-        imageCache[key] = cg
+    /// Decoded-image cache with DOWNSAMPLED variants ("mips"), keyed by
+    /// image-data hash + size bucket. Drawing a 4000px photo into a 200px frame
+    /// used to resample the FULL bitmap every frame; now each draw pulls a
+    /// pre-decoded variant no bigger than ~2× the pixels it actually covers on
+    /// screen. `kCGImageSourceShouldCacheImmediately` force-decodes once at
+    /// creation (the old NSImage path could re-decode lazily on draw). NSCache
+    /// evicts by memory cost, so image-heavy documents stay bounded.
+    /// NOTE: canvas-only. Export renders its own full-resolution path.
+    private lazy var imageCache: NSCache<NSString, CGImage> = {
+        let cache = NSCache<NSString, CGImage>()
+        cache.totalCostLimit = 256 << 20   // ~256 MB of decoded pixels
+        return cache
+    }()
+
+    private func cgImage(for img: ImageContent, targetPx: CGFloat) -> CGImage? {
+        // Power-of-two buckets so zooming doesn't mint a variant per pixel step.
+        // ImageIO never upscales past the original, so oversized buckets are free.
+        var bucket: CGFloat = 128
+        while bucket < targetPx && bucket < 8192 { bucket *= 2 }
+        let key = "\(img.data.hashValue)-\(Int(bucket))" as NSString
+        if let hit = imageCache.object(forKey: key) { return hit }
+        guard let src = CGImageSourceCreateWithData(img.data as CFData, nil) else { return nil }
+        let opts: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceThumbnailMaxPixelSize: bucket,
+            kCGImageSourceCreateThumbnailWithTransform: true,   // honor EXIF orientation
+            kCGImageSourceShouldCacheImmediately: true          // decode NOW, once
+        ]
+        guard let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary) else { return nil }
+        imageCache.setObject(cg, forKey: key, cost: cg.bytesPerRow * cg.height)
         return cg
     }
 
-    private func drawText(_ text: TextContent, in rect: CGRect) {
-        let storage = NSTextStorage(attributedString: text.attributedString(scale: 1))
-        let layout = NSLayoutManager()
-        layout.usesFontLeading = true
+    // Text layout cache: building an NSTextStorage + NSLayoutManager +
+    // NSTextContainer per text node per FRAME was pure waste — the layout only
+    // depends on content + box size, never on zoom (drawing scales the ctx).
+    // Keyed by node id, validated by a content fingerprint (covers per-instance
+    // text/fill overrides on resolved children that share source-layer ids),
+    // cleared on any model edit via resolveGeneration — the instance-cache pattern.
+    private struct TextLayoutEntry {
+        let storage: NSTextStorage      // retained: the layout manager needs it alive
+        let layout: NSLayoutManager
+        let fingerprint: Int
+    }
+    private var textLayoutCache: [UUID: TextLayoutEntry] = [:]
+    private var textLayoutGen: Int = -1
 
-        let container = NSTextContainer(containerSize: rect.size)
-        container.lineFragmentPadding = 0
+    private func textFingerprint(_ t: TextContent, _ size: CGSize) -> Int {
+        var h = Hasher()
+        h.combine(size.width); h.combine(size.height)
+        h.combine(t.align.rawValue); h.combine(t.lineHeight)
+        h.combine(t.lineHeightUnit.rawValue); h.combine(t.tracking)
+        h.combine(t.box.rawValue); h.combine(t.textCase.rawValue)
+        for run in t.runs {
+            h.combine(run.string); h.combine(run.fontName); h.combine(run.fontSize)
+            h.combine(run.color.r); h.combine(run.color.g)
+            h.combine(run.color.b); h.combine(run.color.a)
+            h.combine(run.underline)
+        }
+        return h.finalize()
+    }
 
-        storage.addLayoutManager(layout)
-        layout.addTextContainer(container)
-
-        let glyphRange = layout.glyphRange(for: container)
+    private func drawText(_ text: TextContent, nodeID: UUID, in rect: CGRect) {
+        if let document, document.resolveGeneration != textLayoutGen {
+            // Entries self-validate via the fingerprint, so mid-drag generation
+            // bumps (frame-only mutations) don't need the clear — without this,
+            // every drag tick re-laid-out every visible text layer. The clear's
+            // real job is pruning deleted nodes, which can't happen mid-gesture.
+            if !frameOnlyGestureActive || textLayoutGen == -1 {
+                textLayoutCache.removeAll(keepingCapacity: true)
+            }
+            textLayoutGen = document.resolveGeneration
+        }
+        let fp = textFingerprint(text, rect.size)
+        let layout: NSLayoutManager
+        if let hit = textLayoutCache[nodeID], hit.fingerprint == fp {
+            layout = hit.layout
+        } else {
+            let storage = NSTextStorage(attributedString: text.attributedString(scale: 1))
+            let lm = NSLayoutManager()
+            lm.usesFontLeading = true
+            let container = NSTextContainer(containerSize: rect.size)
+            container.lineFragmentPadding = 0
+            storage.addLayoutManager(lm)
+            lm.addTextContainer(container)
+            layout = lm
+            textLayoutCache[nodeID] = TextLayoutEntry(storage: storage, layout: lm,
+                                                      fingerprint: fp)
+        }
+        guard let container = layout.textContainers.first else { return }
+        let glyphRange = layout.glyphRange(for: container)   // cached inside the LM after first layout
         layout.drawBackground(forGlyphRange: glyphRange, at: rect.origin)
         layout.drawGlyphs(forGlyphRange: glyphRange, at: rect.origin)
     }
@@ -3566,6 +3879,7 @@ final class CanvasNSView: NSView {
             zoom(by: 1 + event.scrollingDeltaY * 0.01, anchor: convert(event.locationInWindow, from: nil))
             return
         }
+        beginPanZoomInteraction()
         app.panOffset.x += event.scrollingDeltaX
         app.panOffset.y += event.scrollingDeltaY
         suppressBlurDuringInteraction()
@@ -4052,14 +4366,39 @@ final class CanvasNSView: NSView {
         dragMode = .marquee(startView: p, additive: shift)
     }
 
+    // MARK: Pixel snap
+    //
+    // Canvas gestures snap to WHOLE document pixels by default, so what you drag
+    // is what the inspector reads — no more fractional coordinates minted by
+    // dragging at odd zoom levels. ⌘ bypasses (the same modifier that already
+    // bypasses smart-guide snapping), and the inspector accepts typed fractional
+    // values (⌥-arrows step by 0.1) when sub-pixel placement is intentional.
+    // Smart guides run AFTER pixel snap, so exact edge alignment always wins.
+
+    private func pxSnap(_ v: CGFloat) -> CGFloat { v.rounded() }
+    private func pxSnap(_ p: CGPoint) -> CGPoint {
+        CGPoint(x: p.x.rounded(), y: p.y.rounded())
+    }
+    /// Snap a rect by its EDGES, so the far edge lands on the pixel the cursor
+    /// indicated (rounding origin and size independently can drift the far edge).
+    /// Size floors at 1 — the same minimum the inspector clamps to.
+    private func pxSnapRect(_ r: CGRect) -> CGRect {
+        let x0 = r.minX.rounded(), y0 = r.minY.rounded()
+        return CGRect(x: x0, y: y0,
+                      width: Swift.max(1, r.maxX.rounded() - x0),
+                      height: Swift.max(1, r.maxY.rounded() - y0))
+    }
+
     override func mouseDragged(with event: NSEvent) {
         let p = convert(event.locationInWindow, from: nil)
         lastMouse = p
         let shift = event.modifierFlags.contains(.shift)
+        let bypassSnap = event.modifierFlags.contains(.command)
 
         switch dragMode {
         case .hand:
             guard let app, let last = lastDragPoint else { return }
+            beginPanZoomInteraction()
             app.panOffset.x += p.x - last.x
             app.panOffset.y += p.y - last.y
             lastDragPoint = p
@@ -4067,10 +4406,12 @@ final class CanvasNSView: NSView {
             needsDisplay = true
 
         case .draw(let id, let originDoc):
-            let cur = viewToDoc(p)
+            var cur = viewToDoc(p)
+            var org = originDoc
+            if !bypassSnap { cur = pxSnap(cur); org = pxSnap(org) }
             updateNode(id) {
-                $0.frame = CGRect(x: min(originDoc.x, cur.x), y: min(originDoc.y, cur.y),
-                                  width: abs(cur.x - originDoc.x), height: abs(cur.y - originDoc.y))
+                $0.frame = CGRect(x: min(org.x, cur.x), y: min(org.y, cur.y),
+                                  width: abs(cur.x - org.x), height: abs(cur.y - org.y))
             }
             didEdit = true
             needsDisplay = true
@@ -4079,8 +4420,14 @@ final class CanvasNSView: NSView {
             let now = viewToDoc(p)
             var dx = now.x - startDoc.x, dy = now.y - startDoc.y
             if shift { if abs(dx) >= abs(dy) { dy = 0 } else { dx = 0 } }   // axis lock
-            // Snap the selection's edges/centers to guides + artboard edges (⌘ skips).
-            if !event.modifierFlags.contains(.command) {
+            // Pixel snap first, smart guides after (⌘ skips both): round where the
+            // selection's top-left-most origin lands, keeping relative offsets, then
+            // let guide/edge alignment override — exact alignment beats whole pixels.
+            if !bypassSnap {
+                let refX = origins.values.map(\.x).min() ?? 0
+                let refY = origins.values.map(\.y).min() ?? 0
+                dx = (refX + dx).rounded() - refX
+                dy = (refY + dy).rounded() - refY
                 (dx, dy) = snapNodeOffset(dx: dx, dy: dy, origins: origins)
             }
             for (id, origin0) in origins {
@@ -4113,7 +4460,7 @@ final class CanvasNSView: NSView {
                 if left || right { desiredFlipH = resizeFlipBaseline.h != crossedH }
                 if top || bottom { desiredFlipV = resizeFlipBaseline.v != crossedV }
             }
-            let frame: CGRect
+            var frame: CGRect
             if rot == 0 {
                 frame = shift ? Self.proportionalFrame(original, handle: handle, cursor: cur)
                               : Self.resizedFrame(original, handle: handle, cursor: cur)
@@ -4131,6 +4478,9 @@ final class CanvasNSView: NSView {
                 frame = newLocal.offsetBy(dx: worldBefore.x - worldAfter.x,
                                           dy: worldBefore.y - worldAfter.y)
             }
+            // Whole-pixel resize (un-rotated only — a rotated frame's edges don't
+            // sit on the pixel grid anyway). ⌘ bypasses.
+            if !bypassSnap && rot == 0 { frame = pxSnapRect(frame) }
             updateNode(id) { node in
                 // Resizing a text box makes it a fixed-width paragraph (so it wraps
                 // and keeps its width when the font changes), instead of hugging
@@ -4178,8 +4528,9 @@ final class CanvasNSView: NSView {
 
         case .resizeSelection(let handle, let original):
             let cur = viewToDoc(p)
-            let b1 = shift ? Self.proportionalFrame(original, handle: handle, cursor: cur)
+            var b1 = shift ? Self.proportionalFrame(original, handle: handle, cursor: cur)
                            : Self.resizedFrame(original, handle: handle, cursor: cur)
+            if !bypassSnap { b1 = pxSnapRect(b1) }   // whole-pixel selection bounds (⌘ bypasses)
             let sx = b1.width / max(1, original.width)
             let sy = b1.height / max(1, original.height)
             let anchor = Self.anchorPoint(handle, in: original)
@@ -4208,13 +4559,16 @@ final class CanvasNSView: NSView {
         case .drawLine(let id, let startDoc):
             var endDoc = viewToDoc(p)
             if shift { endDoc = constrainLineEndpoint(endDoc, from: startDoc) }   // 45° snap
-            setLine(id, aDoc: startDoc, bDoc: endDoc)
+            let a = bypassSnap ? startDoc : pxSnap(startDoc)
+            if !bypassSnap { endDoc = pxSnap(endDoc) }
+            setLine(id, aDoc: a, bDoc: endDoc)
             didEdit = true
             needsDisplay = true
 
         case .lineEndpoint(let id, let movingStart, let fixedDoc):
             var cur = viewToDoc(p)
             if shift { cur = constrainLineEndpoint(cur, from: fixedDoc) }   // 45° snap (incl. x/y axis)
+            if !bypassSnap { cur = pxSnap(cur) }
             setLine(id, aDoc: movingStart ? cur : fixedDoc, bDoc: movingStart ? fixedDoc : cur)
             didEdit = true
             needsDisplay = true
@@ -4224,6 +4578,11 @@ final class CanvasNSView: NSView {
             let now = viewToDoc(p)
             var dx = now.x - startDoc.x, dy = now.y - startDoc.y
             if shift { if abs(dx) >= abs(dy) { dy = 0 } else { dx = 0 } }   // axis lock
+            if !bypassSnap, let refX = boardOrigins.values.map(\.x).min(),
+               let refY = boardOrigins.values.map(\.y).min() {
+                dx = (refX + dx).rounded() - refX   // whole-pixel board landing (⌘ bypasses)
+                dy = (refY + dy).rounded() - refY
+            }
             for bi in document.model.artboards.indices {
                 if let o = boardOrigins[document.model.artboards[bi].id] {
                     document.model.artboards[bi].frame.origin = CGPoint(x: o.x + dx, y: o.y + dy)
@@ -4238,18 +4597,21 @@ final class CanvasNSView: NSView {
         case .resizeArtboard(let id, let handle, let original):
             guard let document, let i = document.model.artboards.firstIndex(where: { $0.id == id }) else { return }
             let cur = viewToDoc(p)
-            document.model.artboards[i].frame = shift
+            var boardFrame = shift
                 ? Self.proportionalFrame(original, handle: handle, cursor: cur)
                 : Self.resizedFrame(original, handle: handle, cursor: cur)
+            if !bypassSnap { boardFrame = pxSnapRect(boardFrame) }
+            document.model.artboards[i].frame = boardFrame
             didEdit = true
             needsDisplay = true
 
         case .resizeSource(let handle, let original):
             guard let document, let si = sourceIndex else { return }
             let cur = viewToDoc(p)
-            let newRect = shift
+            var newRect = shift
                 ? Self.proportionalFrame(original, handle: handle, cursor: cur)
                 : Self.resizedFrame(original, handle: handle, cursor: cur)
+            if !bypassSnap { newRect = pxSnapRect(newRect) }
             document.model.sources[si].origin = newRect.origin
             document.model.sources[si].size = newRect.size
             didEdit = true
@@ -4397,7 +4759,7 @@ final class CanvasNSView: NSView {
     private func placeTextNode(at viewPoint: CGPoint) {
         guard let app, let document else { return }
         textEditBaseline = document.model
-        let origin = viewToDoc(viewPoint)
+        let origin = pxSnap(viewToDoc(viewPoint))   // whole-pixel text placement
         let content = TextContent(string: "", fontSize: 16, color: .black)
         let size = content.measuredSize()   // placeholder box (font-aware)
         let node = Node(name: "Text",
@@ -4422,7 +4784,7 @@ final class CanvasNSView: NSView {
                               width: abs(end.x - start.x), height: abs(end.y - start.y))
         var content = TextContent(string: "", fontSize: 16, color: .black)
         content.box = .fixed
-        let node = Node(name: "Text", frame: viewToDoc(viewRect), content: .text(content))
+        let node = Node(name: "Text", frame: pxSnapRect(viewToDoc(viewRect)), content: .text(content))
         withNodes { $0.append(node) }
         app.selectedArtboardID = nil
         app.selectedNodeIDs = [node.id]

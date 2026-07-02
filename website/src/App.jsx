@@ -151,6 +151,11 @@ function Hero() {
       </div>
       <div className="hero-stage" aria-label="EXP product preview">
         <ProductWindow />
+        <div className="hero-platform" aria-label="macOS only, native Mac app">
+          <i className="ph ph-desktop" aria-hidden="true" />
+          <span>macOS only</span>
+          <small>native Mac app</small>
+        </div>
         <div className="stage-callout callout-one glass-medium">
           <span>canvas first</span>
           <strong>the work stays centered.</strong>

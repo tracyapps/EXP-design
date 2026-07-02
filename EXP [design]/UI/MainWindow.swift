@@ -2440,7 +2440,11 @@ private struct DimField: View {
             Text(label)
                 .foregroundStyle(EXPColor.textSecondary)
                 .frame(width: 14, alignment: .leading)
-            TextField(label, value: $value, format: .number.precision(.fractionLength(0)))
+            // Up to 2 decimals, shown only when the value actually has them — the
+            // field tells the truth about sub-pixel positions instead of rounding
+            // to a whole number (canvas drags snap to whole pixels by default, so
+            // fractions are rare and deliberate). Typing "10.5" now sticks as 10.5.
+            TextField(label, value: $value, format: .number.precision(.fractionLength(0...2)))
                 .labelsHidden()
                 .textFieldStyle(.exp)
                 .multilineTextAlignment(.trailing)

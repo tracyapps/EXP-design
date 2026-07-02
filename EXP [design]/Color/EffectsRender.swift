@@ -61,12 +61,27 @@ enum EffectsRender {
 
     /// Drop shadow. `caster` draws the silhouette (or content) that throws the
     /// shadow; it is covered by the real node afterward.
-    static func drawDropShadow(_ e: Effect, scale: CGFloat, in ctx: CGContext, caster: () -> Void) {
+    ///
+    /// `castBounds` (the caster's bounding box, same space as the ctx) matters
+    /// enormously: a transparency layer allocates its buffer at the CURRENT CLIP
+    /// size. Without a clip that's the whole canvas — one full-canvas alloc +
+    /// clear + composite PER SHADOWED NODE, which is what made rendering into an
+    /// unclipped offscreen bitmap take seconds. Clipping to the caster + blur +
+    /// offset bounds the buffer to the node's own footprint; the shadow cannot
+    /// paint outside that region anyway, so the result is pixel-identical.
+    static func drawDropShadow(_ e: Effect, scale: CGFloat, in ctx: CGContext,
+                               castBounds: CGRect? = nil, caster: () -> Void) {
         guard e.isEnabled, e.kind == .dropShadow else { return }
         ctx.saveGState()
         // Flipped (y-down) context: negate the height so +Y reads as *down*,
         // matching CSS `box-shadow` offset-y. (+X = right is already correct.)
         let blurPx = min(max(0, e.blur * scale), maxShadowBlurPx)
+        if let b = castBounds {
+            // Everything the shadow can reach: caster bounds grown by the blur
+            // radius and the offset, plus a small pad for antialiasing fringe.
+            let pad = blurPx + (abs(e.dx) + abs(e.dy)) * scale + 8
+            ctx.clip(to: b.insetBy(dx: -pad, dy: -pad))
+        }
         ctx.setShadow(offset: CGSize(width: e.dx * scale, height: -e.dy * scale),
                       blur: blurPx,
                       color: PaintRender.nsColor(e.color).cgColor)
