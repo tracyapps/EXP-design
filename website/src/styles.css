@@ -337,6 +337,7 @@ main {
 }
 
 .product-story,
+.workspace-section,
 .features-section,
 .guide-section,
 .roadmap-section,
@@ -407,6 +408,72 @@ main {
 .pin-a { left: 6%; top: 30%; }
 .pin-b { left: 44%; top: 54%; color: var(--brand-lime); }
 .pin-c { right: 10%; top: 22%; }
+
+.workspace-section {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.74fr) minmax(420px, 1.26fr);
+  gap: clamp(30px, 6vw, 86px);
+  align-items: center;
+  padding: 24px 0 112px;
+}
+
+.workspace-copy {
+  max-width: 610px;
+}
+
+.workspace-points {
+  display: grid;
+  gap: 0;
+  margin: 30px 0 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--hairline);
+}
+
+.workspace-points li {
+  display: grid;
+  grid-template-columns: minmax(140px, 0.48fr) 1fr;
+  gap: 18px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.workspace-points strong {
+  color: var(--text-primary);
+  font-size: var(--t-base);
+  font-weight: var(--w-medium);
+}
+
+.workspace-points span {
+  color: var(--text-secondary);
+  font-size: var(--t-small);
+  line-height: 1.45;
+}
+
+.workspace-visual {
+  margin: 0;
+  overflow: hidden;
+  border-radius: 16px;
+  padding: clamp(10px, 1.5vw, 16px);
+  background:
+    radial-gradient(circle at 78% 18%, color-mix(in srgb, var(--brand-lime) 20%, transparent), transparent 22rem),
+    var(--surface-card);
+}
+
+.workspace-visual img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1530 / 1045;
+  object-fit: contain;
+  border-radius: 10px;
+}
+
+.workspace-visual figcaption {
+  margin-top: 10px;
+  color: var(--text-tertiary);
+  font-size: var(--t-small);
+  line-height: 1.4;
+}
 
 .features-section {
   padding: 64px 0 112px;
@@ -776,6 +843,7 @@ code {
 
   .hero-section,
   .product-story,
+  .workspace-section,
   .feature-stage,
   .guide-section,
   .roadmap-header,
@@ -815,6 +883,10 @@ code {
 
   .story-rail {
     min-height: 260px;
+  }
+
+  .workspace-section {
+    padding-top: 12px;
   }
 }
 
@@ -860,6 +932,18 @@ code {
   .feature-lens {
     width: 64px;
     height: 64px;
+  }
+
+  .workspace-points li {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .workspace-visual {
+    width: calc(100% + 20px);
+    margin-left: -10px;
+    border-radius: 10px;
+    padding: 8px;
   }
 
   .guide-row {

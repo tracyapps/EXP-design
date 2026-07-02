@@ -186,6 +186,43 @@ function ProductStory() {
   );
 }
 
+function WorkspaceCallout() {
+  return (
+    <section id="workspace" className="workspace-section" aria-labelledby="workspace-title">
+      <div className="workspace-copy section-copy">
+        <p className="section-label">multi-window mode</p>
+        <h2 id="workspace-title">you've got the space. who are we to tell you how to use it?</h2>
+        <p>
+          when your desk has real display real estate, EXP lets the app breathe:
+          keep the canvas wide open, move panels to another monitor, and stop
+          treating a vertical screen like an expensive sidebar.
+        </p>
+        <ul className="workspace-points" aria-label="multi-window workspace benefits">
+          <li>
+            <strong>canvas where the work is</strong>
+            <span>give the wall the big display and keep artboards in view.</span>
+          </li>
+          <li>
+            <strong>panels where they belong</strong>
+            <span>layers, components, and properties can live on their own screen.</span>
+          </li>
+          <li>
+            <strong>no forced tab shuffle</strong>
+            <span>open the tools you need side by side, as the design gods intended.</span>
+          </li>
+        </ul>
+      </div>
+      <figure className="workspace-visual glass-medium glass-edge">
+        <img
+          src="/assets/exp-multi-monitor-workspace.png"
+          alt="EXP design shown across two monitors, with the canvas on a wide display and detached panels on a vertical display"
+        />
+        <figcaption>canvas on the big display. palettes on the vertical one. finally.</figcaption>
+      </figure>
+    </section>
+  );
+}
+
 function FeatureStory() {
   const [active, setActive] = useState(featureMoments[0].id);
   const selected = featureMoments.find((feature) => feature.id === active) ?? featureMoments[0];
@@ -426,6 +463,7 @@ export default function App() {
       <main>
         <Hero />
         <ProductStory />
+        <WorkspaceCallout />
         <FeatureStory />
         <FieldGuide />
         <Roadmap />

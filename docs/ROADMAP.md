@@ -926,6 +926,16 @@ font import → Phase 9, shadows → Phase 10._
 ## Progress Log
 _Newest entry on top. Update every session._
 
+- **2026-07-02 — Session 160 (website multi-monitor callout):**
+  Added a new public-site feature callout for **Multi-window mode**, using the
+  supplied multi-monitor mockup as a website asset
+  (`website/public/assets/exp-multi-monitor-workspace.png`). The section sits
+  between the product story and existing feature tabs, with copy focused on
+  letting the canvas and panels spread across real monitor setups instead of
+  replacing any current content. **Verified:** `npm run build` passes; Playwright
+  desktop/mobile layout checks confirm the image loads at native size and there
+  is no horizontal overflow.
+
 - **2026-06-30 — Session 157 (In-app feedback reporter — FEAT-003):**
   Built `UI/Feedback.swift`: Help ▸ **Send Feedback** (⇧⌘/) opens a native sheet (dogfoods
   EXPSegmented Bug/Idea + `.exp` field + `.exp` buttons). Auto-captures PII-free CONTEXT
