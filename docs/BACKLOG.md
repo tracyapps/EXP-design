@@ -52,7 +52,13 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: bug
 - Priority: P1
 - Area: inspector · chrome
-- Status: open
+- Status: needs-verify (Session 162f — `NumericStepping.onKeyPress` now defers
+  the binding write one runloop tick via `DispatchQueue.main.async`, moving the
+  model mutation outside SwiftUI's update pass. Step sizes, ⇧/⌥ modifiers,
+  key-repeat acceleration, and undo unchanged. IF a warning flood still appears
+  at LAUNCH (without touching the inspector), that's a second site — hunt it
+  with a symbolic breakpoint on the warning; window restoration writing to
+  AppState during body evaluation is the suspect.)
 - Repro/Detail: Owner isolated it (2026-07-02): using the KEYBOARD arrows to
   increase/decrease values in inspector fields fires the warning; it also
   floods ~40× at app launch. Session 124-era mystery, now reproducible.
@@ -139,7 +145,12 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: perf · feature
 - Priority: P2
 - Area: canvas · perf
-- Status: open
+- Status: needs-verify (Session 162 — implemented as the per-gesture TRUE/FAST
+  decision in `CanvasNSView.shouldTrueCompositeDrag`: dragged subtree uses a
+  non-normal blend mode AND `fullFrameEMA` (always-on rolling full-render cost)
+  fits the budget from the user's performance mode → full live render for the
+  gesture; else fast blit. The cheaper "re-render only the ABOVE region" middle
+  option is NOT built — revisit if TRUE mode's budgets feel too conservative.)
 - Repro/Detail: With the Session 161i drag-overlay blit, a shape with a blend
   mode (difference/overlay/…) reads as its plain color against anything baked
   into the ABOVE snapshot layer while it's being moved — it only composites
@@ -162,7 +173,8 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: perf
 - Priority: P3
 - Area: canvas · perf
-- Status: open
+- Status: open (partial — halo size + settle delay are now user-tuned via
+  PERF-004; adaptive/directional halo and tiled snapshots still open)
 - Repro/Detail: 161j's 25% halo + containment recapture works, but long fast
   pans still hit periodic ~30–80ms recaptures, and the settle render redraws
   everything. Ideas queue: adaptive halo (grow toward pan direction/velocity),
@@ -175,7 +187,12 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: feature
 - Priority: P3
 - Area: chrome · perf
-- Status: open
+- Status: needs-verify (Session 162 — Settings ▸ Canvas ▸ Performance:
+  EXPSegmented "Speed focus / Balanced / Detail focus", persisted via the
+  synced-prefs pattern (`AppState.CanvasPerformanceMode`,
+  `exp.pref.performanceMode`). Drives: TRUE-drag budget 0/18/40ms, pan halo
+  0.15/0.25/0.40, settle delay 0.12/0.08/0.05s. A11y label + hint on the
+  control; plain-language footnote.)
 - Repro/Detail: Owner idea: a single friendly setting (Settings ▸ Canvas) —
   a slider or segmented control from "Speed focus" to "Design detail focus" —
   instead of Photoshop's raw memory-% dial. It would set the thresholds used
@@ -186,6 +203,47 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   user-facing control, and persist via the existing settings store.
 - Acceptance: moving the control observably trades drag/pan fidelity against
   frame cost, survives relaunch, is fully keyboard/VoiceOver accessible.
+
+### PERF-005 — Ruler pointer markers force a full canvas redraw per mouse move
+- Type: perf
+- Priority: P2
+- Area: canvas · perf
+- Status: open
+- Repro/Detail: With rulers shown, `mouseMoved` sets `needsDisplay = true` to
+  update the two accent pointer lines — a FULL scene render per mouse twitch.
+  On the image-heavy doc (frames ~60–80ms) this reads as constant sluggishness
+  even when nothing is being edited (visible in the 162c/d logs as repeated
+  frame lines a few per second while idle).
+- Hypothesis: the clean fix is a RETAINED last-frame snapshot: let the settle
+  render also capture the scene (the machinery exists — capturePanZoomSnapshot),
+  keep it while the transform + model are unchanged, and let ruler-marker /
+  hover-only updates blit it + redraw rulers/chrome. This generalizes the pan
+  blit into "idle repaints are blits," which also covers selection flashes.
+  Cheaper stopgap: draw pointer markers in an NSView overlay above the canvas
+  so marker moves never touch the canvas at all.
+- Acceptance: with rulers on, waving the mouse over a heavy doc produces no
+  full renders (Testing Mode shows no frame lines from pointer movement);
+  markers still track exactly.
+
+### FEAT-004 — Wider zoom-out range for "the wall is everything" workflows
+- Type: feature
+- Priority: P2
+- Area: canvas
+- Status: open
+- Repro/Detail: Owner's process spreads branding, color tests, archives, and
+  inspiration "miles" apart on the wall and zooms way out for the big picture.
+  `AppState.minZoom` is 5% (a pre-original-perf-work constant) — potentially
+  too tight for that. Owner suggestion: if a floor is still needed for
+  performance, tie it to the Speed↔Detail performance setting.
+- Hypothesis: lower `minZoom` to ~1% (0.01) and verify: extreme-zoom-out
+  full renders scale with total node count (culling can't help when all is
+  visible) but the pan/zoom blit covers gestures; check `rulerStep`,
+  `pxSnap` UX (1 screen px = 100 doc px at 1%), and the zoom slider's log
+  mapping still feel right. Only add a performance-mode-dependent floor if
+  measured frames actually justify one.
+- Acceptance: owner can zoom out far enough to see their whole wall on real
+  documents without the app feeling broken; zoom slider/field/menu items all
+  respect the new range.
 
 ## 🛠 Infrastructure
 

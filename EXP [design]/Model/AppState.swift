@@ -113,6 +113,10 @@ final class AppState {
            let bd = CanvasBackdrop(rawValue: raw) {
             sourceBackdrop = bd
         }
+        if let raw = d.string(forKey: AppPreferences.performanceMode),
+           let m = CanvasPerformanceMode(rawValue: raw) {
+            performanceMode = m
+        }
     }
 
     /// Forget the saved workspace layout (the Settings ▸ General reset button).
@@ -166,6 +170,10 @@ final class AppState {
         if let raw = d.string(forKey: AppPreferences.sourceBackdrop),
            let bd = CanvasBackdrop(rawValue: raw), bd != sourceBackdrop {
             sourceBackdrop = bd
+        }
+        if let raw = d.string(forKey: AppPreferences.performanceMode),
+           let m = CanvasPerformanceMode(rawValue: raw), m != performanceMode {
+            performanceMode = m
         }
     }
 
@@ -469,6 +477,55 @@ final class AppState {
     }
     var sourceBackdrop: CanvasBackdrop = .light {
         didSet { persistPref(AppPreferences.sourceBackdrop, sourceBackdrop.rawValue) }
+    }
+
+    /// The user's canvas performance stance (Settings ▸ Canvas ▸ Performance) —
+    /// one friendly dial instead of raw thresholds, because every designer
+    /// weighs speed vs. fidelity differently. Each case carries the tuning the
+    /// canvas reads: how expensive a document may be before a blend-mode drag
+    /// falls back from TRUE live compositing to the fast snapshot path, how
+    /// much extra pan snapshot is captured around the viewport, and how quickly
+    /// the full-quality settle render fires after motion stops.
+    enum CanvasPerformanceMode: String, CaseIterable, Identifiable, Sendable {
+        case speed, balanced, detail
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .speed:    return "Speed focus"
+            case .balanced: return "Balanced"
+            case .detail:   return "Detail focus"
+            }
+        }
+        /// Max recent full-frame cost (ms) at which a drag whose moving content
+        /// uses blend modes keeps TRUE live compositing (full render per tick)
+        /// instead of the fast snapshot composite. 0 = never (always fast).
+        var trueDragBudgetMs: Double {
+            switch self {
+            case .speed:    return 0
+            case .balanced: return 18   // ~55fps still achievable live
+            case .detail:   return 40   // accept ~25fps for correct compositing
+            }
+        }
+        /// Pan-snapshot halo — extra viewport fraction captured on every side
+        /// (bigger = fewer blank-edge recaptures, costlier captures).
+        var panHaloFraction: CGFloat {
+            switch self {
+            case .speed:    return 0.15
+            case .balanced: return 0.25
+            case .detail:   return 0.40
+            }
+        }
+        /// Delay after the last pan/zoom tick before the settle render.
+        var settleDelay: TimeInterval {
+            switch self {
+            case .speed:    return 0.12
+            case .balanced: return 0.08
+            case .detail:   return 0.05
+            }
+        }
+    }
+    var performanceMode: CanvasPerformanceMode = .balanced {
+        didSet { persistPref(AppPreferences.performanceMode, performanceMode.rawValue) }
     }
 
     // MARK: Selection (session state — not saved)

@@ -1982,8 +1982,9 @@ final class CanvasNSView: NSView {
     private var panZoomSnapshotOrigin: CGPoint = .zero  // region origin in capture view space
     /// Snapshot halo: capture this fraction of the viewport EXTRA on every side,
     /// so panning reveals real pre-rendered content instead of blank background.
-    /// 0.25 → a 1.5×1.5 viewport region (~2.25× capture cost, once per gesture).
-    private static let blitHaloFraction: CGFloat = 0.25
+    /// User-tunable via Settings ▸ Canvas ▸ Performance (speed 0.15 / balanced
+    /// 0.25 / detail 0.40 — bigger halo, fewer blank-edge recaptures).
+    private var blitHaloFraction: CGFloat { app?.performanceMode.panHaloFraction ?? 0.25 }
     private var panZoomBlitActive = false
     private var panZoomSettleTimer: Timer?
     /// Safety valve: if a capture ever blows the budget (below), stop trying for
@@ -1992,6 +1993,11 @@ final class CanvasNSView: NSView {
     // 0.4s: the halo makes captures ~2.25× a plain frame, and first-appearance
     // image mip decodes can spike one capture; the valve is for pathology only.
     private static let blitCaptureBudget: CFAbsoluteTime = 0.4   // seconds
+    /// Two-strike valve: ONE slow capture is usually cold caches (measured:
+    /// 500ms at launch, ~40ms warm on the same doc) and shouldn't bench the
+    /// blit for the whole run. A capture under budget clears the strike; two
+    /// consecutive slow ones mean the document really can't afford captures.
+    private var panZoomCaptureStrikes = 0
 
     /// Call at every pan/zoom tick, BEFORE mutating `app.zoom`/`app.panOffset`,
     /// so a first-tick capture renders exactly what's already on screen.
@@ -2029,9 +2035,9 @@ final class CanvasNSView: NSView {
         panZoomBlitActive = panZoomSnapshot != nil
         panZoomSettleTimer?.invalidate()
         // .common run-loop mode so the settle fires even while events stream in.
-        // 0.08s: with the halo covering slow pans, the settle only restores what's
-        // beyond it — fire promptly so full detail returns as soon as motion stops.
-        let timer = Timer(timeInterval: 0.08, repeats: false) { [weak self] _ in
+        // Delay is user-tuned (Settings ▸ Canvas ▸ Performance): with the halo
+        // covering slow pans, the settle only restores what's beyond it.
+        let timer = Timer(timeInterval: app.performanceMode.settleDelay, repeats: false) { [weak self] _ in
             guard let self else { return }
             self.panZoomBlitActive = false
             self.panZoomSnapshot = nil        // next gesture recaptures fresh
@@ -2048,15 +2054,20 @@ final class CanvasNSView: NSView {
     // the next fix targets the measured hotspot instead of a hypothesis.
     private var capturingSnapshot = false
     private var capShadowMs = 0.0, capImageMs = 0.0, capTextMs = 0.0
-    private var capShapeMs = 0.0, capBoardMs = 0.0
+    private var capShapeMs = 0.0, capBoardMs = 0.0, capLayerMs = 0.0
 
     /// One full scene render (no rulers) into the reusable offscreen backing,
     /// kept as a CGImage together with the transform it was rendered at.
     private func capturePanZoomSnapshot() {
         // Capture the viewport plus a halo on every side (see blitHaloFraction),
         // so slow pans reveal pre-rendered content, not blank background.
-        let halo = CGSize(width: bounds.width * Self.blitHaloFraction,
-                          height: bounds.height * Self.blitHaloFraction)
+        // AFTER A STRIKE, retry WITHOUT the halo: slow captures are usually the
+        // halo reaching into never-yet-rendered territory (cold text layouts +
+        // image decodes for content that's never been on screen) — a
+        // viewport-only capture costs ≈ one frame and keeps the blit alive.
+        let fraction = panZoomCaptureStrikes == 0 ? blitHaloFraction : 0
+        let halo = CGSize(width: bounds.width * fraction,
+                          height: bounds.height * fraction)
         let region = bounds.insetBy(dx: -halo.width, dy: -halo.height)
         guard let app, let cg = offscreenBacking(sizePt: region.size) else { return }
         let t0 = CFAbsoluteTimeGetCurrent()   // always timed — feeds the safety valve
@@ -2068,7 +2079,7 @@ final class CanvasNSView: NSView {
         let nsctx = NSGraphicsContext(cgContext: cg, flipped: true)
         capturingSnapshot = true
         capShadowMs = 0; capImageMs = 0; capTextMs = 0
-        capShapeMs = 0; capBoardMs = 0
+        capShapeMs = 0; capBoardMs = 0; capLayerMs = 0
         let tRender = CFAbsoluteTimeGetCurrent()
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = nsctx
@@ -2093,13 +2104,23 @@ final class CanvasNSView: NSView {
             perf.record("blit-text", ms: capTextMs)
             perf.record("blit-shapes", ms: capShapeMs)
             perf.record("blit-boards", ms: capBoardMs)
+            perf.record("blit-layers", ms: capLayerMs)   // opacity/blend transparency layers
         }
         if elapsed > Self.blitCaptureBudget {
-            // Too slow to ever repeat — use this snapshot for the current gesture,
-            // but fall back to live rendering for the rest of the run.
-            panZoomBlitDisabled = true
-            NSLog("⏱ [EXP perf] blit-capture took %.0fms (> %.0fms budget) — pan/zoom blit disabled for this run",
-                  elapsed * 1000, Self.blitCaptureBudget * 1000)
+            panZoomCaptureStrikes += 1
+            if panZoomCaptureStrikes >= 2 {
+                // Two consecutive slow captures — the document genuinely can't
+                // afford them. Use this snapshot for the current gesture, then
+                // fall back to live rendering for the rest of the run.
+                panZoomBlitDisabled = true
+                NSLog("⏱ [EXP perf] blit-capture took %.0fms (> %.0fms budget, 2nd strike) — pan/zoom blit disabled for this run",
+                      elapsed * 1000, Self.blitCaptureBudget * 1000)
+            } else {
+                NSLog("⏱ [EXP perf] blit-capture took %.0fms (> %.0fms budget) — likely cold caches, will retry next gesture",
+                      elapsed * 1000, Self.blitCaptureBudget * 1000)
+            }
+        } else {
+            panZoomCaptureStrikes = 0
         }
     }
 
@@ -2153,6 +2174,35 @@ final class CanvasNSView: NSView {
     private var dragBlitSize: CGSize = .zero
     private var dragBlitSkipIDs: Set<UUID> = []   // TOP-LEVEL ancestors of the dragged ids
     private var dragBlitUnsupported = false       // set when capture can't represent this gesture
+    // PERF-002 conditional fidelity (see drawDragBlit): decided once per gesture.
+    private var dragFidelityChecked = false
+    private var dragWantsTrueComposite = false
+    /// Frames drawn so far in the current drag. The first couple render LIVE
+    /// before the snapshot capture: a big edit right before a drag (duplicate,
+    /// paste) empties the text/image caches, and a cold capture measured ~284ms
+    /// (a felt beachball) versus ~2 frames warm. Two live 10–20ms ticks warm
+    /// the caches AND spare tiny nudge-drags from ever paying for a capture.
+    private var dragBlitTicks = 0
+
+    /// Should this drag keep TRUE live compositing? Yes when the user's
+    /// performance mode grants a budget, the recent full-frame cost fits it,
+    /// and the moving content actually uses a non-normal blend mode (plain
+    /// content composites correctly on the fast path anyway, so fidelity
+    /// spend would buy nothing).
+    private func shouldTrueCompositeDrag(_ ids: Set<UUID>) -> Bool {
+        guard let app else { return false }
+        let budget = app.performanceMode.trueDragBudgetMs
+        guard budget > 0 else { return false }                      // Speed focus
+        guard fullFrameEMA > 0, fullFrameEMA < budget else { return false }
+        func hasBlend(_ n: Node) -> Bool {
+            if n.blendMode != .normal { return true }
+            if case .group(let children) = n.content {
+                return children.contains(where: hasBlend)
+            }
+            return false
+        }
+        return ids.contains { id in node(id).map(hasBlend) ?? false }
+    }
 
     /// The node ids a drag gesture is actively mutating, or nil when the drag
     /// kind isn't node-shaped (marquee, hand, artboards, guides…).
@@ -2264,9 +2314,25 @@ final class CanvasNSView: NSView {
             // Not in a node drag: drop any leftover snapshot, re-arm for next time.
             if dragBlitBelow != nil { dragBlitBelow = nil; dragBlitAbove = nil; dragBlitSkipIDs = [] }
             dragBlitUnsupported = false
+            dragFidelityChecked = false
+            dragBlitTicks = 0
             return false
         }
         guard !dragBlitUnsupported else { return false }
+        // PERF-002 — conditional fidelity, decided ONCE per gesture: when the
+        // moving content carries blend modes (difference/overlay/…) it flattens
+        // against the ABOVE snapshot layer mid-drag. If the user's performance
+        // mode allows it and the document is currently cheap enough to render
+        // live, keep TRUE compositing for this whole gesture instead of the
+        // fast snapshot path.
+        if !dragFidelityChecked {
+            dragFidelityChecked = true
+            dragWantsTrueComposite = shouldTrueCompositeDrag(ids)
+        }
+        if dragWantsTrueComposite { return false }   // full live render per tick
+        // Warm-up: first two ticks render live (see dragBlitTicks).
+        dragBlitTicks += 1
+        if dragBlitTicks <= 2 { return false }
         // (Re)capture when this is the first tick or the view transform moved
         // (scroll-during-drag, window resize) — static pixels are transform-bound.
         if dragBlitBelow == nil || app.zoom != dragBlitZoom
@@ -2336,7 +2402,7 @@ final class CanvasNSView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         guard let app, let document else { return }
         perf.enabled = (app.testingMode == true)
-        let perfFrameT0 = perf.enabled ? CFAbsoluteTimeGetCurrent() : 0
+        let perfFrameT0 = CFAbsoluteTimeGetCurrent()   // always — feeds fullFrameEMA
         // Live pan/zoom: blit the cached gesture snapshot instead of re-rendering
         // the scene (see the "Pan/zoom bitmap blit" section above).
         if let ctx = NSGraphicsContext.current?.cgContext, drawPanZoomBlit(into: ctx) {
@@ -2386,7 +2452,16 @@ final class CanvasNSView: NSView {
             perf.record("frame", ms: (CFAbsoluteTimeGetCurrent() - perfFrameT0) * 1000)
             perf.flushIfNeeded()
         }
+        // Rolling FULL-render cost (only this path renders the whole scene).
+        // Feeds the PERF-002 drag-fidelity decision; EMA so one outlier frame
+        // doesn't flip the mode.
+        let frameMs = (CFAbsoluteTimeGetCurrent() - perfFrameT0) * 1000
+        fullFrameEMA = fullFrameEMA == 0 ? frameMs : fullFrameEMA * 0.8 + frameMs * 0.2
     }
+
+    /// Exponential moving average of a full scene render, in ms (0 = no sample
+    /// yet). Updated on every non-blit frame — cheap: two timestamps.
+    private var fullFrameEMA: Double = 0
 
     private func renderCanvas(into ctx: CGContext, includeRulers: Bool = true,
                               viewport: CGRect? = nil) {
@@ -3444,9 +3519,19 @@ final class CanvasNSView: NSView {
             ctx.clip(to: paintBoundsView(node, offset: offset))
             ctx.setAlpha(groupAlpha)
             ctx.setBlendMode(node.blendMode.cg)
+            let capT = capturingSnapshot ? CFAbsoluteTimeGetCurrent() : 0
             ctx.beginTransparencyLayer(auxiliaryInfo: nil)
+            if capT != 0 { capLayerMs += (CFAbsoluteTimeGetCurrent() - capT) * 1000 }
         }
-        defer { if usesLayer { ctx.endTransparencyLayer(); ctx.restoreGState() } }
+        defer {
+            if usesLayer {
+                // The composite cost lands at END — time it into blit-layers.
+                let capT = capturingSnapshot ? CFAbsoluteTimeGetCurrent() : 0
+                ctx.endTransparencyLayer()
+                if capT != 0 { capLayerMs += (CFAbsoluteTimeGetCurrent() - capT) * 1000 }
+                ctx.restoreGState()
+            }
+        }
 
         // Rotation (degrees, clockwise about the node's center). In our flipped
         // (y-down) context a positive CTM rotation reads clockwise on screen.
@@ -3839,23 +3924,91 @@ final class CanvasNSView: NSView {
         return cache
     }()
 
+    /// CGImage is an immutable, thread-safe CF object; the box just tells Swift
+    /// concurrency it may cross from the decode queue to the main actor.
+    private final class UncheckedBox<T>: @unchecked Sendable {
+        let value: T
+        init(_ value: T) { self.value = value }
+    }
+    private let imageDecodeQueue = DispatchQueue(label: "exp.image-decode",
+                                                 qos: .userInitiated,
+                                                 attributes: .concurrent)
+    private var imageDecodesInFlight: Set<String> = []   // main-thread only
+
     private func cgImage(for img: ImageContent, targetPx: CGFloat) -> CGImage? {
         // Power-of-two buckets so zooming doesn't mint a variant per pixel step.
         // ImageIO never upscales past the original, so oversized buckets are free.
         var bucket: CGFloat = 128
         while bucket < targetPx && bucket < 8192 { bucket *= 2 }
-        let key = "\(img.data.hashValue)-\(Int(bucket))" as NSString
+        let keyString = "\(img.data.hashValue)-\(Int(bucket))"
+        let key = keyString as NSString
         if let hit = imageCache.object(forKey: key) { return hit }
-        guard let src = CGImageSourceCreateWithData(img.data as CFData, nil) else { return nil }
+
+        // Nearest ALREADY-CACHED bucket (larger first — stays sharp; then smaller
+        // — briefly soft). If one exists, draw it NOW and decode the right bucket
+        // in the background: zoom-crossing re-decodes measured 46–248ms on the
+        // main thread (blit-images spikes) — the dominant remaining stall on
+        // image-heavy documents. A soft frame beats a frozen one.
+        var fallback: CGImage?
+        var b = bucket * 2
+        while b <= 8192, fallback == nil {
+            fallback = imageCache.object(forKey: "\(img.data.hashValue)-\(Int(b))" as NSString)
+            b *= 2
+        }
+        b = bucket / 2
+        while b >= 128, fallback == nil {
+            fallback = imageCache.object(forKey: "\(img.data.hashValue)-\(Int(b))" as NSString)
+            b /= 2
+        }
+
+        if fallback == nil {
+            // First-ever appearance (nothing cached at any size). Decoding the
+            // FULL bucket here measured 43–200ms per image when panning into
+            // fresh territory — so decode only a small placeholder now (a few
+            // ms even for huge photos; never blank), and let the async path
+            // below fetch the real size.
+            let placeholderPx: CGFloat = 256
+            if bucket <= placeholderPx {
+                guard let cg = Self.decodeImage(img.data, maxPx: bucket) else { return nil }
+                imageCache.setObject(cg, forKey: key, cost: cg.bytesPerRow * cg.height)
+                return cg
+            }
+            guard let small = Self.decodeImage(img.data, maxPx: placeholderPx) else { return nil }
+            let smallKey = "\(img.data.hashValue)-\(Int(placeholderPx))" as NSString
+            imageCache.setObject(small, forKey: smallKey, cost: small.bytesPerRow * small.height)
+            fallback = small
+        }
+
+        if !imageDecodesInFlight.contains(keyString) {
+            imageDecodesInFlight.insert(keyString)
+            let data = img.data
+            imageDecodeQueue.async {
+                let boxed = Self.decodeImage(data, maxPx: bucket).map(UncheckedBox.init)
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.imageDecodesInFlight.remove(keyString)
+                    if let boxed {
+                        self.imageCache.setObject(boxed.value, forKey: keyString as NSString,
+                                                  cost: boxed.value.bytesPerRow * boxed.value.height)
+                        self.needsDisplay = true   // redraw sharp once it lands
+                    }
+                }
+            }
+        }
+        return fallback
+    }
+
+    /// One ImageIO thumbnail decode — pure function, safe off the main thread
+    /// (each call builds its own CGImageSource).
+    private nonisolated static func decodeImage(_ data: Data, maxPx: CGFloat) -> CGImage? {
+        guard let src = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
         let opts: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceThumbnailMaxPixelSize: bucket,
+            kCGImageSourceThumbnailMaxPixelSize: maxPx,
             kCGImageSourceCreateThumbnailWithTransform: true,   // honor EXIF orientation
             kCGImageSourceShouldCacheImmediately: true          // decode NOW, once
         ]
-        guard let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary) else { return nil }
-        imageCache.setObject(cg, forKey: key, cost: cg.bytesPerRow * cg.height)
-        return cg
+        return CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary)
     }
 
     // Text layout cache: building an NSTextStorage + NSLayoutManager +

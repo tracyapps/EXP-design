@@ -926,6 +926,138 @@ font import → Phase 9, shadows → Phase 10._
 ## Progress Log
 _Newest entry on top. Update every session._
 
+- **2026-07-02 — Session 162f (BUG-002 squashed — deferred stepper writes):**
+  The "Publishing changes from within view updates" warning (owner-isolated
+  repro: holding ↑/↓ on inspector fields). `NumericStepping.onKeyPress` wrote
+  the bound value synchronously inside SwiftUI's key-event update pass — every
+  key repeat mutated the document's @Published model mid-update. Fix: compute
+  the stepped value in the handler, write it via `DispatchQueue.main.async`
+  (one tick later, outside the update). Behavior identical: ±1 / ⇧±10 / ⌥±0.1,
+  acceleration every 5 repeats, float-drift rounding, undo granularity.
+  **Needs owner test:** hold ↑ on X/Y/W/H, rotation, opacity, gap, zoom fields
+  — values step smoothly, console stays SILENT. If a flood still appears at
+  app LAUNCH without touching the inspector, that's a second site (see the
+  BUG-002 entry for the breakpoint hunt).
+
+- **2026-07-02 — Session 162e (first-appearance image placeholder + zoom-range triage):**
+  Latest log: pan/zoom blit fully healthy (frame(blit) 0.4–0.8ms, zero
+  strikes). Remaining blit-images spikes (43–200ms) are FIRST-APPEARANCE
+  synchronous decodes — panning into territory where an image was never
+  decoded at any size. Fix: first appearance now decodes only a 256px
+  placeholder synchronously (a few ms, never blank) and the real bucket
+  arrives via the async path; placeholder is stored under its own 256 bucket
+  key so future lookups reuse it. Also: owner flagged the 5% `minZoom` floor
+  as potentially cramping their spread-out wall workflow — filed FEAT-004
+  (lower to ~1%, verify, only gate on the performance mode if measurements
+  demand it). NOTE for next log: image spikes should now cap at ~placeholder
+  cost; if 100ms+ spikes persist, verify the 162d/e build actually ran.
+  **Needs owner test:** pan into fresh image-heavy areas — images appear
+  soft-then-sharp with no stall; doc open still shows images immediately.
+
+- **2026-07-02 — Session 162d (bucket verdict: images, not layers — async mip decode):**
+  The blit-layers bucket ACQUITTED the group layers (1.8–6ms). The convict:
+  **blit-images spiking 46–248ms** — every zoom crossing a power-of-two mip
+  bucket re-decoded each large photo SYNCHRONOUSLY on the main thread. Fix in
+  `cgImage(for:targetPx:)`: when the wanted bucket isn't cached, draw the
+  nearest ALREADY-CACHED bucket now (larger first — sharp; else smaller —
+  briefly soft) and decode the right bucket on a background queue
+  (`imageDecodeQueue`, in-flight de-dupe, `UncheckedBox` to move the immutable
+  CGImage across actors, needsDisplay on completion). First-ever appearance
+  still decodes synchronously so images never pop in blank on document open.
+  `Self.decodeImage` is nonisolated static (fresh CGImageSource per call —
+  thread-safe).
+  Also identified from the idle frame cadence: **rulers force a full ~80ms
+  render per mouse move** on heavy docs — filed as PERF-005 with the
+  retained-snapshot design (settle render doubles as a reusable last-frame
+  snapshot; idle repaints become blits) + a cheap overlay-view stopgap.
+  **Needs owner test on the image doc:** pinch-zoom through several levels —
+  photos may go briefly soft but NO stalls (blit-images should stay single
+  digits; captures under budget); confirm no blank images on document open.
+
+- **2026-07-02 — Session 162c (two-doc comparison: bg-blur migration + cold-halo retry + layer forensics):**
+  Owner tested two documents to rule out doc-specific weirdness. Readings:
+  **Doc 1 (1,724 nodes):** frames 13–25ms — healthy. But BOTH pan-capture
+  strikes burned at launch (860ms, 589ms → blit disabled). Diagnosis: the
+  halo reaches into never-yet-rendered territory, paying first-ever text
+  layouts/image decodes for off-screen content — so early captures stay slow
+  until the doc has been toured. Fix: **after a strike, the retry capture
+  drops the halo** (viewport-only ≈ one frame); only if THAT also blows the
+  budget does the valve disable.
+  **Doc 2 (476 nodes, the original image doc):** the real "waiting" — frames
+  sustained at ~80ms with only 360 drawn, and capture buckets again show
+  ~55ms UNACCOUNTED (blit-render 81ms vs ~25ms bucketed). Prime suspect:
+  the remaining opacity/blend transparency layers on big semi-transparent
+  GROUPS (bounded since 161g, but a screen-sized group still buys a
+  screen-sized buffer per frame). Added a **blit-layers** bucket timing
+  begin/endTransparencyLayer during capture — the next log names the cost
+  instead of guessing (the 161-series lesson).
+  **Bg-blur abandoned (owner decision):** documents now MIGRATE ON OPEN —
+  `ExpDocument.init(configuration:)` strips every backgroundBlur effect
+  (top-level nodes, nested groups, component sources); saves clean on next
+  edit. The picker's legacy "Bg Blur (off)" entry stays for unsaved docs.
+  **Needs owner test:** (1) reopen the old image doc — effects lists show no
+  Bg Blur rows, no picker console spam; (2) doc-1 launch: expect at most one
+  "will retry" line and the blit STAYING enabled; (3) doc-2: one pan in
+  Testing Mode → send the blit-* line — if blit-layers ≈ 50ms we build the
+  group-layer fix next (candidates: cache group composites, or skip the layer
+  for groups whose children provably don't overlap).
+
+- **2026-07-02 — Session 162b (drag-capture warm-up + two-strike valve + legacy picker):**
+  Owner's 884→1724-node stress log diagnosed three things:
+  1. **Drag beachball found:** `dragblit-capture 284ms` (vs 9–20ms frames) —
+     cold caches: a bulk duplicate right before the drag empties the text/image
+     caches and the first capture repays them all. Fix: **warm-up ticks** — the
+     first two drag frames render live (10–20ms each, imperceptible, and they
+     warm the caches), the capture happens on tick 3. Tiny nudge-drags now
+     never pay for a capture at all.
+  2. **Pan valve was one-and-done:** the single cold 500ms capture at launch
+     benched the blit for the whole run even though warm captures were ~40ms.
+     Now a **two-strike** valve: one slow capture logs "will retry next
+     gesture"; only two consecutive slow captures disable; a fast capture
+     clears the strike.
+  3. **Legacy Bg Blur picker warning** ("selection backgroundBlur is invalid"):
+     the effect-kind Picker now includes a "Bg Blur (off)" tag ONLY while a
+     legacy effect holds that value — old docs stop tripping AppKit, adding new
+     bg-blur stays impossible.
+  Also confirmed from the log: frames 20–24ms with ALL 1,724 nodes drawn (no
+  culling) — the base renderer holds up; snap scan at 449 candidates cost
+  ~3ms/tick (fine, watch at 5k+ nodes).
+  **Needs owner test:** repeat the duplicate-then-drag stress — expect two
+  ordinary frames then `dragblit-capture` ≈ 2 frames and 1–3ms `frame(drag)`;
+  the launch log may show one "will retry" line but pan blit should stay
+  enabled; the old doc's effect row shows "Bg Blur (off)" with no console spam.
+
+- **2026-07-02 — Session 162 (PERF-002 + PERF-004: conditional fidelity + the user dial):**
+  Owner prioritized the user-controlled performance setting ("every designer
+  works differently"). Built both halves as one feature:
+  **Engine (PERF-002):** `fullFrameEMA` — an always-on rolling cost of a full
+  scene render (two timestamps per frame, EMA so outliers don't flip modes).
+  At each drag gesture's FIRST tick, `shouldTrueCompositeDrag` decides once:
+  if the dragged subtree contains any non-normal blend mode AND the EMA fits
+  the mode's budget, the whole gesture uses TRUE live compositing (full render
+  per tick — difference/overlay shapes keep their real look while moving);
+  otherwise the fast below/above snapshot blit. Plain-content drags always take
+  the fast path (fidelity spend would buy nothing — they already composite
+  correctly against the BELOW layer).
+  **Dial (PERF-004):** Settings ▸ Canvas ▸ **Performance** — EXPSegmented
+  "Speed focus / Balanced / Detail focus" (design-system control, a11y label +
+  hint, plain-language footnote), persisted through the existing synced-prefs
+  pattern as `AppState.CanvasPerformanceMode` (`exp.pref.performanceMode`,
+  default balanced). Per mode: TRUE-drag budget 0 / 18 / 40 ms, pan-snapshot
+  halo 0.15 / 0.25 / 0.40, settle delay 0.12 / 0.08 / 0.05 s. Files:
+  AppState.swift (enum + synced pref), SettingsWindow.swift (key + pane group),
+  CanvasView.swift (EMA + decision + halo/settle now read the mode). No new
+  files; AppState/SettingsWindow are app-target only, no EXPThumbnail risk.
+  **Needs owner verification:** (1) Settings shows the new group; switching
+  survives relaunch and other open windows follow (synced prefs). (2) On a
+  small doc, set Detail focus, give a shape "difference", drag it across
+  content — it should KEEP its difference look while moving; same drag under
+  Speed focus flattens until mouseUp (expected). (3) On the big stress doc,
+  Detail focus must not beachball — if frames are slow the engine silently
+  falls back to fast. (4) Testing Mode: `frame(drag)` lines disappear during
+  TRUE-composite drags (full `frame` lines instead) — that's the tell for
+  which mode a gesture chose.
+
 - **2026-07-02 — Session 161m (triage: post-phase queue set):**
   Owner isolated the "Publishing changes from within view updates" warning:
   it fires when ARROW-STEPPING inspector values — `NumericStepping.onKeyPress`

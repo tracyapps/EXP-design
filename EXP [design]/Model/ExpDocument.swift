@@ -74,7 +74,30 @@ final class ExpDocument: ReferenceFileDocument {
         guard let data = configuration.file.regularFileContents else {
             throw CocoaError(.fileReadCorruptFile)
         }
-        model = try JSONDecoder().decode(Document.self, from: data)
+        var decoded = try JSONDecoder().decode(Document.self, from: data)
+        Self.stripBackgroundBlurEffects(&decoded)
+        model = decoded
+    }
+
+    /// MIGRATION (2026-07-02): background blur was disabled for performance in
+    /// Session 125 and abandoned for now (owner decision, Session 162c). A
+    /// legacy effect never renders, but it lingers in the inspector, trips
+    /// AppKit's picker validation, and muddies performance testing — so strip
+    /// it from every layer (including component sources) when a document
+    /// opens. The document saves clean on its next edit. If background blur
+    /// ever returns, remove this and re-add the picker option.
+    private static func stripBackgroundBlurEffects(_ doc: inout Document) {
+        func strip(_ nodes: inout [Node]) {
+            for i in nodes.indices {
+                nodes[i].effects.removeAll { $0.kind == .backgroundBlur }
+                if case .group(var children) = nodes[i].content {
+                    strip(&children)
+					nodes[i].content = .group(children: children)
+                }
+            }
+        }
+        strip(&doc.nodes)
+        for i in doc.sources.indices { strip(&doc.sources[i].children) }
     }
 
     // MARK: Save

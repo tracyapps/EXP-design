@@ -34,6 +34,7 @@ enum AppPreferences {
     static let textBoxTrim         = "exp.pref.textBoxTrim"          // String, default "capBaseline"
     static let sourceBackdrop      = "exp.pref.sourceBackdrop"       // String (CanvasBackdrop raw), default "light"
     static let accentOverride      = "exp.pref.accentOverride"      // String "#RRGGBB"; ABSENT = follow macOS system accent (default)
+    static let performanceMode     = "exp.pref.performanceMode"     // String (CanvasPerformanceMode raw), default "balanced"
 
     // Defaults (kept next to the keys so AppState and Settings agree).
     static let defaultSmartGuides         = true
@@ -43,6 +44,7 @@ enum AppPreferences {
     static let defaultGridSubdivisions    = 2
     static let defaultRestoreLayout       = true
     static let defaultTextBoxTrim         = "capBaseline"
+    static let defaultPerformanceMode     = "balanced"
 }
 
 // MARK: - Pane catalogue (add a case + a view to grow Settings)
@@ -169,9 +171,32 @@ private struct CanvasSettingsPane: View {
         AppPreferences.defaultGridSize
     @AppStorage(AppPreferences.gridSubdivisions) private var gridSubdivisions =
         AppPreferences.defaultGridSubdivisions
+    @AppStorage(AppPreferences.performanceMode) private var performanceModeRaw =
+        AppPreferences.defaultPerformanceMode
+
+    /// Typed bridge over the stored raw string (falls back to Balanced).
+    private var performanceMode: Binding<AppState.CanvasPerformanceMode> {
+        Binding(
+            get: { AppState.CanvasPerformanceMode(rawValue: performanceModeRaw) ?? .balanced },
+            set: { performanceModeRaw = $0.rawValue }
+        )
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
+            SettingsGroup("Performance",
+                          footnote: "Speed focus always uses the fastest drawing while you pan and move things. Design detail keeps blend modes and transparency true to their final look while you drag — as long as the document stays quick enough. Balanced switches automatically.") {
+                LabeledContent("While editing, favor") {
+                    EXPSegmented(selection: performanceMode, segments:
+                        AppState.CanvasPerformanceMode.allCases.map {
+                            .init(value: $0, label: $0.label)
+                        })
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Canvas performance focus")
+                .accessibilityHint("Chooses whether moving and panning favor speed or faithful blend-mode rendering.")
+            }
+
             SettingsGroup("Guides & Selection",
                           footnote: "These set the defaults for new windows. The View menu still toggles them per window.") {
                 Toggle("Smart guides (snap to other elements\u{2019} edges & centres)", isOn: $smartGuides)

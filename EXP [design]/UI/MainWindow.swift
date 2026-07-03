@@ -1618,9 +1618,15 @@ struct RightPanel: View {
                 Picker("", selection: effectKindBinding(idx)) {
                     Text("Drop").tag(Effect.Kind.dropShadow)
                     Text("Inner").tag(Effect.Kind.innerShadow)
-                    // "Bg Blur" tag removed — effect disabled for performance. A
-                    // legacy blur effect shows no selection here and can be switched
-                    // to Drop/Inner; it does not render.
+                    // Bg Blur can't be ADDED (disabled for performance — see
+                    // CanvasNSView.backgroundBlurEnabled), but a LEGACY effect in
+                    // an old document must still be a valid selection, or AppKit
+                    // logs 'selection "backgroundBlur" is invalid' and the picker
+                    // misbehaves. Shown only while that legacy value is selected;
+                    // switching to Drop/Inner makes it disappear from the menu.
+                    if effect.kind == .backgroundBlur {
+                        Text("Bg Blur (off)").tag(Effect.Kind.backgroundBlur)
+                    }
                 }.labelsHidden().frame(width: 84)
                 // Background blur has no color/offset — it samples what's behind it.
                 if effect.kind != .backgroundBlur {
@@ -2526,7 +2532,17 @@ private struct NumericStepping: ViewModifier {
             var next = value + dir * base * accel
             if let m = min { next = Swift.max(m, next) }
             if let m = max { next = Swift.min(m, next) }
-            value = (next * 1000).rounded() / 1000     // avoid float drift
+            let stepped = (next * 1000).rounded() / 1000   // avoid float drift
+            // BUG-002: this handler runs inside SwiftUI's key-event update pass,
+            // and writing straight through the binding mutates the document's
+            // @Published model mid-update — the "Publishing changes from within
+            // view updates is not allowed" warning, flooding once per repeat
+            // while a key is held. Deferring the write one runloop tick moves
+            // the model mutation outside the update. Step sizes (±1, ⇧±10,
+            // ⌥±0.1), key-repeat acceleration, and undo behavior are unchanged;
+            // `value` is a Binding (a value type), so the copy captured here
+            // still writes through to the live model.
+            DispatchQueue.main.async { value = stepped }
             return .handled
         }
     }
