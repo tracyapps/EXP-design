@@ -145,8 +145,11 @@ enum SVGImporter {
         let bounds = pointsBounds(all)
         // Localize every point + control to the node frame.
         let localized = subpaths.map { $0.map { localize($0, by: bounds.origin) } }
+        // stroke:none → width 0 with the MODEL-DEFAULT color, not a transparent
+        // one: a clear color at width 0 is inert for rendering but lies in the
+        // inspector, and bumping the width later would add an invisible stroke.
         var ps = PathShape(points: localized[0], closed: closed,
-                           fill: style.resolvedFill, stroke: style.stroke ?? .clear,
+                           fill: style.resolvedFill, stroke: style.stroke ?? .black,
                            strokeWidth: style.stroke == nil ? 0 : style.strokeWidth)
         if localized.count > 1 { ps.contours = localized }
         var node = Node(name: name, frame: bounds, content: .path(ps))
@@ -162,7 +165,7 @@ enum SVGImporter {
             let r = CGRect(x: x, y: y, width: w, height: h).applying(ctm).standardized
             let sx = scaleX(ctm)
             let shape = RectangleShape(fill: style.resolvedFill, cornerRadius: rx * abs(sx),
-                                       stroke: style.stroke ?? .clear,
+                                       stroke: style.stroke ?? .black,   // none → default color, width 0
                                        strokeWidth: style.stroke == nil ? 0 : style.strokeWidth)
             var node = Node(name: "Rectangle", frame: r, content: .rectangle(shape))
             node.opacity = style.opacity
@@ -182,7 +185,7 @@ enum SVGImporter {
         let box = CGRect(x: cx - rx, y: cy - ry, width: rx * 2, height: ry * 2)
         if isAxisAligned(ctm) {
             let r = box.applying(ctm).standardized
-            let shape = EllipseShape(fill: style.resolvedFill, stroke: style.stroke ?? .clear,
+            let shape = EllipseShape(fill: style.resolvedFill, stroke: style.stroke ?? .black,   // none → default color, width 0
                                      strokeWidth: style.stroke == nil ? 0 : style.strokeWidth)
             var node = Node(name: isCircle ? "Circle" : "Ellipse", frame: r, content: .ellipse(shape))
             node.opacity = style.opacity

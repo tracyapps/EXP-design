@@ -1978,29 +1978,60 @@ final class CanvasNSView: NSView {
     private var panZoomSnapshot: CGImage?
     private var panZoomSnapshotZoom: CGFloat = 1
     private var panZoomSnapshotPan: CGPoint = .zero
-    private var panZoomSnapshotSize: CGSize = .zero   // bounds (points) at capture
+    private var panZoomSnapshotSize: CGSize = .zero     // snapshot region size (points)
+    private var panZoomSnapshotOrigin: CGPoint = .zero  // region origin in capture view space
+    /// Snapshot halo: capture this fraction of the viewport EXTRA on every side,
+    /// so panning reveals real pre-rendered content instead of blank background.
+    /// 0.25 → a 1.5×1.5 viewport region (~2.25× capture cost, once per gesture).
+    private static let blitHaloFraction: CGFloat = 0.25
     private var panZoomBlitActive = false
     private var panZoomSettleTimer: Timer?
     /// Safety valve: if a capture ever blows the budget (below), stop trying for
     /// the rest of the run — a laggy-but-live gesture beats a beach ball.
     private var panZoomBlitDisabled = false
-    private static let blitCaptureBudget: CFAbsoluteTime = 0.25   // seconds
+    // 0.4s: the halo makes captures ~2.25× a plain frame, and first-appearance
+    // image mip decodes can spike one capture; the valve is for pathology only.
+    private static let blitCaptureBudget: CFAbsoluteTime = 0.4   // seconds
 
     /// Call at every pan/zoom tick, BEFORE mutating `app.zoom`/`app.panOffset`,
     /// so a first-tick capture renders exactly what's already on screen.
     private func beginPanZoomInteraction() {
         guard let app, !panZoomBlitDisabled else { return }
         // Recapture when zoom has drifted far enough from the snapshot that the
-        // scaled blit would look too soft (zooming in) or wastefully large.
+        // scaled blit would look too soft (zooming in) or wastefully large —
+        // OR when the pan has consumed the halo, so real content replaces what
+        // would otherwise show as blank background ("minor freakouts").
         if panZoomSnapshot != nil {
             let k = app.zoom / panZoomSnapshotZoom
-            if k > 1.75 || k < 0.6 { panZoomSnapshot = nil }
+            if k > 1.75 || k < 0.6 {
+                panZoomSnapshot = nil
+            } else {
+                // Doc-space containment: the snapshot region must still cover the
+                // current viewport, with a margin so we recapture a tick early
+                // (this runs BEFORE the incoming pan delta is applied).
+                let snapDoc = CGRect(
+                    x: (panZoomSnapshotOrigin.x - panZoomSnapshotPan.x) / panZoomSnapshotZoom,
+                    y: (panZoomSnapshotOrigin.y - panZoomSnapshotPan.y) / panZoomSnapshotZoom,
+                    width: panZoomSnapshotSize.width / panZoomSnapshotZoom,
+                    height: panZoomSnapshotSize.height / panZoomSnapshotZoom)
+                let nowDoc = CGRect(
+                    x: (bounds.minX - app.panOffset.x) / app.zoom,
+                    y: (bounds.minY - app.panOffset.y) / app.zoom,
+                    width: bounds.width / app.zoom,
+                    height: bounds.height / app.zoom)
+                let margin = 48 / app.zoom   // covers a fast tick's delta
+                if !snapDoc.insetBy(dx: margin, dy: margin).contains(nowDoc) {
+                    panZoomSnapshot = nil
+                }
+            }
         }
         if panZoomSnapshot == nil { capturePanZoomSnapshot() }
         panZoomBlitActive = panZoomSnapshot != nil
         panZoomSettleTimer?.invalidate()
         // .common run-loop mode so the settle fires even while events stream in.
-        let timer = Timer(timeInterval: 0.12, repeats: false) { [weak self] _ in
+        // 0.08s: with the halo covering slow pans, the settle only restores what's
+        // beyond it — fire promptly so full detail returns as soon as motion stops.
+        let timer = Timer(timeInterval: 0.08, repeats: false) { [weak self] _ in
             guard let self else { return }
             self.panZoomBlitActive = false
             self.panZoomSnapshot = nil        // next gesture recaptures fresh
@@ -2022,12 +2053,18 @@ final class CanvasNSView: NSView {
     /// One full scene render (no rulers) into the reusable offscreen backing,
     /// kept as a CGImage together with the transform it was rendered at.
     private func capturePanZoomSnapshot() {
-        guard let app, let cg = offscreenBacking() else { return }
+        // Capture the viewport plus a halo on every side (see blitHaloFraction),
+        // so slow pans reveal pre-rendered content, not blank background.
+        let halo = CGSize(width: bounds.width * Self.blitHaloFraction,
+                          height: bounds.height * Self.blitHaloFraction)
+        let region = bounds.insetBy(dx: -halo.width, dy: -halo.height)
+        guard let app, let cg = offscreenBacking(sizePt: region.size) else { return }
         let t0 = CFAbsoluteTimeGetCurrent()   // always timed — feeds the safety valve
         let scale = backingScale
         cg.saveGState()
-        cg.translateBy(x: 0, y: CGFloat(blurBackingPx.h))
+        cg.translateBy(x: 0, y: CGFloat(cg.height))
         cg.scaleBy(x: scale, y: -scale)
+        cg.translateBy(x: -region.minX, y: -region.minY)   // region origin → bitmap origin
         let nsctx = NSGraphicsContext(cgContext: cg, flipped: true)
         capturingSnapshot = true
         capShadowMs = 0; capImageMs = 0; capTextMs = 0
@@ -2035,7 +2072,7 @@ final class CanvasNSView: NSView {
         let tRender = CFAbsoluteTimeGetCurrent()
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = nsctx
-        renderCanvas(into: cg, includeRulers: false)
+        renderCanvas(into: cg, includeRulers: false, viewport: region)
         NSGraphicsContext.restoreGraphicsState()
         let renderMs = (CFAbsoluteTimeGetCurrent() - tRender) * 1000
         capturingSnapshot = false
@@ -2044,7 +2081,8 @@ final class CanvasNSView: NSView {
         panZoomSnapshot = cg.makeImage()
         panZoomSnapshotZoom = app.zoom
         panZoomSnapshotPan = app.panOffset
-        panZoomSnapshotSize = bounds.size
+        panZoomSnapshotSize = region.size
+        panZoomSnapshotOrigin = region.origin
         let elapsed = CFAbsoluteTimeGetCurrent() - t0
         if perf.enabled {
             perf.record("blit-capture", ms: elapsed * 1000)
@@ -2074,8 +2112,11 @@ final class CanvasNSView: NSView {
         NSColor.underPageBackgroundColor.setFill()
         bounds.fill()
         let k = app.zoom / panZoomSnapshotZoom
-        let origin = CGPoint(x: app.panOffset.x - panZoomSnapshotPan.x * k,
-                             y: app.panOffset.y - panZoomSnapshotPan.y * k)
+        // A snapshot pixel at capture-view point v maps to k·v + (pan1 − k·pan0);
+        // the bitmap starts at the region's (halo-shifted) origin, hence the k·origin term.
+        let origin = CGPoint(
+            x: app.panOffset.x - panZoomSnapshotPan.x * k + panZoomSnapshotOrigin.x * k,
+            y: app.panOffset.y - panZoomSnapshotPan.y * k + panZoomSnapshotOrigin.y * k)
         let size = CGSize(width: panZoomSnapshotSize.width * k,
                           height: panZoomSnapshotSize.height * k)
         ctx.saveGState()
@@ -2090,13 +2131,182 @@ final class CanvasNSView: NSView {
         return true
     }
 
+    // MARK: Drag-overlay blit
+    //
+    // Node drags used to re-render the whole scene every mouse tick (35–60ms,
+    // ~20fps — the "moving things feels laggy" complaint). During a drag the
+    // STATIC content doesn't change, so: capture it once into two bitmaps split
+    // at the dragged nodes' z-position — BELOW (background + boards + nodes
+    // under the dragged ones) and ABOVE (transparent; nodes over them + grids +
+    // guides) — then each tick blit BELOW, draw only the dragged nodes live,
+    // blit ABOVE, and draw chrome. Z-order stays truthful. Capture costs ≈ two
+    // frames, once per gesture (cheap since the transparency-layer clip fixes).
+    //
+    // Known mid-gesture approximations (settle restores exactness at mouseUp):
+    // static nodes with blend modes in the ABOVE layer composite as normal-over
+    // (they were rendered against transparency), and static content BETWEEN two
+    // dragged nodes' z-positions lumps into ABOVE.
+    private var dragBlitBelow: CGImage?
+    private var dragBlitAbove: CGImage?
+    private var dragBlitZoom: CGFloat = 1
+    private var dragBlitPan: CGPoint = .zero
+    private var dragBlitSize: CGSize = .zero
+    private var dragBlitSkipIDs: Set<UUID> = []   // TOP-LEVEL ancestors of the dragged ids
+    private var dragBlitUnsupported = false       // set when capture can't represent this gesture
+
+    /// The node ids a drag gesture is actively mutating, or nil when the drag
+    /// kind isn't node-shaped (marquee, hand, artboards, guides…).
+    private func activeDragNodeIDs() -> Set<UUID>? {
+        switch dragMode {
+        case .nodes(_, let origins):            return Set(origins.keys)
+        case .resize(let id, _, _):             return [id]
+        case .rotate(let id, _):                return [id]
+        case .resizeSelection, .rotateSelection: return Set(selectionDragBaseline.keys)
+        case .draw(let id, _):                  return [id]
+        case .drawLine(let id, _):              return [id]
+        case .lineEndpoint(let id, _, _):       return [id]
+        case .penHandle(let nodeID, _):         return [nodeID]
+        case .pathPoint(let nodeID, _):         return [nodeID]
+        case .pathPointGroup(let nodeID, _, _): return [nodeID]
+        default:                                return nil
+        }
+    }
+
+    /// The top-level node whose subtree contains `id` (or `id` itself).
+    /// Dragged nodes can be nested; snapshots exclude whole TOP-LEVEL subtrees,
+    /// and the containing subtree is redrawn live so siblings stay correct.
+    private func topLevelAncestorID(of id: UUID) -> UUID? {
+        guard let document else { return nil }
+        func contains(_ node: Node, _ target: UUID) -> Bool {
+            if node.id == target { return true }
+            if case .group(let children) = node.content {
+                return children.contains { contains($0, target) }
+            }
+            return false
+        }
+        return document.model.nodes.first { contains($0, id) }?.id
+    }
+
+    /// Render the two static layers for the current drag. Returns false when the
+    /// gesture can't be represented (no top-level ancestor, source scope, …).
+    private func captureDragSnapshots() -> Bool {
+        guard let app, let document, !isSourceScope,
+              let ids = activeDragNodeIDs(), !ids.isEmpty,
+              let cg = offscreenBacking() else { return false }
+        var skip: Set<UUID> = []
+        for id in ids {
+            guard let top = topLevelAncestorID(of: id) else { return false }
+            skip.insert(top)
+        }
+        let nodes = document.model.nodes
+        guard let split = nodes.firstIndex(where: { skip.contains($0.id) }) else { return false }
+        let t0 = CFAbsoluteTimeGetCurrent()
+        let scale = backingScale
+        let visible = bounds
+
+        func renderLayer(_ body: (CGContext) -> Void) -> CGImage? {
+            cg.saveGState()
+            cg.translateBy(x: 0, y: CGFloat(cg.height))
+            cg.scaleBy(x: scale, y: -scale)
+            let nsctx = NSGraphicsContext(cgContext: cg, flipped: true)
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = nsctx
+            body(cg)
+            NSGraphicsContext.restoreGraphicsState()
+            cg.restoreGState()
+            return cg.makeImage()
+        }
+
+        // BELOW: opaque base — background, boards, nodes under the dragged ones.
+        dragBlitBelow = renderLayer { ctx in
+            NSColor.underPageBackgroundColor.setFill()
+            bounds.fill()
+            for artboard in document.model.artboards {
+                guard docToView(artboard.frame).insetBy(dx: -24, dy: -24).intersects(visible)
+                else { continue }
+                drawArtboardBackground(artboard, in: ctx)
+            }
+            for node in nodes[..<split]
+            where node.isVisible && node.id != editingNodeID && !skip.contains(node.id) {
+                drawCulledTopLevelNode(node, visible: visible, in: ctx)
+            }
+        }
+        // ABOVE: transparent overlay — nodes over the dragged ones, then grids
+        // and static guides (they draw over content in the normal path too).
+        dragBlitAbove = renderLayer { ctx in
+            ctx.clear(bounds)
+            for node in nodes[split...]
+            where node.isVisible && node.id != editingNodeID && !skip.contains(node.id) {
+                drawCulledTopLevelNode(node, visible: visible, in: ctx)
+            }
+            drawLayoutGrids(in: ctx)
+            if app.showGrid { drawUniformGrid(in: ctx) }
+            if app.showGuides { drawGuides(in: ctx) }
+        }
+        guard dragBlitBelow != nil, dragBlitAbove != nil else {
+            dragBlitBelow = nil; dragBlitAbove = nil
+            return false
+        }
+        dragBlitZoom = app.zoom
+        dragBlitPan = app.panOffset
+        dragBlitSize = bounds.size
+        dragBlitSkipIDs = skip
+        if perf.enabled { perf.record("dragblit-capture", ms: (CFAbsoluteTimeGetCurrent() - t0) * 1000) }
+        return true
+    }
+
+    /// The per-tick drag frame: blit BELOW, draw the dragged subtrees live (in
+    /// z order, with the standard clips), blit ABOVE, then live chrome. Returns
+    /// false to fall through to the normal full render.
+    private func drawDragBlit(into ctx: CGContext) -> Bool {
+        guard let app, let document, !isSourceScope,
+              let ids = activeDragNodeIDs(), !ids.isEmpty else {
+            // Not in a node drag: drop any leftover snapshot, re-arm for next time.
+            if dragBlitBelow != nil { dragBlitBelow = nil; dragBlitAbove = nil; dragBlitSkipIDs = [] }
+            dragBlitUnsupported = false
+            return false
+        }
+        guard !dragBlitUnsupported else { return false }
+        // (Re)capture when this is the first tick or the view transform moved
+        // (scroll-during-drag, window resize) — static pixels are transform-bound.
+        if dragBlitBelow == nil || app.zoom != dragBlitZoom
+            || app.panOffset != dragBlitPan || bounds.size != dragBlitSize {
+            guard captureDragSnapshots() else {
+                dragBlitUnsupported = true   // fall back to live rendering this gesture
+                return false
+            }
+        }
+        guard let below = dragBlitBelow else { return false }
+
+        func blit(_ img: CGImage) {
+            ctx.saveGState()
+            ctx.translateBy(x: 0, y: bounds.maxY)
+            ctx.scaleBy(x: 1, y: -1)
+            ctx.draw(img, in: CGRect(origin: .zero, size: bounds.size))
+            ctx.restoreGState()
+        }
+        blit(below)
+        for node in document.model.nodes
+        where dragBlitSkipIDs.contains(node.id) && node.isVisible && node.id != editingNodeID {
+            drawCulledTopLevelNode(node, visible: bounds, in: ctx)
+        }
+        if let above = dragBlitAbove { blit(above) }
+        // Live chrome — everything that moves with the gesture.
+        drawSmartGuides(in: ctx)
+        drawSelectionChrome(in: ctx)
+        if optionHeld { drawMeasurements(in: ctx) }
+        if app.showRulers && !isSourceScope { drawRulers(in: ctx) }
+        return true
+    }
+
     /// A flipped (top-left origin, y-down) offscreen CGContext that matches the
     /// view's coordinate system 1:1, so renderCanvas — including NSString text,
     /// which honors `isFlipped` — draws identically to on-screen. Cached/reused.
-    private func offscreenBacking() -> CGContext? {
+    private func offscreenBacking(sizePt: CGSize? = nil) -> CGContext? {
         let scale = backingScale
-        let w = max(1, Int((bounds.width * scale).rounded()))
-        let h = max(1, Int((bounds.height * scale).rounded()))
+        let size = sizePt ?? bounds.size
+        let w = max(1, Int((size.width * scale).rounded()))
+        let h = max(1, Int((size.height * scale).rounded()))
         // Match the WINDOW's colorspace (usually Display P3 on modern Macs), not
         // generic sRGB: content tagged in other spaces (photos especially) forces
         // a per-pixel CPU color-match into a mismatched bitmap — a conversion the
@@ -2136,6 +2346,15 @@ final class CanvasNSView: NSView {
             }
             return
         }
+        // Live node drag: composite static below/above snapshots around the
+        // dragged nodes (see the "Drag-overlay blit" section above).
+        if let ctx = NSGraphicsContext.current?.cgContext, drawDragBlit(into: ctx) {
+            if perf.enabled {
+                perf.record("frame(drag)", ms: (CFAbsoluteTimeGetCurrent() - perfFrameT0) * 1000)
+                perf.flushIfNeeded()
+            }
+            return
+        }
         // Background blur needs to sample what's behind it, which means the scene has
         // to live in a bitmap we can read back. Only pay that cost when a blur node
         // exists; otherwise draw straight to the window context as before.
@@ -2144,7 +2363,7 @@ final class CanvasNSView: NSView {
             cg.saveGState()
             // Map point-space (y-down, top-left, as docToView produces) onto the
             // bottom-up bitmap buffer.
-            cg.translateBy(x: 0, y: CGFloat(blurBackingPx.h))
+            cg.translateBy(x: 0, y: CGFloat(cg.height))
             cg.scaleBy(x: scale, y: -scale)
             let nsctx = NSGraphicsContext(cgContext: cg, flipped: true)
             NSGraphicsContext.saveGraphicsState()
@@ -2169,12 +2388,16 @@ final class CanvasNSView: NSView {
         }
     }
 
-    private func renderCanvas(into ctx: CGContext, includeRulers: Bool = true) {
+    private func renderCanvas(into ctx: CGContext, includeRulers: Bool = true,
+                              viewport: CGRect? = nil) {
         guard let document else { return }
         perfCacheHit = 0; perfCacheMiss = 0   // reset per-frame instance-cache tally
+        // `viewport` widens the render region for the pan/zoom snapshot's halo
+        // (culling + background fill follow it); nil = the on-screen bounds.
+        let region = viewport ?? bounds
 
         NSColor.underPageBackgroundColor.setFill()
-        bounds.fill()
+        region.fill()
 
         if isSourceScope {
             // Draw the component's viewBox "page" (a stable, resizable frame) plus its
@@ -2187,10 +2410,10 @@ final class CanvasNSView: NSView {
                 drawNode(node, offset: .zero, in: ctx)
             }
         } else {
-            // Viewport culling — only paint what can land inside the visible bounds.
+            // Viewport culling — only paint what can land inside the visible region.
             // Pan/zoom redraw the WHOLE scene, so with many artboards/layers this is
             // the difference between O(everything) and O(what's on screen) per frame.
-            let visible = bounds
+            let visible = region
             var perfDrawn = 0, perfBoards = 0
             for artboard in document.model.artboards {
                 // Grow for the name label above and the soft drop shadow around it.
@@ -2204,33 +2427,7 @@ final class CanvasNSView: NSView {
             // Shapes clipped to the artboard that owns them (or unclipped on the
             // wall). The node being text-edited is skipped — the overlay stands in.
             for node in document.model.nodes where node.isVisible && node.id != editingNodeID {
-                // Cheap reject for the common case (a leaf shape): it only paints
-                // within its frame plus a margin for stroke / effects / rotation, so
-                // a node whose expanded frame is fully off-screen can't contribute a
-                // pixel — and we skip the owningArtboard scan for it entirely. Groups
-                // and instances can hold children outside their own frame, so they
-                // fall through to the artboard-clip cull below (which stays exact).
-                if isLeafContent(node.content) {
-                    let m = nodeCullMargin(node)
-                    if !docToView(node.frame).insetBy(dx: -m, dy: -m).intersects(visible) { continue }
-                }
-                let owner = document.model.owningArtboard(of: node.frame)
-                // An owned node is hard-clipped to its artboard (below), so if that
-                // board is off-screen the node is invisible regardless of effects or
-                // stray children — an exact cull that also covers containers.
-                if let owner, !docToView(owner.frame).intersects(visible) { continue }
-                ctx.saveGState()
-                // Clip to the viewport FIRST. Transparency layers (shadows, layer
-                // opacity, blend modes) allocate a surface the size of the current
-                // clip; without this, at high zoom an artboard-sized clip becomes
-                // tens of thousands of pixels and the shadow's gaussian convolution
-                // hangs the render thread ("Surface too large"). You can't see past
-                // `bounds` anyway, so this is invisible — it just caps the surface.
-                ctx.clip(to: visible)
-                if let owner { ctx.clip(to: docToView(owner.frame)) }
-                drawNode(node, offset: .zero, in: ctx)
-                ctx.restoreGState()
-                perfDrawn += 1
+                if drawCulledTopLevelNode(node, visible: visible, in: ctx) { perfDrawn += 1 }
             }
             if perf.enabled {
                 perf.gauge("nodes(total)", document.model.nodes.count)
@@ -2251,45 +2448,8 @@ final class CanvasNSView: NSView {
         // Smart guides (shown during drag, on top of static guides)
         drawSmartGuides(in: ctx)
 
-        // Selection chrome on top.
-        if let app {
-            let single = app.selectedNodeIDs.count == 1
-            for id in app.selectedNodeIDs {
-                guard let node = node(id) else { continue }
-                // Resize/rotate handles for a lone selection that's top-level OR
-                // nested under only UNrotated groups (handle math is a pure offset
-                // there). Nested under a rotated group stays move-only.
-                drawNodeSelection(node, offset: nodeOffset(id), ctx: ctx,
-                                  handles: single && (isTopLevelNode(id) || ancestorRotation(of: id) == 0))
-            }
-            // Unified selection box (8 handles + rotate knob) for a multi-selection
-            // or a single group — the per-node boxes above stay as a hint.
-            if usesSelectionTransform(), let b = selectionDocBounds() {
-                drawSelectionTransformBox(b, in: ctx)
-            }
-            // Path anchors + handles: while editing points (node tool) or
-            // while the pen is drawing.
-            if app.tool == .node, let id = app.singleSelectedNodeID, let n = node(id),
-               case .path = n.content {
-                drawPathPoints(n, in: ctx, selected: selectedPointAddresses)
-            }
-            if let penID = penNodeID, let n = node(penID) {
-                drawPathPoints(n, in: ctx)
-            }
-            // Pen tool, not mid-draw: show the anchors of the SELECTED path and the
-            // path under the cursor, so you can see exactly where to add / remove a
-            // point on an existing vector.
-            if app.tool == .pen, penNodeID == nil {
-                var shown = Set<UUID>()
-                if let id = app.singleSelectedNodeID, let n = node(id), case .path = n.content {
-                    drawPathPoints(n, in: ctx); shown.insert(id)
-                }
-                if let hover = penHover(atViewPoint: lastMouse), !shown.contains(hover.leafID),
-                   let n = node(hover.leafID), case .path = n.content {
-                    drawPathPoints(n, in: ctx)
-                }
-            }
-        }
+        // Selection chrome on top (shared with the drag-overlay blit path).
+        drawSelectionChrome(in: ctx)
 
         var rubberBandStart: CGPoint?
         if case .marquee(let start, _) = dragMode { rubberBandStart = start }
@@ -2312,6 +2472,85 @@ final class CanvasNSView: NSView {
         // Rulers are chrome at the very top, over everything else. (Excluded from
         // the pan/zoom gesture snapshot — the blit path draws them live instead.)
         if includeRulers && app?.showRulers == true && !isSourceScope { drawRulers(in: ctx) }
+    }
+
+    /// One top-level node: viewport + artboard culling, then the standard clip
+    /// stack, then drawNode. Shared by renderCanvas's node loop and the
+    /// drag-overlay blit (both the snapshot captures and the live dragged
+    /// nodes), so all paths cull and clip identically. Returns true if drawn.
+    @discardableResult
+    private func drawCulledTopLevelNode(_ node: Node, visible: CGRect, in ctx: CGContext) -> Bool {
+        guard let document else { return false }
+        // Cheap reject for the common case (a leaf shape): it only paints
+        // within its frame plus a margin for stroke / effects / rotation, so
+        // a node whose expanded frame is fully off-screen can't contribute a
+        // pixel — and we skip the owningArtboard scan for it entirely. Groups
+        // and instances can hold children outside their own frame, so they
+        // fall through to the artboard-clip cull below (which stays exact).
+        if isLeafContent(node.content) {
+            let m = nodeCullMargin(node)
+            if !docToView(node.frame).insetBy(dx: -m, dy: -m).intersects(visible) { return false }
+        }
+        let owner = document.model.owningArtboard(of: node.frame)
+        // An owned node is hard-clipped to its artboard (below), so if that
+        // board is off-screen the node is invisible regardless of effects or
+        // stray children — an exact cull that also covers containers.
+        if let owner, !docToView(owner.frame).intersects(visible) { return false }
+        ctx.saveGState()
+        // Clip to the viewport FIRST. Transparency layers (shadows, layer
+        // opacity, blend modes) allocate a surface the size of the current
+        // clip; without this, at high zoom an artboard-sized clip becomes
+        // tens of thousands of pixels and the shadow's gaussian convolution
+        // hangs the render thread ("Surface too large"). You can't see past
+        // `bounds` anyway, so this is invisible — it just caps the surface.
+        ctx.clip(to: visible)
+        if let owner { ctx.clip(to: docToView(owner.frame)) }
+        drawNode(node, offset: .zero, in: ctx)
+        ctx.restoreGState()
+        return true
+    }
+
+    /// Selection halos, transform box, and path/pen anchors — the live chrome
+    /// drawn over content. Factored out so the drag-overlay blit path can draw
+    /// it on top of the composited snapshot without re-rendering the scene.
+    private func drawSelectionChrome(in ctx: CGContext) {
+        guard let app else { return }
+        let single = app.selectedNodeIDs.count == 1
+        for id in app.selectedNodeIDs {
+            guard let node = node(id) else { continue }
+            // Resize/rotate handles for a lone selection that's top-level OR
+            // nested under only UNrotated groups (handle math is a pure offset
+            // there). Nested under a rotated group stays move-only.
+            drawNodeSelection(node, offset: nodeOffset(id), ctx: ctx,
+                              handles: single && (isTopLevelNode(id) || ancestorRotation(of: id) == 0))
+        }
+        // Unified selection box (8 handles + rotate knob) for a multi-selection
+        // or a single group — the per-node boxes above stay as a hint.
+        if usesSelectionTransform(), let b = selectionDocBounds() {
+            drawSelectionTransformBox(b, in: ctx)
+        }
+        // Path anchors + handles: while editing points (node tool) or
+        // while the pen is drawing.
+        if app.tool == .node, let id = app.singleSelectedNodeID, let n = node(id),
+           case .path = n.content {
+            drawPathPoints(n, in: ctx, selected: selectedPointAddresses)
+        }
+        if let penID = penNodeID, let n = node(penID) {
+            drawPathPoints(n, in: ctx)
+        }
+        // Pen tool, not mid-draw: show the anchors of the SELECTED path and the
+        // path under the cursor, so you can see exactly where to add / remove a
+        // point on an existing vector.
+        if app.tool == .pen, penNodeID == nil {
+            var shown = Set<UUID>()
+            if let id = app.singleSelectedNodeID, let n = node(id), case .path = n.content {
+                drawPathPoints(n, in: ctx); shown.insert(id)
+            }
+            if let hover = penHover(atViewPoint: lastMouse), !shown.contains(hover.leafID),
+               let n = node(hover.leafID), case .path = n.content {
+                drawPathPoints(n, in: ctx)
+            }
+        }
     }
 
     // MARK: Rulers
@@ -3087,6 +3326,32 @@ final class CanvasNSView: NSView {
         ctx.restoreGState()
     }
 
+    /// True when drawing this node is one compositing operation — one fill OR
+    /// one stroke, never both, and no effects — so whole-layer opacity/blend can
+    /// be plain context state instead of a transparency layer. A stroke with
+    /// zero width or a fully transparent color doesn't count as an operation
+    /// (draw sites guard on `strokeWidth > 0`, and clear paints nothing).
+    /// Text keeps the layer: glyphs can overlap each other (tight tracking,
+    /// script faces) and would double-composite under plain alpha. Groups and
+    /// instances composite children, so they always keep it.
+    private func isSinglePaintOp(_ node: Node) -> Bool {
+        guard !node.effects.contains(where: { $0.isEnabled }) else { return false }
+        func strokeOp(_ w: CGFloat, _ c: RGBAColor) -> Bool { w > 0 && c.a > 0 }
+        func fillOp(_ p: Paint) -> Bool {
+            if case .solid(let c) = p { return c.a > 0 }
+            return true   // gradients: treat as visible
+        }
+        switch node.content {
+        case .rectangle(let s): return !(fillOp(s.fill) && strokeOp(s.strokeWidth, s.stroke))
+        case .ellipse(let s):   return !(fillOp(s.fill) && strokeOp(s.strokeWidth, s.stroke))
+        case .polygon(let s):   return !(fillOp(s.fill) && strokeOp(s.strokeWidth, s.stroke))
+        case .path(let s):      return !(fillOp(s.fill) && strokeOp(s.strokeWidth, s.stroke))
+        case .line:             return true    // stroke only
+        case .image:            return true    // one draw
+        default:                return false   // text, group, instance
+        }
+    }
+
     /// Conservative VIEW-space bounds of everything a node can paint — the clip
     /// for its opacity/blend transparency layer. Leaves = frame + cull margin
     /// (stroke/shadow/rotation, the culling invariant). Groups = union of the
@@ -3152,7 +3417,19 @@ final class CanvasNSView: NSView {
         // them to normal INSIDE, so the layer composites onto the backdrop with
         // the node's blend mode (Photoshop-style).
         let groupAlpha = max(0, min(1, CGFloat(node.opacity)))
-        let usesLayer = groupAlpha < 0.999 || node.blendMode != .normal
+        let needsGroup = groupAlpha < 0.999 || node.blendMode != .normal
+        // A node whose drawing is a SINGLE compositing operation doesn't need the
+        // transparency layer at all — plain context alpha/blend composites
+        // identically (the layer only exists so overlapping fill+stroke don't
+        // double-darken). SVG imports produce hundreds of "filled shape,
+        // 0-width stroke, per-shape opacity" nodes that all take this free path.
+        let usesLayer = needsGroup && !isSinglePaintOp(node)
+        if !usesLayer && needsGroup {
+            ctx.saveGState()
+            ctx.setAlpha(groupAlpha)
+            ctx.setBlendMode(node.blendMode.cg)
+        }
+        defer { if !usesLayer && needsGroup { ctx.restoreGState() } }
         if usesLayer {
             ctx.saveGState()
             // Bound the layer's buffer to what this node can actually paint — the

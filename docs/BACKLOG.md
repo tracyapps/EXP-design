@@ -32,7 +32,7 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: bug
 - Priority: P2
 - Area: inspector · canvas
-- Status: open
+- Status: done (Session 161 — inspector DimFields show 0–2 truthful decimals, measure HUD matches, canvas snaps to whole px by default with ⌘ bypass)
 - Repro/Detail: With snap-to-grid OFF, position it so auto-layout / free placement
   yields sub-pixel spacing. The on-canvas ⌥-hover measure labels and every inspector
   numeric field show WHOLE numbers, so a real gap of e.g. 12.4 reads as "12". You
@@ -47,6 +47,27 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   Decide a rounding policy (display vs. stored) and apply it consistently.
 
 ---
+
+### BUG-002 — "Publishing changes from within view updates" (~40×) — repro: inspector ↑/↓ stepping
+- Type: bug
+- Priority: P1
+- Area: inspector · chrome
+- Status: open
+- Repro/Detail: Owner isolated it (2026-07-02): using the KEYBOARD arrows to
+  increase/decrease values in inspector fields fires the warning; it also
+  floods ~40× at app launch. Session 124-era mystery, now reproducible.
+- Hypothesis: `NumericStepping.onKeyPress` (UI/MainWindow.swift) writes the
+  bound value SYNCHRONOUSLY inside the key-press handler, which runs during a
+  SwiftUI view update — mutating an @Observable/@Published mid-update is the
+  textbook trigger. Likely fix: defer the mutation one tick
+  (`Task { @MainActor in value = next }` or `DispatchQueue.main.async`),
+  keeping ⌥/⇧ step sizes + key-repeat acceleration identical. The launch-time
+  flood may be a second site (window restoration / initial layout writing to
+  AppState during body evaluation) — verify separately with a breakpoint on
+  the warning after the stepper fix lands.
+- Acceptance: zero warnings while arrow-stepping any inspector field (incl.
+  held-key repeat), zero at launch; stepping behavior unchanged (±1, ⇧±10,
+  ⌥±0.1, acceleration); undo granularity unchanged.
 
 ## ✨ Features
 
@@ -113,6 +134,58 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   interaction regressions.
 
 ---
+
+### PERF-002 — Blend/opacity fidelity while dragging (conditional true-composite mode)
+- Type: perf · feature
+- Priority: P2
+- Area: canvas · perf
+- Status: open
+- Repro/Detail: With the Session 161i drag-overlay blit, a shape with a blend
+  mode (difference/overlay/…) reads as its plain color against anything baked
+  into the ABOVE snapshot layer while it's being moved — it only composites
+  truly against content BELOW it, and snaps to the correct look on mouseUp.
+  Owner wants design-truth kept while moving when the doc can afford it.
+- Hypothesis: conditional fidelity. During a drag, choose per-gesture between
+  (a) TRUE mode — full live render every tick (the pre-161i path, correct
+  compositing) and (b) FAST mode — the current below/above blit. Pick TRUE
+  when the gesture is cheap enough: e.g. recent full-frame cost < ~20ms, or
+  visible node count under a threshold, or the dragged node has a non-normal
+  blend mode AND the scene is small; else FAST. The measured `frame` perf
+  stats already exist to drive the decision. Cheaper middle option worth
+  trying first: when ANY dragged node has a non-normal blend mode, re-render
+  only the ABOVE layer's intersecting region live instead of blitting it.
+- Acceptance: moving a difference/overlay shape over other content keeps its
+  true composite on small/medium docs; huge docs degrade gracefully to FAST
+  with no beachball; no regression to the 1.5–3.6ms drag frames in FAST mode.
+
+### PERF-003 — Panning refinements (bigger/smarter snapshot)
+- Type: perf
+- Priority: P3
+- Area: canvas · perf
+- Status: open
+- Repro/Detail: 161j's 25% halo + containment recapture works, but long fast
+  pans still hit periodic ~30–80ms recaptures, and the settle render redraws
+  everything. Ideas queue: adaptive halo (grow toward pan direction/velocity),
+  tile-based snapshot (recapture only newly exposed tiles), reuse the drag
+  blit's below/above machinery for partial invalidation.
+- Acceptance: flick-panning a huge doc shows no blank edges AND no visible
+  hitch; Testing Mode shows recapture cost amortized under one frame.
+
+### PERF-004 — User-facing "Speed ↔ Detail" preference (Photoshop memory dial, humane edition)
+- Type: feature
+- Priority: P3
+- Area: chrome · perf
+- Status: open
+- Repro/Detail: Owner idea: a single friendly setting (Settings ▸ Canvas) —
+  a slider or segmented control from "Speed focus" to "Design detail focus" —
+  instead of Photoshop's raw memory-% dial. It would set the thresholds used
+  by PERF-002's conditional fidelity (and possibly halo size, mip cache
+  budget, settle delay). Defaults = current behavior ("balanced").
+- Hypothesis: implement AFTER PERF-002 proves out the thresholds; the setting
+  is just exposing those constants. Follow the command-coverage rule for any
+  user-facing control, and persist via the existing settings store.
+- Acceptance: moving the control observably trades drag/pan fidelity against
+  frame cost, survives relaunch, is fully keyboard/VoiceOver accessible.
 
 ## 🛠 Infrastructure
 

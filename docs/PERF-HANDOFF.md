@@ -1,7 +1,10 @@
 # Canvas Performance — Session 161 Handoff
 
-**Date:** 2026-07-02 (Sessions 161–161g, one long perf push)
-**Status:** In progress — one fix awaiting verification, one feature designed but not built.
+**Date:** 2026-07-02 (Sessions 161–161l, one long perf push)
+**Status:** ✅ PHASE CLOSED — all verified by owner stress test (161l).
+Final numbers: drag frames 1.5–3.6ms (was 45–105ms), pan/zoom 0.4–0.9ms,
+baseline renders 9–35ms at 435 nodes. Remaining non-perf items are listed in
+the ROADMAP 161l entry (SwiftUI publishing warning is the top candidate).
 **Read with:** ROADMAP.md Progress Log entries 161–161g (same day, newest on top).
 
 This document exists so ANY agent (or the owner) can resume the perf work
@@ -124,10 +127,14 @@ accepts typed fractions; ⌥-arrows step 0.1); measure HUD matches (2dp).
    — especially group children hanging OUTSIDE the group frame, rotated
    semi-transparent groups); drop shadows unchanged; one PNG and one PDF
    export compared against canvas.
-3. **Then the drag-overlay blit — THE remaining complaint.** In the final
-   log, drag frames run 45–105ms (~10–20fps); this is the "moving things
-   still a little laggy" the owner reports. Everything needed for the fix
-   now exists (cheap capture, invalidation pattern). Design:
+3. **Drag-overlay blit — IMPLEMENTED (161i), needs owner verification.**
+   Drag frames ran 45–105ms (~10–20fps). Now: below/above z-split snapshots
+   around the dragged top-level subtrees, per-tick blit + live redraw of only
+   the dragged nodes + chrome. Perf keys: `frame(drag)` (~1–3ms expected),
+   `dragblit-capture` (≈ two frames, once per gesture). Verify with a group
+   drag in Testing Mode; also regression-check: nested-child drag, drag while
+   scrolling, ⌥-drag duplicate, pen/path-point edits, guide drags (fall back
+   to full render by design). Original design notes kept below:
    - At node-drag start (`.nodes`/`.resize`/`.resizeSelection` etc.),
      capture the scene ONCE like the pan blit but EXCLUDING the dragged
      selection (add a `skipIDs: Set<UUID>` param to `renderCanvas`/node

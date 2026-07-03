@@ -398,6 +398,25 @@ final class ExportRenderView: NSView {
         }
     }
 
+    /// Mirrors CanvasView.isSinglePaintOp — one fill OR one stroke, no effects.
+    private func exportIsSinglePaintOp(_ node: Node) -> Bool {
+        guard !node.effects.contains(where: { $0.isEnabled }) else { return false }
+        func strokeOp(_ w: CGFloat, _ c: RGBAColor) -> Bool { w > 0 && c.a > 0 }
+        func fillOp(_ p: Paint) -> Bool {
+            if case .solid(let c) = p { return c.a > 0 }
+            return true
+        }
+        switch node.content {
+        case .rectangle(let s): return !(fillOp(s.fill) && strokeOp(s.strokeWidth, s.stroke))
+        case .ellipse(let s):   return !(fillOp(s.fill) && strokeOp(s.strokeWidth, s.stroke))
+        case .polygon(let s):   return !(fillOp(s.fill) && strokeOp(s.strokeWidth, s.stroke))
+        case .path(let s):      return !(fillOp(s.fill) && strokeOp(s.strokeWidth, s.stroke))
+        case .line:             return true
+        case .image:            return true
+        default:                return false
+        }
+    }
+
     /// Half the stroke width for stroked leaf content, else 0 — mirrors the
     /// canvas's `strokeReach` (used to bound the opacity/blend layer clip).
     private func strokeHalfWidth(_ c: NodeContent) -> CGFloat {
@@ -414,7 +433,17 @@ final class ExportRenderView: NSView {
     private func drawExportNode(_ node: Node, offset: CGPoint, in ctx: CGContext) {
         let rect = node.frame.offsetBy(dx: offset.x, dy: offset.y)
         let groupAlpha = max(0, min(1, CGFloat(node.opacity)))
-        let usesLayer = groupAlpha < 0.999 || node.blendMode != .normal
+        let needsGroup = groupAlpha < 0.999 || node.blendMode != .normal
+        // Single-compositing-op nodes (one fill OR one stroke, no effects) get
+        // plain context alpha/blend instead of a transparency layer — identical
+        // pixels, no layer buffer. Mirrors CanvasView.isSinglePaintOp.
+        let usesLayer = needsGroup && !exportIsSinglePaintOp(node)
+        if !usesLayer && needsGroup {
+            ctx.saveGState()
+            ctx.setAlpha(groupAlpha)
+            ctx.setBlendMode(node.blendMode.cg)
+        }
+        defer { if !usesLayer && needsGroup { ctx.restoreGState() } }
         if usesLayer {
             ctx.saveGState()
             // Bound the layer's buffer to the node's paint reach. An unclipped

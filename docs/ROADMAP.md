@@ -926,6 +926,109 @@ font import → Phase 9, shadows → Phase 10._
 ## Progress Log
 _Newest entry on top. Update every session._
 
+- **2026-07-02 — Session 161m (triage: post-phase queue set):**
+  Owner isolated the "Publishing changes from within view updates" warning:
+  it fires when ARROW-STEPPING inspector values — `NumericStepping.onKeyPress`
+  writes the binding synchronously during a view update. Filed as **BUG-002
+  (P1)** in BACKLOG.md with the likely one-tick-defer fix; owner wants to
+  tackle it this weekend alongside closer testing of pixel snapping + grid
+  performance. Also filed from owner feedback: **PERF-002** — conditional
+  fidelity for drags (blend-mode shapes like difference/overlay should keep
+  their TRUE composite while moving when the doc is cheap enough — thresholds
+  on frame cost / node count / zoom — falling back to the fast blit only when
+  needed); **PERF-003** — panning refinements (adaptive halo, tiled
+  snapshots); **PERF-004** — a user-facing "Speed ↔ Design detail" preference
+  that exposes PERF-002's thresholds (the humane version of Photoshop's
+  memory dial). BUG-001 marked done (fixed by the 161 pixel-honesty work).
+  No code this session — queue only.
+
+- **2026-07-02 — Session 161l (PERFORMANCE PHASE CLOSED — verified):**
+  Owner stress-tested a fresh doc (duplicating up to 435 nodes "willy-nilly")
+  and confirmed it "definitely feels much faster." Final verified numbers:
+  **drag frames 1.5–3.6ms** (`frame(drag)`, was 45–105ms) after a one-time
+  15–67ms `dragblit-capture` per gesture; **pan/zoom 0.4–0.9ms** (`frame(blit)`)
+  with 17–84ms captures, never budget-disabled; **baseline full renders
+  9–35ms at 435 nodes** (was 45–105ms at ~400). Duplication spikes
+  (~140–240ms one-off per bulk duplicate) are model-copy + undo + first paint
+  of the new nodes — proportional and accepted. The 161 series (a–l) is
+  summarized in docs/PERF-HANDOFF.md; the transparency-layer clip rule is the
+  single most important thing to preserve.
+  **Remaining (not perf-critical, next sessions):**
+  1. The ~40× "Publishing changes from within view updates" SwiftUI warning at
+     launch (Session 124-era, clearly reproducible now — top candidate).
+  2. `snap` hit 17–19ms once at 435 nodes with snapCands 0 — snapNodeOffset
+     likely scans all nodes even with no candidates; spatial index if it grows.
+  3. §6.2 visual regression pass on the OLD image-heavy doc (opacity groups,
+     one PNG/PDF export) — quick eyeball, not yet formally done.
+  4. BACKLOG: canvas clips instance children to viewBox, export doesn't — unify.
+
+- **2026-07-02 — Session 161k (owner's SVG find — single-paint-op fast path):**
+  Owner discovered imported SVG icons (Apple symbols) are groups of shapes each
+  with a semi-transparent fill AND a 0-width transparent stroke. Diagnosis: the
+  0-width stroke is NOT a render cost (every draw site guards `strokeWidth > 0`)
+  — but the per-shape OPACITY was buying a transparency layer per shape, and
+  for a node whose drawing is ONE compositing operation (a fill with no
+  visible stroke — exactly these icons) the layer is pure waste: plain context
+  alpha/blend composites identically. New `isSinglePaintOp(_:)` in CanvasView
+  (mirrored as `exportIsSinglePaintOp` in ExportRenderer): one fill OR one
+  stroke, no enabled effects → `ctx.setAlpha`/`setBlendMode` instead of
+  `beginTransparencyLayer`. Text keeps the layer (glyphs can overlap under
+  tight tracking); groups/instances keep it (they composite children).
+  Importer cleanup (SVGImporter): `stroke: none` now stores width 0 with the
+  MODEL-DEFAULT black color instead of `.clear` — a transparent chip at width 0
+  lied in the inspector, and bumping width would have added an invisible
+  stroke. Existing documents keep their `.clear` strokes (inert; `fillOp`/
+  `strokeOp` treat zero-alpha as no-op so they still get the fast path).
+  **Needs owner test:** baseline `frame avg` on the icon-heavy doc should drop
+  (hundreds of layers eliminated); verify semi-transparent icons look identical
+  (esp. any with BOTH visible fill and stroke — those still layer), and one
+  export.
+
+- **2026-07-02 — Session 161j (pan halo — no more blank edges):**
+  Owner feedback: content panned into view showed as blank background until the
+  settle render ("minor freakouts"). Three changes to the pan/zoom blit:
+  1. **25% halo** (`blitHaloFraction`) — the snapshot now captures 1.5×1.5
+     viewports (~2.25× capture cost, still ≈2 frames), so slow pans reveal real
+     pre-rendered content. `renderCanvas` gained a `viewport:` param (culling +
+     background fill follow it); `offscreenBacking(sizePt:)` is parameterized;
+     the two other captures + blur path now read `cg.height` for their flip
+     transform instead of `blurBackingPx`.
+  2. **Mid-gesture recapture on halo exhaustion** — doc-space containment check
+     in `beginPanZoomInteraction` (48pt early margin) drops the snapshot the
+     tick BEFORE blank would show, so a long pan gets a ~30–80ms refresh instead
+     of empty space. Blit math now includes the region-origin term.
+  3. **Settle 0.12s → 0.08s** and capture budget 0.25s → 0.4s (halo is 2.25×;
+     the valve is for pathology, not routine spikes).
+  **Needs owner test:** slow pan and fast flick across board edges — expect no
+  blank areas for pans up to ~25% of the window per capture, brief soft refresh
+  beyond that, full detail ~80ms after stopping. Perf keys unchanged.
+
+- **2026-07-02 — Session 161i (drag-overlay blit — the last perf lever):**
+  Built the drag-overlay blit from PERF-HANDOFF.md §6.3. During any node-shaped
+  drag (move/resize/rotate/draw/line/path-point — see `activeDragNodeIDs`), the
+  static scene is captured ONCE into two bitmaps split at the dragged nodes'
+  z-position: BELOW (opaque: background + boards + nodes underneath) and ABOVE
+  (transparent: nodes on top + grids + guides). Each tick then blits below,
+  draws only the dragged TOP-LEVEL subtrees live (nested drags map up via
+  `topLevelAncestorID`, so siblings stay correct), blits above, and draws live
+  chrome (smart guides + selection + rulers). Z-order stays truthful — no
+  dragged-thing-floats-on-top artifact. Recaptures if zoom/pan/window-size
+  change mid-drag (scroll-during-drag works); `dragBlitUnsupported` falls back
+  to full rendering for gestures the capture can't represent; everything clears
+  at mouseUp. Refactors: node-loop body → `drawCulledTopLevelNode` (shared by
+  renderCanvas, both captures, and the live dragged draw — identical cull+clip
+  everywhere); selection chrome → `drawSelectionChrome`. New perf keys:
+  `frame(drag)` (expect ~1–3ms) and `dragblit-capture` (expect ≈ two frames,
+  once per gesture). Known mid-gesture approximations (settle at mouseUp
+  restores exactness): blend-mode statics in the ABOVE layer composite as
+  normal-over; statics BETWEEN two dragged z-positions lump into ABOVE.
+  Also: owner found Apple docs confirming the transparency-layer perf rule;
+  Instruments (Time Profiler / Core Animation) noted as the sanctioned
+  alternative to our Testing-Mode buckets for future hunts.
+  **Needs owner verification:** build, Testing Mode, drag a group — expect
+  `frame(drag)` ~1–3ms and drags that feel like pan/zoom now do. Then the
+  §6.2 visual regression pass (opacity groups, exports) closes the phase.
+
 - **2026-07-02 — Session 161h (handoff):**
   Owner near usage limits — full state written to **docs/PERF-HANDOFF.md**
   (root causes with evidence, dead theories, the transparency-layer clip rule,
