@@ -1,11 +1,22 @@
 import React, { useEffect, useMemo, useState } from "react";
 import siteContent from "./generated/siteContent.json";
 
+const releaseUrl = "https://github.com/tracyapps/EXP-design/releases/latest";
+const releasesUrl = "https://github.com/tracyapps/EXP-design/releases";
+const issuesUrl = "https://github.com/tracyapps/EXP-design/issues/new";
+
 const navItems = [
   { label: "features", href: "#features" },
   { label: "field guide", href: "#field-guide" },
   { label: "roadmap", href: "#roadmap" },
   { label: "testing", href: "#testing" },
+];
+
+const downloadNavItems = [
+  { label: "install", href: "#install" },
+  { label: "reporting", href: "#reporting" },
+  { label: "features", href: "#tester-features" },
+  { label: "known issues", href: "#known-issues" },
 ];
 
 const featureMoments = [
@@ -76,22 +87,28 @@ function useScrollProgress() {
   return progress;
 }
 
-function Header({ progress }) {
+function Header({
+  progress,
+  items = navItems,
+  actionLabel = "follow the build",
+  actionHref = "#testing",
+  brandHref = "#top",
+}) {
   return (
     <header className="site-header glass-thin glass-edge">
-      <a className="brand-lockup" href="#top" aria-label="EXP [design] home">
+      <a className="brand-lockup" href={brandHref} aria-label="EXP [design] home">
         <img src="/assets/exp-logo.png" alt="" />
         <span>EXP<span>[design]</span></span>
       </a>
       <nav aria-label="primary">
-        {navItems.map((item) => (
+        {items.map((item) => (
           <a key={item.href} href={item.href}>
             {item.label}
           </a>
         ))}
       </nav>
-      <a className="header-action" href="#testing">
-        follow the build
+      <a className="header-action" href={actionHref}>
+        {actionLabel}
       </a>
       <div className="scroll-progress" style={{ transform: `scaleX(${progress})` }} />
     </header>
@@ -447,6 +464,319 @@ function TestingInvite() {
   );
 }
 
+const installSteps = [
+  {
+    title: "download the latest build",
+    body: "Use the button on this page. GitHub opens the newest release; choose the EXP app file under Assets.",
+    icon: "ph-download-simple",
+  },
+  {
+    title: "unpack it",
+    body: "If the file is a .zip, double-click it first. Then move EXP [design].app to Applications, or keep it in Downloads for a quick first pass.",
+    icon: "ph-archive",
+  },
+  {
+    title: "open with macOS in mind",
+    body: "Early builds may show a security prompt. Control-click the app and choose Open, or use System Settings > Privacy & Security > Open Anyway.",
+    icon: "ph-shield-check",
+  },
+  {
+    title: "make a tiny test file",
+    body: "Start with throwaway artboards before using real work. Save often and duplicate important .exp files before opening them in a new build.",
+    icon: "ph-file-plus",
+  },
+  {
+    title: "send what you notice",
+    body: "Bugs, rough edges, confusing labels, missing affordances, and moments where the tool gets in your way are all useful.",
+    icon: "ph-chat-centered-text",
+  },
+];
+
+const expectationCards = [
+  {
+    title: "this is product testing, not a polished launch",
+    body: "Some paths will be unfinished, some copy will be temporary, and some behavior may change between builds. That is expected.",
+  },
+  {
+    title: "small friction counts",
+    body: "A bug is not only a crash. It can be a control that is hard to find, a value that feels wrong, a shortcut that surprises you, or a workflow that takes too many steps.",
+  },
+  {
+    title: "your design instincts are the point",
+    body: "You do not need to diagnose the code. Describe what you were trying to do, what happened, and what you expected instead.",
+  },
+];
+
+const reportChecklist = [
+  "what you were trying to do",
+  "what happened instead",
+  "steps to reproduce it, if you can repeat it",
+  "a screenshot or short screen recording when visual",
+  "your macOS version and the EXP build/version",
+  "whether the .exp file can be shared privately",
+];
+
+const staticKnownIssues = [
+  {
+    id: "TEXT",
+    title: "text styling can be lost on direct click-out",
+    priority: "known",
+    detail: "If you style selected text from the Inspector and click straight off the text box, the change can be dropped. Workaround: click once inside the text to collapse the selection, then click out.",
+  },
+  {
+    id: "SAFETY",
+    title: "early builds are not for irreplaceable client files",
+    priority: "important",
+    detail: "Please test with duplicates or throwaway files. If something matters, keep a backup before opening it in a new tester build.",
+  },
+];
+
+function DownloadHero() {
+  return (
+    <section id="top" className="download-hero">
+      <div className="download-hero-copy">
+        <h1>EXP [design] tester download</h1>
+        <p>
+          thanks for helping shape the app while it is still becoming itself. this page has
+          the latest build link, install notes, what to expect, and what makes feedback useful.
+        </p>
+        <div className="hero-actions" aria-label="download actions">
+          <a className="button primary" href={releaseUrl} target="_blank" rel="noreferrer">
+            <i className="ph ph-download-simple" aria-hidden="true" />
+            download latest build
+          </a>
+          <a className="button secondary" href="#reporting">
+            how to report feedback
+          </a>
+        </div>
+        <p className="download-note">
+          downloads are hosted on GitHub Releases. the primary link always opens the newest available build.
+        </p>
+      </div>
+      <div className="download-preview" aria-label="EXP tester build preview">
+        <ProductWindow />
+        <div className="download-build-card glass-medium glass-edge">
+          <span>tester build</span>
+          <strong>macOS only</strong>
+          <small>expect rough edges; save test files often.</small>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function InstallGuide() {
+  return (
+    <section id="install" className="download-section install-section" aria-labelledby="install-title">
+      <div className="section-copy narrow">
+        <p className="section-label">install</p>
+        <h2 id="install-title">from download to first test file.</h2>
+        <p>
+          the install is intentionally ordinary for a Mac app, with one early-build caveat:
+          macOS may ask you to confirm that you meant to open it.
+        </p>
+      </div>
+      <ol className="install-list">
+        {installSteps.map((step, index) => (
+          <li key={step.title}>
+            <span className="install-number">{String(index + 1).padStart(2, "0")}</span>
+            <i className={`ph ${step.icon}`} aria-hidden="true" />
+            <div>
+              <h3>{step.title}</h3>
+              <p>{step.body}</p>
+            </div>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+function Expectations() {
+  return (
+    <section className="download-section expectations-section" aria-labelledby="expectations-title">
+      <div className="section-copy">
+        <p className="section-label">what to expect</p>
+        <h2 id="expectations-title">use it like a designer, report it like a witness.</h2>
+      </div>
+      <div className="expectation-grid">
+        {expectationCards.map((card) => (
+          <article key={card.title} className="expectation-card">
+            <h3>{card.title}</h3>
+            <p>{card.body}</p>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ReportingGuide() {
+  return (
+    <section id="reporting" className="download-section reporting-section glass-thick glass-edge" aria-labelledby="reporting-title">
+      <div className="section-copy">
+        <p className="section-label">reporting</p>
+        <h2 id="reporting-title">a useful report is just enough context to find the thread.</h2>
+        <p>
+          best path: use <strong>Help &gt; Send Feedback</strong> inside the app. if the app will not open,
+          use GitHub instead.
+        </p>
+        <div className="hero-actions">
+          <a className="button primary" href={issuesUrl} target="_blank" rel="noreferrer">
+            <i className="ph ph-bug" aria-hidden="true" />
+            report on GitHub
+          </a>
+          <a className="button secondary" href={releasesUrl} target="_blank" rel="noreferrer">
+            view all releases
+          </a>
+        </div>
+      </div>
+      <div className="report-panels">
+        <section className="report-card" aria-labelledby="bug-example-title">
+          <p className="section-label">example bug</p>
+          <h3 id="bug-example-title">valuable bug report</h3>
+          <dl>
+            <div>
+              <dt>trying to</dt>
+              <dd>resize a selected text box after changing line height.</dd>
+            </div>
+            <div>
+              <dt>expected</dt>
+              <dd>the box keeps the new line height and resizes from the handle.</dd>
+            </div>
+            <div>
+              <dt>actually</dt>
+              <dd>the line height resets after I click away, then the box crops the second line.</dd>
+            </div>
+            <div>
+              <dt>repeat</dt>
+              <dd>new text box &gt; set line height to 1.8 &gt; drag lower-right handle &gt; click the canvas.</dd>
+            </div>
+          </dl>
+        </section>
+        <section className="report-card" aria-labelledby="idea-example-title">
+          <p className="section-label">example idea</p>
+          <h3 id="idea-example-title">valuable improvement request</h3>
+          <p>
+            "When I am arranging many artboards, I keep wanting a quick way to zoom out to the full wall,
+            then return to the board I was editing. The current fit/actual shortcuts help, but I lose my place."
+          </p>
+          <ul>
+            {reportChecklist.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        </section>
+      </div>
+    </section>
+  );
+}
+
+function TesterFeatures() {
+  return (
+    <section id="tester-features" className="download-section tester-features" aria-labelledby="tester-features-title">
+      <div className="roadmap-header">
+        <div>
+          <p className="section-label">what is ready to try</p>
+          <h2 id="tester-features-title">the roadmap, translated for testing.</h2>
+        </div>
+        <p>
+          pulled from <code>docs/ROADMAP.md</code>, then rewritten around what a designer can actually try in the app.
+        </p>
+      </div>
+      <div className="tester-feature-list">
+        {siteContent.testerFeatures.map((feature) => (
+          <article key={feature.phase} className={feature.status.replace(" ", "-")}>
+            <span>{feature.status}</span>
+            <h3>{feature.title}</h3>
+            <p>{feature.body}</p>
+            <small>{feature.phase}</small>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function KnownIssues() {
+  const issues = [...staticKnownIssues, ...(siteContent.testerKnownIssues ?? [])];
+
+  return (
+    <section id="known-issues" className="download-section known-issues" aria-labelledby="known-issues-title">
+      <div className="section-copy narrow">
+        <p className="section-label">known issues</p>
+        <h2 id="known-issues-title">rough edges worth knowing before you start.</h2>
+        <p>
+          these are not meant to scare you off. they are here so you can test with context and avoid losing time to known behavior.
+        </p>
+      </div>
+      <div className="issue-list">
+        {issues.map((issue) => (
+          <article key={`${issue.id}-${issue.title}`} className="issue-card">
+            <div>
+              <span>{issue.id}</span>
+              <strong>{issue.priority}</strong>
+            </div>
+            <h3>{issue.title}</h3>
+            <p>{issue.detail}</p>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function TesterFooterCta() {
+  return (
+    <section className="download-final glass-thick glass-edge" aria-labelledby="final-download-title">
+      <div>
+        <p className="section-label">ready</p>
+        <h2 id="final-download-title">grab the build, make a small mess, tell me where it snagged.</h2>
+      </div>
+      <a className="button primary" href={releaseUrl} target="_blank" rel="noreferrer">
+        <i className="ph ph-download-simple" aria-hidden="true" />
+        download latest build
+      </a>
+    </section>
+  );
+}
+
+function DownloadPage() {
+  const progress = useScrollProgress();
+
+  useEffect(() => {
+    document.title = "EXP [design] tester download";
+    document
+      .querySelector("meta[name='description']")
+      ?.setAttribute(
+        "content",
+        "Download the latest EXP [design] tester build, install it on macOS, and learn how to report useful bugs and product feedback.",
+      );
+  }, []);
+
+  return (
+    <>
+      <Header
+        progress={progress}
+        items={downloadNavItems}
+        actionLabel="download"
+        actionHref={releaseUrl}
+        brandHref="#top"
+      />
+      <main>
+        <DownloadHero />
+        <InstallGuide />
+        <Expectations />
+        <ReportingGuide />
+        <TesterFeatures />
+        <KnownIssues />
+        <TesterFooterCta />
+      </main>
+      <Footer />
+    </>
+  );
+}
+
 function Footer() {
   return (
     <footer className="site-footer">
@@ -461,6 +791,11 @@ function Footer() {
 
 export default function App() {
   const progress = useScrollProgress();
+  const path = window.location.pathname.replace(/\/$/, "") || "/";
+
+  if (path === "/download") {
+    return <DownloadPage />;
+  }
 
   return (
     <>

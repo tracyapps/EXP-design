@@ -254,11 +254,16 @@ main {
   min-height: 44px;
   align-items: center;
   justify-content: center;
+  gap: 8px;
   font-size: var(--t-base);
   transition:
     transform 160ms var(--ease-standard),
     border-color 160ms var(--ease-standard),
     background 160ms var(--ease-standard);
+}
+
+.button i {
+  font-size: 18px;
 }
 
 .button:hover,
@@ -773,6 +778,336 @@ code {
   font-size: var(--t-small);
 }
 
+.download-hero,
+.download-section,
+.download-final {
+  width: min(calc(100% - (var(--site-gutter) * 2)), var(--site-max));
+  margin-inline: auto;
+}
+
+.download-hero {
+  min-height: 100svh;
+  padding: calc(var(--header-h) + 68px) 0 84px;
+  display: grid;
+  grid-template-columns: minmax(280px, 0.84fr) minmax(360px, 1.16fr);
+  gap: clamp(34px, 7vw, 96px);
+  align-items: center;
+}
+
+.download-hero-copy h1,
+.download-section h2,
+.download-final h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: var(--w-ultralight);
+  letter-spacing: 0;
+  line-height: 0.96;
+  color: var(--text-primary);
+}
+
+.download-hero-copy h1 {
+  max-width: 9.8em;
+  font-size: clamp(52px, 7.6vw, 106px);
+}
+
+.download-hero-copy p,
+.download-section .section-copy p:not(.section-label),
+.download-final p {
+  color: var(--text-secondary);
+  line-height: 1.55;
+  font-size: clamp(16px, 1.8vw, 20px);
+  font-weight: var(--w-light);
+}
+
+.download-note {
+  max-width: 520px;
+  margin: 18px 0 0;
+  color: var(--text-tertiary) !important;
+  font-size: var(--t-small) !important;
+}
+
+.download-preview {
+  position: relative;
+}
+
+.download-build-card {
+  position: absolute;
+  right: clamp(12px, 5vw, 52px);
+  bottom: -28px;
+  width: min(280px, 72%);
+  padding: 15px;
+  border-radius: 8px;
+}
+
+.download-build-card span,
+.install-number,
+.tester-feature-list article span,
+.issue-card span,
+.issue-card strong,
+.report-card dt {
+  display: block;
+  font-family: var(--font-condensed);
+  font-size: var(--t-mini);
+  text-transform: uppercase;
+  letter-spacing: var(--tr-caps);
+  color: var(--text-tertiary);
+}
+
+.download-build-card strong {
+  display: block;
+  margin-top: 6px;
+  font-size: var(--t-xl);
+  font-weight: var(--w-light);
+}
+
+.download-build-card small {
+  display: block;
+  margin-top: 6px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.download-section {
+  padding: 82px 0;
+  border-top: 1px solid var(--hairline);
+}
+
+.install-section {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.7fr) minmax(340px, 1.3fr);
+  gap: clamp(30px, 7vw, 92px);
+  align-items: start;
+}
+
+.install-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: install;
+}
+
+.install-list li {
+  display: grid;
+  grid-template-columns: 42px 42px 1fr;
+  gap: 16px;
+  align-items: start;
+  padding: 18px;
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  background: var(--surface-card);
+}
+
+.install-list i {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  color: var(--brand-lime);
+  font-size: 24px;
+  background: color-mix(in srgb, var(--brand-lime) 11%, transparent);
+  border: 1px solid color-mix(in srgb, var(--brand-lime) 18%, transparent);
+  border-radius: 8px;
+}
+
+.install-list h3,
+.expectation-card h3,
+.report-card h3,
+.tester-feature-list h3,
+.issue-card h3 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--t-xl);
+  font-weight: var(--w-light);
+  line-height: 1.18;
+}
+
+.install-list p,
+.expectation-card p,
+.report-card p,
+.report-card dd,
+.tester-feature-list p,
+.issue-card p {
+  margin: 8px 0 0;
+  color: var(--text-secondary);
+  font-size: var(--t-base);
+  line-height: 1.5;
+}
+
+.expectations-section {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.8fr) minmax(360px, 1.2fr);
+  gap: clamp(28px, 6vw, 84px);
+  align-items: start;
+}
+
+.expectation-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.expectation-card,
+.report-card,
+.tester-feature-list article,
+.issue-card {
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  background: var(--surface-card);
+}
+
+.expectation-card {
+  padding: 20px;
+}
+
+.reporting-section {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.78fr) minmax(360px, 1.22fr);
+  gap: clamp(28px, 6vw, 84px);
+  padding: clamp(24px, 5vw, 52px);
+  border-top: 0;
+  border-radius: 16px;
+}
+
+.reporting-section strong {
+  color: var(--text-primary);
+  font-weight: var(--w-medium);
+}
+
+.report-panels {
+  display: grid;
+  gap: 12px;
+}
+
+.report-card {
+  padding: 20px;
+  background: color-mix(in srgb, var(--surface-card) 68%, transparent);
+}
+
+.report-card dl {
+  display: grid;
+  gap: 12px;
+  margin: 18px 0 0;
+}
+
+.report-card dl div {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--hairline);
+}
+
+.report-card dt {
+  color: var(--brand-lime);
+}
+
+.report-card dd {
+  margin: 0;
+}
+
+.report-card ul {
+  display: grid;
+  gap: 7px;
+  margin: 18px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.report-card li {
+  position: relative;
+  padding-left: 18px;
+  color: var(--text-secondary);
+  font-size: var(--t-small);
+  line-height: 1.45;
+}
+
+.report-card li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.62em;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--teal);
+}
+
+.tester-features {
+  padding-top: 94px;
+}
+
+.tester-feature-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 34px;
+}
+
+.tester-feature-list article {
+  min-height: 218px;
+  padding: 18px;
+}
+
+.tester-feature-list article.done span {
+  color: var(--brand-lime);
+}
+
+.tester-feature-list article.in-progress span {
+  color: var(--accent);
+}
+
+.tester-feature-list small {
+  display: block;
+  margin-top: 18px;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+  line-height: 1.4;
+}
+
+.known-issues {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.74fr) minmax(360px, 1.26fr);
+  gap: clamp(28px, 6vw, 84px);
+  align-items: start;
+}
+
+.issue-list {
+  display: grid;
+  gap: 10px;
+}
+
+.issue-card {
+  padding: 18px;
+}
+
+.issue-card div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.issue-card strong {
+  color: var(--orange);
+}
+
+.download-final {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 74px;
+  padding: clamp(24px, 5vw, 52px);
+  border-radius: 16px;
+}
+
+.download-final h2 {
+  max-width: 780px;
+  font-size: clamp(38px, 5.2vw, 72px);
+}
+
 .testing-section {
   display: grid;
   grid-template-columns: minmax(280px, 1fr) minmax(300px, 0.75fr);
@@ -886,12 +1221,17 @@ code {
   }
 
   .hero-section,
+  .download-hero,
   .product-story,
   .workspace-section,
   .feature-stage,
   .guide-section,
   .roadmap-header,
-  .testing-section {
+  .testing-section,
+  .install-section,
+  .expectations-section,
+  .reporting-section,
+  .known-issues {
     grid-template-columns: 1fr;
   }
 
@@ -910,7 +1250,8 @@ code {
 
   .feature-tabs,
   .roadmap-list,
-  .sync-panels {
+  .sync-panels,
+  .tester-feature-list {
     grid-template-columns: 1fr;
   }
 
@@ -931,6 +1272,27 @@ code {
 
   .workspace-section {
     padding-top: 12px;
+  }
+
+  .download-hero {
+    padding-top: calc(var(--header-h) + 54px);
+  }
+
+  .download-hero-copy h1 {
+    font-size: clamp(48px, 13vw, 76px);
+  }
+
+  .download-build-card {
+    position: relative;
+    right: auto;
+    bottom: auto;
+    width: 100%;
+    margin-top: 12px;
+  }
+
+  .download-final {
+    flex-direction: column;
+    align-items: stretch;
   }
 }
 
@@ -996,5 +1358,27 @@ code {
 
   .guide-time {
     grid-column: 2;
+  }
+
+  .install-list li {
+    grid-template-columns: 32px 1fr;
+  }
+
+  .install-list i {
+    grid-column: 1;
+    grid-row: 2;
+    width: 32px;
+    height: 32px;
+    font-size: 18px;
+  }
+
+  .install-list li > div {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+
+  .report-card dl div {
+    grid-template-columns: 1fr;
+    gap: 5px;
   }
 }

@@ -83,7 +83,7 @@ function parsePhases(markdown) {
     const section = nextIndex === -1 ? markdown.slice(start) : markdown.slice(start, start + nextIndex);
     const counts = checkboxCounts(section);
     const isDone = title.includes("✅ DONE") || (counts.total > 0 && counts.pending === 0 && counts.partial === 0);
-    const isInProgress = title.includes("IN PROGRESS") || counts.partial > 0;
+    const isInProgress = title.includes("IN PROGRESS") || counts.partial > 0 || counts.done > 0;
     const cleanTitle = title.replace(/\s+✅ DONE/g, "").replace(/\s+— IN PROGRESS/g, "").trim();
 
     return {
@@ -159,6 +159,100 @@ function buildRoadmapCards(phases, progressLog) {
   ];
 }
 
+const testerPhaseCopy = [
+  {
+    match: "Phase 1",
+    title: "Canvas basics",
+    body: "Pan, zoom, create artboards, move boards around, and select work on a native Mac canvas.",
+  },
+  {
+    match: "Phase 2",
+    title: "Files that open quickly",
+    body: "EXP documents save as a lightweight .exp format, with undo-aware document changes.",
+  },
+  {
+    match: "Phase 3",
+    title: "Shapes, text, and layers",
+    body: "Draw rectangles, ellipses, straight lines, paths, and text; move, resize, rename, lock, hide, group, and reorder layers.",
+  },
+  {
+    match: "Phase 4",
+    title: "Source components",
+    body: "Create reusable source components, place instances, edit the source, detach when needed, and test text/color/visibility overrides.",
+  },
+  {
+    match: "Phase 5 — Export",
+    title: "Export",
+    body: "Export selected or all artboards as PNG, PDF, SVG, or a combined multi-page PDF.",
+  },
+  {
+    match: "Phase 5.5",
+    title: "Artboard workflows",
+    body: "Use presets, resize and rename boards, multi-select, duplicate, copy/paste, and rearrange boards with their contents.",
+  },
+  {
+    match: "Phase 6",
+    title: "Handoff notes",
+    body: "Attach notes to artboards, keep those notes with duplicated boards, and include notes pages in PDF handoff exports.",
+  },
+  {
+    match: "Phase 8",
+    title: "Color and gradients",
+    body: "Use the custom color picker, eyedropper, HEX/RGB/HSL/LCH/OKLCH readouts, artboard backgrounds, gradients, and gradient overrides.",
+  },
+  {
+    match: "Phase 9",
+    title: "Typography",
+    body: "Pick typefaces, style rich text, tune alignment/line height/tracking, transform case, and convert text into editable outlines.",
+  },
+  {
+    match: "Phase 10",
+    title: "Effects",
+    body: "Adjust opacity, use number-key opacity shortcuts, and test drop shadows or inner shadows in canvas and export.",
+  },
+  {
+    match: "Phase 11",
+    title: "Layout help",
+    body: "Try align/distribute, option-hover measurements, rulers, guides, global grids, artboard layout grids, and snapping.",
+  },
+  {
+    match: "Phase 13",
+    title: "Workspace and panels",
+    body: "Switch between single-window and multi-window panel layouts, move trays, collapse panels, and preserve workspace preferences.",
+  },
+];
+
+function buildTesterFeatures(phases) {
+  return testerPhaseCopy
+    .map((copy) => {
+      const phase = phases.find((item) => item.title.includes(copy.match));
+      if (!phase) {
+        return null;
+      }
+
+      return {
+        phase: phase.title,
+        title: copy.title,
+        status: phase.status,
+        body: copy.body,
+      };
+    })
+    .filter(Boolean);
+}
+
+function buildTesterKnownIssues(backlog, limit = 4) {
+  return backlog
+    .filter((item) => item.type === "bug" && item.status !== "done")
+    .slice(0, limit)
+    .map((item) => ({
+      id: item.id,
+      title: item.title,
+      priority: item.priority,
+      status: item.status,
+      detail: item.detail,
+    }));
+}
+
 const [roadmapMarkdown, backlogMarkdown] = await Promise.all([
   readFile(path.join(repoRoot, "docs/ROADMAP.md"), "utf8"),
   readFile(path.join(repoRoot, "docs/BACKLOG.md"), "utf8"),
@@ -172,6 +266,8 @@ const content = {
   generatedAt: new Date().toISOString(),
   sourceFiles: ["docs/ROADMAP.md", "docs/BACKLOG.md"],
   roadmap: buildRoadmapCards(phases, progressLog),
+  testerFeatures: buildTesterFeatures(phases),
+  testerKnownIssues: buildTesterKnownIssues(backlog),
   progressLog,
   backlog,
   counts: {

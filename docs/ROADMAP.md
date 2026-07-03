@@ -926,6 +926,19 @@ font import → Phase 9, shadows → Phase 10._
 ## Progress Log
 _Newest entry on top. Update every session._
 
+- **2026-07-03 — Session 163 (tester download landing page):**
+  Added the direct, unlinked tester landing page at `/download` in the Vite
+  website. The page matches the existing EXP site system and includes a GitHub
+  Releases "download latest build" CTA, macOS install steps, early-build safety
+  warnings, expectations for non-technical product testers, examples of useful
+  bug reports and improvement requests, current known issues, and a
+  human-readable feature snapshot synced from `docs/ROADMAP.md`. Extended
+  `website/scripts/sync-content.mjs` to emit tester-facing feature highlights
+  and known bugs from the roadmap/backlog sources. Added a Vercel rewrite so
+  `expdesign.app/download` loads the SPA directly. Verified with `npm run build`
+  and Playwright screenshots at 1440px desktop + 390px mobile; no horizontal
+  overflow, correct H1, and the primary CTA targets GitHub's latest release URL.
+
 - **2026-07-02 — Session 162f (BUG-002 squashed — deferred stepper writes):**
   The "Publishing changes from within view updates" warning (owner-isolated
   repro: holding ↑/↓ on inspector fields). `NumericStepping.onKeyPress` wrote
