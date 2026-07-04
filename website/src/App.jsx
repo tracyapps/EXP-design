@@ -341,7 +341,7 @@ function Roadmap() {
       </div>
       <ol className="roadmap-list">
         {siteContent.roadmap.map((item) => (
-          <li key={item.title} className={item.status.replace(" ", "-")}>
+          <li key={item.title} className={item.status.replace(/[^a-z0-9]+/gi, "-")}>
             <span className="roadmap-status">{item.status}</span>
             <h3>{item.title}</h3>
             <p>{item.body}</p>
@@ -482,7 +482,7 @@ const installSteps = [
   },
   {
     title: "make a tiny test file",
-    body: "Start with throwaway artboards before using real work. Save often and duplicate important .exp files before opening them in a new build.",
+    body: "Start with throwaway artboards before using real work. Save often and duplicate important .design files before opening them in a new build.",
     icon: "ph-file-plus",
   },
   {
@@ -513,7 +513,7 @@ const reportChecklist = [
   "steps to reproduce it, if you can repeat it",
   "a screenshot or short screen recording when visual",
   "your macOS version and the EXP build/version",
-  "whether the .exp file can be shared privately",
+  "whether the .design file can be shared privately",
 ];
 
 const staticKnownIssues = [
@@ -686,7 +686,7 @@ function TesterFeatures() {
       </div>
       <div className="tester-feature-list">
         {siteContent.testerFeatures.map((feature) => (
-          <article key={feature.phase} className={feature.status.replace(" ", "-")}>
+          <article key={feature.phase} className={feature.status.replace(/[^a-z0-9]+/gi, "-")}>
             <span>{feature.status}</span>
             <h3>{feature.title}</h3>
             <p>{feature.body}</p>

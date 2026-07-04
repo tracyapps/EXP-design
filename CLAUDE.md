@@ -68,7 +68,11 @@ EXP [design]/
 ```
 
 ## Current status
-Phase 0 complete: three-pane editor shell runs (HSplitView: layers · canvas ·
-inspector, with toolbar toggles and a placeholder artboard). **Next: Phase 1** —
-introduce a shared app-state object, then build the real AppKit-backed canvas
-with smooth pan/zoom. See ROADMAP.md for the authoritative checklist.
+Core editor is shipped and in tester hands (public download page at
+expdesign.app/download). Phases 0–7, 8.5, 9, 11, and 13 are ✅ DONE; Phases 8
+(color/gradients) and 10 (effects) are ✅ DONE with refinements planned; 9.5
+(rich text) is IN PROGRESS with one open editor bug. Documents save as
+**`.design`** (legacy `.exp` opens for migration). Recent work: canvas
+performance (blit/mip caching), BUG/PERF triage in docs/BACKLOG.md, and the
+tester download page. See ROADMAP.md for the authoritative checklist; phase
+statuses there feed the public site via `website/scripts/sync-content.mjs`.

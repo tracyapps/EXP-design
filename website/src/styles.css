@@ -1057,6 +1057,11 @@ code {
   color: var(--accent);
 }
 
+/* shipped + follow-up improvements queued */
+.tester-feature-list article.done-refinements-planned span {
+  color: var(--brand-lime);
+}
+
 .tester-feature-list small {
   display: block;
   margin-top: 18px;

@@ -82,13 +82,33 @@ function parsePhases(markdown) {
     const nextIndex = markdown.slice(start).search(/\n### Phase /);
     const section = nextIndex === -1 ? markdown.slice(start) : markdown.slice(start, start + nextIndex);
     const counts = checkboxCounts(section);
-    const isDone = title.includes("✅ DONE") || (counts.total > 0 && counts.pending === 0 && counts.partial === 0);
+    // Three shipped-state tiers:
+    //   "done"                        — phase complete
+    //   "done · refinements planned"  — shipped and usable today; follow-up
+    //                                    improvements are queued (header marker
+    //                                    "✅ DONE — refinements planned")
+    //   "in progress" / "planned"     — as before
+    const isRefining = title.includes("✅ DONE — refinements planned");
+    const isDone =
+      !isRefining &&
+      (title.includes("✅ DONE") || (counts.total > 0 && counts.pending === 0 && counts.partial === 0));
     const isInProgress = title.includes("IN PROGRESS") || counts.partial > 0 || counts.done > 0;
-    const cleanTitle = title.replace(/\s+✅ DONE/g, "").replace(/\s+— IN PROGRESS/g, "").trim();
+    const cleanTitle = title
+      .replace(/\s+✅ DONE — refinements planned/g, "")
+      .replace(/\s+✅ DONE/g, "")
+      .replace(/\s+— IN PROGRESS/g, "")
+      .replace(/\s*\(Session \d+[a-z]?\)/g, "")
+      .trim();
 
     return {
       title: cleanTitle,
-      status: isDone ? "done" : isInProgress ? "in progress" : "planned",
+      status: isRefining
+        ? "done · refinements planned"
+        : isDone
+          ? "done"
+          : isInProgress
+            ? "in progress"
+            : "planned",
       counts,
       summary: excerpt(section, 180),
     };
@@ -132,7 +152,7 @@ function parseBacklog(markdown, limit = 6) {
 }
 
 function buildRoadmapCards(phases, progressLog) {
-  const doneCount = phases.filter((phase) => phase.status === "done").length;
+  const doneCount = phases.filter((phase) => phase.status.startsWith("done")).length;
   const latest = progressLog[0];
 
   return [
@@ -168,7 +188,7 @@ const testerPhaseCopy = [
   {
     match: "Phase 2",
     title: "Files that open quickly",
-    body: "EXP documents save as a lightweight .exp format, with undo-aware document changes.",
+    body: "EXP documents save as a lightweight .design format, with undo-aware document changes.",
   },
   {
     match: "Phase 3",
@@ -273,6 +293,7 @@ const content = {
   counts: {
     phases: {
       done: phases.filter((phase) => phase.status === "done").length,
+      doneRefining: phases.filter((phase) => phase.status === "done · refinements planned").length,
       inProgress: phases.filter((phase) => phase.status === "in progress").length,
       planned: phases.filter((phase) => phase.status === "planned").length,
       total: phases.length,

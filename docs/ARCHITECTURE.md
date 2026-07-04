@@ -46,7 +46,8 @@ ComponentInstance = sourceID + bounded overrides + per-layer visibility (referen
 
 ## 3. Document + undo — `Model/ExpDocument.swift`
 - `ExpDocument` is a SwiftUI **`ReferenceFileDocument`**; the file format is
-  pretty-printed JSON with the `.exp` extension (opens instantly).
+  pretty-printed JSON with the `.design` extension (opens instantly; legacy
+  `.exp` files still open for migration).
 - **The single write funnel is `setModel(_:undoManager:actionName:)`** — every edit
   goes through it. It registers undo (so ⌘Z works), bumps a `resolveGeneration`
   (invalidates the instance cache, see §5), and marks the doc dirty (so Save works).

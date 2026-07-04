@@ -118,11 +118,13 @@ plugins, multiplayer, advanced typography.
       bounded overrides + per-layer visibility — references, never copies)
 - [x] Save / open a file format that opens *instantly* — native **DocumentGroup
       + ReferenceFileDocument** (`Model/ExpDocument.swift`), pretty-printed JSON
-      `.exp`. Undo-aware `setModel` funnel powers ⌘Z AND marks the doc dirty so
+      **`.design`** (extension changed from `.exp` in Session 88/89 — Xcode owns
+      `.exp`; legacy `.exp` files still open for migration). Undo-aware `setModel`
+      funnel powers ⌘Z AND marks the doc dirty so
       Save works. Sandbox set to `user-selected files: readwrite`. Finder file
       association needs the one-time `Info.plist` build-setting step (see log).
 
-### Phase 3 — Primitives & layers
+### Phase 3 — Primitives & layers ✅ DONE
 - [x] Rectangle, ellipse, line/path, text — rectangle, ellipse, text, and
       **straight line** all done. Line: L tool, drag to draw, 2 endpoint handles
       to edit, stroke color + width in the Inspector, hit-tested by distance to
@@ -130,15 +132,15 @@ plugins, multiplayer, advanced typography.
       subsystem — out of v1 primitives scope.)
 - [x] Selection, move, resize — click-select topmost shape, drag to move,
       8-handle resize, arrow-nudge, delete; one undo step per gesture
-- [~] Layers panel: order, visibility, lock, folders/groups — **panel built**
+- [x] Layers panel: order, visibility, lock, folders/groups — **panel built**
       (`UI/LayersPanel.swift`): grouped by owning artboard + Wall, front-of-stack
       at top, eye/lock toggles, double-click rename, drag-reorder (mapped to
       global z-order), two-way selection sync with the canvas. Multi-select:
       click = replace, **Shift-click = range**, **Option/⌘-click = toggle**
       (anchor in AppState, shared with canvas clicks). **Group/ungroup done**
       (⌘G / ⇧⌘G + context menu; groups render/move/clip as a unit, children stored
-      group-local). Still to do: nested-row display of group children in the
-      panel, and group box-resize.
+      group-local). (Later polish: nested-row display of group children in
+      the panel, and group box-resize.)
 
 ### Phase 4 — Source/instance components ✅ DONE
 - [x] Define a "source" from selected layers — **Create Component** (⌘K +
@@ -273,7 +275,7 @@ phase is independently shippable.
       viewport center fixed (`AppState.zoomTo`, fed by `viewportSize` from layout).
 - [ ] (later) "Fill" preset; zoom-to-selection
 
-### Phase 8 — Color system & gradients
+### Phase 8 — Color system & gradients ✅ DONE — refinements planned
 **Build 1 ✅ DONE (Session 32) — custom picker + formats + OKLCH + artboard bg**
 - [x] **Inline color popover** at each swatch (`ColorWell` + `ColorPopover` in
       `Color/`): saturation–brightness field, hue + alpha sliders, screen
@@ -387,7 +389,7 @@ _Owner chose to go straight to full rich text. Staged across builds._
 > of `editorSelectedRange`, `firstResponder`, and the committed runs to see exactly
 > what's read).
 
-### Phase 10 — Effects
+### Phase 10 — Effects ✅ DONE — refinements planned
 - [x] **Layer opacity** (Session 51) — `Node.opacity` (0…1, default 1, hardened
       decoder that also back-fills `rotation`). Rendered as a grouped transparency
       layer on canvas + PNG/PDF (`beginTransparencyLayer` + `setAlpha`) and SVG
@@ -408,7 +410,7 @@ _Owner chose to go straight to full rich text. Staged across builds._
 - [ ] (lower priority) **Blend modes** — the CSS `mix-blend-mode` subset
       (multiply / screen / overlay / darken / lighten / …).
 
-### Phase 11 — Layout, alignment & guides
+### Phase 11 — Layout, alignment & guides ✅ DONE
 - [x] **Align & distribute** (Session 56) — edges/centers (L/C/R, T/M/B) + distribute
       horizontal/vertical spacing (equal gaps, extremes pinned, needs 3+). Illustrator-
       style **Align-to** toggle (`AppState.alignTarget` = Selection | Artboard); aligning
@@ -453,7 +455,10 @@ _Owner chose to go straight to full rich text. Staged across builds._
 - [ ] (ongoing) Re-audit for gaps as features land; add shortcuts/checkmark state for
       toggles (rulers/guides/grid/bounds) and align where conventional.
 
-### Phase 13 — Workspace & dockable panels (Photoshop-style) — LARGE
+### Phase 13 — Workspace & dockable panels (Photoshop-style) ✅ DONE
+_The shipped tray/panel workspace system is complete and stable. Remaining
+unchecked items below are deferred nice-to-haves (multi-window tab drag,
+named workspace presets, etc.) kept for future reference._
 _Panels are already state-driven, so this is layout/hosting work, not a UI
 rewrite. Built in sub-phases._
 
@@ -925,6 +930,20 @@ font import → Phase 9, shadows → Phase 10._
 
 ## Progress Log
 _Newest entry on top. Update every session._
+
+- **2026-07-03 — Session 164 (doc/status sync for the public download page):**
+  Trued up phase statuses that feed expdesign.app/download. Phases 3, 11, and
+  13 marked ✅ DONE (13's remaining unchecked items are labeled deferred
+  nice-to-haves). Introduced a third status tier — **"✅ DONE — refinements
+  planned"** — applied to Phases 8 (color/gradients) and 10 (effects);
+  `website/scripts/sync-content.mjs` parses it into a "done · refinements
+  planned" badge (new CSS class, robust class slugs in App.jsx, and public
+  titles now drop "(Session NN)" suffixes). Fixed stale `.exp` references to
+  the current `.design` extension in ROADMAP Phase 2, ARCHITECTURE.md,
+  BACKLOG.md (FEAT-001), the tester copy in sync-content.mjs, and two
+  strings on the /download page. CLAUDE.md "Current status" rewritten to
+  match reality. Verified: `npm run sync` emits the expected statuses and
+  zero `.exp` mentions; App.jsx parses clean.
 
 - **2026-07-03 — Session 163 (tester download landing page):**
   Added the direct, unlinked tester landing page at `/download` in the Vite

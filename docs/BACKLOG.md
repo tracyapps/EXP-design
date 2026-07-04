@@ -90,7 +90,7 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   (backward-compatible decode); surface in `ColorPopover`; export/import as a small
   JSON. Generation can reuse `ColorMath` (OKLCH) for perceptually-even ramps.
 - Acceptance: pick from recents/saved; save a swatch; export a palette from doc A and
-  import into doc B; palettes persist in the `.exp` file.
+  import into doc B; palettes persist in the `.design` file.
 
 ### FEAT-002 — Color-mode-specific picker behavior
 - Type: feature
