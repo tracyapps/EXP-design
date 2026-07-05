@@ -61,7 +61,7 @@ function parseProgressLog(markdown, limit = 5) {
     .split(/\n(?=- \*\*)/g)
     .filter((entry) => entry.trim().startsWith("- **"));
 
-  return entries.slice(0, limit).map((entry) => {
+  return entries.map((entry) => {
     const match = entry.match(/^- \*\*([\s\S]*?)\*\*([\s\S]*)$/);
     const title = stripMarkdown(match?.[1] ?? "").replace(/:$/, "");
     const body = excerpt(match?.[2] ?? "", 210);
@@ -70,8 +70,12 @@ function parseProgressLog(markdown, limit = 5) {
       date: dateMatch?.[1] ?? "",
       title: dateMatch?.[2] ?? title,
       body,
+      hidden: /\[(site|website|internal)\]/i.test(`${title} ${match?.[2] ?? ""}`),
     };
-  });
+  })
+    .filter((entry) => !entry.hidden)
+    .slice(0, limit)
+    .map(({ hidden, ...entry }) => entry);
 }
 
 function parsePhases(markdown) {

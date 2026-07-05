@@ -175,7 +175,8 @@ main {
 .section-copy h2,
 .feature-copy h2,
 .roadmap-header h2,
-.testing-section h2 {
+.testing-section h2,
+.download-signup h2 {
   margin: 0;
   font-family: var(--font-display);
   font-weight: var(--w-ultralight);
@@ -388,9 +389,12 @@ main {
 .product-story,
 .workspace-section,
 .features-section,
+.a11y-section,
+.design-language-section,
 .guide-section,
 .roadmap-section,
 .testing-section,
+.download-signup,
 .site-footer {
   width: min(calc(100% - (var(--site-gutter) * 2)), var(--site-max));
   margin-inline: auto;
@@ -408,7 +412,8 @@ main {
 .section-copy h2,
 .feature-copy h2,
 .roadmap-header h2,
-.testing-section h2 {
+.testing-section h2,
+.download-signup h2 {
   margin-top: 10px;
   font-size: clamp(42px, 6vw, 82px);
 }
@@ -417,6 +422,7 @@ main {
 .feature-copy p,
 .roadmap-header p,
 .testing-section p,
+.download-signup > div:first-child p,
 .roadmap-list p {
   color: var(--text-secondary);
   line-height: 1.55;
@@ -600,6 +606,80 @@ main {
 
 .feature-tabs button.active i {
   color: var(--accent);
+}
+
+.a11y-section {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.82fr) minmax(360px, 1.18fr);
+  gap: clamp(28px, 7vw, 92px);
+  align-items: center;
+  padding: 56px 0 112px;
+}
+
+.a11y-copy {
+  max-width: 610px;
+}
+
+.a11y-visual {
+  margin: 0;
+  min-width: 0;
+}
+
+.a11y-visual img {
+  display: block;
+  width: min(100%, 760px);
+  margin-left: auto;
+  object-fit: contain;
+  filter: drop-shadow(0 26px 60px rgba(0, 0, 0, 0.46));
+}
+
+.design-language-section {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.7fr) minmax(420px, 1.3fr);
+  gap: clamp(30px, 7vw, 92px);
+  align-items: center;
+  padding: 32px 0 116px;
+  border-top: 1px solid var(--hairline);
+}
+
+.design-language-gallery {
+  position: relative;
+  min-height: clamp(520px, 54vw, 690px);
+}
+
+.design-shot {
+  position: absolute;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid var(--glass-border);
+  border-radius: 18px;
+  background: rgba(0, 0, 0, 0.28);
+  box-shadow: var(--shadow-modal);
+}
+
+.design-shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.design-shot.settings {
+  inset: 3% 0 auto 0;
+  opacity: 0.88;
+}
+
+.design-shot.list {
+  right: 7%;
+  bottom: 0;
+  width: min(47%, 330px);
+  z-index: 2;
+}
+
+.design-shot.grid {
+  left: 3%;
+  bottom: 6%;
+  width: min(41%, 290px);
+  z-index: 3;
 }
 
 .guide-section {
@@ -867,6 +947,35 @@ code {
   line-height: 1.45;
 }
 
+.download-signup {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.92fr) minmax(320px, 0.78fr);
+  gap: clamp(28px, 7vw, 86px);
+  align-items: center;
+  margin-bottom: 42px;
+  padding: clamp(24px, 5vw, 52px);
+  border-radius: 16px;
+}
+
+.download-signup-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.skip-download {
+  color: var(--text-tertiary);
+  font-size: var(--t-small);
+  text-decoration: underline;
+  text-decoration-color: var(--hairline);
+  text-underline-offset: 4px;
+}
+
+.skip-download:hover,
+.skip-download:focus-visible {
+  color: var(--text-primary);
+  text-decoration-color: var(--accent);
+}
+
 .download-section {
   padding: 82px 0;
   border-top: 1px solid var(--hairline);
@@ -1123,6 +1232,11 @@ code {
   border-radius: 16px;
 }
 
+.testing-actions {
+  display: grid;
+  gap: 10px;
+}
+
 .invite-form {
   display: grid;
   gap: 12px;
@@ -1230,9 +1344,12 @@ code {
   .product-story,
   .workspace-section,
   .feature-stage,
+  .a11y-section,
+  .design-language-section,
   .guide-section,
   .roadmap-header,
   .testing-section,
+  .download-signup,
   .install-section,
   .expectations-section,
   .reporting-section,
@@ -1258,6 +1375,31 @@ code {
   .sync-panels,
   .tester-feature-list {
     grid-template-columns: 1fr;
+  }
+
+  .a11y-visual img {
+    width: min(100%, 620px);
+    margin-inline: auto;
+  }
+
+  .design-language-gallery {
+    min-height: auto;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  .design-shot,
+  .design-shot.settings,
+  .design-shot.list,
+  .design-shot.grid {
+    position: relative;
+    inset: auto;
+    width: auto;
+  }
+
+  .design-shot.settings {
+    grid-column: 1 / -1;
   }
 
   .roadmap-list li {
@@ -1326,6 +1468,10 @@ code {
   .site-footer {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .design-language-gallery {
+    grid-template-columns: 1fr;
   }
 
   .product-window {

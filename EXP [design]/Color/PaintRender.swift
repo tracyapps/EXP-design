@@ -43,7 +43,12 @@ enum PaintRender {
     static func drawGradient(_ g: GradientFill, in rect: CGRect, ctx: CGContext) {
         let stops = g.sortedStops
         guard !stops.isEmpty else { return }
-        let space = CGColorSpaceCreateDeviceRGB()
+        // Interpolate in sRGB — matching the stop colors (which are sRGB CGColors),
+        // the solid-fill path, and export. The old device-RGB space is UNMANAGED, so
+        // it rendered one way in the live window (a device context) and another in the
+        // color-managed offscreen blit bitmap — a gradient color shift (darkening) seen
+        // ONLY while panning/zooming. sRGB is color-matched identically in both paths.
+        let space = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
         let colors = stops.map { cgColor($0.color) } as CFArray
         let locations = stops.map { CGFloat($0.position) }
         guard let gradient = CGGradient(colorsSpace: space, colors: colors, locations: locations) else { return }

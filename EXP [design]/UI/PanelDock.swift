@@ -35,7 +35,7 @@ enum DockSide: String, Codable, Hashable, Sendable { case left, right }
 enum PanelID: String, CaseIterable, Identifiable, Codable, Sendable {
     case layers
     case properties
-    case color
+    case designLanguage
     case components
 
     var id: String { rawValue }
@@ -45,7 +45,7 @@ enum PanelID: String, CaseIterable, Identifiable, Codable, Sendable {
         switch self {
         case .layers:     return "Layers"
         case .properties: return "Properties"
-        case .color:      return "Color"
+        case .designLanguage: return "Design Language"
         case .components: return "Components"
         }
     }
@@ -55,7 +55,7 @@ enum PanelID: String, CaseIterable, Identifiable, Codable, Sendable {
         switch self {
         case .layers:     return "square.3.layers.3d.down.right"
         case .properties: return "slider.horizontal.3"
-        case .color:      return "paintpalette"
+        case .designLanguage: return "swatchpalette"
         case .components: return "square.on.square.dashed"
         }
     }
@@ -63,8 +63,7 @@ enum PanelID: String, CaseIterable, Identifiable, Codable, Sendable {
     /// False = reserved slot with placeholder content (Color, for now).
     var implemented: Bool {
         switch self {
-        case .layers, .properties, .components: return true
-        case .color: return false
+        case .layers, .properties, .components, .designLanguage: return true
         }
     }
 }
@@ -113,7 +112,8 @@ struct Workspace: Codable, Sendable {
             ], width: 264),
             right: DockColumn(groups: [
                 PanelGroup([.properties]),
-                PanelGroup([.components])
+                PanelGroup([.components]),
+                PanelGroup([.designLanguage])
             ], width: 332)   // wide enough for the full align/distribute row
         )
     }
@@ -406,14 +406,12 @@ private struct GroupDropDelegate: DropDelegate {
 /// inapplicable panel is hidden entirely; the rules are intentionally simple and
 /// easy to extend as panels are added.
 func isApplicable(_ id: PanelID, app: AppState, document: ExpDocument) -> Bool {
-    switch id {
-    case .layers, .properties:
-        return true
-    case .components:
-        return !document.model.sources.isEmpty   // hidden until a component exists
-    case .color:
-        return false                              // reserved / not built yet
-    }
+    // A panel the user has placed in the layout should stay reachable. Every panel
+    // has a sensible empty state, so contextual auto-hiding is no longer used as a
+    // LIVE filter — it used to trap empty panels (Components, Design Language) out
+    // of reach with no way to show them. Presence is controlled explicitly through
+    // the Window menu / dock toggles instead. Kept as an extension point.
+    true
 }
 
 /// A single tab in a group header.
@@ -466,9 +464,7 @@ func panelContent(_ id: PanelID, document: ExpDocument) -> some View {
     case .layers:     LayersPanel(document: document, showsTitle: false)
     case .properties: RightPanel(document: document, showsTitle: false, showsZoom: false)
     case .components: ComponentsPanel(document: document)
-    case .color:      ReservedPanel(title: "Color",
-                                     systemImage: "paintpalette",
-                                     note: "A dedicated color mixer + swatches panel lands in a later pass.")
+    case .designLanguage: DesignLanguagePanel(document: document)
     }
 }
 
@@ -644,13 +640,14 @@ private struct ComponentRow: View {
 struct WindowMenuModel {
     var mode: AppState.WorkspaceMode
     var shownPanels: Set<PanelID>
-    var reveal: (PanelID) -> Void
+    /// Show/hide a panel, honoring the current mode (dock in single, tray in multi).
+    var toggle: (PanelID) -> Void
     var showLeft: Bool
     var showRight: Bool
     var toggleLeft: () -> Void
     var toggleRight: () -> Void
     /// The panels listed in the menu, in order.
-    static let panelOrder: [PanelID] = [.layers, .properties, .components]
+    static let panelOrder: [PanelID] = [.layers, .properties, .components, .designLanguage]
 }
 
 private struct WindowMenuKey: FocusedValueKey { typealias Value = WindowMenuModel }
@@ -667,9 +664,16 @@ func makeWindowMenuModel(_ app: AppState) -> WindowMenuModel {
     WindowMenuModel(
         mode: app.workspaceMode,
         shownPanels: Set(WindowMenuModel.panelOrder.filter { app.isPanelShown($0) }),
-        reveal: { panel in
-            if !app.isPanelShown(panel) { app.ensurePanelTray(panel) }
-            DispatchQueue.main.async { PanelWindowManager.shared.focusPanel(panel) }
+        toggle: { panel in
+            let willShow = !app.isPanelShown(panel)
+            app.togglePanel(panel)
+            guard willShow else { return }
+            if app.workspaceMode == .multiWindow {
+                DispatchQueue.main.async { PanelWindowManager.shared.focusPanel(panel) }
+            } else {
+                // The panel is appended to the right dock — make sure it's visible.
+                app.showRightPanel = true
+            }
         },
         showLeft: app.showLeftPanel,
         showRight: app.showRightPanel,
@@ -678,39 +682,47 @@ func makeWindowMenuModel(_ app: AppState) -> WindowMenuModel {
     )
 }
 
-/// Window-menu items appended after the system window list: a panels section
-/// (icon + checkmark, click reveals/focuses but never closes — multi-window only)
-/// and a single-window dock section (Show/Hide with a flipping label).
+/// Window-menu items appended after the system window list. Per-panel show/hide
+/// works in BOTH modes (dock section in single-window, floating tray in
+/// multi-window); the dock column Show/Hide only applies in single-window. The
+/// model falls back to PanelHub's active document, so the menu stays usable even
+/// when a floating panel window is key (which clears the document's scene value).
 struct WindowMenuItems: View {
-    @FocusedValue(\.windowMenu) private var menu
+    @FocusedValue(\.windowMenu) private var focused
+
+    private var menu: WindowMenuModel? {
+        if let focused { return focused }
+        if let app = PanelHub.shared.activeApp { return makeWindowMenuModel(app) }
+        return nil
+    }
 
     var body: some View {
         Divider()
-        // Multi-window panels — reveal/focus only (closing is the panel's ✕).
+        // Per-panel show/hide (works in both modes).
         ForEach(WindowMenuModel.panelOrder, id: \.self) { panel in
-            Toggle(isOn: revealBinding(panel)) {
+            Toggle(isOn: toggleBinding(panel)) {
                 Label(panel.title, systemImage: panel.icon)
             }
-            .disabled(menu?.mode != .multiWindow)
+            .disabled(menu == nil)
         }
         Divider()
-        // Single-window dock visibility — label flips Show ⇄ Hide.
+        // Single-window dock column visibility — label flips Show ⇄ Hide.
         Button { menu?.toggleLeft() } label: {
             Label((menu?.showLeft ?? false) ? "Hide Left Panel" : "Show Left Panel",
                   systemImage: "sidebar.left")
         }
-        .disabled(menu?.mode != .single)
+        .disabled(menu == nil || menu?.mode != .single)
         Button { menu?.toggleRight() } label: {
             Label((menu?.showRight ?? false) ? "Hide Right Panel" : "Show Right Panel",
                   systemImage: "sidebar.right")
         }
-        .disabled(menu?.mode != .single)
+        .disabled(menu == nil || menu?.mode != .single)
     }
 
-    private func revealBinding(_ panel: PanelID) -> Binding<Bool> {
+    private func toggleBinding(_ panel: PanelID) -> Binding<Bool> {
         Binding(
             get: { menu?.shownPanels.contains(panel) ?? false },
-            set: { _ in menu?.reveal(panel) }   // always reveal/focus; never closes
+            set: { _ in menu?.toggle(panel) }
         )
     }
 }

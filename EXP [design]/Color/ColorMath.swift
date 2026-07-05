@@ -124,6 +124,27 @@ enum ColorMath {
         return (clamp01(toGamma(lr)), clamp01(toGamma(lg)), clamp01(toGamma(lb)))
     }
 
+    /// OKLCH → sRGB, but also reporting whether the color fit inside the sRGB
+    /// gamut BEFORE clamping. Lets the picker be honest: an out-of-gamut OKLCH is
+    /// still stored (clamped) but the UI can say so rather than silently lying.
+    static func oklchToRGBGamut(_ L: Double, _ C: Double, _ H: Double)
+        -> (rgb: (Double, Double, Double), inGamut: Bool) {
+        let a = C * cos(H * .pi / 180), bb = C * sin(H * .pi / 180)
+        let l_ = L + 0.3963377774 * a + 0.2158037573 * bb
+        let m_ = L - 0.1055613458 * a - 0.0638541728 * bb
+        let s_ = L - 0.0894841775 * a - 1.2914855480 * bb
+        let l = l_ * l_ * l_, m = m_ * m_ * m_, s = s_ * s_ * s_
+        let lr = 4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s
+        let lg = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s
+        let lb = -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s
+        let gr = toGamma(lr), gg = toGamma(lg), gb = toGamma(lb)
+        let eps = 0.0005
+        let inGamut = gr >= -eps && gr <= 1 + eps
+                   && gg >= -eps && gg <= 1 + eps
+                   && gb >= -eps && gb <= 1 + eps
+        return ((clamp01(gr), clamp01(gg), clamp01(gb)), inGamut)
+    }
+
     // MARK: CIE LCH (CIELAB, D65)
 
     private static let xn = 0.95047, yn = 1.0, zn = 1.08883

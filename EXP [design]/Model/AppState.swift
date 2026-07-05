@@ -68,6 +68,7 @@ final class AppState {
 
     init() {
         loadLayout()
+        migrateNewPanels()
         // Seed without persisting — these reads are not user edits.
         applyingExternalPrefs = true
         applyAppPreferenceDefaults()
@@ -201,6 +202,25 @@ final class AppState {
     }
 
     private static let layoutKey = "exp.workspaceLayout.v1"
+    private static let seenPanelsKey = "exp.panels.seen.v1"
+
+    /// One-time reveal for newly-added panels. Any panel that has never been part
+    /// of a layout before is added to the (single-window) dock once, so a new
+    /// feature — e.g. the Design Language panel — isn't left unreachable behind a
+    /// layout saved before it existed. Every panel is then marked "seen", so a
+    /// panel the user later hides stays hidden. Multi-window trays are left alone
+    /// (auto-opening a floating window would be intrusive); the Window menu reveals
+    /// panels there on demand.
+    private func migrateNewPanels() {
+        let d = UserDefaults.standard
+        let seen = Set(d.stringArray(forKey: Self.seenPanelsKey) ?? [])
+        let known = seen.union(layoutPanels.map(\.rawValue))
+        let missing = PanelID.allCases.filter { !known.contains($0.rawValue) }
+        for pid in missing {
+            withColumn(.right) { $0.groups.append(PanelGroup([pid])) }
+        }
+        d.set(PanelID.allCases.map(\.rawValue), forKey: Self.seenPanelsKey)
+    }
     /// True only while applying a loaded layout, so the property `didSet`s don't
     /// immediately re-save what we just read.
     @ObservationIgnored private var restoringLayout = false

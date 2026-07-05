@@ -51,6 +51,7 @@ extension TextRun {
     }
     var familyName: String {
         if fontName.isEmpty { return "System" }
+        if FontCatalog.isSystemMonospaced(fontName) { return FontCatalog.systemMonospacedFamily }
         return NSFont(name: fontName, size: 12)?.familyName ?? fontName
     }
 }
@@ -59,6 +60,7 @@ extension TextContent {
     /// Family name for the inspector (uniform across runs, or "Mixed").
     var familyName: String {
         guard let fn = uniformFontName else { return "Mixed" }
+        if FontCatalog.isSystemMonospaced(fn) { return FontCatalog.systemMonospacedFamily }
         return fn.isEmpty ? "System" : (NSFont(name: fn, size: 12)?.familyName ?? fn)
     }
 
@@ -299,18 +301,31 @@ extension TextContent {
 
 /// The installed-font catalog, cached.
 enum FontCatalog {
+    static let systemMonospacedFamily = "System Monospaced"
+    static let systemMonospacedRegular = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular).fontName
+
     struct Face: Identifiable, Hashable {
         let postScriptName: String
         let faceName: String
         var id: String { postScriptName }
     }
 
-    static let families: [String] = NSFontManager.shared.availableFontFamilies
+    static let families: [String] = ([systemMonospacedFamily] + NSFontManager.shared.availableFontFamilies)
         .filter { !$0.hasPrefix(".") }
         .sorted()
 
     static func faces(of family: String) -> [Face] {
-        (NSFontManager.shared.availableMembers(ofFontFamily: family) ?? []).compactMap { member in
+        if family == systemMonospacedFamily {
+            return [
+                Face(postScriptName: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular).fontName,
+                     faceName: "Regular"),
+                Face(postScriptName: NSFont.monospacedSystemFont(ofSize: 12, weight: .semibold).fontName,
+                     faceName: "Semibold"),
+                Face(postScriptName: NSFont.monospacedSystemFont(ofSize: 12, weight: .bold).fontName,
+                     faceName: "Bold")
+            ]
+        }
+        return (NSFontManager.shared.availableMembers(ofFontFamily: family) ?? []).compactMap { member -> Face? in
             guard member.count >= 2,
                   let ps = member[0] as? String,
                   let face = member[1] as? String else { return nil }
@@ -319,7 +334,12 @@ enum FontCatalog {
     }
 
     static func defaultFace(of family: String) -> String? {
+        if family == systemMonospacedFamily { return systemMonospacedRegular }
         let f = faces(of: family)
         return (f.first { $0.faceName == "Regular" } ?? f.first)?.postScriptName
+    }
+
+    static func isSystemMonospaced(_ postScriptName: String) -> Bool {
+        postScriptName.hasPrefix(".AppleSystemUIFontMonospaced")
     }
 }

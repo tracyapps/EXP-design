@@ -25,6 +25,7 @@ final class ExportPanels: NSObject {
     private var formatPopup: NSPopUpButton?
     private var combineCheckbox: NSButton?
     private var notesCheckbox: NSButton?
+    private var transparentPNGCheckbox: NSButton?
 
     /// PNG renders at this scale (a future Settings panel can expose it).
     private let pngScale: CGFloat = 2
@@ -49,8 +50,10 @@ final class ExportPanels: NSObject {
             guard let self, response == .OK, let url = panel.url else { return }
             let format = ExportFormat.allCases[self.formatIndex]
             let notes = self.notesCheckbox?.state == .on
+            let transparentPNG = self.transparentPNGCheckbox?.state == .on
             if let data = self.renderer.data(for: artboard, format: format,
-                                             scale: self.pngScale, includeNotes: notes) {
+                                             scale: self.pngScale, includeNotes: notes,
+                                             transparentPNGBackground: transparentPNG) {
                 try? data.write(to: url)
             }
         }
@@ -79,10 +82,12 @@ final class ExportPanels: NSObject {
             guard let self, response == .OK, let dir = panel.url else { return }
             let combine = self.combineCheckbox?.state == .on
             let notes = self.notesCheckbox?.state == .on
+            let transparentPNG = self.transparentPNGCheckbox?.state == .on
             // Index 3 = "All"; otherwise a single format.
             let formats: [ExportFormat] = self.formatIndex == 3
                 ? ExportFormat.allCases : [ExportFormat.allCases[self.formatIndex]]
-            self.writeAll(artboards, to: dir, formats: formats, combinePDF: combine, includeNotes: notes)
+            self.writeAll(artboards, to: dir, formats: formats, combinePDF: combine,
+                          includeNotes: notes, transparentPNG: transparentPNG)
         }
         if let window {
             panel.beginSheetModal(for: window, completionHandler: complete)
@@ -92,7 +97,8 @@ final class ExportPanels: NSObject {
     }
 
     private func writeAll(_ artboards: [Artboard], to dir: URL,
-                          formats: [ExportFormat], combinePDF: Bool, includeNotes: Bool) {
+                          formats: [ExportFormat], combinePDF: Bool, includeNotes: Bool,
+                          transparentPNG: Bool) {
         for format in formats {
             if format == .pdf && combinePDF {
                 if let data = renderer.multiPagePDFData(for: artboards, includeNotes: includeNotes) {
@@ -102,7 +108,8 @@ final class ExportPanels: NSObject {
                 for artboard in artboards {
                     let base = artboard.name.replacingOccurrences(of: "/", with: "-")
                     if let data = renderer.data(for: artboard, format: format,
-                                                scale: pngScale, includeNotes: includeNotes) {
+                                                scale: pngScale, includeNotes: includeNotes,
+                                                transparentPNGBackground: transparentPNG) {
                         try? data.write(to: dir.appendingPathComponent("\(base).\(format.ext)"))
                     }
                 }
@@ -136,7 +143,13 @@ final class ExportPanels: NSObject {
         notes.state = .off
         notesCheckbox = notes
 
+        let transparentPNG = NSButton(checkboxWithTitle: "Transparent background (PNG)",
+                                      target: self, action: #selector(formatChanged(_:)))
+        transparentPNG.state = .off
+        transparentPNGCheckbox = transparentPNG
+
         var rows: [NSView] = [row]
+        rows.append(transparentPNG)
         if includeCombine {
             let combine = NSButton(checkboxWithTitle: "Combine PDF pages into one file",
                                    target: self, action: #selector(formatChanged(_:)))
@@ -151,7 +164,7 @@ final class ExportPanels: NSObject {
         container.alignment = .leading
         container.spacing = 8
         container.edgeInsets = NSEdgeInsets(top: 12, left: 16, bottom: 12, right: 16)
-        container.frame = NSRect(x: 0, y: 0, width: 380, height: includeCombine ? 104 : 80)
+        container.frame = NSRect(x: 0, y: 0, width: 380, height: includeCombine ? 128 : 104)
         return container
     }
 
@@ -174,7 +187,9 @@ final class ExportPanels: NSObject {
     private func updateCheckboxesEnabled() {
         // PDF (index 1) or All (index 3) make the PDF-only options meaningful.
         let pdfInvolved = (formatIndex == 1 || formatIndex == 3)
+        let pngInvolved = (formatIndex == 0 || formatIndex == 3)
         combineCheckbox?.isEnabled = pdfInvolved
         notesCheckbox?.isEnabled = pdfInvolved
+        transparentPNGCheckbox?.isEnabled = pngInvolved
     }
 }

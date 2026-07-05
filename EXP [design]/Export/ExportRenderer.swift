@@ -48,18 +48,20 @@ struct ExportRenderer {
     let document: Document
 
     func data(for artboard: Artboard, format: ExportFormat, scale: CGFloat,
-              includeNotes: Bool = false) -> Data? {
+              includeNotes: Bool = false, transparentPNGBackground: Bool = false) -> Data? {
         switch format {
         case .pdf: return pdfData(for: artboard, includeNotes: includeNotes)
-        case .png: return pngData(for: artboard, scale: scale)
+        case .png: return pngData(for: artboard, scale: scale,
+                                  transparentBackground: transparentPNGBackground)
         case .svg: return svgString(for: artboard).data(using: .utf8)
         }
     }
 
     // MARK: PDF (vector via a flipped offscreen view)
 
-    func pdfData(for artboard: Artboard) -> Data {
-        let view = ExportRenderView(document: document, artboard: artboard)
+    func pdfData(for artboard: Artboard, drawBackground: Bool = true) -> Data {
+        let view = ExportRenderView(document: document, artboard: artboard,
+                                    drawBackground: drawBackground)
         return view.dataWithPDF(inside: view.bounds)
     }
 
@@ -105,9 +107,12 @@ struct ExportRenderer {
 
     // MARK: PNG (rasterize the vector PDF at scale)
 
-    func pngData(for artboard: Artboard, scale: CGFloat) -> Data? {
+    func pngData(for artboard: Artboard, scale: CGFloat,
+                 transparentBackground: Bool = false) -> Data? {
         let w = artboard.frame.width, h = artboard.frame.height
-        guard w > 0, h > 0, let image = NSImage(data: pdfData(for: artboard)) else { return nil }
+        guard w > 0, h > 0,
+              let image = NSImage(data: pdfData(for: artboard,
+                                                drawBackground: !transparentBackground)) else { return nil }
         guard let rep = NSBitmapImageRep(
             bitmapDataPlanes: nil,
             pixelsWide: Int(w * scale), pixelsHigh: Int(h * scale),
@@ -118,6 +123,7 @@ struct ExportRenderer {
 
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        NSGraphicsContext.current?.cgContext.clear(CGRect(x: 0, y: 0, width: w, height: h))
         image.draw(in: NSRect(x: 0, y: 0, width: w, height: h))
         NSGraphicsContext.restoreGraphicsState()
 
@@ -341,19 +347,23 @@ struct ExportRenderer {
 final class ExportRenderView: NSView {
     let document: Document
     let artboard: Artboard
+    let drawBackground: Bool
 
     override var isFlipped: Bool { true }
 
-    init(document: Document, artboard: Artboard) {
+    init(document: Document, artboard: Artboard, drawBackground: Bool = true) {
         self.document = document
         self.artboard = artboard
+        self.drawBackground = drawBackground
         super.init(frame: CGRect(origin: .zero, size: artboard.frame.size))
     }
     required init?(coder: NSCoder) { fatalError() }
 
     override func draw(_ dirtyRect: NSRect) {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
-        PaintRender.fillRect(artboard.background, rect: bounds, in: ctx)
+        if drawBackground {
+            PaintRender.fillRect(artboard.background, rect: bounds, in: ctx)
+        }
         ctx.clip(to: bounds)
         let off = CGPoint(x: -artboard.frame.minX, y: -artboard.frame.minY)
         for node in document.nodes where node.isVisible

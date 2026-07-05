@@ -14,6 +14,43 @@ function escapeHtml(value) {
     .replace(/"/g, "&quot;");
 }
 
+async function storeResendContact({ apiKey, email, source }) {
+  if (process.env.SIGNUP_STORE_CONTACTS !== "true") {
+    return;
+  }
+
+  const body = {
+    email,
+    unsubscribed: false,
+    properties: {
+      source,
+      signed_up_at: new Date().toISOString(),
+    },
+  };
+
+  if (process.env.RESEND_SIGNUP_SEGMENT_ID) {
+    body.segments = [{ id: process.env.RESEND_SIGNUP_SEGMENT_ID }];
+  }
+
+  if (process.env.RESEND_RELEASE_TOPIC_ID) {
+    body.topics = [{ id: process.env.RESEND_RELEASE_TOPIC_ID, subscription: "opt_in" }];
+  }
+
+  const response = await fetch("https://api.resend.com/contacts", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${apiKey}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok && response.status !== 409) {
+    const errorText = await response.text();
+    console.warn("resend contact storage failed", errorText);
+  }
+}
+
 export default async function handler(request, nodeResponse) {
   if (request.method !== "POST") {
     return sendJson(nodeResponse, { error: "method not allowed" }, 405);
@@ -76,6 +113,12 @@ export default async function handler(request, nodeResponse) {
     const errorText = await resendResponse.text();
     console.error("resend signup email failed", errorText);
     return sendJson(nodeResponse, { error: "signup email failed" }, 502);
+  }
+
+  try {
+    await storeResendContact({ apiKey, email, source });
+  } catch (error) {
+    console.warn("resend contact storage threw", error);
   }
 
   return sendJson(nodeResponse, { ok: true });

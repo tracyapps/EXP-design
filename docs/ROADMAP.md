@@ -860,6 +860,117 @@ north-star screenshot; light is a faithful mirror; every macOS accessibility +
 appearance setting honored; no regression in keyboard/VoiceOver. Update CLAUDE.md
 "Current status" (it still says Phase 0) as part of closing this phase.
 
+### Phase 18 — Design language library & color workflow (v2 IN PROGRESS)
+
+_Owner brain dump captured 2026-07-05. This is the bridge from "a good color
+picker" to "a document-local design language": colors, gradients, candidates,
+contrast, imports/exports, and eventually type/components/tokens. Important
+distinction: this is the USER'S design language inside a `.design` document,
+not the app chrome's own `DesignTokens.swift`._
+
+Current baseline:
+- Phase 8 already supports HEX/RGB/HSL/LCH/OKLCH readout + parsing through
+  `ColorMath`, but the visual picker is still HSB/SV + hue/alpha and stores
+  sRGB `RGBAColor` on disk.
+- Gradients already exist as `Paint.gradient`, but they are not yet saved,
+  named, searched, imported/exported, or treated as library assets.
+- Phase 13 reserved a Color panel placeholder; v2 can turn that into the
+  first Design Language panel instead of making color a tiny inspector-only
+  affordance.
+
+#### 18a — Document design-language model
+- [x] Add a document-level `DesignLanguage` (name TBD) with backward-compatible
+      decode. First contents: named **solid colors** and **gradients**; later
+      type styles, spacing, effects, and other design-system tokens.
+- [x] Model each entry with stable `id`, `name`, optional notes/tags, status
+      (`candidate` / `official` / `archived`), provenance/import source, and a
+      value (`RGBAColor` for solid; `Paint.gradient` for gradient). Candidates
+      are a real workflow state, not a junk drawer.
+- [x] Keep **recent colors/paints** separate from named library assets. Recents
+      are quick memory; library entries are intentional design language.
+- [x] Add promotion paths: selection/recent → candidate; candidate → official;
+      official → archived (non-destructive, undoable).
+
+#### 18b — Color picker v2: real color-model authoring
+- [x] Convert the picker from "HSB visual picker + format code field" into a
+      mode-aware editor: HSB/HSV, HSL, OKLCH (and maybe LCH) each get controls
+      that match the model's mental shape instead of only typed conversion.
+- [x] Decide the storage strategy before expanding gamut: either keep sRGB
+      storage with honest gamut warnings/clamping, or introduce a richer
+      `ColorValue` that stores color space (`sRGB`, `Display P3`, future).
+      Do not sneak wide-gamut values into an sRGB-only model.
+- [x] Add gamut feedback: original typed value, clamped display value, and a
+      clear warning when an OKLCH/P3 color cannot be represented in the chosen
+      output space.
+- [ ] Use OKLCH for palette generation/ramp adjustment because lightness and
+      chroma changes are perceptually more predictable than HSL.
+
+#### 18c — Accessibility / contrast checker
+- [x] Add `ContrastMath`: WCAG 2.x contrast ratio, AA/AAA labels for normal
+      text, large text, and non-text UI components. Alpha colors must be
+      flattened over the relevant background before scoring.
+- [ ] Add APCA as an **advisory** readout only if/when useful; do not present it
+      as a replacement pass/fail standard while WCAG 3 remains unsettled.
+- [ ] Surface contrast in the color picker and Design Language panel: compare
+      selected foreground/background, text color vs. artboard/background, and
+      any two library swatches.
+- [ ] Offer adjustment helpers: "raise/lower OKLCH lightness to pass AA",
+      "preserve hue", "preserve chroma as much as possible", and "swap
+      foreground/background". These should suggest, not silently mutate.
+
+#### 18d — Design Language panel
+- [x] Replace the reserved Color panel with **Design Language** (or similar),
+      using the same host-agnostic panel architecture as Layers/Components so
+      it works docked or floating.
+- [x] First sections: Official Colors, Candidate Colors, Gradients, Recents.
+      Later sections: Type, Effects, Spacing, maybe component tokens.
+- [ ] Core actions: apply to selection, rename, edit, duplicate, delete/archive,
+      promote/demote, copy value as HEX/RGB/HSL/OKLCH/CSS, and reveal all uses
+      in the current document.
+- [x] Gradients display separately from solids but share the same naming,
+      status, apply, copy, import/export, and provenance behaviors.
+
+#### 18e — Import / export
+- [x] Define a canonical EXP design-language JSON export for document-to-document
+      sharing. Keep it small, readable, versioned, and stable.
+- [x] Export useful developer/design formats: CSS custom properties for colors
+      and gradients, JSON tokens, and maybe ASE later if the format work is
+      worth it.
+- [x] Import with merge behavior: keep both / replace / skip, name conflicts,
+      provenance retained, and an undoable single import operation.
+- [x] Support paste/import from common palette representations where legal and
+      stable: comma/newline HEX lists, CSS variables, Coolors share URLs or
+      exported formats, and local files. Avoid scraping private web endpoints.
+
+#### 18f — Palette inspiration providers
+- [x] Provider framework first, services later: `PaletteProvider` returns
+      candidate palettes/gradients with source labels, license/terms notes, and
+      "add as candidate" / "add as official" actions.
+- [ ] Local/offline providers should come first: OKLCH ramps from a seed color,
+      complements/triads/analogous sets, accessible foreground/background pairs,
+      and image extraction.
+- [ ] Research snapshot (2026-07-05): Adobe Color/Express and Coolors expose
+      strong browse/export experiences, but no clearly documented public
+      "trending palettes" API was found. Figma's developer docs expose official
+      FigJam base palettes through plugin constants, not the public
+      `figma.com/color-palettes` browse library. The Color API offers public
+      `/id` and `/scheme` endpoints for conversion and generated schemes.
+      RandomA11y is open-source / generator-shaped rather than a documented
+      remote API. Build EXP around imports, local generation, and honest
+      provider boundaries unless official APIs appear.
+
+#### 18g — Acceptance for the whole phase
+- [x] A user can save named solid colors and gradients to the current document,
+      mark candidates vs. official entries, and apply them to selected layers.
+- [x] A user can copy/export/import color values in practical formats without
+      losing names/status.
+- [x] Contrast checking is visible where decisions happen and follows WCAG 2.x
+      rules honestly.
+- [x] OKLCH is not just a text field: it meaningfully powers picker controls,
+      palette/ramp generation, and contrast-preserving adjustments.
+- [x] The Design Language panel feels like the start of a styleguide/design
+      system workflow, while leaving type/spacing/effects open for later.
+
 ### Phase 4.5 — Shape styling + vector paths (pulled in before export)
 - [x] Stroke color + width on rectangle/ellipse (model + render + Inspector;
       `strokeWidth == 0` = none; backward-compatible decoders so older files open)
@@ -930,6 +1041,356 @@ font import → Phase 9, shadows → Phase 10._
 
 ## Progress Log
 _Newest entry on top. Update every session._
+
+- **2026-07-05 — Session 186 [site] (public website tester/download refresh):**
+  Unified the homepage/download navigation, moved the tester signup/download
+  workflow onto the download page, added accessibility and Design Language
+  feature callouts with the new screenshots, and documented the Resend-based
+  release-notification path. Added optional Resend contact storage behind
+  `SIGNUP_STORE_CONTACTS=true` and taught the website sync script to hide
+  progress entries marked `[site]`, `[website]`, or `[internal]` from the public
+  roadmap feed. Verification: `npm run build` from `website/`.
+
+- **2026-07-05 — Session 185 (transparent PNG export option):**
+  Added a `Transparent background (PNG)` checkbox to the export accessory panel.
+  The option is enabled for PNG and All exports, skips only the artboard
+  background during PNG rendering, and leaves PDF/SVG behavior unchanged. The PNG
+  bitmap is explicitly cleared before rasterizing so transparency is preserved.
+  Verified with
+  `xcodebuild -project 'EXP [design].xcodeproj' -scheme 'EXP [design]' -destination 'platform=macOS' build`
+  — **BUILD SUCCEEDED**.
+
+- **2026-07-05 — Session 184 (system monospaced font option):**
+  Checked the typeface picker against AppKit's installed font catalog after SF
+  Mono / JetBrains Mono did not appear in the app list. Confirmed the picker was
+  already using `NSFontManager.availableFontFamilies`; JetBrains Mono is not
+  currently visible to AppKit on this machine, while Apple's UI monospaced face
+  is exposed through system font APIs instead of as a normal family. Added a
+  `System Monospaced` pseudo-family with regular/semibold/bold faces so document
+  text can match the app's monospaced UI readouts. Verified with
+  `xcodebuild -project 'EXP [design].xcodeproj' -scheme 'EXP [design]' -destination 'platform=macOS' build`
+  — **BUILD SUCCEEDED**.
+
+- **2026-07-05 — Session 183 (sharper raster image imports/rendering):**
+  Checked the raster drag/drop + paste path after small screenshots appeared
+  soft on import. Preserved original file bytes for dragged images, changed the
+  generic clipboard image fallback to PNG instead of TIFF, set final canvas image
+  draws to high interpolation, and made screenshot-sized images decode at their
+  requested cache bucket immediately instead of showing the 256px placeholder
+  first. Verified with
+  `xcodebuild -project 'EXP [design].xcodeproj' -scheme 'EXP [design]' -destination 'platform=macOS' build`
+  — **BUILD SUCCEEDED**.
+
+- **2026-07-05 — Session 182 (Design Language Add supports multi-selection):**
+  Updated the Design Language panel's Add action so multi-select saves every
+  unique selected fill/gradient that is not already in the document library,
+  instead of only saving a single selected fill. The Add button/help text now
+  reflects the whole selection and the save is still one undoable document edit.
+  Verified with
+  `xcodebuild -project 'EXP [design].xcodeproj' -scheme 'EXP [design]' -destination 'platform=macOS' build`
+  — **BUILD SUCCEEDED**.
+
+- **2026-07-05 — Session 181 (hide native title residue; log chrome bug):**
+  Added a narrow titlebar residue hider for the lingering native dash/Edited glyph
+  that could remain visible left of the centered custom title. The helper targets
+  small native titlebar text/separator remnants while preserving stoplights and the
+  live invisible document icon/versions anchor. Logged the remaining awkward
+  behavior as `BUG-004` in BACKLOG: centered Edited can fail to appear and the
+  rename/location popover still anchors left even though the centered title
+  click technically works. Verified with
+  `xcodebuild -project 'EXP [design].xcodeproj' -scheme 'EXP [design]' -destination 'platform=macOS' build`
+  — **BUILD SUCCEEDED**.
+
+- **2026-07-05 — Session 180 (hide title icon/edited residue; use live native anchor):**
+  Refined the custom titlebar bridge after tester found AppKit still drawing the
+  document icon and native `-- Edited` residue on the left, and `NSDocument.rename`
+  logging "anchor hidden" when launched from the centered title. The native
+  document icon and versions/edited control now stay alive but are moved under the
+  centered EXP title and made visually transparent; the centered click bridge now
+  performs the versions/title control first instead of calling rename on a hidden
+  title anchor. Verified with
+  `xcodebuild -project 'EXP [design].xcodeproj' -scheme 'EXP [design]' -destination 'platform=macOS' build`
+  — **BUILD SUCCEEDED**.
+
+- **2026-07-05 — Session 179 (titlebar bridge correction):**
+  Backed out the brittle native-title view-tree hiding from Session 178 after it
+  also hid the stoplight buttons. The window now hides AppKit's drawn title again,
+  keeps the centered EXP-styled title as the only visible title, and uses a tiny
+  transparent AppKit hit target over that styled title to send the native
+  `NSDocument.rename(_:)` action (falling back to the document versions button)
+  for rename/location behavior. Added direct KVO for `isDocumentEdited` so the
+  centered Edited flag updates more reliably. Verified with
+  `xcodebuild -project 'EXP [design].xcodeproj' -scheme 'EXP [design]' -destination 'platform=macOS' build`
+  — **BUILD SUCCEEDED**.
+
+- **2026-07-05 — Session 178 (centered native document title behavior):**
+  Fixed the doubled document title in the editor chrome. The visible heading
+  remains the centered EXP-styled title with `.design` muted and the Edited state
+  shown underneath in `EXPColor.accent`, while AppKit's real document title/proxy
+  view is kept alive, made invisible, and repositioned under that centered
+  heading so native rename/tags/location behavior remains available. Verified with
+  `xcodebuild -project 'EXP [design].xcodeproj' -scheme 'EXP [design]' -destination 'platform=macOS' build`
+  — **BUILD SUCCEEDED**.
+
+- **2026-07-05 — Session 177 (Settings window spacing + About links):**
+  Cleaned up Settings window layout. The sidebar now stays visible (removed the
+  default sidebar toggle and pins column visibility back to all), preserving the
+  left navigation area as the settings list grows. Non-About panes now sit closer
+  to the top with tighter top padding, while About keeps a centered layout for
+  the shorter content. About now includes links to `https://expdesign.app/` and
+  the bug-reporting examples section at `https://expdesign.app/download#reporting`.
+  Verified with `xcodebuild -project 'EXP [design].xcodeproj' -scheme 'EXP [design]' -destination 'platform=macOS' build`
+  — **BUILD SUCCEEDED**.
+
+- **2026-07-05 — Session 176 (Design Language Settings button size):**
+  Tiny panel polish: the Design Language panel's secondary "Settings" button now
+  uses a compact local secondary style at 11pt (two points smaller than the
+  standard EXP secondary button) while keeping the same surface/border language.
+  Verified with `xcodebuild -project 'EXP [design].xcodeproj' -scheme 'EXP [design]' -destination 'platform=macOS' build`
+  — **BUILD SUCCEEDED**.
+
+- **2026-07-05 — Session 175 (Design Language panel final refinements):**
+  Finished the last piece from the previous agent's interrupted pass. The Design
+  Language panel now has a real swatch/list view toggle persisted via
+  `exp.dl.viewMode`; list mode renders colors/gradients and recents as compact
+  rows with swatch, name/category/value metadata, double-click apply, and the
+  same context menus as swatch mode. The view controls are sticky at the bottom
+  as an overlay, with panel contents scrolling underneath and bottom breathing
+  room so the last row is not hidden. The panel's Settings action is now an
+  explicit secondary "Settings" button that requests the document Design
+  Language pane before opening Settings. Verified with:
+  `xcodebuild -project 'EXP [design].xcodeproj' -scheme 'EXP [design]' -destination 'platform=macOS' build`
+  — **BUILD SUCCEEDED**.
+
+- **2026-07-04 — Session 174 (Settings reorg + Design Language editor; gradient bug reopened):**
+  Gradient darkening (BUG-003) is NOT fixed — the Session-173 sRGB interpolation
+  change didn't resolve it, so it's reopened as needs-investigation with fresh
+  hypotheses logged (premultiplied-alpha round-trip on a semi-transparent stop;
+  snapshot P3 image drawn into a differently-spaced window context; possible
+  interaction with the new picker color modes — verify stored RGBA is byte-identical
+  after editing). Set aside for now per owner.
+  **Settings reorg:** the sidebar is now two Sections — "App" (General, Canvas,
+  Design Tokens, About) and "Document" (Design Language) — giving the small section
+  titles the owner asked for. `SettingsPane` gained a `scope` (app/document) and a
+  `designLanguage` case; `SettingsGroup` promoted to internal for reuse.
+  **New `UI/DesignLanguageSettings.swift`:** a document-scoped bulk editor reached
+  through `PanelHub.activeDocument` (Settings is app-wide, so it can't hold document
+  state). It covers every action: manual add of a color OR gradient via a real
+  `PaintWell` picker (name + category), category management (add / inline-rename /
+  delete — delete keeps the colors as Other), a bulk entries table with per-row
+  inline rename + category menu + delete (local draft state so typing doesn't spam
+  undo), and import/export (EXP JSON file, paste HEX/CSS/Coolors, export JSON, copy
+  CSS). Every edit is one undo step on the frontmost document.
+  **First-stab gaps to refine:** drag-to-reorder entries/categories isn't wired yet
+  (was the other half of the owner's item 3); Figma/XD import is stubbed as "future"
+  in the copy only. Empty state prompts to open a document. **Not compiled by me** —
+  owner to build.
+
+- **2026-07-04 — Session 173 (fix: gradient darkening during pan/zoom):**
+  Tester saw a saturated gradient darken while panning/zooming and snap back when
+  still. Traced to `PaintRender.drawGradient` building the CGGradient in unmanaged
+  `CGColorSpaceCreateDeviceRGB()` while stop colors are sRGB: the color-managed
+  offscreen blit bitmap (window space, usually P3) color-matches an unmanaged
+  gradient differently than the live window device context, so the shift shows only
+  in the blit. Switched the gradient interpolation space to sRGB — matches the stop
+  colors, solid fills, and export; shared file so canvas + thumbnails + export are
+  all consistent. Logged as BUG-003 (done). The slight TEXT shimmer during motion is
+  separate and expected: the blit scales a cached bitmap at `.interpolationQuality
+  .low` mid-gesture, so anti-aliased edges wobble a hair until the settle render;
+  can raise interpolation quality later if it bothers. The "Publishing changes from
+  within view updates" log spam is the pre-existing BUG-002, unrelated. **Not yet
+  compiled by me** — owner to build/confirm.
+
+- **2026-07-04 — Session 172 (build fixes + Add button / category-pill menu):**
+  Session 171 shipped two build errors (both auto-fixed by the Xcode agent; noted
+  here so they don't recur):
+  (1) `PaintSwatch` was declared in DesignLanguagePanel.swift AND already existed
+  (identical) in `Color/PaintEditor.swift` — a redeclaration. The panel now reuses
+  the existing one; do NOT re-add it.
+  (2) `moveCategory` used `Array.move(fromOffsets:toOffset:)`, which is a SwiftUI
+  extension — unavailable in Document.swift (Foundation/CoreGraphics only). Rewritten
+  as a manual reorder. GOTCHA: don't use SwiftUI collection helpers in the shared
+  model file.
+  Then two refinements: the panel's **Add** button now uses the app accent
+  (`.tint(EXPColor.accent)`, so it follows the system or user-set accent) instead of
+  system blue, and disables when the selected shape's fill is ALREADY in the design
+  language (new `addableFill`, checked via `firstAsset(matching:)`). Category filter
+  **pills** got a right-click menu — Rename (alert) and Delete; deleting a category
+  removes the tag from its colors (they fall back to "Other") but keeps the colors.
+  **Not yet compiled by me** — for the owner to build; the two prior errors are
+  already resolved in the synced files.
+
+- **2026-07-04 — Session 171 (DL refinements: categories, filter pills, picker link):**
+  Reworked the Design Language panel per tester direction.
+  **Model (Document.swift):** replaced the fixed `status` (official/candidate/
+  archived) with USER-DEFINED categories. `DesignLanguage` now has
+  `categories: [DLCategory]`; `DesignAsset.status` → `categoryID: UUID?` (nil =
+  uncategorized / "Other"). Categories are cross-cutting — a color AND a gradient
+  can both be "Primary". New helpers: add/ensure/rename/remove/moveCategory,
+  setCategory, save(_:category:), firstAsset(matching:), count(in:), categoryLabel.
+  One-time decode migration seeds a "Primary" category from anything that was
+  "official" (owner's choice); everything else becomes uncategorized. Old `status`
+  is read into a decode-only `legacyStatus` (never re-encoded) and consumed by the
+  migration.
+  **Import/export (DesignLanguageIO):** EXP JSON envelope now carries `categories`;
+  import returns (assets, categories) and `merge` remaps incoming category ids by
+  name (creating missing categories), one undo step. CSS export drops the archived
+  filter.
+  **Panel:** groups are now just "Colors" and "Gradients"; categories are wrapping
+  filter PILLS along the top (count baked into each pill, additive toggle, all on by
+  default) via a small `FlowLayout` — pills wrap to multiple lines while the export
+  menu + a prominent primary "Add" button stay stationary. Within each type section,
+  items cluster under small category sub-labels; uncategorized shows as "Other"
+  (always visible, no pill). Swatch context menu gained a Category submenu
+  (assign / Other / New Category…); create-category via a "+" pill, the menu, or a
+  swatch. Before any category exists it's just a flat Colors/Gradients list with the
+  old "N saved" label.
+  **Picker link (ColorPopover, item 4):** the picker's bottom-right now shows a
+  "Save" action when the current color isn't in the design language, or the saved
+  swatch + name + category when it is — reading the frontmost document via PanelHub
+  (no color-well plumbing). Adds via one undo step.
+  **Deferred:** item 3 (a dedicated Design Language editor as a Settings tab for
+  bulk rename / reorder / drag-drop) is NOT started yet — next session. Item 5 came
+  through empty. **Not yet compiled** — for the owner to build and confirm.
+
+- **2026-07-04 — Session 170 (fix: panel show/hide in both modes):**
+  Tester report — the new Design Language panel never appeared and there was no way
+  to show it; in Multi-Window the whole Window-menu panel section (and Show/Hide
+  Left/Right) was greyed out. Root causes + fixes:
+  (1) The Window menu read only `focusedSceneValue(\.windowMenu)`, which is nil
+  whenever a floating panel window is key — so the entire section disabled. Fixed:
+  `WindowMenuItems` now falls back to `PanelHub.shared.activeApp` (the frontmost
+  document) when there's no focused scene value, so the menu stays live no matter
+  which window is key.
+  (2) The per-panel items only toggled in Multi-Window (`reveal` was tray-only and
+  disabled elsewhere). Replaced with a `toggle` that runs in BOTH modes via
+  `AppState.togglePanel` (dock in single-window, tray in multi-window); showing a
+  panel in single-window now also un-hides the right dock and focuses the floated
+  window in multi-window.
+  (3) `isApplicable` was a LIVE filter that hard-hid empty panels (Components until
+  a component existed; and it would have trapped Design Language) with no override.
+  It now returns true — every panel has a real empty state, so presence is controlled
+  explicitly through the Window menu. NOTE: a side effect is that Components now
+  shows its empty state by default in single-window instead of auto-hiding; hide it
+  from the Window menu if unwanted.
+  (4) Existing saved layouts predate the panel, so added a one-time
+  `AppState.migrateNewPanels()` (keyed by `exp.panels.seen.v1`) that adds any
+  never-before-seen panel to the single-window dock once — Design Language now
+  appears for existing users without wiping their layout — and `.designLanguage`
+  was added to `PanelHub.defaultPanels` for fresh Multi-Window seeding.
+  Touched: PanelDock.swift, PanelHub.swift, AppState.swift. **Not yet compiled** —
+  for the owner to build and confirm.
+
+- **2026-07-04 — Session 169 (Phase 18f: local palette providers):**
+  New pure `Color/PaletteProviders.swift`: a `PaletteProvider` protocol +
+  `PaletteSuggestion` (title, terms note, paints), with local/offline generators
+  built on the OKLCH + contrast math — an OKLCH lightness ramp (perceptually even
+  steps through the seed's hue/chroma), complementary/triadic/analogous hue
+  harmonies (rotated in OKLCH), and an accessible seed-background + same-hue
+  foreground pair nudged until it clears WCAG AA (falls back to black/white). The
+  panel's import/export menu gained "Generate from Color..." → a sheet with an
+  editable seed color well and one row per suggestion (swatch preview + terms +
+  Add), where Add saves that set as candidates (provenance "generated: <kind>")
+  in one undo step. Seed defaults to the selection's fill, else a saved entry,
+  else black. This closes the core of Phase 18 — the acceptance criteria (18g) are
+  met end-to-end: save/mark/apply, copy/export/import without losing name/status,
+  contrast visible where colors are chosen, and OKLCH powering picker + ramps +
+  contrast-preserving suggestions.
+  **Still open (refinements, logged for later):** image-based palette extraction
+  (the one local generator not built), a `PaletteProvider` "add as official"
+  action (today: add as candidate then promote), plus the earlier 18d/18e items
+  (in-place swatch value editing, reveal-uses, menu-bar "Save Fill" command,
+  style-dictionary/ASE export). **Not yet compiled** — for the owner to build.
+
+- **2026-07-04 — Session 168 (Phase 18e: import / export):**
+  Added a pure, UI-free `Color/DesignLanguageIO.swift` and merge logic on the model.
+  **Canonical EXP JSON:** a small versioned envelope (`{ expDesignLanguage: 1,
+  assets: [...] }`); decoding is tolerant (envelope, bare `[DesignAsset]`, or a
+  whole `DesignLanguage` all import). **CSS export:** a `:root { --slug: value; }`
+  block with unique slugs — solids as hex, gradients as `linear/radial-gradient()`;
+  the panel's per-swatch "Copy As CSS variable / CSS gradient" now route through the
+  same helpers (removed the panel's private duplicates). **Palette paste:**
+  best-effort parse of HEX lists (hashed or bare, comma/newline), CSS custom
+  properties (names preserved), and Coolors share URLs — string parsing only, no
+  network fetch or scraping. **Merge:** `DesignLanguage.MergeMode` (keep both /
+  skip duplicate values / replace by name), incoming entries get fresh ids +
+  retained provenance, one undo step via `setModel`. Panel got an import/export
+  menu (Import from File, Paste Palette, Export EXP JSON, Copy All as CSS) and a
+  paste sheet with a merge-mode picker. Still app-only, no `.xcodeproj` edits.
+  **Open:** a dedicated style-dictionary token JSON + ASE export (deferred in 18e),
+  and a richer name-conflict resolution UI (today it's a single mode chooser).
+  **Not yet compiled** — for the owner to build in Xcode and report back.
+
+- **2026-07-04 — Session 167 (Phase 18d: Design Language panel):**
+  Turned the reserved Color panel into a real, document-local **Design Language**
+  panel. `PanelID.color` was repurposed to `.designLanguage` (only referenced in
+  `PanelDock.swift`; the other `.color` hits are the text-run enum), made
+  implemented + always-applicable, added to `Workspace.default`'s right column and
+  the Window-menu panel order. New app-only `UI/DesignLanguagePanel.swift` (auto-
+  included via the synchronized group) reads `document.model.designLanguage` live
+  and renders four sections — Official, Candidates, Gradients, Recents — as
+  checkerboard-backed swatches (a new `PaintSwatch` previews solids AND gradients).
+  Actions, all one undo step through `setModel`: apply to selection (walks selected
+  nodes, sets each shape's fill / text run color, and records the paint under
+  Recents), save the selected shape's fill as a candidate (+ button, enabled only
+  when a fill is selected), promote/demote/archive/restore, rename (alert field),
+  duplicate, delete, and Copy As HEX/RGB/HSL/OKLCH/CSS-variable (solids) or CSS
+  gradient (gradients). Status shows as a dot (filled = official, ring = candidate);
+  archived entries drop out of the working sections but stay in the file.
+  **Still open in 18d:** in-place editing of a swatch's value (open a picker bound
+  to the entry) and "reveal all uses" in the document; wiring a menu-bar +
+  shortcut command for "Save Fill to Design Language" to satisfy the command-
+  coverage rule (today the save/apply actions are panel-contextual, like align).
+  Recents currently fill when you apply from the panel; feeding them from the
+  inspector color popover is a small follow-up. **Not yet compiled** — for the
+  owner to build in Xcode and report back.
+
+- **2026-07-04 — Session 166 (Phase 18 first build: model + contrast + mode-aware picker):**
+  Landed the foundation slices of the v2 color/design-language work — no
+  `.xcodeproj` edits needed (the app folder is a synchronized group; new app-only
+  files auto-join the app target, and shared model went into an already-shared file).
+  **18a — document model:** added `DesignLanguage` + `DesignAsset` to
+  `Model/Document.swift` (which is already a member of BOTH the app and
+  EXPThumbnail targets, so no target-membership exception was required — same
+  reason `RGBAColor`/`Paint` live near there). Entries carry `id`, `name`,
+  `status` (candidate/official/archived), `value` (`Paint` — solids AND gradients
+  share one shape), `notes`, `tags`, `provenance`; recents are a separate capped
+  paint list. Non-destructive promote/archive/rename/remove helpers; all edits
+  are undoable through the existing `setModel` funnel. Tolerant decode
+  (`decodeIfPresent`, unknown status → candidate) and a new `Document.designLanguage`
+  key that older `.design` files simply lack. Model only — the panel is 18d.
+  **18c — ContrastMath:** new pure `Color/ContrastMath.swift` — WCAG 2.x relative
+  luminance + contrast ratio, straight-alpha flattening over background, AA/AAA
+  labels for normal/large/non-text, plus an advisory OKLCH-lightness
+  `suggestForeground` (math only, no UI yet). APCA deliberately left out until
+  it's more than advisory.
+  **18b — mode-aware picker:** `Color/ColorPopover.swift` now has an HSB / HSL /
+  OKLCH segmented authoring control that swaps the actual controls (2-D SV field
+  for HSB; native, VoiceOver-friendly axis sliders for HSL and OKLCH), an honest
+  "In sRGB gamut / Outside sRGB — clamped" indicator driven by a new
+  `ColorMath.oklchToRGBGamut`, and a contrast strip showing the color on white and
+  on black with ratio + normal-text level. Storage decision recorded: stay sRGB
+  with honest gamut warnings for now (no wide-gamut `ColorValue` yet).
+  **Still open in 18b/18c:** OKLCH-driven palette/ramp generation; wiring the
+  contrast adjustment helper and the recents/saved-swatch UI into the popover
+  (both want document access, which arrives naturally with the 18d panel);
+  contrast comparison against the artboard/any two library swatches. **Not yet
+  compiled** — written for the owner to build in Xcode and report back.
+
+- **2026-07-05 — Session 165 (v2 color/design-language roadmap shaped):**
+  Organized the owner's color brain dump into a real v2 plan. Added **Phase 18
+  — Design language library & color workflow** covering: document-local saved
+  colors/gradients, candidate vs. official status, true HSL/OKLCH authoring
+  controls, sRGB/P3 gamut decisions, WCAG-first contrast checking, a new Design
+  Language panel, import/export, palette inspiration providers, and first-class
+  saved gradients. Updated BACKLOG with pick-up-able feature slices: FEAT-001
+  expanded into the document color-library model, FEAT-002 clarified as
+  mode-aware picker UI, plus FEAT-005 contrast checker, FEAT-006 Design
+  Language panel, and FEAT-007 palette inspiration/import providers. Research
+  note: Adobe Color/Coolors/Figma public palette pages are good inspiration/
+  export surfaces but no clearly documented public "trending palettes" API was
+  found; The Color API has public conversion/scheme endpoints; RandomA11y is
+  open-source/generator-shaped.
 
 - **2026-07-03 — Session 164 (doc/status sync for the public download page):**
   Trued up phase statuses that feed expdesign.app/download. Phases 3, 11, and

@@ -3848,6 +3848,7 @@ final class CanvasNSView: NSView {
                 // The context is y-down (flipped view); CGImage draws y-up, so flip
                 // within the node's rect before drawing.
                 ctx.saveGState()
+                ctx.interpolationQuality = .high
                 ctx.translateBy(x: rect.minX, y: rect.maxY)
                 ctx.scaleBy(x: 1, y: -1)
                 ctx.draw(cg, in: CGRect(x: 0, y: 0, width: rect.width, height: rect.height))
@@ -3962,6 +3963,12 @@ final class CanvasNSView: NSView {
         }
 
         if fallback == nil {
+            let imagePixels = Self.imagePixelDimensions(img.data).map { $0.width * $0.height } ?? .greatestFiniteMagnitude
+            if imagePixels <= 6_000_000 || bucket <= 1024 {
+                guard let cg = Self.decodeImage(img.data, maxPx: bucket) else { return nil }
+                imageCache.setObject(cg, forKey: key, cost: cg.bytesPerRow * cg.height)
+                return cg
+            }
             // First-ever appearance (nothing cached at any size). Decoding the
             // FULL bucket here measured 43–200ms per image when panning into
             // fresh territory — so decode only a small placeholder now (a few
@@ -4009,6 +4016,23 @@ final class CanvasNSView: NSView {
             kCGImageSourceShouldCacheImmediately: true          // decode NOW, once
         ]
         return CGImageSourceCreateThumbnailAtIndex(src, 0, opts as CFDictionary)
+    }
+
+    private nonisolated static func imagePixelDimensions(_ data: Data) -> CGSize? {
+        guard let src = CGImageSourceCreateWithData(data as CFData, nil),
+              let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
+              let width = props[kCGImagePropertyPixelWidth] as? NSNumber,
+              let height = props[kCGImagePropertyPixelHeight] as? NSNumber,
+              width.doubleValue > 0, height.doubleValue > 0 else {
+            return nil
+        }
+        return CGSize(width: width.doubleValue, height: height.doubleValue)
+    }
+
+    private static func pngData(from ns: NSImage) -> Data? {
+        guard let cg = ns.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
+        let rep = NSBitmapImageRep(cgImage: cg)
+        return rep.representation(using: .png, properties: [:])
     }
 
     // Text layout cache: building an NSTextStorage + NSLayoutManager +
@@ -5938,7 +5962,8 @@ final class CanvasNSView: NSView {
             if !fromFiles.isEmpty { return fromFiles }
         }
         if let data = pb.data(forType: .png) { return [data] }
-        if let ns = NSImage(pasteboard: pb), let tiff = ns.tiffRepresentation { return [tiff] }
+        if let data = pb.data(forType: .tiff), Self.imagePixelDimensions(data) != nil { return [data] }
+        if let ns = NSImage(pasteboard: pb), let png = Self.pngData(from: ns) { return [png] }
         return []
     }
 

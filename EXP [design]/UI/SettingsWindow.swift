@@ -35,6 +35,7 @@ enum AppPreferences {
     static let sourceBackdrop      = "exp.pref.sourceBackdrop"       // String (CanvasBackdrop raw), default "light"
     static let accentOverride      = "exp.pref.accentOverride"      // String "#RRGGBB"; ABSENT = follow macOS system accent (default)
     static let performanceMode     = "exp.pref.performanceMode"     // String (CanvasPerformanceMode raw), default "balanced"
+    static let requestedSettingsPane = "exp.settings.requestedPane" // String (SettingsPane raw); "" = none. Lets a window jump Settings to a pane.
 
     // Defaults (kept next to the keys so AppState and Settings agree).
     static let defaultSmartGuides         = true
@@ -49,28 +50,44 @@ enum AppPreferences {
 
 // MARK: - Pane catalogue (add a case + a view to grow Settings)
 
+private enum SettingsScope { case app, document }
+
 private enum SettingsPane: String, CaseIterable, Identifiable {
-    case general, canvas, designTokens, about
+    case general, canvas, designTokens, about   // app-wide
+    case designLanguage                          // document-specific
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .general:      return "General"
-        case .canvas:       return "Canvas"
-        case .designTokens: return "Design Tokens"
-        case .about:        return "About"
+        case .general:        return "General"
+        case .canvas:         return "Canvas"
+        case .designTokens:   return "Design Tokens"
+        case .about:          return "About"
+        case .designLanguage: return "Design Language"
         }
     }
 
     /// SF Symbol for the sidebar row.
     var symbol: String {
         switch self {
-        case .general:      return "gearshape"
-        case .canvas:       return "squareshape.dashed.squareshape"
-        case .designTokens: return "swatchpalette"
-        case .about:        return "info.circle"
+        case .general:        return "gearshape"
+        case .canvas:         return "squareshape.dashed.squareshape"
+        case .designTokens:   return "textformat"
+        case .about:          return "info.circle"
+        case .designLanguage: return "swatchpalette"
         }
     }
+
+    /// App-wide preferences vs. the frontmost document's own data.
+    var scope: SettingsScope {
+        switch self {
+        case .designLanguage: return .document
+        default:              return .app
+        }
+    }
+
+    static var appPanes: [SettingsPane]      { allCases.filter { $0.scope == .app } }
+    static var documentPanes: [SettingsPane] { allCases.filter { $0.scope == .document } }
 }
 
 // MARK: - Window
@@ -79,25 +96,44 @@ struct SettingsWindow: View {
     // Optional because `List(selection:)` single-selection binds an optional;
     // nil is treated as General so the detail pane is never blank.
     @State private var pane: SettingsPane? = .general
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @AppStorage(AppPreferences.requestedSettingsPane) private var requestedPaneRaw = ""
 
     var body: some View {
-        NavigationSplitView {
-            List(SettingsPane.allCases, selection: $pane) { item in
-                Label(item.title, systemImage: item.symbol)
-                    .tag(item)
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            List(selection: $pane) {
+                Section("App") {
+                    ForEach(SettingsPane.appPanes) { item in
+                        Label(item.title, systemImage: item.symbol).tag(item)
+                    }
+                }
+                Section("Document") {
+                    ForEach(SettingsPane.documentPanes) { item in
+                        Label(item.title, systemImage: item.symbol).tag(item)
+                    }
+                }
             }
             .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 240)
+            .toolbar(removing: .sidebarToggle)
         } detail: {
-            ScrollView {
-                detail
-                    .padding(24)
-                    .frame(maxWidth: 560, alignment: .leading)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
+            detailContainer
             .navigationTitle((pane ?? .general).title)
         }
         // Roomy default so panes have space to grow into; the user can resize.
         .frame(minWidth: 720, idealWidth: 820, minHeight: 460, idealHeight: 560)
+        // Another window (e.g. the Design Language panel) can request a pane by
+        // writing this key; jump to it whether Settings was just opened or is open.
+        .onAppear { applyRequestedPane() }
+        .onChange(of: requestedPaneRaw) { _, _ in applyRequestedPane() }
+        .onChange(of: columnVisibility) { _, visibility in
+            if visibility != .all { columnVisibility = .all }
+        }
+    }
+
+    private func applyRequestedPane() {
+        guard !requestedPaneRaw.isEmpty else { return }
+        if let p = SettingsPane(rawValue: requestedPaneRaw) { pane = p }
+        requestedPaneRaw = ""
     }
 
     @ViewBuilder private var detail: some View {
@@ -106,6 +142,30 @@ struct SettingsWindow: View {
         case .canvas:       CanvasSettingsPane()
         case .designTokens: DesignTokensSettingsPane()
         case .about:        AboutSettingsPane()
+        case .designLanguage: DesignLanguageSettingsPane()
+        }
+    }
+
+    @ViewBuilder private var detailContainer: some View {
+        if (pane ?? .general) == .about {
+            VStack {
+                Spacer(minLength: 0)
+                detail
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 28)
+                    .frame(maxWidth: 560, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                Spacer(minLength: 0)
+            }
+        } else {
+            ScrollView {
+                detail
+                    .padding(.horizontal, 24)
+                    .padding(.top, 14)
+                    .padding(.bottom, 24)
+                    .frame(maxWidth: 560, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
     }
 }
@@ -114,7 +174,7 @@ struct SettingsWindow: View {
 
 /// A titled block of related controls — keeps every pane visually consistent and
 /// is the unit a future design token can restyle once.
-private struct SettingsGroup<Content: View>: View {
+struct SettingsGroup<Content: View>: View {
     let title: String
     let footnote: String?
     @ViewBuilder var content: Content
@@ -335,6 +395,9 @@ private struct TextTrimSchematic: View {
 }
 
 private struct AboutSettingsPane: View {
+    private let websiteURL = URL(string: "https://expdesign.app/")!
+    private let reportingURL = URL(string: "https://expdesign.app/download#reporting")!
+
     private var version: String {
         let info = Bundle.main.infoDictionary
         let short = info?["CFBundleShortVersionString"] as? String ?? "\u{2014}"
@@ -353,6 +416,15 @@ private struct AboutSettingsPane: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .monospacedDigit()
+            }
+
+            SettingsGroup("Links") {
+                Link(destination: websiteURL) {
+                    Label("Website", systemImage: "globe")
+                }
+                Link(destination: reportingURL) {
+                    Label("Bug report examples", systemImage: "ladybug")
+                }
             }
         }
     }

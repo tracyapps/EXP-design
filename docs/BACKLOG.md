@@ -28,6 +28,55 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 
 ## 🐞 Bugs
 
+### BUG-004 — Custom centered document title uses native popup anchor awkwardly
+- Type: bug
+- Priority: P2
+- Area: chrome
+- Status: open
+- Repro/Detail: The main window draws a custom centered EXP-styled document title,
+  but the native macOS rename/location bubble is still anchored to the left-side
+  titlebar document controls. The centered "Edited" label can also fail to appear
+  even while AppKit's native edited state is active.
+- Hypothesis: AppKit's document rename/location popover is tied to private/native
+  titlebar controls. The current implementation keeps those controls alive but
+  visually transparent, then forwards clicks from the centered title. A robust fix
+  may need either a custom rename/move popover that mirrors the native fields, or a
+  better public AppKit anchor strategy using a titlebar accessory/custom view.
+- Acceptance: only the centered EXP title is visible; edited state appears under it
+  in `EXPColor.accent`; clicking the centered title opens rename/location UI near
+  the centered title with no leftover native title glyphs or console warnings.
+
+### BUG-003 — Gradient darkens (color shift) during pan/zoom blit
+- Type: bug
+- Priority: P2
+- Area: canvas · color
+- Status: NEEDS INVESTIGATION (Session 174 — the sRGB interpolation change in Session 173 did NOT fix it; still shifts during pan/zoom)
+- Update (S174): switching the CGGradient space to sRGB did not resolve the darkening,
+  so the root cause is elsewhere. Next hypotheses to test: (a) the offscreen backing is
+  premultipliedFirst/BGRA and `cg.makeImage()` -> `ctx.draw` round-trips premultiplied
+  alpha, darkening a gradient that has a SEMI-TRANSPARENT stop (check whether the
+  affected gradient has an alpha<1 stop while the unaffected one is fully opaque);
+  (b) the snapshot CGImage is tagged the window/offscreen space (P3) but drawn into a
+  window drawRect context of a different space, so ONLY color-managed content shifts;
+  (c) possible interaction with the new HSB/HSL/OKLCH authoring — verify the stored
+  RGBAColor values are byte-identical before/after editing via the new picker modes;
+  (d) instrument by dumping the affected gradient's stop colors + alphas.
+- Repro/Detail: A saturated gradient on the canvas visibly darkens while panning or
+  zooming, then snaps back to the correct color when motion stops. A near-neutral
+  gradient elsewhere doesn't show it. (Anti-aliased text also shimmers slightly mid-
+  gesture — that's a separate, expected blit artifact; see note.)
+- Hypothesis (confirmed): `PaintRender.drawGradient` built the `CGGradient` in
+  `CGColorSpaceCreateDeviceRGB()` — an UNMANAGED device space — while its stop colors
+  (and every solid fill) are sRGB. During pan/zoom the scene is drawn into the
+  color-managed offscreen blit bitmap (window color space, usually Display P3); an
+  unmanaged device-RGB gradient color-matches differently there than in the live
+  window device context, so only the blit shifts. Live settle render looked correct.
+- Fix: interpolate the gradient in sRGB (`CGColorSpace(name: .sRGB)`), matching the
+  stop colors, solid fills, and export. Shared PaintRender, so canvas + thumbnails +
+  export all stay consistent.
+- Acceptance: gradient looks identical while moving and stopped; export unchanged.
+
+
 ### BUG-001 — Measurements shown as whole numbers while real values are fractional
 - Type: bug
 - Priority: P2
@@ -81,27 +130,34 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: feature
 - Priority: P2
 - Area: color · model
-- Status: open
+- Status: in progress (Session 167) — document model + panel save/pick/recents landed; import/export (FEAT-007/18e) still open
 - Repro/Detail: Recent-colors strip and a saved-swatches area in the color popover;
-  named palettes that live ON the document (so they travel with the file) AND can be
-  exported/imported to share between documents. Bonus: palette generation (harmonies
-  / shades from a base color).
-- Hypothesis: add a `palettes: [Palette]` (+ `recentColors`) to the document model
-  (backward-compatible decode); surface in `ColorPopover`; export/import as a small
-  JSON. Generation can reuse `ColorMath` (OKLCH) for perceptually-even ramps.
-- Acceptance: pick from recents/saved; save a swatch; export a palette from doc A and
-  import into doc B; palettes persist in the `.design` file.
+  named colors that live ON the document (so they travel with the file) AND can be
+  exported/imported to share between documents. This is the first slice of ROADMAP
+  Phase 18's Design Language model: document-local assets, not app chrome tokens.
+- Hypothesis: add a document-level `DesignLanguage` or `colorLibrary` with
+  `recentPaints` plus named entries (`id`, `name`, `status: candidate/official/
+  archived`, `value`, provenance). Backward-compatible decode. Surface a minimal
+  save/pick flow in `ColorPopover` first; graduate to the Design Language panel in
+  FEAT-006. Generation can reuse `ColorMath` (OKLCH) for perceptually-even ramps.
+- Acceptance: pick from recents/saved; save and rename a swatch; mark candidate vs.
+  official; export a small JSON from doc A and import into doc B; entries persist in
+  the `.design` file.
 
 ### FEAT-002 — Color-mode-specific picker behavior
 - Type: feature
 - Priority: P3
 - Area: color
-- Status: open
-- Repro/Detail: The color picker adapts to the working color mode (e.g. sRGB vs
-  Display-P3 vs a future CMYK/print mode) — different sliders/gamut/warnings per mode.
-- Hypothesis: a `colorMode` setting; `ColorMath` already does space conversions, so
-  extend the popover's format/gamut UI per mode. Low priority, high delight.
-- Acceptance: switching mode changes the picker's available spaces + gamut clamping.
+- Status: in progress (Session 166) — HSB/HSL/OKLCH mode-aware controls + sRGB gamut warning landed; wide-gamut ColorValue not pursued
+- Repro/Detail: Phase 8 can type/copy HSL/LCH/OKLCH, but the visual editor is still
+  essentially HSB/SV + hue/alpha with sRGB storage. Owner wants truly model-aware
+  authoring, especially HSL and OKLCH, with honest gamut handling.
+- Hypothesis: redesign `ColorPopover` around editing modes. HSB/HSL/OKLCH each get
+  controls that match their axes; OKLCH should also drive ramp/adjustment helpers.
+  Before adding Display-P3, decide whether the model stays sRGB-with-warnings or
+  grows a richer `ColorValue(colorSpace:components:)`.
+- Acceptance: switching mode changes the picker's controls, not just its code field;
+  OKLCH edits can warn when clamped to sRGB; copied values match the selected mode.
 
 ### FEAT-003 — In-app bug/feedback reporter (agent-ingestible)
 - Type: feature
@@ -118,6 +174,54 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   just stats) unless the user opts to attach the file.
 - Acceptance: one action produces a ready-to-triage entry with reproducible context;
   agents can read the folder and pick items up.
+
+### FEAT-005 — Color contrast checker (WCAG-first, APCA advisory)
+- Type: feature
+- Priority: P2
+- Area: color · inspector · a11y
+- Status: in progress (Session 166) — ContrastMath (WCAG 2.x) + picker contrast strip landed; APCA and panel comparisons pending
+- Repro/Detail: Designers need to check foreground/background contrast while choosing
+  colors, saving library entries, and editing text/fills. This should be part of the
+  color workflow, not a separate external chore.
+- Hypothesis: add pure `ContrastMath` beside `ColorMath`: WCAG 2.x relative
+  luminance/contrast ratio, AA/AAA thresholds for normal text, large text, and
+  non-text UI components. Flatten alpha colors over the relevant artboard/background.
+  APCA can appear as advisory/exploratory if useful, but not as the primary pass/fail.
+- Acceptance: picker/panel can compare two colors, selected text vs. background, and
+  library swatch pairs; labels are clear; suggestions can adjust OKLCH lightness to
+  reach AA without silently changing the document.
+
+### FEAT-006 — Design Language panel (colors + gradients first)
+- Type: feature
+- Priority: P2
+- Area: color · chrome · model
+- Status: in progress (Session 167) — panel live with sections + apply/save/promote/rename/copy; in-place value edit, reveal-uses, and menu-bar command pending
+- Repro/Detail: The reserved Color panel should grow into a document-local "Design
+  Language" panel, similar in spirit to Components/library panels: saved colors,
+  gradients, candidates/maybes, official entries, and later type/spacing/effects.
+- Hypothesis: add `PanelID.designLanguage` (or rename the reserved Color panel) using
+  the existing host-agnostic panel pattern. Sections: Official Colors, Candidate
+  Colors, Gradients, Recents. Actions: apply to selection, rename/edit, promote,
+  archive, copy values, import/export, reveal uses.
+- Acceptance: panel works docked/floating, reflects the document model live, and lets
+  the owner move a candidate color/gradient into the official list.
+
+### FEAT-007 — Palette inspiration/import providers
+- Type: feature
+- Priority: P3
+- Area: color · import
+- Status: in progress (Session 169) — import + local generators done (EXP JSON / CSS / paste / OKLCH ramp / harmonies / accessible pair); image extraction + remote providers still open
+- Repro/Detail: Owner wants to browse/import palette inspiration from places like
+  Adobe Color, Coolors, RandomA11y, and Figma palettes, with an easy way to add
+  options to the document as candidates or official entries.
+- Hypothesis: build a provider/import framework before any service-specific UI. Local
+  providers first: OKLCH ramps, harmonies, accessible pairs, image extraction. Remote
+  or web sources should use documented APIs, user-pasted URLs, or exported files only;
+  avoid scraping private/undocumented endpoints. Research snapshot lives in ROADMAP
+  Phase 18f.
+- Acceptance: paste/import a palette representation into the document as candidates;
+  local generation produces usable options; each imported option keeps a visible source
+  label/provenance.
 
 ---
 

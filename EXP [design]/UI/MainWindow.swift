@@ -103,8 +103,9 @@ struct MainWindow: View {
     private var headingBar: some View {
         ZStack {
             // Centered document name (+ Edited underneath). Its own layer so it
-            // stays truly centered regardless of the side clusters, and it doesn't
-            // eat clicks (window drag passes through).
+            // stays truly centered regardless of the side clusters. The tiny
+            // AppKit bridge in the overlay routes clicks to the native document
+            // rename/location UI without asking AppKit to draw the title itself.
             VStack(spacing: 1) {
                 HStack(spacing: 0) {
                     Text(windowChrome.name).foregroundStyle(EXPColor.textPrimary)
@@ -118,7 +119,8 @@ struct MainWindow: View {
                         .foregroundStyle(EXPColor.accent)
                 }
             }
-            .allowsHitTesting(false)
+            .overlay(DocumentTitleClickBridge())
+            .help("Rename or move document")
             .padding(.top, 4)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
@@ -160,6 +162,39 @@ struct MainWindow: View {
         .fixedSize()
         .help("New artboard (⇧⌘N for default; use the menu for sizes)")
         .keyboardShortcut("n", modifiers: [.command, .shift])
+    }
+
+    @discardableResult
+    private static func showNativeDocumentTitlePopover(for window: NSWindow?) -> Bool {
+        guard let window else { return false }
+        if let versionsButton = window.standardWindowButton(.documentVersionsButton) {
+            versionsButton.performClick(nil)
+            return true
+        }
+        if NSApp.sendAction(#selector(NSDocument.rename(_:)), to: nil, from: window) {
+            return true
+        }
+        return false
+    }
+
+    /// Transparent hit target sized to the styled title text. SwiftUI owns the
+    /// visual title; AppKit still owns the document rename/location behavior.
+    private struct DocumentTitleClickBridge: NSViewRepresentable {
+        func makeNSView(context: Context) -> TitleHitView { TitleHitView() }
+        func updateNSView(_ view: TitleHitView, context: Context) {}
+
+        final class TitleHitView: NSView {
+            override var acceptsFirstResponder: Bool { true }
+
+            override func mouseDown(with event: NSEvent) {
+                if MainWindow.showNativeDocumentTitlePopover(for: window) { return }
+                super.mouseDown(with: event)
+            }
+
+            override func resetCursorRects() {
+                addCursorRect(bounds, cursor: .arrow)
+            }
+        }
     }
 
     /// Observable doc-chrome (name / extension / edited) read from the NSWindow.
@@ -207,27 +242,111 @@ struct MainWindow: View {
             window.styleMask.insert(.fullSizeContentView)
             window.isOpaque = false
             window.backgroundColor = .clear
+            Self.syncNativeDocumentTitleControls(in: window)
+            DispatchQueue.main.async { Self.syncNativeDocumentTitleControls(in: window) }
+        }
+
+        /// The native document icon / versions button remains the only public
+        /// AppKit anchor for the rename/location popover. Keep those controls
+        /// alive, but visually transparent and centered under EXP's styled title.
+        fileprivate static func syncNativeDocumentTitleControls(in window: NSWindow) {
+            let iconButton = window.standardWindowButton(.documentIconButton)
+            let versionsButton = window.standardWindowButton(.documentVersionsButton)
+            [iconButton, versionsButton].compactMap { $0 }.forEach { button in
+                button.alphaValue = 0.001
+                button.isHidden = false
+            }
+            hideNativeTitleResidue(in: window)
+
+            guard let versionsButton,
+                  let container = versionsButton.superview else { return }
+
+            let spacing: CGFloat = 4
+            let totalWidth = versionsButton.frame.width + (iconButton?.frame.width ?? 0) + (iconButton == nil ? 0 : spacing)
+            let startX = max(0, (container.bounds.width - totalWidth) / 2)
+
+            if let iconButton {
+                var iconFrame = iconButton.frame
+                iconFrame.origin.x = startX
+                iconButton.frame = iconFrame
+            }
+
+            var versionsFrame = versionsButton.frame
+            versionsFrame.origin.x = startX + (iconButton?.frame.width ?? 0) + (iconButton == nil ? 0 : spacing)
+            versionsButton.frame = versionsFrame
+        }
+
+        private static func hideNativeTitleResidue(in window: NSWindow) {
+            guard let titleRoot = window.standardWindowButton(.closeButton)?.superview else { return }
+            let protectedButtons = [
+                window.standardWindowButton(.closeButton),
+                window.standardWindowButton(.miniaturizeButton),
+                window.standardWindowButton(.zoomButton),
+                window.standardWindowButton(.documentIconButton),
+                window.standardWindowButton(.documentVersionsButton)
+            ].compactMap { $0 }
+
+            for view in deepSubviews(of: titleRoot) {
+                guard !protectedButtons.contains(where: { contains(view: $0, descendant: view) }) else { continue }
+                if let textField = view as? NSTextField {
+                    let titleText = textField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if titleText == "—" || titleText.contains("Edited") || titleText.contains(window.title) {
+                        textField.alphaValue = 0.001
+                    }
+                    continue
+                }
+
+                let size = view.frame.size
+                if size.height <= 3, size.width >= 6, size.width <= 40 {
+                    view.alphaValue = 0.001
+                }
+            }
+        }
+
+        private static func contains(view: NSView, descendant: NSView) -> Bool {
+            if view === descendant { return true }
+            return view.subviews.contains { contains(view: $0, descendant: descendant) }
+        }
+
+        private static func deepSubviews(of view: NSView) -> [NSView] {
+            view.subviews + view.subviews.flatMap { deepSubviews(of: $0) }
         }
 
         final class Coordinator {
             private var obs: [NSKeyValueObservation] = []
-            private var notif: NSObjectProtocol?
+            private var notifs: [NSObjectProtocol] = []
             func attach(_ window: NSWindow, chrome: WindowChrome) {
                 chrome.update(from: window)
                 obs.forEach { $0.invalidate() }; obs = []
-                if let notif { NotificationCenter.default.removeObserver(notif) }
+                notifs.forEach { NotificationCenter.default.removeObserver($0) }
+                notifs = []
                 obs.append(window.observe(\.title, options: [.new]) { w, _ in
                     MainActor.assumeIsolated { chrome.update(from: w) } })
                 obs.append(window.observe(\.representedURL, options: [.new]) { w, _ in
                     MainActor.assumeIsolated { chrome.update(from: w) } })
+                obs.append(window.observe(\.isDocumentEdited, options: [.new]) { w, _ in
+                    MainActor.assumeIsolated { chrome.update(from: w) } })
                 // `isDocumentEdited` isn't reliably KVO-observable, so re-read it on the
                 // window's `didUpdate` (fires around edits/saves); the change-guard in
                 // `update` keeps this from causing re-render churn.
-                notif = NotificationCenter.default.addObserver(
+                notifs.append(NotificationCenter.default.addObserver(
                     forName: NSWindow.didUpdateNotification, object: window, queue: .main) { note in
                         guard let w = note.object as? NSWindow else { return }
-                        MainActor.assumeIsolated { chrome.update(from: w) }
-                    }
+                        MainActor.assumeIsolated {
+                            chrome.update(from: w)
+                            WindowConfigurator.syncNativeDocumentTitleControls(in: w)
+                        }
+                    })
+                notifs.append(NotificationCenter.default.addObserver(
+                    forName: NSWindow.didResizeNotification, object: window, queue: .main) { note in
+                        guard let w = note.object as? NSWindow else { return }
+                        MainActor.assumeIsolated { WindowConfigurator.syncNativeDocumentTitleControls(in: w) }
+                    })
+            }
+
+            deinit {
+                obs.forEach { $0.invalidate() }
+                notifs.forEach { NotificationCenter.default.removeObserver($0) }
             }
         }
     }
@@ -1346,7 +1465,9 @@ struct RightPanel: View {
                     Button("System") { applyFontFamilyAll("") }
                     Divider()
                     ForEach(FontCatalog.families, id: \.self) { fam in
-                        Button { applyFontFamilyAll(fam) } label: { Text(fam).font(.custom(fam, size: 13)) }
+                        Button { applyFontFamilyAll(fam) } label: {
+                            Text(fam).font(fontMenuPreview(for: fam, size: 13))
+                        }
                     }
                 } label: {
                     HStack { Text("Font"); Spacer()
@@ -1766,7 +1887,9 @@ struct RightPanel: View {
                 Button("System") { setTextFontName("") }
                 Divider()
                 ForEach(FontCatalog.families, id: \.self) { fam in
-                    Button { setTextFamily(fam) } label: { Text(fam).font(.custom(fam, size: 13)) }
+                    Button { setTextFamily(fam) } label: {
+                        Text(fam).font(fontMenuPreview(for: fam, size: 13))
+                    }
                 }
             } label: {
                 HStack {
@@ -1935,6 +2058,7 @@ struct RightPanel: View {
     private var currentFamilyDisplay: String {
         if let s = app.textSelection {
             guard let fn = s.fontName else { return "Mixed" }
+            if FontCatalog.isSystemMonospaced(fn) { return FontCatalog.systemMonospacedFamily }
             return fn.isEmpty ? "System" : (NSFont(name: fn, size: 12)?.familyName ?? fn)
         }
         return selectedTextContent?.familyName ?? "System"
@@ -1987,6 +2111,12 @@ struct RightPanel: View {
                 })
     }
     private func setTextFontName(_ ps: String) { applyFontName(ps) }
+
+    private func fontMenuPreview(for family: String, size: CGFloat) -> Font {
+        family == FontCatalog.systemMonospacedFamily
+            ? .system(size: size, design: .monospaced)
+            : .custom(family, size: size)
+    }
 
     /// Apply a change to the selected text node's TextContent (one undo step),
     /// optionally re-measuring the box to fit.

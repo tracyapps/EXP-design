@@ -33,7 +33,7 @@ final class PanelHub {
     weak var activeDocument: ExpDocument?
     @ObservationIgnored var activeUndo: UndoManager?
 
-    private static let defaultPanels: [PanelID] = [.layers, .properties, .components]
+    private static let defaultPanels: [PanelID] = [.layers, .properties, .components, .designLanguage]
     private static let traysKey = "exp.trays.v1"
     private var restoring = false
 

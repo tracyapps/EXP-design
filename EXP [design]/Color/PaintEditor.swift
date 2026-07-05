@@ -39,18 +39,35 @@ struct PaintWell: View {
 
 struct PaintSwatch: View {
     let paint: Paint
+
     var body: some View {
-        RoundedRectangle(cornerRadius: EXPMetric.radiusDrop)
-            .fill(preview)
-            .background(Checkerboard().clipShape(RoundedRectangle(cornerRadius: EXPMetric.radiusDrop)))
-            .overlay(RoundedRectangle(cornerRadius: EXPMetric.radiusDrop).strokeBorder(EXPColor.borderSoft))
+        let shape = RoundedRectangle(cornerRadius: EXPMetric.radiusRow, style: .continuous)
+        ZStack {
+            Checkerboard().clipShape(shape)
+            switch paint {
+            case .solid(let c):
+                shape.fill(c.swiftUI)
+            case .gradient(let g):
+                gradientView(g, shape: shape)
+            }
+        }
+        .overlay(shape.strokeBorder(EXPColor.borderSoft))
+        .contentShape(shape)
     }
-    private var preview: AnyShapeStyle {
-        switch paint {
-        case .solid(let c): return AnyShapeStyle(c.swiftUI)
-        case .gradient(let g):
-            let stops = g.sortedStops.map { Gradient.Stop(color: $0.color.swiftUI, location: $0.position) }
-            return AnyShapeStyle(LinearGradient(stops: stops, startPoint: .leading, endPoint: .trailing))
+
+    @ViewBuilder private func gradientView(_ g: GradientFill,
+                                           shape: RoundedRectangle) -> some View {
+        let stops = g.sortedStops.map { Gradient.Stop(color: $0.color.swiftUI, location: $0.position) }
+        switch g.kind {
+        case .linear:
+            let a = g.angle * .pi / 180
+            shape.fill(LinearGradient(
+                stops: stops,
+                startPoint: UnitPoint(x: 0.5 - cos(a) / 2, y: 0.5 - sin(a) / 2),
+                endPoint: UnitPoint(x: 0.5 + cos(a) / 2, y: 0.5 + sin(a) / 2)))
+        case .radial:
+            shape.fill(RadialGradient(stops: stops, center: .center,
+                                      startRadius: 0, endRadius: 22))
         }
     }
 }

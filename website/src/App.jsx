@@ -7,16 +7,18 @@ const issuesUrl = "https://github.com/tracyapps/EXP-design/issues/new";
 
 const navItems = [
   { label: "features", href: "#features" },
-  { label: "field guide", href: "#field-guide" },
+  { label: "accessibility", href: "#accessibility" },
+  { label: "design language", href: "#design-language" },
   { label: "roadmap", href: "#roadmap" },
-  { label: "testing", href: "#testing" },
+  { label: "download", href: "/download" },
 ];
 
 const downloadNavItems = [
+  { label: "features", href: "/#features" },
+  { label: "accessibility", href: "/#accessibility" },
+  { label: "design language", href: "/#design-language" },
   { label: "install", href: "#install" },
   { label: "reporting", href: "#reporting" },
-  { label: "features", href: "#tester-features" },
-  { label: "known issues", href: "#known-issues" },
 ];
 
 const featureMoments = [
@@ -90,8 +92,8 @@ function useScrollProgress() {
 function Header({
   progress,
   items = navItems,
-  actionLabel = "follow the build",
-  actionHref = "#testing",
+  actionLabel = "tester download",
+  actionHref = "/download",
   brandHref = "#top",
 }) {
   return (
@@ -162,7 +164,7 @@ function Hero() {
           the artboard.
         </p>
         <div className="hero-actions" aria-label="primary actions">
-          <a className="button primary" href="#testing">follow the build</a>
+          <a className="button primary" href="/download">tester download</a>
           <a className="button secondary" href="#roadmap">read the roadmap</a>
         </div>
       </div>
@@ -284,6 +286,63 @@ function FeatureStory() {
   );
 }
 
+function AccessibilityCallout() {
+  return (
+    <section id="accessibility" className="a11y-section" aria-labelledby="a11y-title">
+      <div className="a11y-copy section-copy">
+        <p className="section-label">accessibility</p>
+        <h2 id="a11y-title">contrast checks belong where color decisions happen.</h2>
+        <p>
+          Never ship color on vibes alone. EXP shows WCAG contrast ratios and
+          AA/fail feedback inside the color picker, because accessible design
+          should be part of the workflow, not a last-minute add-on.
+        </p>
+      </div>
+      <figure className="a11y-visual">
+        <img
+          src="/assets/a11y-contrast.png"
+          alt="EXP color picker showing contrast ratios, AA status, and fail feedback"
+        />
+      </figure>
+    </section>
+  );
+}
+
+function DesignLanguageCallout() {
+  return (
+    <section id="design-language" className="design-language-section" aria-labelledby="design-language-title">
+      <div className="section-copy narrow">
+        <p className="section-label">latest build</p>
+        <h2 id="design-language-title">a design language panel is starting to take shape.</h2>
+        <p>
+          Save colors and gradients, name them, sort them into categories, and
+          switch between swatch and list views while a system is still forming.
+        </p>
+      </div>
+      <div className="design-language-gallery" aria-label="Design language screenshots">
+        <figure className="design-shot settings">
+          <img
+            src="/assets/design-language-settings.png"
+            alt="EXP settings window showing design language color and gradient categories"
+          />
+        </figure>
+        <figure className="design-shot list">
+          <img
+            src="/assets/design-language-list.png"
+            alt="EXP design language panel in list view with named colors and gradients"
+          />
+        </figure>
+        <figure className="design-shot grid">
+          <img
+            src="/assets/design-language-grid.png"
+            alt="EXP design language panel in swatch grid view"
+          />
+        </figure>
+      </div>
+    </section>
+  );
+}
+
 function FieldGuide() {
   const [open, setOpen] = useState(0);
 
@@ -386,11 +445,18 @@ function Roadmap() {
   );
 }
 
-function TestingInvite() {
+function SignupForm({
+  id,
+  source,
+  buttonLabel = "request invite",
+  idleMessage = "No spam. Just build notes and release notifications for EXP [design].",
+  successMessage = "you are on the list. quiet little victory.",
+  onSuccess,
+}) {
   const [email, setEmail] = useState("");
   const [website, setWebsite] = useState("");
   const [status, setStatus] = useState("idle");
-  const [message, setMessage] = useState("no spam. just build notes, testing invites, and eventual download news.");
+  const [message, setMessage] = useState(idleMessage);
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -401,7 +467,7 @@ function TestingInvite() {
       const response = await fetch("/api/signup", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email, website, source: "testing invite" }),
+        body: JSON.stringify({ email, website, source }),
       });
       const result = await response.json().catch(() => ({}));
 
@@ -410,8 +476,9 @@ function TestingInvite() {
       }
 
       setStatus("success");
-      setMessage("you are on the list. quiet little victory.");
+      setMessage(successMessage);
       setEmail("");
+      onSuccess?.();
     } catch (error) {
       setStatus("error");
       setMessage(error.message || "something failed. try again in a minute.");
@@ -419,22 +486,12 @@ function TestingInvite() {
   }
 
   return (
-    <section id="testing" className="testing-section glass-thick glass-edge" aria-labelledby="testing-title">
-      <div>
-        <p className="section-label">testing</p>
-        <h2 id="testing-title">built in the open, before it is a product.</h2>
-        <p>
-          for now, this is a place to follow progress, onboard design friends,
-          and document what needs testing. when packaging is ready, the same
-          surface can become the download and release-note home.
-        </p>
-      </div>
-      <form className="invite-form" aria-label="tester interest form" onSubmit={handleSubmit}>
-        <label htmlFor="tester-email">tester email</label>
-        <label className="visually-hidden" htmlFor="tester-website">website</label>
+      <form className="invite-form" aria-label="tester release notification form" onSubmit={handleSubmit}>
+        <label htmlFor={`${id}-email`}>email</label>
+        <label className="visually-hidden" htmlFor={`${id}-website`}>website</label>
         <input
           className="signup-trap"
-          id="tester-website"
+          id={`${id}-website`}
           type="text"
           tabIndex="-1"
           autoComplete="off"
@@ -443,7 +500,7 @@ function TestingInvite() {
         />
         <div>
           <input
-            id="tester-email"
+            id={`${id}-email`}
             type="email"
             placeholder="name@example.com"
             autoComplete="email"
@@ -453,13 +510,32 @@ function TestingInvite() {
             disabled={status === "submitting"}
           />
           <button type="submit" disabled={status === "submitting"}>
-            {status === "submitting" ? "sending" : "request invite"}
+            {status === "submitting" ? "sending" : buttonLabel}
           </button>
         </div>
         <p className={`form-message ${status}`} role="status" aria-live="polite">
           {message}
         </p>
       </form>
+  );
+}
+
+function TestingInvite() {
+  return (
+    <section id="testing" className="testing-section glass-thick glass-edge" aria-labelledby="testing-title">
+      <div>
+        <p className="section-label">testing</p>
+        <h2 id="testing-title">want to help shape the next builds?</h2>
+        <p>
+          The download page now has the current build, install notes, reporting
+          examples, known issues, and the release-notification signup in one
+          place.
+        </p>
+      </div>
+      <div className="testing-actions">
+        <a className="button primary" href="/download">go to tester download</a>
+        <a className="button secondary" href="/download#reporting">see reporting guide</a>
+      </div>
     </section>
   );
 }
@@ -537,20 +613,22 @@ function DownloadHero() {
       <div className="download-hero-copy">
         <h1>EXP [design] tester download</h1>
         <p>
-          thanks for helping shape the app while it is still becoming itself. this page has
-          the latest build link, install notes, what to expect, and what makes feedback useful.
+          thanks for helping shape the app while it is still becoming itself.
+          this page has the latest build path, install notes, what to expect,
+          and what makes feedback useful.
         </p>
         <div className="hero-actions" aria-label="download actions">
-          <a className="button primary" href={releaseUrl} target="_blank" rel="noreferrer">
+          <a className="button primary" href="#download-signup">
             <i className="ph ph-download-simple" aria-hidden="true" />
-            download latest build
+            join list + download
           </a>
           <a className="button secondary" href="#reporting">
             how to report feedback
           </a>
         </div>
         <p className="download-note">
-          downloads are hosted on GitHub Releases. the primary link always opens the newest available build.
+          There is no auto-updater yet. The email list is only for EXP [design]
+          product and release updates, and it will not be sold.
         </p>
       </div>
       <div className="download-preview" aria-label="EXP tester build preview">
@@ -560,6 +638,41 @@ function DownloadHero() {
           <strong>macOS only</strong>
           <small>expect rough edges; save test files often.</small>
         </div>
+      </div>
+    </section>
+  );
+}
+
+function DownloadSignup() {
+  function openLatestReleaseSoon() {
+    window.setTimeout(() => {
+      window.location.href = releaseUrl;
+    }, 650);
+  }
+
+  return (
+    <section id="download-signup" className="download-signup glass-thick glass-edge" aria-labelledby="download-signup-title">
+      <div>
+        <p className="section-label">download</p>
+        <h2 id="download-signup-title">get notified, then grab the latest build.</h2>
+        <p>
+          Sign up for release notes so new builds do not disappear into GitHub.
+          The download opens after signup, and the release page stays public if
+          you would rather skip the list.
+        </p>
+      </div>
+      <div className="download-signup-panel">
+        <SignupForm
+          id="download-signup-form"
+          source="download page"
+          buttonLabel="join list + open GitHub"
+          idleMessage="Build notifications only. No marketing list, no selling addresses."
+          successMessage="you are on the release list. opening GitHub Releases..."
+          onSuccess={openLatestReleaseSoon}
+        />
+        <a className="skip-download" href={releaseUrl} target="_blank" rel="noreferrer">
+          skip email and open GitHub Releases
+        </a>
       </div>
     </section>
   );
@@ -733,9 +846,9 @@ function TesterFooterCta() {
         <p className="section-label">ready</p>
         <h2 id="final-download-title">grab the build, make a small mess, tell me where it snagged.</h2>
       </div>
-      <a className="button primary" href={releaseUrl} target="_blank" rel="noreferrer">
+      <a className="button primary" href="#download-signup">
         <i className="ph ph-download-simple" aria-hidden="true" />
-        download latest build
+        join list + download
       </a>
     </section>
   );
@@ -759,12 +872,13 @@ function DownloadPage() {
       <Header
         progress={progress}
         items={downloadNavItems}
-        actionLabel="download"
-        actionHref={releaseUrl}
+        actionLabel="get the build"
+        actionHref="#download-signup"
         brandHref="#top"
       />
       <main>
         <DownloadHero />
+        <DownloadSignup />
         <InstallGuide />
         <Expectations />
         <ReportingGuide />
@@ -805,6 +919,8 @@ export default function App() {
         <ProductStory />
         <WorkspaceCallout />
         <FeatureStory />
+        <AccessibilityCallout />
+        <DesignLanguageCallout />
         <FieldGuide />
         <Roadmap />
         <TestingInvite />

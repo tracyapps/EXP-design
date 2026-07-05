@@ -54,18 +54,24 @@ struct Document: Codable, Sendable {
     /// Ruler guides (document coordinates), persisted with the file like Photoshop.
     var guides: [Guide]
 
+    /// The document-local design language: named colors/gradients + recent paints
+    /// that travel with the file. Empty until the user saves swatches (Phase 18).
+    var designLanguage: DesignLanguage = DesignLanguage()
+
     init(artboards: [Artboard] = Document.starter,
          nodes: [Node] = [],
          sources: [ComponentSource] = [],
-         guides: [Guide] = []) {
+         guides: [Guide] = [],
+         designLanguage: DesignLanguage = DesignLanguage()) {
         self.artboards = artboards
         self.nodes = nodes
         self.sources = sources
         self.guides = guides
+        self.designLanguage = designLanguage
     }
 
     // Custom decode so files saved before `guides` existed still open.
-    enum CodingKeys: String, CodingKey { case formatVersion, artboards, nodes, sources, guides }
+    enum CodingKeys: String, CodingKey { case formatVersion, artboards, nodes, sources, guides, designLanguage }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         formatVersion = try c.decodeIfPresent(Int.self, forKey: .formatVersion) ?? 2
@@ -73,6 +79,7 @@ struct Document: Codable, Sendable {
         nodes = try c.decode([Node].self, forKey: .nodes)
         sources = try c.decodeIfPresent([ComponentSource].self, forKey: .sources) ?? []
         guides = try c.decodeIfPresent([Guide].self, forKey: .guides) ?? []
+        designLanguage = try c.decodeIfPresent(DesignLanguage.self, forKey: .designLanguage) ?? DesignLanguage()
     }
 
     /// Bounding box enclosing every artboard, in document coordinates. Used to
@@ -1008,3 +1015,287 @@ struct RGBAColor: Codable, Equatable, Sendable {
     static let clear = RGBAColor(r: 0, g: 0, b: 0, a: 0)
 }
 
+
+// MARK: - Design Language (document-local color / gradient library)
+
+/// The user's design language, living inside the `.design` document so it travels
+/// with the file. Colors and gradients are organized by USER-DEFINED categories
+/// (Primary, Secondary, Accent, ...) which are cross-cutting: a color AND a
+/// gradient can both be "Primary". An entry with no category is uncategorized and
+/// shows as "Other" once any category exists (Phase 18 refinements).
+///
+/// It lives here in Document.swift on purpose: this file is a member of BOTH the
+/// app and the EXPThumbnail extension targets, and anything `Document` references
+/// must compile in both.
+struct DesignLanguage: Codable, Equatable, Sendable {
+
+    /// User categories, in display / filter-pill order.
+    var categories: [DLCategory]
+
+    /// Named entries — colors and gradients.
+    var assets: [DesignAsset]
+
+    /// Recently used paints (most-recent first, capped).
+    var recents: [Paint]
+
+    static let recentsLimit = 12
+    /// Label for the uncategorized bucket once categories exist.
+    static let otherLabel = "Other"
+
+    init(categories: [DLCategory] = [], assets: [DesignAsset] = [], recents: [Paint] = []) {
+        self.categories = categories
+        self.assets = assets
+        self.recents = recents
+    }
+
+    // Tolerant decode so older files (no design language, or the pre-category
+    // status model) and future files both open cleanly.
+    enum CodingKeys: String, CodingKey { case categories, assets, recents }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        categories = try c.decodeIfPresent([DLCategory].self, forKey: .categories) ?? []
+        assets     = try c.decodeIfPresent([DesignAsset].self, forKey: .assets) ?? []
+        recents    = try c.decodeIfPresent([Paint].self, forKey: .recents) ?? []
+        migrateLegacyStatusIfNeeded()
+    }
+
+    /// One-time migration from the old status model (official/candidate/archived).
+    /// Owner's choice: seed a "Primary" category from anything that was "official";
+    /// everything else becomes uncategorized. Legacy status is then cleared and the
+    /// document saves clean on its next edit.
+    private mutating func migrateLegacyStatusIfNeeded() {
+        guard categories.isEmpty, assets.contains(where: { $0.legacyStatus != nil }) else {
+            for i in assets.indices { assets[i].legacyStatus = nil }
+            return
+        }
+        if assets.contains(where: { $0.legacyStatus == "official" }) {
+            let primary = DLCategory(name: "Primary")
+            categories = [primary]
+            for i in assets.indices where assets[i].legacyStatus == "official" {
+                assets[i].categoryID = primary.id
+            }
+        }
+        for i in assets.indices { assets[i].legacyStatus = nil }
+    }
+
+    var isEmpty: Bool { assets.isEmpty && recents.isEmpty && categories.isEmpty }
+    var hasCategories: Bool { !categories.isEmpty }
+
+    // MARK: Grouped / filtered views
+
+    var solids:    [DesignAsset] { assets.filter { !$0.value.isGradient } }
+    var gradients: [DesignAsset] { assets.filter {  $0.value.isGradient } }
+
+    func asset(_ id: UUID) -> DesignAsset? { assets.first { $0.id == id } }
+    func category(_ id: UUID?) -> DLCategory? {
+        guard let id else { return nil }
+        return categories.first { $0.id == id }
+    }
+
+    /// Display label for an asset's category: the category name, "Other" when it's
+    /// uncategorized but categories exist, or "" when there are no categories.
+    func categoryLabel(for asset: DesignAsset) -> String {
+        if let c = category(asset.categoryID) { return c.name }
+        return hasCategories ? DesignLanguage.otherLabel : ""
+    }
+
+    func assets(in categoryID: UUID?) -> [DesignAsset] { assets.filter { $0.categoryID == categoryID } }
+    func count(in categoryID: UUID?) -> Int { assets.reduce(0) { $0 + ($1.categoryID == categoryID ? 1 : 0) } }
+    var hasUncategorized: Bool { assets.contains { $0.categoryID == nil } }
+
+    /// The first saved entry whose value exactly matches (used by the picker link).
+    func firstAsset(matching paint: Paint) -> DesignAsset? { assets.first { $0.value == paint } }
+
+    // MARK: Recents
+
+    mutating func remember(_ paint: Paint, limit: Int = DesignLanguage.recentsLimit) {
+        recents.removeAll { $0 == paint }
+        recents.insert(paint, at: 0)
+        if recents.count > limit { recents.removeLast(recents.count - limit) }
+    }
+
+    // MARK: Asset mutations
+
+    @discardableResult
+    mutating func add(_ asset: DesignAsset) -> UUID { assets.append(asset); return asset.id }
+
+    /// Save a value as an entry (optionally in a category).
+    @discardableResult
+    mutating func save(_ value: Paint, name: String = "", categoryID: UUID? = nil,
+                       provenance: String = "") -> UUID {
+        add(DesignAsset(name: name, categoryID: categoryID, value: value, provenance: provenance))
+    }
+
+    mutating func rename(_ id: UUID, to name: String) {
+        guard let i = assets.firstIndex(where: { $0.id == id }) else { return }
+        assets[i].name = name
+    }
+    mutating func setValue(_ id: UUID, to value: Paint) {
+        guard let i = assets.firstIndex(where: { $0.id == id }) else { return }
+        assets[i].value = value
+    }
+    mutating func setCategory(_ id: UUID, to categoryID: UUID?) {
+        guard let i = assets.firstIndex(where: { $0.id == id }) else { return }
+        assets[i].categoryID = categoryID
+    }
+    mutating func remove(_ id: UUID) { assets.removeAll { $0.id == id } }
+
+    // MARK: Category mutations
+
+    @discardableResult
+    mutating func addCategory(_ name: String) -> UUID {
+        let cat = DLCategory(name: name.trimmingCharacters(in: .whitespaces))
+        categories.append(cat)
+        return cat.id
+    }
+    /// Return the id of a category with this (case-insensitive) name, creating it
+    /// if needed.
+    @discardableResult
+    mutating func ensureCategory(_ name: String) -> UUID {
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        if let existing = categories.first(where: { $0.name.caseInsensitiveCompare(trimmed) == .orderedSame }) {
+            return existing.id
+        }
+        return addCategory(trimmed)
+    }
+    mutating func renameCategory(_ id: UUID, to name: String) {
+        guard let i = categories.firstIndex(where: { $0.id == id }) else { return }
+        categories[i].name = name.trimmingCharacters(in: .whitespaces)
+    }
+    /// Delete a category; its assets fall back to uncategorized (colors are kept).
+    mutating func removeCategory(_ id: UUID) {
+        categories.removeAll { $0.id == id }
+        for i in assets.indices where assets[i].categoryID == id { assets[i].categoryID = nil }
+    }
+    mutating func moveCategory(fromOffsets source: IndexSet, toOffset destination: Int) {
+        let moved = source.map { categories[$0] }
+        var remaining = categories.indices.filter { !source.contains($0) }.map { categories[$0] }
+        let adjusted = min(destination - source.filter { $0 < destination }.count, remaining.count)
+        remaining.insert(contentsOf: moved, at: adjusted)
+        categories = remaining
+    }
+
+    /// Move a category so it lands immediately before `targetID` (or to the end
+    /// when nil). Explicit remove + insert — unambiguous for drag-and-drop reorder.
+    mutating func moveCategory(_ id: UUID, before targetID: UUID?) {
+        guard id != targetID, let from = categories.firstIndex(where: { $0.id == id }) else { return }
+        let cat = categories.remove(at: from)
+        if let t = targetID, let idx = categories.firstIndex(where: { $0.id == t }) {
+            categories.insert(cat, at: idx)
+        } else {
+            categories.append(cat)
+        }
+    }
+
+    // MARK: Merge (import)
+
+    enum MergeMode: String, CaseIterable, Identifiable, Sendable {
+        case keepBoth, skipDuplicateValues, replaceByName
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .keepBoth:            return "Keep both"
+            case .skipDuplicateValues: return "Skip duplicate values"
+            case .replaceByName:       return "Replace by name"
+            }
+        }
+    }
+
+    /// Merge imported entries + their categories in one shot (one undo step at the
+    /// call site). Incoming categories are matched to existing ones by name (or
+    /// created), and each entry's categoryID is remapped accordingly. Entries get
+    /// fresh ids so imports never collide. Returns how many entries were added or
+    /// replaced.
+    @discardableResult
+    mutating func merge(_ incoming: [DesignAsset], categories incomingCats: [DLCategory] = [],
+                        mode: MergeMode) -> Int {
+        var remap: [UUID: UUID] = [:]
+        for cat in incomingCats { remap[cat.id] = ensureCategory(cat.name) }
+        var changed = 0
+        for var entry in incoming {
+            entry.id = UUID()
+            if let cid = entry.categoryID { entry.categoryID = remap[cid] }   // unknown -> nil
+            switch mode {
+            case .keepBoth:
+                assets.append(entry); changed += 1
+            case .skipDuplicateValues:
+                if !assets.contains(where: { $0.value == entry.value }) { assets.append(entry); changed += 1 }
+            case .replaceByName:
+                if !entry.name.isEmpty,
+                   let i = assets.firstIndex(where: { $0.name.caseInsensitiveCompare(entry.name) == .orderedSame }) {
+                    assets[i].value = entry.value
+                    assets[i].categoryID = entry.categoryID
+                    assets[i].provenance = entry.provenance
+                    changed += 1
+                } else { assets.append(entry); changed += 1 }
+            }
+        }
+        return changed
+    }
+}
+
+/// A user-defined grouping label for design-language entries. Cross-cutting: a
+/// color and a gradient can share a category. Assets with no category are "Other".
+struct DLCategory: Codable, Equatable, Identifiable, Sendable {
+    var id: UUID
+    var name: String
+    init(id: UUID = UUID(), name: String) { self.id = id; self.name = name }
+}
+
+/// One entry in a `DesignLanguage`: a solid color or a gradient in an optional user
+/// category. `value` is a `Paint`, so solids and gradients share one shape.
+struct DesignAsset: Codable, Equatable, Identifiable, Sendable {
+    var id: UUID
+    var name: String
+    /// The user category this belongs to (nil = uncategorized / "Other").
+    var categoryID: UUID?
+    var value: Paint
+    var notes: String
+    var tags: [String]
+    var provenance: String
+
+    /// Decode-only carrier for the pre-category `status` field, consumed once by
+    /// `DesignLanguage`'s migration then cleared. Never encoded.
+    var legacyStatus: String?
+
+    init(id: UUID = UUID(), name: String = "", categoryID: UUID? = nil,
+         value: Paint, notes: String = "", tags: [String] = [], provenance: String = "") {
+        self.id = id
+        self.name = name
+        self.categoryID = categoryID
+        self.value = value
+        self.notes = notes
+        self.tags = tags
+        self.provenance = provenance
+        self.legacyStatus = nil
+    }
+
+    var representativeColor: RGBAColor { value.representativeColor }
+
+    // `status` is decode-only (old files); `legacyStatus` is never encoded.
+    enum CodingKeys: String, CodingKey { case id, name, categoryID, value, notes, tags, provenance, status }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id    = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        name  = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
+        categoryID = try c.decodeIfPresent(UUID.self, forKey: .categoryID)
+        value = try c.decode(Paint.self, forKey: .value)
+        notes = try c.decodeIfPresent(String.self, forKey: .notes) ?? ""
+        tags  = try c.decodeIfPresent([String].self, forKey: .tags) ?? []
+        provenance = try c.decodeIfPresent(String.self, forKey: .provenance) ?? ""
+        legacyStatus = try c.decodeIfPresent(String.self, forKey: .status)   // old files only
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(name, forKey: .name)
+        try c.encodeIfPresent(categoryID, forKey: .categoryID)
+        try c.encode(value, forKey: .value)
+        try c.encode(notes, forKey: .notes)
+        try c.encode(tags, forKey: .tags)
+        try c.encode(provenance, forKey: .provenance)
+        // legacyStatus intentionally NOT encoded.
+    }
+}
