@@ -35,6 +35,30 @@ plugins, multiplayer, advanced typography.
 
 ---
 
+## v1.1 — shipped (2026-07-05)
+
+Tag `v1.1`, build 2. Headline: the **Design Language** system — a per-document
+library of colors + gradients (swatch/list views, categories, recents,
+JSON + HEX/CSS/Coolors import/export, and a bulk editor in Settings → Document).
+Plus an OKLCH, WCAG-AA-aware color picker with local palette suggestions,
+transparent PNG export, a System Monospaced document font, sharper raster
+imports, the centered document titlebar, and the App/Document Settings split.
+Full notes: `RELEASE-NOTES-v1.1.md`.
+
+## v1.2 scope (in progress)
+
+Build 3, `MARKETING_VERSION 1.2`. Development happens on the **`dev`** branch and
+merges to `main` at release time (see `docs/RELEASE-CHECKLIST.md`). Candidate
+work for this cycle — resume at the next unchecked box below and in Phase 18:
+
+- Close out the open items from v1.1: gradient darkening on semi-transparent
+  stops (BUG-003) and the centered-titlebar rename popover anchor (BUG-004).
+- Continue Phase 9.5 rich text (the one open editor bug).
+- Design Language refinements deferred during v1.1 (e.g. image-based palette
+  extraction — see Phase 18/19 notes).
+
+---
+
 ## Architecture decisions
 
 - **Language/UI:** Swift + SwiftUI for app chrome (panels, inspectors,
@@ -1041,6 +1065,18 @@ font import → Phase 9, shadows → Phase 10._
 
 ## Progress Log
 _Newest entry on top. Update every session._
+
+- **2026-07-05 — Session 187 (v1.1 release + v1.2 kickoff):**
+  Cut the **v1.1** release. Wrote tester-facing release notes
+  (`RELEASE-NOTES-v1.1.md`) covering Design Language, the OKLCH/WCAG-AA color
+  picker, transparent PNG export, System Monospaced document font, sharper raster
+  imports, the centered titlebar, and the App/Document Settings split. Added
+  `docs/RELEASE-CHECKLIST.md` (reusable zip → tag → GitHub Release → next-version
+  steps). Bumped the Xcode project to **MARKETING_VERSION 1.2 / build 3** across
+  all four build configs to open the v1.2 development cycle on a `dev` branch.
+  Release tagging/upload run by the owner (GitHub auth is off-box). Verification:
+  `grep MARKETING_VERSION` on the pbxproj shows 1.2 in all configs; open in Xcode
+  and confirm a clean build before continuing.
 
 - **2026-07-05 — Session 186 [site] (public website tester/download refresh):**
   Unified the homepage/download navigation, moved the tester signup/download
