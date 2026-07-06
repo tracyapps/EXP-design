@@ -1428,6 +1428,50 @@ final class CanvasNSView: NSView {
         currentNodes.contains { $0.id == id }
     }
 
+    private enum SelectionLevel: Equatable {
+        case none
+        case topLevel
+        case group(UUID)
+        case mixed
+    }
+
+    /// The direct parent level shared by a node selection.
+    private func selectionLevel(for ids: Set<UUID>) -> SelectionLevel {
+        guard !ids.isEmpty else { return .none }
+        var parent: UUID?
+        var sawFirst = false
+        for id in ids {
+            guard node(id) != nil else { continue }
+            let p = parentGroupID(of: id)
+            if !sawFirst {
+                parent = p
+                sawFirst = true
+            } else if parent != p {
+                return .mixed
+            }
+        }
+        guard sawFirst else { return .none }
+        return parent.map { .group($0) } ?? .topLevel
+    }
+
+    private func hitTargetInSelectionLevel(from path: [(id: UUID, offset: CGPoint)],
+                                           level: SelectionLevel) -> UUID? {
+        switch level {
+        case .group(let parentID):
+            return path.last(where: { parentGroupID(of: $0.id) == parentID })?.id
+        case .topLevel:
+            return path.first?.id
+        case .none, .mixed:
+            return nil
+        }
+    }
+
+    private func childIDs(inParentGroup parentID: UUID?) -> [UUID] {
+        guard let parentID else { return currentNodes.map(\.id) }
+        guard let parent = node(parentID), case .group(let children) = parent.content else { return [] }
+        return children.map(\.id)
+    }
+
     /// Total rotation (degrees) of a node's ANCESTOR groups — the rotation of the
     /// coordinate space its `frame.origin` lives in. 0 for a top-level node. (The
     /// node's own rotation isn't included; that rotates its content, not its slot.)
@@ -2003,6 +2047,15 @@ final class CanvasNSView: NSView {
     /// so a first-tick capture renders exactly what's already on screen.
     private func beginPanZoomInteraction() {
         guard let app, !panZoomBlitDisabled else { return }
+        if visibleBitmapSensitiveContent(in: bounds) {
+            // Gradients and shadows currently shift when flattened into the
+            // temporary gesture bitmap, even though their live vector render is
+            // stable. Favor fidelity for those documents and render live per tick.
+            panZoomBlitActive = false
+            panZoomSnapshot = nil
+            panZoomSettleTimer?.invalidate()
+            return
+        }
         // Recapture when zoom has drifted far enough from the snapshot that the
         // scaled blit would look too soft (zooming in) or wastefully large —
         // OR when the pan has consumed the halo, so real content replaces what
@@ -2069,7 +2122,7 @@ final class CanvasNSView: NSView {
         let halo = CGSize(width: bounds.width * fraction,
                           height: bounds.height * fraction)
         let region = bounds.insetBy(dx: -halo.width, dy: -halo.height)
-        guard let app, let cg = offscreenBacking(sizePt: region.size) else { return }
+        guard let app, let cg = offscreenBacking(sizePt: region.size, colorSpace: .documentSRGB) else { return }
         let t0 = CFAbsoluteTimeGetCurrent()   // always timed — feeds the safety valve
         let scale = backingScale
         cg.saveGState()
@@ -2328,6 +2381,7 @@ final class CanvasNSView: NSView {
         if !dragFidelityChecked {
             dragFidelityChecked = true
             dragWantsTrueComposite = shouldTrueCompositeDrag(ids)
+                || visibleBitmapSensitiveContent(in: bounds, excludingTopLevelIDs: Set(ids.compactMap { topLevelAncestorID(of: $0) }))
         }
         if dragWantsTrueComposite { return false }   // full live render per tick
         // Warm-up: first two ticks render live (see dragBlitTicks).
@@ -2368,16 +2422,36 @@ final class CanvasNSView: NSView {
     /// A flipped (top-left origin, y-down) offscreen CGContext that matches the
     /// view's coordinate system 1:1, so renderCanvas — including NSString text,
     /// which honors `isFlipped` — draws identically to on-screen. Cached/reused.
-    private func offscreenBacking(sizePt: CGSize? = nil) -> CGContext? {
+    private enum OffscreenColorSpace {
+        case window
+        case documentSRGB
+
+        var cgColorSpace: CGColorSpace? {
+            switch self {
+            case .window:
+                // Match the WINDOW's colorspace (usually Display P3 on modern Macs):
+                // this remains useful for image-heavy and backdrop-style offscreen
+                // passes that want to mirror the window target directly.
+                return nil
+            case .documentSRGB:
+                // EXP-authored fills/gradients are stored as straight sRGB numbers.
+                // Pan/zoom snapshots are temporary stand-ins for those vectors, so
+                // render that bitmap in document color space before it is drawn into
+                // the window. This avoids a mid-gesture color-managed bitmap path
+                // disagreeing with the settled vector render.
+                return CGColorSpace(name: CGColorSpace.sRGB)
+            }
+        }
+    }
+
+    private func offscreenBacking(sizePt: CGSize? = nil,
+                                  colorSpace mode: OffscreenColorSpace = .window) -> CGContext? {
         let scale = backingScale
         let size = sizePt ?? bounds.size
         let w = max(1, Int((size.width * scale).rounded()))
         let h = max(1, Int((size.height * scale).rounded()))
-        // Match the WINDOW's colorspace (usually Display P3 on modern Macs), not
-        // generic sRGB: content tagged in other spaces (photos especially) forces
-        // a per-pixel CPU color-match into a mismatched bitmap — a conversion the
-        // on-screen render never pays. Falls back to sRGB with no window.
-        let space = window?.colorSpace?.cgColorSpace
+        let space = mode.cgColorSpace
+                 ?? window?.colorSpace?.cgColorSpace
                  ?? CGColorSpace(name: CGColorSpace.sRGB)
         if blurBacking == nil || blurBackingPx != (w, h)
             || blurBackingSpace != space {   // value equality — identity would rebuild every call
@@ -3292,6 +3366,64 @@ final class CanvasNSView: NSView {
         switch c {
         case .group, .instance: return false
         default:                return true
+        }
+    }
+
+    /// Content that must stay on the live vector path during interaction.
+    ///
+    /// The fast pan/zoom and drag paths flatten static content into temporary
+    /// bitmaps. Owner testing showed that gradient fills and shadows visibly shift
+    /// in those snapshots while the live-rendered moving node stays correct. Until
+    /// the bitmap color/compositing path can be made pixel-identical, keep these
+    /// nodes on the exact renderer and use snapshots only for plain content.
+    private func visibleBitmapSensitiveContent(in region: CGRect,
+                                               excludingTopLevelIDs excluded: Set<UUID> = []) -> Bool {
+        guard let document else { return false }
+        if !isSourceScope {
+            for artboard in document.model.artboards
+            where docToView(artboard.frame).insetBy(dx: -24, dy: -24).intersects(region) {
+                if artboard.background.isGradient { return true }
+            }
+        }
+        for node in currentNodes where node.isVisible && !excluded.contains(node.id) {
+            guard nodeMayPaintInRegion(node, region) else { continue }
+            if nodeHasBitmapSensitiveContent(node, model: document.model) { return true }
+        }
+        return false
+    }
+
+    private func nodeMayPaintInRegion(_ node: Node, _ region: CGRect) -> Bool {
+        guard let document else { return false }
+        if isLeafContent(node.content) {
+            let m = nodeCullMargin(node)
+            if !docToView(node.frame).insetBy(dx: -m, dy: -m).intersects(region) { return false }
+        }
+        if let owner = document.model.owningArtboard(of: node.frame),
+           !docToView(owner.frame).intersects(region) { return false }
+        return true
+    }
+
+    private func nodeHasBitmapSensitiveContent(_ node: Node, model: Document) -> Bool {
+        if node.effects.contains(where: { $0.isEnabled && ($0.kind == .dropShadow || $0.kind == .innerShadow) }) {
+            return true
+        }
+        func sensitivePaint(_ paint: Paint?) -> Bool { paint?.isGradient == true }
+        switch node.content {
+        case .rectangle(let s):
+            return sensitivePaint(s.fill)
+        case .ellipse(let s):
+            return sensitivePaint(s.fill)
+        case .polygon(let s):
+            return sensitivePaint(s.fill)
+        case .path(let s):
+            return sensitivePaint(s.fill)
+        case .group(let children):
+            if sensitivePaint(node.autoPadding?.fill) { return true }
+            return children.contains { $0.isVisible && nodeHasBitmapSensitiveContent($0, model: model) }
+        case .instance(let inst):
+            return model.resolvedChildren(of: inst).contains { $0.isVisible && nodeHasBitmapSensitiveContent($0, model: model) }
+        case .line, .text, .image:
+            return false
         }
     }
 
@@ -4782,6 +4914,8 @@ final class CanvasNSView: NSView {
                 } else {
                     targetID = path.count > 1 ? path[1].id : path[0].id   // enter the group
                 }
+            } else if let scoped = hitTargetInSelectionLevel(from: path, level: selectionLevel(for: app.selectedNodeIDs)) {
+                targetID = scoped                              // stay at the active group/top-level selection context
             } else if let sel = path.first(where: { app.selectedNodeIDs.contains($0.id) }) {
                 targetID = sel.id                              // keep a drilled-in node to drag it
             } else {
@@ -6221,8 +6355,48 @@ final class CanvasNSView: NSView {
 
 	@objc override func selectAll(_ sender: Any?) {
         guard let app else { return }
-        app.selectedNodeIDs = Set(currentNodes.map { $0.id })
-        app.selectedArtboardID = nil
+        if !app.selectedNodeIDs.isEmpty {
+            switch selectionLevel(for: app.selectedNodeIDs) {
+            case .group(let parentID):
+                app.selectedNodeIDs = Set(childIDs(inParentGroup: parentID))
+                app.selectedArtboardIDs = []
+            case .topLevel:
+                if !isSourceScope, let document {
+                    let selected = currentNodes.filter { app.selectedNodeIDs.contains($0.id) }
+                    let owners = Set(selected.compactMap { document.model.owningArtboard(of: $0.frame)?.id })
+                    let hasWall = selected.contains { document.model.owningArtboard(of: $0.frame) == nil }
+                    if owners.count == 1, !hasWall, let owner = owners.first {
+                        app.selectedNodeIDs = Set(currentNodes.filter { document.model.owningArtboard(of: $0.frame)?.id == owner }.map(\.id))
+                        app.selectedArtboardIDs = []
+                        needsDisplay = true
+                        return
+                    }
+                    if owners.isEmpty, hasWall {
+                        app.selectedNodeIDs = Set(currentNodes.filter { document.model.owningArtboard(of: $0.frame) == nil }.map(\.id))
+                        app.selectedArtboardIDs = []
+                        needsDisplay = true
+                        return
+                    }
+                }
+                app.selectedNodeIDs = Set(currentNodes.map(\.id))
+                app.selectedArtboardIDs = []
+            case .mixed, .none:
+                app.selectedNodeIDs = Set(currentNodes.map(\.id))
+                app.selectedArtboardIDs = []
+            }
+            needsDisplay = true
+            return
+        }
+
+        if !isSourceScope, let document, !app.selectedArtboardIDs.isEmpty {
+            app.selectedArtboardIDs = Set(document.model.artboards.map(\.id))
+            app.selectedNodeIDs = Set(currentNodes.filter { document.model.owningArtboard(of: $0.frame) == nil }.map(\.id))
+            needsDisplay = true
+            return
+        }
+
+        app.selectedNodeIDs = Set(currentNodes.map(\.id))
+        app.selectedArtboardIDs = []
         needsDisplay = true
     }
 
@@ -7262,7 +7436,7 @@ extension CanvasNSView: NSMenuItemValidation {
         case #selector(distributeHorizontallyAction(_:)), #selector(distributeVerticallyAction(_:)):
             return (app?.selectedNodeIDs.count ?? 0) >= 3
         case #selector(selectAll(_:)):
-            return !currentNodes.isEmpty
+            return !currentNodes.isEmpty || (!isSourceScope && !(document?.model.artboards.isEmpty ?? true))
         case #selector(deselectAllAction(_:)):
             return hasNodes || hasArtboards
         // Panel show/hide items: checkmark reflects whether the panel is in the

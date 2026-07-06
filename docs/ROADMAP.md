@@ -995,6 +995,120 @@ Current baseline:
 - [x] The Design Language panel feels like the start of a styleguide/design
       system workflow, while leaving type/spacing/effects open for later.
 
+### Phase 19 — Accessibility-native components (NORTH STAR)
+
+**The idea:** give every step of the design process an accessibility affordance,
+introduced as an *organizing* feature so it never reads as a separate chore. We
+add a **category** to components whose vocabulary is sourced directly from **ARIA
+roles**. On day one it's a way to filter/sort/organize the components a designer
+builds. Underneath, that same choice is the semantic anchor that later powers
+accessible code export. The role *is* the filter — accessibility work happens as
+a side effect of work the designer already wanted to do. ("Hiding the health
+food in the dessert.")
+
+**Why this fits EXP specifically:** the tool's point of view is clean,
+accessible *outputs* to hand to an AI agent / dev tool / code prototype — not
+in-app prototyping. This phase is that thesis made real. It builds on subsystems
+we already own: `ComponentSource` (backward-compatible `decodeIfPresent`
+decode), the custom **SVG emitter** that renders straight from the model
+(Phase 5), and `ContrastMath` / WCAG work (Phase 18c). Sub-phase 19c below is not
+a new export system — it teaches an emitter we already have to write semantic
+markup.
+
+**Design decisions locked (planning session):**
+- **Metadata depth:** Phase 1 surfaces the **role only**. The model, however,
+  bakes in an accessible-name hook now (which child layer supplies the label) so
+  export has something real to work with later — even though no UI sets it yet.
+  Component **states** (e.g. `aria-checked`, `aria-selected`) are parked as an
+  explicit *explore-later* note, to be modeled once a component-state system
+  exists.
+- **Role scope:** a **curated, design-relevant subset** of non-abstract ARIA
+  roles (landmarks, widgets, structure roles a designer actually places).
+  Abstract / author-forbidden roles are never offered.
+- **Labels:** **designer-friendly names shown, ARIA role token stored** — UI
+  shows "Button", "Navigation", "Dialog"; the model persists `button`,
+  `navigation`, `dialog`.
+
+> **Shared-target gotcha (read before coding):** any new model type referenced
+> by `Document.swift` must be added to the **EXPThumbnail** target too, or the
+> extension won't build. Prefer defining `AriaRole` + `A11ySemantics` **inline in
+> `Document.swift`** (or a file already shared with the extension) to sidestep
+> the Target-Membership trap and the Xcode-agent auto-stubbing behavior.
+
+#### 19a — Component categories (ship first; the visible "dessert")
+- [ ] **Model:** add `var a11y: A11ySemantics = .init()` to `ComponentSource`
+      with a `decodeIfPresent` decoder so every legacy `.design`/`.exp` file opens
+      unchanged.
+      ```swift
+      struct A11ySemantics: Codable, Sendable {
+          var role: AriaRole?                // nil = uncategorized
+          var accessibleNameLayerID: UUID?   // wired now, no UI yet
+          // TODO(explore later): required/expressible states per role,
+          // modeled once component states exist.
+      }
+      enum AriaRole: String, Codable, Sendable, CaseIterable {
+          // curated, non-abstract subset, grouped by ARIA category:
+          // landmarks: banner, navigation, main, complementary, contentinfo, search, form, region
+          // widgets:   button, link, checkbox, radio, switch, textbox, searchbox, slider, ...
+          // composite: tablist/tab/tabpanel, menu/menuitem, listbox/option, dialog, ...
+          // structure: heading, list, listitem, img, figure, table, ...
+          var friendlyLabel: String { /* "Button", "Navigation", ... */ }
+          var ariaCategory: AriaCategory { /* for grouping in the picker */ }
+      }
+      ```
+- [ ] **Category picker** — designer-friendly labels grouped by ARIA category,
+      with a clear "Uncategorized" default. Store the role token, show the label.
+- [ ] **Components panel:** filter/sort by category; show a small role tag on
+      each component row so the organizing value is immediate.
+- [ ] **Command coverage (per CLAUDE.md rule — wire ALL ways in one change):**
+      `@objc setComponentCategory:` on `CanvasNSView` (single source of truth);
+      **Object menu** item (e.g. "Set Category…", submenu of roles) with
+      `validateMenuItem` enabling only when a component source is selected;
+      **right-click** on a component / its instance; **Inspector control** (the
+      picker) when a component source is the selection. No keyboard shortcut
+      required (inherently a menu/inspector choice).
+- [ ] **A11y of the feature itself:** the picker follows system appearance +
+      accessibility settings; role labels are readable by VoiceOver; the tag is
+      not color-only.
+- [ ] **Acceptance:** a designer can assign a category to a component, see it on
+      the row, filter by it, and reopen the file with the category intact. No
+      accessibility "task" was ever presented — it felt like organizing.
+
+#### 19b — Semantics layer (the hidden "health food")
+- [ ] Surface the **accessible-name source** captured in 19a: let the designer
+      pick which child text layer names the component (or fall back to a typed
+      label). Still lightweight — one control.
+- [ ] Lint/nudge, advisory only: flag a categorized component missing an
+      accessible name; reuse Phase 18c `ContrastMath` to flag text/background
+      pairs that fail WCAG AA *within a categorized component*. Suggestions, never
+      silent mutation.
+- [ ] **(Explore later)** component **states** → expressible ARIA state attrs;
+      modeled once the component-state system lands.
+- [ ] **Acceptance:** every categorized component can resolve to (role +
+      accessible name), which is exactly what 19c needs to emit real markup.
+
+#### 19c — Accessible export / handoff (the payoff)
+- [ ] Extend the existing **SVG emitter** and add an **HTML/JSX semantic
+      emitter** that maps role → correct element (`button`→`<button>`,
+      `navigation`→`<nav>`, `heading`→`<h*>`, generic→`<div role="…">`), emits
+      `aria-label`/visible label from the accessible-name source, and stays valid
+      per ARIA authoring rules (no author-forbidden roles can reach output — the
+      curated vocabulary guarantees this).
+- [ ] Target: clean, **ADA/WCAG-minded** output a designer-who-codes can drop
+      into a prototype, or hand to an AI agent / dev tool as pre-baked accessible
+      scaffolding. Keep EXP's stance: outputs, not in-app prototyping.
+- [ ] Handoff doc: per-component role, accessible name, and any advisory contrast
+      flags, alongside the existing notes/handoff export (Phase 6).
+- [ ] **Acceptance:** exporting a categorized design yields semantic,
+      role-correct, named, contrast-checked scaffolding — accessibility that was
+      "designed in" without the designer ever doing a separate a11y pass.
+
+**Sequencing note:** 19a is independently shippable and valuable on its own
+(organizing components). 19b and 19c can follow whenever; nothing downstream is
+blocked by shipping 19a first. That's the whole point — the health food is
+already on the plate before anyone orders the vegetables.
+
+
 ### Phase 4.5 — Shape styling + vector paths (pulled in before export)
 - [x] Stroke color + width on rectangle/ellipse (model + render + Inspector;
       `strokeWidth == 0` = none; backward-compatible decoders so older files open)
@@ -1065,6 +1179,30 @@ font import → Phase 9, shadows → Phase 10._
 
 ## Progress Log
 _Newest entry on top. Update every session._
+
+- **2026-07-06 — Session 188 (v1.2 kickoff: bug-fix lane + BUG-003 pass):**
+  Confirmed v1.2 is the active cycle (`MARKETING_VERSION 1.2`, build 3) and moved
+  local work onto a new `dev` branch. Deleted the stale `docs/.__writetest` file
+  from prior edit-permission troubleshooting; the manually added Phase 19 planning
+  block is intentional owner-authored roadmap context. Added a root `.gitignore`
+  for local build/DerivedData output so Dropbox-local build folders do not pollute
+  git status. First bug-fix pass targeted **BUG-003**. Initial attempt made
+  pan/zoom snapshots request document-sRGB instead of the window/Display-P3 color
+  space; owner testing still showed the shift, and found the crucial clue that a
+  moved gradient stays correct while static gradients change during drag. Follow-up
+  fix keeps gradient/shadow content on the live vector/compositing path: pan/zoom
+  skips bitmap blit when visible gradient/shadow content exists, and drag gestures
+  force true live compositing when any non-dragged visible gradient/shadow content
+  exists. Plain content still uses the fast snapshot paths. Marked BUG-003
+  fixed after owner verification: saturated semi-transparent gradients and shadows
+  no longer darken/change during pan/zoom or while dragging another shape. Added
+  canvas usability polish for grouped/nested layers: once a child inside a group
+  is active, canvas clicks stay at that active group level instead of jumping back
+  to the outer group; Shift-click toggles sibling children in the same group; and
+  ⌘A expands the current selection level (group children, artboard contents,
+  source-window top level, or all artboards + wall items when an artboard is
+  selected). Verification: Debug build succeeds with
+  `xcodebuild -project "EXP [design].xcodeproj" -scheme "EXP [design]" -configuration Debug -derivedDataPath /tmp/EXP-design-DerivedData build`.
 
 - **2026-07-05 — Session 187 (v1.1 release + v1.2 kickoff):**
   Cut the **v1.1** release. Wrote tester-facing release notes
