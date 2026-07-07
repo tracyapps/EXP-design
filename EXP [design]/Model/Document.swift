@@ -94,35 +94,58 @@ struct Document: Codable, Sendable {
         sources.first { $0.id == id }
     }
 
-    /// The fully-resolved children to draw for an instance: the source's children
-    /// with this instance's overrides + visibility applied, then run through the
-    /// auto-layout/padding engine so a button frame re-hugs an overridden label.
-    /// Children are normalised to start at (0,0) in instance-local space, so the
-    /// instance draws them at its own origin. Empty if the source is missing.
-    func resolvedChildren(of inst: ComponentInstance) -> [Node] {
-        guard let source = source(for: inst.sourceID) else { return [] }
+    /// A source behaves as a dynamic component when its top level is exactly one
+    /// managed frame (typical button/tag components). More complex sources keep
+    /// SVG-style stable viewBox bounds.
+    func sourceUsesManagedBounds(_ source: ComponentSource) -> Bool {
+        managedRootBounds(in: AutoLayoutEngine.reflowed(source.children)) != nil
+    }
+
+    func managedRootBounds(in children: [Node]) -> CGRect? {
+        let visible = children.filter(\.isVisible)
+        guard visible.count == 1, let root = visible.first,
+              case .group = root.content,
+              root.autoLayout != nil || root.autoPadding != nil else { return nil }
+        return root.frame
+    }
+
+    private func resolvedLayout(of inst: ComponentInstance) -> (children: [Node], bounds: CGRect)? {
+        guard let source = source(for: inst.sourceID) else { return nil }
         let resolved = source.children
             .filter { inst.isLayerVisible($0.id, sourceDefault: $0.isVisible) }
             .map { inst.applyingOverrides(to: $0) }
         // Re-hug auto-layout / auto-padding frames for THIS instance's overrides.
         // (AutoLayoutEngine.swift must be a member of BOTH the app AND the
         // EXPThumbnail targets, or this won't compile — do not stub this out.)
-        var laid = AutoLayoutEngine.reflowed(resolved)
+        let laid = AutoLayoutEngine.reflowed(resolved)
+        let bounds = sourceUsesManagedBounds(source)
+            ? (managedRootBounds(in: laid) ?? source.bounds)
+            : source.bounds
 
-        // Position children relative to the source's viewBox origin, so the instance
-        // renders the viewBox exactly as laid out in the editor (SVG-style) rather
-        // than a re-hugged content box. (Keep AutoLayoutEngine.reflowed above — it is
-        // shared with the EXPThumbnail target; do not stub it.)
-        let o = source.origin
+        // Position children relative to the bounds the instance occupies: the stable
+        // viewBox for regular sources, or the re-hugged root frame for dynamic
+        // single-frame components.
+        let o = bounds.origin
+        var shifted = laid
         if o.x != 0 || o.y != 0 {
-            laid = laid.map { var n = $0; n.frame.origin.x -= o.x; n.frame.origin.y -= o.y; return n }
+            shifted = shifted.map { var n = $0; n.frame.origin.x -= o.x; n.frame.origin.y -= o.y; return n }
         }
-        return laid
+        return (shifted, bounds)
     }
 
-    /// The size an instance occupies — its source's viewBox (SVG-style).
+    /// The fully-resolved children to draw for an instance: the source's children
+    /// with this instance's overrides + visibility applied, then run through the
+    /// auto-layout/padding engine so a button frame re-hugs an overridden label.
+    /// Children are normalised to start at (0,0) in instance-local space, so the
+    /// instance draws them at its own origin. Empty if the source is missing.
+    func resolvedChildren(of inst: ComponentInstance) -> [Node] {
+        resolvedLayout(of: inst)?.children ?? []
+    }
+
+    /// The size an instance occupies: the source viewBox, or a re-hugged managed
+    /// root frame for dynamic single-frame components.
     func resolvedSize(of inst: ComponentInstance) -> CGSize {
-        source(for: inst.sourceID)?.size ?? .zero
+        resolvedLayout(of: inst)?.bounds.size ?? .zero
     }
 
     /// The artboard that owns a shape with the given document-space frame, or

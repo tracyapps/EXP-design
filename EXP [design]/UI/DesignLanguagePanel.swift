@@ -43,6 +43,7 @@ struct DesignLanguagePanel: View {
 
     private var dl: DesignLanguage { document.model.designLanguage }
     private let grid = [GridItem(.adaptive(minimum: 34, maximum: 46), spacing: 8)]
+    private let recentGrid = [GridItem(.adaptive(minimum: 18, maximum: 24), spacing: 5)]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -254,10 +255,10 @@ struct DesignLanguagePanel: View {
                 sectionHeader("Recents", dl.recents.count)
                 switch viewMode {
                 case .swatches:
-                    LazyVGrid(columns: grid, alignment: .leading, spacing: 8) {
+                    LazyVGrid(columns: recentGrid, alignment: .leading, spacing: 5) {
                         ForEach(Array(dl.recents.enumerated()), id: \.offset) { _, paint in
                             PaintSwatch(paint: paint)
-                                .frame(height: 30)
+                                .frame(width: 22, height: 16)
                                 .onTapGesture(count: 2) { apply(paint) }
                                 .contextMenu { recentMenu(paint) }
                                 .help("Double-click to apply")
@@ -326,13 +327,13 @@ struct DesignLanguagePanel: View {
     }
 
     private func recentListRow(_ paint: Paint) -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
             PaintSwatch(paint: paint)
-                .frame(width: 30, height: 20)
+                .frame(width: 20, height: 14)
             VStack(alignment: .leading, spacing: 1) {
                 Text("Recent")
-                    .font(.system(size: EXPType.small, weight: .medium))
-                    .foregroundStyle(EXPColor.textPrimary)
+                    .font(.system(size: EXPType.mini, weight: .medium))
+                    .foregroundStyle(EXPColor.textSecondary)
                 Text(paintListValue(paint))
                     .font(.system(size: EXPType.micro))
                     .foregroundStyle(EXPColor.textTertiary)
@@ -340,9 +341,9 @@ struct DesignLanguagePanel: View {
             }
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 6)
-        .frame(height: 34)
-        .background(RoundedRectangle(cornerRadius: EXPMetric.radiusRow).fill(EXPColor.rowHover.opacity(0.45)))
+        .padding(.horizontal, 5)
+        .frame(height: 26)
+        .background(RoundedRectangle(cornerRadius: EXPMetric.radiusRow).fill(EXPColor.rowHover.opacity(0.28)))
         .contentShape(RoundedRectangle(cornerRadius: EXPMetric.radiusRow))
         .onTapGesture(count: 2) { apply(paint) }
         .contextMenu { recentMenu(paint) }

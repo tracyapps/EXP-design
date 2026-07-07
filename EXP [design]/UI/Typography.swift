@@ -135,7 +135,7 @@ extension TextContent {
     /// Rebuild runs from an edited NSAttributedString (dividing sizes by `scale`).
     init(attributed: NSAttributedString, scale: CGFloat = 1,
          align: TextAlign, lineHeight: CGFloat, lineHeightUnit: LineHeightUnit,
-         tracking: CGFloat, box: TextBox) {
+         tracking: CGFloat, box: TextBox, textCase: TextCase = .none) {
         var newRuns: [TextRun] = []
         let full = NSRange(location: 0, length: attributed.length)
         attributed.enumerateAttributes(in: full, options: []) { attrs, range, _ in
@@ -152,7 +152,7 @@ extension TextContent {
         }
         self.init(runs: newRuns.isEmpty ? [TextRun(string: attributed.string)] : newRuns,
                   align: align, lineHeight: lineHeight, lineHeightUnit: lineHeightUnit,
-                  tracking: tracking, box: box)
+                  tracking: tracking, box: box, textCase: textCase)
     }
 
     /// Size to fit the text. With `maxWidth` (a fixed/paragraph box) the width is

@@ -1201,7 +1201,20 @@ _Newest entry on top. Update every session._
   to the outer group; Shift-click toggles sibling children in the same group; and
   ⌘A expands the current selection level (group children, artboard contents,
   source-window top level, or all artboards + wall items when an artboard is
-  selected). Verification: Debug build succeeds with
+  selected). Fixed text-case preservation during text edit commits so duplicated
+  text boxes keep non-destructive transforms such as uppercase instead of
+  reverting to "As typed". Follow-up fix for source components with auto-padding:
+  the layout engine now remeasures auto-size text leaves before managed frames
+  re-hug, and the active inline text editor follows the reflowed model frame so
+  text-case/paragraph metric edits do not wait for a text commit to resize the
+  padded frame. Screenshot follow-up tightened the geometry contract: a component
+  source whose top level is one managed frame now uses that re-hugged root as its
+  dynamic source/instance bounds, and selection-transform boxes treat
+  auto-padding/layout groups as real frames instead of descendant unions, so
+  rendered backgrounds, handles, component-panel sizes, and placed-instance boxes
+  stay in sync. Design Language panel polish: Recent colors now render as smaller,
+  tighter history chips/rows so they are visually subordinate to saved palette
+  swatches. Verification: Debug build succeeds with
   `xcodebuild -project "EXP [design].xcodeproj" -scheme "EXP [design]" -configuration Debug -derivedDataPath /tmp/EXP-design-DerivedData build`.
 
 - **2026-07-05 — Session 187 (v1.1 release + v1.2 kickoff):**

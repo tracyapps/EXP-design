@@ -522,8 +522,15 @@ struct RightPanel: View {
             model.nodes = AutoLayoutEngine.reflowed(model.nodes)
         case .source(let sid):
             guard let si = model.sources.firstIndex(where: { $0.id == sid }) else { return }
+            let fitSourceBounds = model.sourceUsesManagedBounds(model.sources[si])
             change(&model.sources[si].children)
-            model.sources[si].children = AutoLayoutEngine.reflowed(model.sources[si].children)
+            let reflowed = AutoLayoutEngine.reflowed(model.sources[si].children)
+            model.sources[si].children = reflowed
+            if fitSourceBounds,
+               let bounds = model.managedRootBounds(in: reflowed) {
+                model.sources[si].origin = bounds.origin
+                model.sources[si].size = bounds.size
+            }
         }
         document.setModel(model, undoManager: undoManager, actionName: action)
     }

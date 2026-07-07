@@ -1383,7 +1383,13 @@ final class CanvasNSView: NSView {
             model.nodes = reflowed
         case .source(let sid):
             guard let si = model.sources.firstIndex(where: { $0.id == sid }) else { return }
+            let fitSourceBounds = model.sourceUsesManagedBounds(model.sources[si])
             model.sources[si].children = reflowed
+            if fitSourceBounds,
+               let bounds = model.managedRootBounds(in: reflowed) {
+                model.sources[si].origin = bounds.origin
+                model.sources[si].size = bounds.size
+            }
         }
         document.setModel(model, undoManager: undoManager, actionName: actionName)
     }
@@ -5440,6 +5446,25 @@ final class CanvasNSView: NSView {
         needsDisplay = true
     }
 
+    private func syncTextEditorFrameToModel() {
+        guard let tv = textEditor, let id = editingNodeID,
+              let target = node(id), case .text(let tc) = target.content else { return }
+        let zoom = app?.zoom ?? 1
+        let fixed = tc.box == .fixed
+        let nodeAbsOrigin = nodeOffset(id)
+        let absFrame = target.frame.offsetBy(dx: nodeAbsOrigin.x, dy: nodeAbsOrigin.y)
+        let base = docToView(absFrame)
+        let slack = ceil(tc.firstRun.fontSize * zoom)
+        let editWidth = fixed ? base.width : max(base.width, editingIsNew ? 220 : 1)
+        tv.frame = CGRect(x: base.minX, y: base.minY,
+                          width: editWidth,
+                          height: max(base.height + slack, ceil(tc.firstRun.fontSize * zoom * 1.8)))
+        tv.textContainer?.widthTracksTextView = true
+        if fixed {
+            tv.textContainer?.containerSize = CGSize(width: base.width, height: .greatestFiniteMagnitude)
+        }
+    }
+
     /// Write the edited string back to the model (one undo step), or discard a
     /// brand-new empty node. Called when the user clicks away or the field ends.
     /// Commit if the selected node changed out from under an open editor.
@@ -5500,7 +5525,7 @@ final class CanvasNSView: NSView {
             // node's paragraph settings).
             let tc = TextContent(attributed: edited, scale: scale, align: old.align,
                                  lineHeight: old.lineHeight, lineHeightUnit: old.lineHeightUnit,
-                                 tracking: old.tracking, box: old.box)
+                                 tracking: old.tracking, box: old.box, textCase: old.textCase)
             // Auto hugs; fixed keeps its box (text may overflow → badge).
             let newSize = old.box == .auto ? tc.measuredSize() : target.frame.size
             // Recursive so a text node INSIDE a group is written back too.
@@ -5637,6 +5662,7 @@ final class CanvasNSView: NSView {
                     storage.addAttribute(.paragraphStyle, value: para,
                                          range: NSRange(location: 0, length: storage.length))
                     tv.typingAttributes[.paragraphStyle] = para
+                    syncTextEditorFrameToModel()
                     tv.didChangeText()
                     needsDisplay = true
                 }
