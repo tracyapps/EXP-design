@@ -431,7 +431,7 @@ struct TopSystemControls: View {
             Button { app.zoomIn() } label: { Image(systemName: "plus.magnifyingglass") }
                 .help("Zoom in (⌘+)")
             Menu {
-                Button("Zoom to Fit") { NSApp.sendAction(Selector(("fitToScreen:")), to: nil, from: nil) }
+                Button("Zoom to Fit") { sendCanvasAction("fitToScreen:") }
                 Button("Actual Size (100%)") { app.zoomActual() }
                 Divider()
                 ForEach([25, 50, 100, 200, 400], id: \.self) { pct in
@@ -489,10 +489,34 @@ struct TopSystemControls: View {
 /// back through the document's undo-aware funnel, so the shape/artboard moves
 /// or resizes and the change is a single undo step. The canvas, reading the
 /// same document, redraws automatically.
+/// Send a canvas action wherever the canvas actually is. `sendAction(to: nil)`
+/// only walks the KEY window's responder chain — in multi-window mode a click
+/// on a panel button makes the PANEL key, the chain dead-ends there, and the
+/// action never reaches the canvas (the "align/distribute do nothing" bug; the
+/// selection was never lost, the message just had no route). Try the key
+/// window first (single-window mode), then walk the MAIN document window's
+/// responder chain explicitly. Tray windows override `canBecomeMain` to false,
+/// so `NSApp.mainWindow` is always the document window.
+func sendCanvasAction(_ selectorName: String) {
+    let sel = Selector(selectorName)
+    if NSApp.sendAction(sel, to: nil, from: nil) { return }
+    var responder = NSApp.mainWindow?.firstResponder ?? NSApp.mainWindow
+    while let r = responder {
+        if r.responds(to: sel) {
+            _ = NSApp.sendAction(sel, to: r, from: nil)
+            return
+        }
+        responder = r.nextResponder
+    }
+}
+
 struct RightPanel: View {
     @ObservedObject var document: ExpDocument
     @Environment(AppState.self) private var app
     @Environment(\.undoManager) private var undoManager
+    /// Noise/Dissolve "Advanced" accordion — remembered across effects, panel
+    /// rebuilds, and app launches, so it stays the way the designer left it.
+    @AppStorage("inspector.effects.advancedOpen") private var effectsAdvancedOpen = false
 
     /// Which node list this inspector edits: the document's top-level nodes, or a
     /// component source's children (the source-editor window).
@@ -522,8 +546,15 @@ struct RightPanel: View {
             model.nodes = AutoLayoutEngine.reflowed(model.nodes)
         case .source(let sid):
             guard let si = model.sources.firstIndex(where: { $0.id == sid }) else { return }
+            let fitSourceBounds = model.sourceUsesManagedBounds(model.sources[si])
             change(&model.sources[si].children)
-            model.sources[si].children = AutoLayoutEngine.reflowed(model.sources[si].children)
+            let reflowed = AutoLayoutEngine.reflowed(model.sources[si].children)
+            model.sources[si].children = reflowed
+            if fitSourceBounds,
+               let bounds = model.managedRootBounds(in: reflowed) {
+                model.sources[si].origin = bounds.origin
+                model.sources[si].size = bounds.size
+            }
         }
         document.setModel(model, undoManager: undoManager, actionName: action)
     }
@@ -809,7 +840,7 @@ struct RightPanel: View {
     }
 
     private func fitZoom() {
-        NSApp.sendAction(Selector(("fitToScreen:")), to: nil, from: nil)
+        sendCanvasAction("fitToScreen:")
     }
 
     private var zoomPercentBinding: Binding<Double> {
@@ -1554,7 +1585,7 @@ struct RightPanel: View {
 
     private func alignOpButton(_ symbol: String, _ help: String, _ selector: String, enabled: Bool = true) -> some View {
         InspectorIconButton(symbol: symbol, enabled: enabled) {
-            NSApp.sendAction(Selector(selector), to: nil, from: nil)
+            sendCanvasAction(selector)
         }
         .help(help)
     }
@@ -1712,6 +1743,8 @@ struct RightPanel: View {
                 Menu {
                     Button("Drop Shadow") { addEffect(.dropShadow) }
                     Button("Inner Shadow") { addEffect(.innerShadow) }
+                    Button("Noise") { addEffect(.noise) }
+                    Button("Dissolve") { addEffect(.dissolve) }
                     // Background Blur intentionally omitted — disabled for performance
                     // (see CanvasNSView.backgroundBlurEnabled). Re-add when reworked.
                 } label: { Image(systemName: "plus.circle") }
@@ -1735,10 +1768,14 @@ struct RightPanel: View {
         VStack(spacing: 4) {
             HStack(spacing: 6) {
                 Toggle("", isOn: effectEnabledBinding(idx)).labelsHidden().toggleStyle(.checkbox)
-                    .help("Enable / disable")
+                    .expFieldTip("Enable effect",
+                                 "Temporarily turn the effect off without losing its settings.")
+                    .accessibilityLabel("Enable effect")
                 Picker("", selection: effectKindBinding(idx)) {
                     Text("Drop").tag(Effect.Kind.dropShadow)
                     Text("Inner").tag(Effect.Kind.innerShadow)
+                    Text("Noise").tag(Effect.Kind.noise)
+                    Text("Dissolve").tag(Effect.Kind.dissolve)
                     // Bg Blur can't be ADDED (disabled for performance — see
                     // CanvasNSView.backgroundBlurEnabled), but a LEGACY effect in
                     // an old document must still be a valid selection, or AppKit
@@ -1749,38 +1786,177 @@ struct RightPanel: View {
                         Text("Bg Blur (off)").tag(Effect.Kind.backgroundBlur)
                     }
                 }.labelsHidden().frame(width: 84)
-                // Background blur has no color/offset — it samples what's behind it.
-                if effect.kind != .backgroundBlur {
+                // Only the shadows have a color; blur samples the backdrop and
+                // noise/dissolve are procedural grain.
+                if effect.kind == .dropShadow || effect.kind == .innerShadow {
                     ColorWell(label: "", color: effectColorBinding(idx))
                 }
                 Spacer()
                 Button { removeEffect(effect.id) } label: { Image(systemName: "trash") }
-                    .buttonStyle(.borderless).help("Remove effect")
+                    .buttonStyle(.borderless)
+                    .expFieldTip("Remove effect", "Deletes this effect and its settings from the layer.",
+                                 align: .trailing)
+                    .accessibilityLabel("Remove effect")
             }
             HStack(spacing: 4) {
                 if effect.kind == .backgroundBlur {
-                    effectNum("Amount", idx, \.blur, min: 0)
+                    effectNum("Amount", idx, \.blur, min: 0,
+                              tip: "Blur amount",
+                              tipDetail: "How strongly the backdrop behind the layer is blurred, in pixels.")
+                } else if effect.kind == .noise || effect.kind == .dissolve {
+                    // SIMPLE row — flavor, strength, and (noise) blend: all most
+                    // people ever need. The feTurbulence dials (Freq/Oct/Seed/
+                    // Mono) live in the Advanced accordion below, which also
+                    // stops labels from clipping at the default panel width.
+                    Picker("", selection: effectTurbulenceTypeBinding(idx)) {
+                        Text("Fractal").tag(Effect.TurbulenceType.fractalNoise)
+                        Text("Turbulent").tag(Effect.TurbulenceType.turbulence)
+                    }.labelsHidden().frame(width: 82)
+                        .expFieldTip("Noise type",
+                                     "Fractal is smooth, film-grain-style noise. Turbulent is billowy and cloud-like — closer to smoke or marble.")
+                        .accessibilityLabel("Noise type")
+                    effectPercent(effect.kind == .noise ? "Amt %" : "Gone %", idx,
+                                  tip: effect.kind == .noise ? "Amount" : "Amount dissolved",
+                                  tipDetail: effect.kind == .noise
+                                      ? "How visible the grain is, 0–100%. 0 is invisible; 100 lays fully opaque noise over the fill."
+                                      : "How much of the shape is eaten away, 0–100%. 0 is fully intact; 100 removes it completely.")
+                    if effect.kind == .noise {
+                        Picker("", selection: effectBlendBinding(idx)) {
+                            ForEach(BlendMode.allCases, id: \.self) { Text($0.label).tag($0) }
+                        }.labelsHidden().frame(minWidth: 72, maxWidth: 110)
+                            .expFieldTip("Blend mode",
+                                         "How the grain mixes with the fill beneath it. **Overlay** adds texture while keeping the fill's color; **Normal** paints the raw noise on top.",
+                                         align: .trailing)
+                            .accessibilityLabel("Noise blend mode")
+                    }
                 } else {
-                    effectNum("X", idx, \.dx)
-                    effectNum("Y", idx, \.dy)
-                    effectNum("Blur", idx, \.blur, min: 0)
-                    effectNum("Spr", idx, \.spread)
+                    effectNum("X", idx, \.dx, tip: "Offset X",
+                              tipDetail: "How far the shadow shifts horizontally, in pixels. Positive moves it right; negative moves it left.")
+                    effectNum("Y", idx, \.dy, tip: "Offset Y",
+                              tipDetail: "How far the shadow shifts vertically, in pixels. Positive moves it down; negative moves it up.")
+                    effectNum("Blur", idx, \.blur, min: 0, tip: "Blur radius",
+                              tipDetail: "How soft the shadow's edge is, in pixels. 0 is a hard edge; larger values spread and fade it.")
+                    effectNum("Spr", idx, \.spread, tip: "Spread",
+                              tipDetail: "Grows (positive) or shrinks (negative) the shadow before blurring, in pixels.")
                 }
             }
             .font(.caption)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if effect.kind == .noise || effect.kind == .dissolve {
+                // ADVANCED accordion — a disclosure most people never open.
+                VStack(alignment: .leading, spacing: 4) {
+                    Button {
+                        withAnimation(EXPMotion.fast) { effectsAdvancedOpen.toggle() }
+                    } label: {
+                        HStack(spacing: 3) {
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 8, weight: .semibold))
+                                .rotationEffect(.degrees(effectsAdvancedOpen ? 90 : 0))
+                            Text("Advanced")
+                        }
+                        .font(.caption)
+                        .foregroundStyle(EXPColor.textSecondary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(effectsAdvancedOpen
+                        ? "Hide advanced noise settings" : "Show advanced noise settings")
+                    if effectsAdvancedOpen {
+                        let freq = effectNum("Freq", idx, \.frequency, min: 0.01, digits: 2,
+                                             tip: "Frequency",
+                                             tipDetail: "How tightly the noise pattern repeats. **Higher** values make finer, denser grain; **lower** values make larger, softer blobs.\nMaps directly to SVG's baseFrequency.")
+                        let oct = effectIntNum("Oct", idx, \.octaves, min: 1, max: 8,
+                                               tip: "Octaves",
+                                               tipDetail: "Layers of detail stacked onto the base noise, **1–8**. Each octave adds finer detail; more octaves look richer but render slower.\n1–3 covers most uses.")
+                        let seed = effectIntNum("Seed", idx, \.seed, min: 0, max: 9999,
+                                                tip: "Random seed",
+                                                tipDetail: "The starting number for the random pattern, **0–9999**. The same seed always reproduces the exact same grain — change it for a different pattern with the same settings.")
+                        let dice = Button {
+                            updateEffect(idx, action: "Shuffle Seed") { $0.seed = Int.random(in: 1...9999) }
+                        } label: { Image(systemName: "die.face.5") }
+                            .buttonStyle(.borderless)
+                            .expFieldTip("New random seed",
+                                         "Rolls a different random pattern without changing any other setting.")
+                            .accessibilityLabel("Shuffle noise seed")
+                        let mono = Toggle("Mono", isOn: effectMonoBinding(idx)).toggleStyle(.checkbox)
+                            .expFieldTip("Monochrome",
+                                         "Grayscale grain. Turn off for independent red, green, and blue noise — a colorful, RGB-static look.")
+                            .accessibilityLabel("Monochrome noise")
+                        // ELASTIC: one line when the panel is wide enough, two
+                        // when it isn't — ViewThatFits tries the layouts in order.
+                        ViewThatFits(in: .horizontal) {
+                            HStack(spacing: 4) {
+                                freq; oct; seed; dice
+                                if effect.kind == .noise { mono }
+                            }
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack(spacing: 4) { freq; oct }
+                                HStack(spacing: 4) {
+                                    seed; dice
+                                    if effect.kind == .noise { mono }
+                                }
+                            }
+                        }
+                        .font(.caption)
+                    }
+                }
+                .font(.caption)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
         .padding(6)
         .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 6))
     }
 
-    private func effectNum(_ label: String, _ idx: Int, _ kp: WritableKeyPath<Effect, CGFloat>, min: Double? = nil) -> some View {
+    private func effectNum(_ label: String, _ idx: Int, _ kp: WritableKeyPath<Effect, CGFloat>,
+                           min: Double? = nil, max: Double? = nil, digits: Int = 0,
+                           tip: String = "", tipDetail: String = "") -> some View {
         let b = effectNumBinding(idx, kp)
+        return HStack(spacing: 2) {
+            Text(label).foregroundStyle(EXPColor.textSecondary)
+            TextField("", value: b, format: .number.precision(.fractionLength(0...digits)))
+                .textFieldStyle(.exp).frame(width: 40).multilineTextAlignment(.trailing)
+                .numericStepping(b, min: min, max: max)
+                .accessibilityLabel(tip.isEmpty ? label : tip)
+        }
+        // Every field explains itself on hover — never assume the shorthand
+        // label ("Spr", "Oct") is universally understood.
+        .expFieldTip(tip.isEmpty ? label : tip, tipDetail)
+    }
+
+    private func effectIntNum(_ label: String, _ idx: Int, _ kp: WritableKeyPath<Effect, Int>,
+                              min: Double, max: Double,
+                              tip: String = "", tipDetail: String = "") -> some View {
+        let b = Binding<Double>(
+            get: { Double(effectAt(idx)?[keyPath: kp] ?? 0) },
+            set: { v in updateEffect(idx, action: "Effect") {
+                $0[keyPath: kp] = Int(Swift.min(max, Swift.max(min, v)))
+            } })
         return HStack(spacing: 2) {
             Text(label).foregroundStyle(EXPColor.textSecondary)
             TextField("", value: b, format: .number.precision(.fractionLength(0)))
                 .textFieldStyle(.exp).frame(width: 40).multilineTextAlignment(.trailing)
-                .numericStepping(b, min: min)
+                .numericStepping(b, min: min, max: max)
+                .accessibilityLabel(tip.isEmpty ? label : tip)
         }
+        .expFieldTip(tip.isEmpty ? label : tip, tipDetail)
+    }
+
+    /// `Effect.amount` (0–1) shown as a 0–100 percentage.
+    private func effectPercent(_ label: String, _ idx: Int,
+                               tip: String = "", tipDetail: String = "") -> some View {
+        let b = Binding<Double>(
+            get: { Double(effectAt(idx)?.amount ?? 0) * 100 },
+            set: { v in updateEffect(idx, action: "Effect Amount") {
+                $0.amount = CGFloat(Swift.min(100, Swift.max(0, v)) / 100)
+            } })
+        return HStack(spacing: 2) {
+            Text(label).foregroundStyle(EXPColor.textSecondary)
+            TextField("", value: b, format: .number.precision(.fractionLength(0)))
+                .textFieldStyle(.exp).frame(width: 40).multilineTextAlignment(.trailing)
+                .numericStepping(b, min: 0, max: 100)
+                .accessibilityLabel(tip.isEmpty ? label : tip)
+        }
+        .expFieldTip(tip.isEmpty ? label : tip, tipDetail)
     }
 
     private func effectAt(_ idx: Int) -> Effect? {
@@ -1800,6 +1976,8 @@ struct RightPanel: View {
             var e = Effect(kind: kind)
             if kind == .innerShadow { e.color = RGBAColor(r: 0, g: 0, b: 0, a: 0.5) }
             if kind == .backgroundBlur { e.blur = 8 }   // visible by default; 0 = no-op
+            if kind == .noise { e.blend = .overlay }    // classic grain-over-fill look
+            if kind == .noise || kind == .dissolve { e.seed = Int.random(in: 1...9999) }
             node.effects.append(e)
         }
     }
@@ -1820,6 +1998,18 @@ struct RightPanel: View {
     private func effectColorBinding(_ idx: Int) -> Binding<RGBAColor> {
         Binding(get: { effectAt(idx)?.color ?? .black },
                 set: { v in updateEffect(idx, action: "Effect Color") { $0.color = v } })
+    }
+    private func effectTurbulenceTypeBinding(_ idx: Int) -> Binding<Effect.TurbulenceType> {
+        Binding(get: { effectAt(idx)?.turbulenceType ?? .fractalNoise },
+                set: { v in updateEffect(idx, action: "Noise Type") { $0.turbulenceType = v } })
+    }
+    private func effectMonoBinding(_ idx: Int) -> Binding<Bool> {
+        Binding(get: { effectAt(idx)?.monochrome ?? true },
+                set: { v in updateEffect(idx, action: "Noise Color") { $0.monochrome = v } })
+    }
+    private func effectBlendBinding(_ idx: Int) -> Binding<BlendMode> {
+        Binding(get: { effectAt(idx)?.blend ?? .normal },
+                set: { v in updateEffect(idx, action: "Noise Blend") { $0.blend = v } })
     }
     private func effectNumBinding(_ idx: Int, _ kp: WritableKeyPath<Effect, CGFloat>) -> Binding<Double> {
         Binding(get: { Double(effectAt(idx)?[keyPath: kp] ?? 0) },
@@ -2041,7 +2231,7 @@ struct RightPanel: View {
 
     private func styleButton(_ symbol: String, _ help: String, _ selector: String, active: Bool) -> some View {
         InspectorIconButton(symbol: symbol, active: active) {
-            NSApp.sendAction(Selector((selector)), to: nil, from: nil)
+            sendCanvasAction(selector)
         }
         .help(help)
     }

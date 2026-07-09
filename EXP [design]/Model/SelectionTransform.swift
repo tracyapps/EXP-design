@@ -29,16 +29,22 @@ enum SelectionTransform {
 
     /// The axis-aligned document-space bounds a node occupies on screen. For a
     /// group this is the union of its descendants (so the box matches what's
-    /// drawn even if the stored group frame lags). A node's own rotation is
-    /// applied about its frame centre, so the box contains rotated content too.
+    /// drawn even if the stored group frame lags), except managed auto-layout /
+    /// auto-padding groups whose frame is the visible control surface. A node's
+    /// own rotation is applied about its frame centre, so the box contains
+    /// rotated content too.
     static func visualBounds(_ node: Node) -> CGRect {
         func bounds(_ n: Node, _ parentOrigin: CGPoint) -> CGRect {
             let absFrame = n.frame.offsetBy(dx: parentOrigin.x, dy: parentOrigin.y)
             var inner = absFrame
             if case .group(let kids) = n.content, !kids.isEmpty {
-                var u: CGRect?
-                for k in kids { let b = bounds(k, absFrame.origin); u = u?.union(b) ?? b }
-                inner = u ?? absFrame
+                if n.autoLayout != nil || n.autoPadding != nil {
+                    inner = absFrame
+                } else {
+                    var u: CGRect?
+                    for k in kids { let b = bounds(k, absFrame.origin); u = u?.union(b) ?? b }
+                    inner = u ?? absFrame
+                }
             }
             guard n.rotation != 0 else { return inner }
             // Rotate the (unrotated) bounds' corners about the node centre and take

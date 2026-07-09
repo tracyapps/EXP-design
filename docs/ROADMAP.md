@@ -45,17 +45,40 @@ transparent PNG export, a System Monospaced document font, sharper raster
 imports, the centered document titlebar, and the App/Document Settings split.
 Full notes: `RELEASE-NOTES-v1.1.md`.
 
-## v1.2 scope (in progress)
+## v1.2 — shipped (2026-07-08)
 
-Build 3, `MARKETING_VERSION 1.2`. Development happens on the **`dev`** branch and
-merges to `main` at release time (see `docs/RELEASE-CHECKLIST.md`). Candidate
-work for this cycle — resume at the next unchecked box below and in Phase 18:
+Tag `v1.2`, build 3. Headline: **Noise & Dissolve** — stackable, SVG-native
+texture effects (grain/noise and threshold-based dissolve on any shape, text, or
+group) that round-trip through SVG export and import. Plus a big canvas-interaction
+pass: **precise ink-based hit-testing** (clicks hit the actual drawn shape, not its
+bounding box; transparent areas pass through to what's underneath), **editing inside
+rotated & flipped groups** (move/resize/rotate children correctly, selection chrome
+on the ink), pen add/remove-point that targets the right shape and lands on the
+curve, **hover field tips** on inspector controls (with VoiceOver hints),
+**multi-window action routing** (align/distribute, text-style, zoom-to-fit work when
+panels float as their own windows), the **BUG-003** fix (semi-transparent gradients
+and shadows no longer darken during pan/zoom or drag), **noise/dissolve pan-zoom
+performance** (parallel + async tile generation), and **transparent SVG export by
+default**. Full notes: `RELEASE-NOTES-v1.2.md`.
 
-- Close out the open items from v1.1: gradient darkening on semi-transparent
-  stops (BUG-003) and the centered-titlebar rename popover anchor (BUG-004).
-- Continue Phase 9.5 rich text (the one open editor bug).
-- Design Language refinements deferred during v1.1 (e.g. image-based palette
-  extraction — see Phase 18/19 notes).
+## v1.3 scope (next — starts next session)
+
+Build 4, target `MARKETING_VERSION 1.3`. Development on the **`dev`** branch,
+merges to `main` at release (see `docs/RELEASE-CHECKLIST.md`). Primary focus is the
+**Design Language** system (Phase 18):
+
+- **Fonts in the Design Language** — bring type into the per-document library
+  alongside colors/gradients: saved typefaces / type styles, categories, and reuse
+  across a document. (Direction, not a locked spec — refine at kickoff.)
+- **Component categories** — organize the component/source library into categories,
+  mirroring the Design Language color categories (candidate; "we'll see where the
+  winds take us").
+- Carry-overs still open: Phase 9.5 rich-text editor bug, BUG-004 (centered-title
+  rename popover anchor), and the nested-group unified multi-select/transform box
+  (still move-only under transformed ancestors).
+
+Resume at the next unchecked box in Phase 18 (and Phase 19 for the a11y-native
+component north star).
 
 ---
 
@@ -431,6 +454,20 @@ _Owner chose to go straight to full rich text. Staged across builds._
       feMerge; drops under source, inners over). Inspector "Effects" section: add
       menu (Drop/Inner), per-effect enable / type / color / X / Y / Blur / Spread,
       remove. _Spread is exact for rect/ellipse; ignored for arbitrary closed paths._
+- [x] **Noise + dissolve effects** (Session 189) — two new stackable
+      `Effect.Kind`s built for texture work. Parameters mirror SVG
+      `<feTurbulence>` (type fractal/turbulence, baseFrequency, octaves, seed)
+      and the canvas renders them with the SVG spec's own Perlin algorithm
+      (`TurbulenceNoise`, Color/ — shared with EXPThumbnail), so SVG export
+      emits real `feTurbulence` filter chains that match. Noise = turbulence
+      composited over the node (per-effect blend mode + amount, monochrome or
+      RGB); dissolve = turbulence thresholded at `amount` into an alpha mask
+      that also masks shadow casters. SVG **import** reconstructs noise,
+      dissolve, AND drop/inner-shadow effects from filter defs (round-trip;
+      tolerant of wild feTurbulence). Inspector: add menu + full turbulence
+      controls, seed shuffle, blend picker. _Known limits: noise tile samples
+      node-local space so texture travels with the node (SVG samples user
+      space — same statistics, different phase); tiles cached, capped ~2Mpx._
 - [ ] (lower priority) **Blend modes** — the CSS `mix-blend-mode` subset
       (multiply / screen / overlay / darken / lighten / …).
 
@@ -995,6 +1032,120 @@ Current baseline:
 - [x] The Design Language panel feels like the start of a styleguide/design
       system workflow, while leaving type/spacing/effects open for later.
 
+### Phase 19 — Accessibility-native components (NORTH STAR)
+
+**The idea:** give every step of the design process an accessibility affordance,
+introduced as an *organizing* feature so it never reads as a separate chore. We
+add a **category** to components whose vocabulary is sourced directly from **ARIA
+roles**. On day one it's a way to filter/sort/organize the components a designer
+builds. Underneath, that same choice is the semantic anchor that later powers
+accessible code export. The role *is* the filter — accessibility work happens as
+a side effect of work the designer already wanted to do. ("Hiding the health
+food in the dessert.")
+
+**Why this fits EXP specifically:** the tool's point of view is clean,
+accessible *outputs* to hand to an AI agent / dev tool / code prototype — not
+in-app prototyping. This phase is that thesis made real. It builds on subsystems
+we already own: `ComponentSource` (backward-compatible `decodeIfPresent`
+decode), the custom **SVG emitter** that renders straight from the model
+(Phase 5), and `ContrastMath` / WCAG work (Phase 18c). Sub-phase 19c below is not
+a new export system — it teaches an emitter we already have to write semantic
+markup.
+
+**Design decisions locked (planning session):**
+- **Metadata depth:** Phase 1 surfaces the **role only**. The model, however,
+  bakes in an accessible-name hook now (which child layer supplies the label) so
+  export has something real to work with later — even though no UI sets it yet.
+  Component **states** (e.g. `aria-checked`, `aria-selected`) are parked as an
+  explicit *explore-later* note, to be modeled once a component-state system
+  exists.
+- **Role scope:** a **curated, design-relevant subset** of non-abstract ARIA
+  roles (landmarks, widgets, structure roles a designer actually places).
+  Abstract / author-forbidden roles are never offered.
+- **Labels:** **designer-friendly names shown, ARIA role token stored** — UI
+  shows "Button", "Navigation", "Dialog"; the model persists `button`,
+  `navigation`, `dialog`.
+
+> **Shared-target gotcha (read before coding):** any new model type referenced
+> by `Document.swift` must be added to the **EXPThumbnail** target too, or the
+> extension won't build. Prefer defining `AriaRole` + `A11ySemantics` **inline in
+> `Document.swift`** (or a file already shared with the extension) to sidestep
+> the Target-Membership trap and the Xcode-agent auto-stubbing behavior.
+
+#### 19a — Component categories (ship first; the visible "dessert")
+- [ ] **Model:** add `var a11y: A11ySemantics = .init()` to `ComponentSource`
+      with a `decodeIfPresent` decoder so every legacy `.design`/`.exp` file opens
+      unchanged.
+      ```swift
+      struct A11ySemantics: Codable, Sendable {
+          var role: AriaRole?                // nil = uncategorized
+          var accessibleNameLayerID: UUID?   // wired now, no UI yet
+          // TODO(explore later): required/expressible states per role,
+          // modeled once component states exist.
+      }
+      enum AriaRole: String, Codable, Sendable, CaseIterable {
+          // curated, non-abstract subset, grouped by ARIA category:
+          // landmarks: banner, navigation, main, complementary, contentinfo, search, form, region
+          // widgets:   button, link, checkbox, radio, switch, textbox, searchbox, slider, ...
+          // composite: tablist/tab/tabpanel, menu/menuitem, listbox/option, dialog, ...
+          // structure: heading, list, listitem, img, figure, table, ...
+          var friendlyLabel: String { /* "Button", "Navigation", ... */ }
+          var ariaCategory: AriaCategory { /* for grouping in the picker */ }
+      }
+      ```
+- [ ] **Category picker** — designer-friendly labels grouped by ARIA category,
+      with a clear "Uncategorized" default. Store the role token, show the label.
+- [ ] **Components panel:** filter/sort by category; show a small role tag on
+      each component row so the organizing value is immediate.
+- [ ] **Command coverage (per CLAUDE.md rule — wire ALL ways in one change):**
+      `@objc setComponentCategory:` on `CanvasNSView` (single source of truth);
+      **Object menu** item (e.g. "Set Category…", submenu of roles) with
+      `validateMenuItem` enabling only when a component source is selected;
+      **right-click** on a component / its instance; **Inspector control** (the
+      picker) when a component source is the selection. No keyboard shortcut
+      required (inherently a menu/inspector choice).
+- [ ] **A11y of the feature itself:** the picker follows system appearance +
+      accessibility settings; role labels are readable by VoiceOver; the tag is
+      not color-only.
+- [ ] **Acceptance:** a designer can assign a category to a component, see it on
+      the row, filter by it, and reopen the file with the category intact. No
+      accessibility "task" was ever presented — it felt like organizing.
+
+#### 19b — Semantics layer (the hidden "health food")
+- [ ] Surface the **accessible-name source** captured in 19a: let the designer
+      pick which child text layer names the component (or fall back to a typed
+      label). Still lightweight — one control.
+- [ ] Lint/nudge, advisory only: flag a categorized component missing an
+      accessible name; reuse Phase 18c `ContrastMath` to flag text/background
+      pairs that fail WCAG AA *within a categorized component*. Suggestions, never
+      silent mutation.
+- [ ] **(Explore later)** component **states** → expressible ARIA state attrs;
+      modeled once the component-state system lands.
+- [ ] **Acceptance:** every categorized component can resolve to (role +
+      accessible name), which is exactly what 19c needs to emit real markup.
+
+#### 19c — Accessible export / handoff (the payoff)
+- [ ] Extend the existing **SVG emitter** and add an **HTML/JSX semantic
+      emitter** that maps role → correct element (`button`→`<button>`,
+      `navigation`→`<nav>`, `heading`→`<h*>`, generic→`<div role="…">`), emits
+      `aria-label`/visible label from the accessible-name source, and stays valid
+      per ARIA authoring rules (no author-forbidden roles can reach output — the
+      curated vocabulary guarantees this).
+- [ ] Target: clean, **ADA/WCAG-minded** output a designer-who-codes can drop
+      into a prototype, or hand to an AI agent / dev tool as pre-baked accessible
+      scaffolding. Keep EXP's stance: outputs, not in-app prototyping.
+- [ ] Handoff doc: per-component role, accessible name, and any advisory contrast
+      flags, alongside the existing notes/handoff export (Phase 6).
+- [ ] **Acceptance:** exporting a categorized design yields semantic,
+      role-correct, named, contrast-checked scaffolding — accessibility that was
+      "designed in" without the designer ever doing a separate a11y pass.
+
+**Sequencing note:** 19a is independently shippable and valuable on its own
+(organizing components). 19b and 19c can follow whenever; nothing downstream is
+blocked by shipping 19a first. That's the whole point — the health food is
+already on the plate before anyone orders the vegetables.
+
+
 ### Phase 4.5 — Shape styling + vector paths (pulled in before export)
 - [x] Stroke color + width on rectangle/ellipse (model + render + Inspector;
       `strokeWidth == 0` = none; backward-compatible decoders so older files open)
@@ -1064,7 +1215,218 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+- **2026-07-08 — Session 191 (noise/dissolve pan-zoom performance + transparent SVG):**
+  (1) Killed the multi-second frame stalls when panning/zooming over noise or
+  dissolve effects. `TurbulenceNoise` tiles (up to ~2M px of pure-Swift
+  feTurbulence Perlin × octaves) were generated SYNCHRONOUSLY on the render
+  thread the first time each node drew — so every noise/dissolve board scrolling
+  into view froze the gesture for seconds (perf log showed 2–16s frames exactly
+  when `nodes(drawn)` jumped). Two fixes: the per-row pixel loop now runs under
+  `DispatchQueue.concurrentPerform` (rows are disjoint writes; `nonisolated(unsafe)`
+  buffer pointer), and generation moved fully OFF the render thread —
+  `noiseImage`/`dissolveMask` return nil on a cold cache (caller already skips
+  the effect that frame) and the tile builds on a background worker, posting
+  `TurbulenceNoise.tileReadyNotification` when it lands so the canvas drops its
+  pan/zoom snapshot and redraws. Grain now "pops in" a frame later instead of
+  stalling. (2) First async cut had a reliability bug — a strict FIFO queue meant
+  a slider drag's SETTLED value landed behind a backlog of superseded ticks, so
+  the texture only returned after a long drain (panning away "fixed" it). The
+  worker now drains NEWEST-first (LIFO) with a `maxPending` cap that drops
+  superseded work + a `generatingKey` guard, so the on-screen value generates
+  first. Generation closures marked `@Sendable`. This path is CANVAS-ONLY —
+  PNG/PDF/SVG export render turbulence via their own feTurbulence, so no export
+  risk. (3) SVG export is now TRANSPARENT by default: `svgString` no longer emits
+  the artboard-background `<rect>` (owner exports SVGs as game assets and wants
+  no board fill; add a shape layer for a real background). PNG/PDF still fill via
+  `drawBackground`. Owner confirmed on build: pan/zoom is smooth, texture settles
+  promptly while editing values, and SVG exports no longer carry the white box.
+  Files: `Color/TurbulenceNoise.swift` (new-ish, rewritten), `Canvas/CanvasView.swift`
+  (tile-ready observer), `Export/ExportRenderer.swift` (svgString). See memory
+  [[exp-svg-export-transparent]].
+- **2026-07-08 — Session 190 (precise path hit-testing + pen targeting):**
+  Fixed the two overlapping-shape complaints (pen-drawn tree branches):
+  (1) `nodeHit`'s `.path` case now tests the ACTUAL ink — real cubic beziers via
+  a node-local `CGPath` (`inkPath(for:)`), `.winding` fill rule matching the
+  renderer, honoring rotation + flips — instead of the anchor-only polygon /
+  multi-contour whole-bbox shortcut. A visible fill hits anywhere inside the
+  drawn interior; unfilled or open paths hit only within the stroke width or
+  grab tolerance (`CGPath.copy(strokingWithWidth:)`). Transparent regions of an
+  upper shape no longer swallow clicks meant for the shape underneath. Kept a
+  frame-bbox fast reject (normalizePath guarantees the frame encloses ink).
+  (2) The pen tool's add/remove-point targeting (`penHover`) now gives the
+  SELECTED shape first claim when the cursor is on its ink, falling back to the
+  usual topmost hit — no more adding a point to the neighboring branch while
+  another shape is active. (3) `addPenPoint` measures the nearest segment along
+  the flattened curve (not the straight anchor chord) and inserts on curved
+  segments via a de Casteljau split, so the new anchor lands exactly on the ink
+  without distorting the outline. Removed now-dead `pathAnchorsDoc` /
+  `pointInPolygon`. Owner decisions: ink-only hits for unfilled closed paths
+  (Figma-style) and precise hit-testing for multi-contour/outlined-text too
+  (bbox shortcut removed). Owner confirmed the hit-test/pen fixes feel natural.
+  SAME DAY, PART 2: (4) Fixed the "shape walks sideways when a point drag grows
+  the bbox" bug — `normalizePath`'s re-base now keeps the RENDERED ink fixed
+  for any rotation + flip combination (C′ = C + R·F·(c′ − c − d)); the old math
+  only compensated rotation, so flipped paths shifted on every bbox change.
+  (5) Noise/Dissolve inspector restructured: SIMPLE row (Type, Amount, Blend)
+  by default; Freq/Octaves/Seed+dice/Mono moved into an "Advanced" accordion
+  whose open state persists via @AppStorage("inspector.effects.advancedOpen").
+  Fixes label clipping at the default panel width. (6) New app-wide rich field
+  tooltip `expFieldTip(title, detail, edge:)` in GlassSurface.swift — title +
+  multi-line detail bubble above the control after a 600ms hover, detail also
+  attached as accessibilityHint for VoiceOver. Applied with full copy to every
+  effects control (incl. shadows) and plumbed through effectNum / effectIntNum /
+  effectPercent so other fields opt in as copy gets written. FOLLOW-UP: sweep
+  expFieldTip across the remaining inspector/panel form fields (W/H/X/Y,
+  typography, layout grids…). NOT yet compiled — needs an Xcode build; smoke
+  test: point-drag a flipped/rotated path (no drift), Advanced accordion state
+  across relaunch, tooltip hover on effects fields, VoiceOver hints.
+  PART 3 (owner feedback on first build): (7) Field-tip bubble was wrapping one
+  word per line and landing on the controls below — an overlay proposes the
+  ANCHOR's tiny width, and the alignment-guide float didn't hold. Fixed: detail
+  bubbles take a fixed 232pt readable width (title-only tips hug), and the
+  bubble is measured (`onGeometryChange`) then offset fully above/below the
+  field by its real height. `align: .trailing` added for right-edge controls
+  (blend, trash) so bubbles stay on-window. (8) Field-tip hierarchy: title now
+  renders in the accent color; `detail` accepts inline markdown — **bold**
+  runs brighten to primary text color, literal \n newlines break lines.
+  (9) Advanced accordion rows are ELASTIC via ViewThatFits: one line when the
+  panel is wide enough, wrapping to two when narrow.
+  PART 4: (10) Field tips are now EDGE-AWARE — the bubble moved out of the
+  SwiftUI overlay (which the panel's scroll view / window always clip) into a
+  borderless, non-activating, click-through child NSPanel (`EXPFieldTipWindow`)
+  positioned in SCREEN coordinates: preferred spot above the field, allowed to
+  spill past the panel edge, slid horizontally inside the monitor's visible
+  frame, flipped below the field when there's no room above. Anchor rect comes
+  from onGeometryChange(.global) + an NSViewRepresentable window reader →
+  convertToScreen. `edge`/`align` are now just the PREFERRED placement.
+  Needs an Xcode build; smoke test: hover tips near the panel's right edge and
+  at the very top of the screen, drag the panel while a tip is up (child window
+  tracks), and confirm clicks pass through the bubble.
+  PART 5: (11) Multi-window bug: align/distribute (and the inspector's text-
+  style + zoom-to-fit buttons) did nothing when panels float as windows —
+  `NSApp.sendAction(to: nil)` walks the KEY window's chain, the panel takes key
+  on click, and the action dead-ends (selection was never lost; the message had
+  no route). Fixed twofold: tray windows now override `canBecomeMain = false`
+  (inspector semantics — key for text fields, never main), and a shared
+  `sendCanvasAction(_:)` tries the key window then walks the MAIN document
+  window's responder chain. All four inspector sendAction sites route through
+  it. FOLLOW-UP: menu-bar items are likely disabled while a tray window is key
+  (validateMenuItem also walks the key chain) — audit `send()` in
+  EXP__design_App.swift the same way. Smoke test: float the properties panel,
+  select 3 shapes, click align/distribute; bold/italic buttons; Zoom to Fit.
+  PART 6: (12) FLIPPED-GROUP editing bug: children of a flipped (H/V) group
+  hit-tested and MOVED as if unflipped — the renderer mirrors a group's whole
+  subtree about its center, but the interaction layer only ever undid ancestor
+  ROTATION. Fixed in five spots: `parentLocalToDoc` / `docToParentLocal` now
+  mirror about each flipped ancestor's center (flip before/after rotation to
+  match render order), `hitPath`'s descent and `nodeHit`'s group recursion
+  un-mirror the cursor, and the `.nodes` move-drag converts the doc-space
+  delta through the FULL ancestor chain (two-point `docToParentLocal`
+  difference) instead of the rotate-only `ancestorRotation` shortcut — which
+  was also wrong for rotation INSIDE a flipped group (a mirror reverses
+  rotation direction). Point editing / pen / line endpoints inherit the fix
+  via the shared helpers. KNOWN REMAINING: `.resize` of a node nested in a
+  rotated/flipped group still uses the plain `nodeOffset` shortcut (pre-
+  existing); `ancestorRotation`-based handle cursors ignore mirroring. Smoke
+  test: flip a group H and V, drag a child (tracks the cursor), click-select
+  children, edit a nested path's points, drag a nested line endpoint.
+  PART 7 (owner screenshot: selection chrome still mirrored): the OVERLAY layer
+  had its own transform math. Fixed: (13) `drawNodeSelection` routes flipped-
+  ancestor chains to `drawTransformedSelectionBox` (corner-mapped through the
+  now-flip-aware `parentLocalToDoc`) — same early-out rotated ancestors always
+  took, so the box + path outline draw on the ink, not the mirror position.
+  (14) New `ancestorsUntransformed(_:)` (unrotated AND unflipped chain) replaces
+  the `isTopLevelNode || ancestorRotation == 0` gate in `hitTestHandle`,
+  `rotateKnobPoint`, `selectionTransformIDs`, and the chrome's handles flag —
+  under a flipped group a node is move-only, so phantom resize handles can't
+  grab at the unflipped spot. (15) A flipped GROUP's own hint box mirrors the
+  live content union about its center. Smoke test: select a child inside a
+  flipped group — box/outline sit ON the shape; the group's own selection box
+  hugs its mirrored children.
+  PART 8: (16) Full RESIZE + ROTATE inside transformed groups — the move-only
+  restriction under rotated/flipped ancestors is gone for single leaf nodes.
+  One shared mapper `boxPointToView` (parent-local box point → own rotation →
+  full ancestor chain → view) now drives the handle chrome, `hitTestHandle`,
+  and `rotateKnobPoint`, so drawing and hit-testing can't disagree; the
+  transformed quad draws 8 handles + knob. `.resize` converts the cursor to
+  PARENT-LOCAL via `docToParentLocal` (was plain offset subtraction), so the
+  existing anchor/proportional/flip-crossing math is chain-agnostic; `.rotate`
+  measures the knob angle in parent-local space (two-point difference), so
+  rotated ancestors' offsets and flipped ancestors' reversed handedness fall
+  out. `ancestorsUntransformed` now only gates `selectionTransformIDs` — the
+  UNIFIED multi-select/group box under transformed ancestors is the remaining
+  gap (nested GROUPS are still move-only; resizeSelection works in doc space).
+  Smoke test: inside a flipped group — resize a leaf by each handle (anchored
+  corner stays put, no jump on grab), shift-proportional, drag past opposite
+  edge (flip crossing), rotate by knob (tracks cursor direction), same under
+  a rotated+flipped group; regression-check top-level resize/rotate.
+
 _Newest entry on top. Update every session._
+
+- **2026-07-07 — Session 189 (noise + dissolve effects, feTurbulence round-trip):**
+  Added `Effect.Kind.noise` and `.dissolve` — stackable, SVG-native texture
+  effects (owner requested "add texture easily; layer multiple effects; ideal =
+  SVG-built-in"). New shared `Color/TurbulenceNoise.swift` implements the SVG
+  1.1 `feTurbulence` Perlin algorithm verbatim (spec §15.7.15) with an LRU tile
+  cache; added to BOTH targets' membership (per the CLAUDE.md gotcha).
+  `Effect` grew feTurbulence-mirroring fields (turbulenceType/frequency/octaves/
+  seed/monochrome/amount + per-effect `blend`), all `decodeIfPresent`-defaulted
+  so old `.design` files open unchanged. Canvas + raster export: noise draws
+  after inner shadows clipped to the silhouette (silhouette-less nodes use a
+  transparency layer + destination-in punch); dissolve builds a thresholded
+  luminance mask that clips content AND shadow casters. SVG export rewrites
+  `svgEffectsFilter`: dissolve → feTurbulence + feColorMatrix + feComponentTransfer
+  threshold + feComposite-in (shadows then cast from the dissolved source);
+  noise → feTurbulence + feColorMatrix (amount into alpha, mono via R-broadcast)
+  + feComposite-in + feBlend; filter now sets `color-interpolation-filters="sRGB"`
+  to match Core Graphics. SVG import gains `collectFilters`: reconstructs noise /
+  dissolve / drop / inner-shadow effects from filter defs (recognises our chains
+  exactly, degrades unknown feTurbulence to an editable noise effect). Inspector:
+  Noise + Dissolve in the add menu, type picker, Freq/Oct/Seed fields, seed
+  shuffle (die icon), Amt %, Mono toggle, blend-mode picker; color well now
+  shadow-only; legacy Bg-Blur picker guard preserved. NOT yet compiled — owner
+  to build in Xcode and test: (1) old docs still open, (2) noise/dissolve on
+  rect + text + group, (3) SVG export opens correctly in a browser, (4) paste
+  that SVG back and confirm effects reattach, (5) thumbnail extension builds.
+  Note: one CanvasView write was silently reverted by Dropbox sync mid-session;
+  re-applied with fsync and verified (already cleaned up).
+
+- **2026-07-06 — Session 188 (v1.2 kickoff: bug-fix lane + BUG-003 pass):**
+  Confirmed v1.2 is the active cycle (`MARKETING_VERSION 1.2`, build 3) and moved
+  local work onto a new `dev` branch. Deleted the stale `docs/.__writetest` file
+  from prior edit-permission troubleshooting; the manually added Phase 19 planning
+  block is intentional owner-authored roadmap context. Added a root `.gitignore`
+  for local build/DerivedData output so Dropbox-local build folders do not pollute
+  git status. First bug-fix pass targeted **BUG-003**. Initial attempt made
+  pan/zoom snapshots request document-sRGB instead of the window/Display-P3 color
+  space; owner testing still showed the shift, and found the crucial clue that a
+  moved gradient stays correct while static gradients change during drag. Follow-up
+  fix keeps gradient/shadow content on the live vector/compositing path: pan/zoom
+  skips bitmap blit when visible gradient/shadow content exists, and drag gestures
+  force true live compositing when any non-dragged visible gradient/shadow content
+  exists. Plain content still uses the fast snapshot paths. Marked BUG-003
+  fixed after owner verification: saturated semi-transparent gradients and shadows
+  no longer darken/change during pan/zoom or while dragging another shape. Added
+  canvas usability polish for grouped/nested layers: once a child inside a group
+  is active, canvas clicks stay at that active group level instead of jumping back
+  to the outer group; Shift-click toggles sibling children in the same group; and
+  ⌘A expands the current selection level (group children, artboard contents,
+  source-window top level, or all artboards + wall items when an artboard is
+  selected). Fixed text-case preservation during text edit commits so duplicated
+  text boxes keep non-destructive transforms such as uppercase instead of
+  reverting to "As typed". Follow-up fix for source components with auto-padding:
+  the layout engine now remeasures auto-size text leaves before managed frames
+  re-hug, and the active inline text editor follows the reflowed model frame so
+  text-case/paragraph metric edits do not wait for a text commit to resize the
+  padded frame. Screenshot follow-up tightened the geometry contract: a component
+  source whose top level is one managed frame now uses that re-hugged root as its
+  dynamic source/instance bounds, and selection-transform boxes treat
+  auto-padding/layout groups as real frames instead of descendant unions, so
+  rendered backgrounds, handles, component-panel sizes, and placed-instance boxes
+  stay in sync. Design Language panel polish: Recent colors now render as smaller,
+  tighter history chips/rows so they are visually subordinate to saved palette
+  swatches. Verification: Debug build succeeds with
+  `xcodebuild -project "EXP [design].xcodeproj" -scheme "EXP [design]" -configuration Debug -derivedDataPath /tmp/EXP-design-DerivedData build`.
 
 - **2026-07-05 — Session 187 (v1.1 release + v1.2 kickoff):**
   Cut the **v1.1** release. Wrote tester-facing release notes

@@ -94,35 +94,58 @@ struct Document: Codable, Sendable {
         sources.first { $0.id == id }
     }
 
-    /// The fully-resolved children to draw for an instance: the source's children
-    /// with this instance's overrides + visibility applied, then run through the
-    /// auto-layout/padding engine so a button frame re-hugs an overridden label.
-    /// Children are normalised to start at (0,0) in instance-local space, so the
-    /// instance draws them at its own origin. Empty if the source is missing.
-    func resolvedChildren(of inst: ComponentInstance) -> [Node] {
-        guard let source = source(for: inst.sourceID) else { return [] }
+    /// A source behaves as a dynamic component when its top level is exactly one
+    /// managed frame (typical button/tag components). More complex sources keep
+    /// SVG-style stable viewBox bounds.
+    func sourceUsesManagedBounds(_ source: ComponentSource) -> Bool {
+        managedRootBounds(in: AutoLayoutEngine.reflowed(source.children)) != nil
+    }
+
+    func managedRootBounds(in children: [Node]) -> CGRect? {
+        let visible = children.filter(\.isVisible)
+        guard visible.count == 1, let root = visible.first,
+              case .group = root.content,
+              root.autoLayout != nil || root.autoPadding != nil else { return nil }
+        return root.frame
+    }
+
+    private func resolvedLayout(of inst: ComponentInstance) -> (children: [Node], bounds: CGRect)? {
+        guard let source = source(for: inst.sourceID) else { return nil }
         let resolved = source.children
             .filter { inst.isLayerVisible($0.id, sourceDefault: $0.isVisible) }
             .map { inst.applyingOverrides(to: $0) }
         // Re-hug auto-layout / auto-padding frames for THIS instance's overrides.
         // (AutoLayoutEngine.swift must be a member of BOTH the app AND the
         // EXPThumbnail targets, or this won't compile — do not stub this out.)
-        var laid = AutoLayoutEngine.reflowed(resolved)
+        let laid = AutoLayoutEngine.reflowed(resolved)
+        let bounds = sourceUsesManagedBounds(source)
+            ? (managedRootBounds(in: laid) ?? source.bounds)
+            : source.bounds
 
-        // Position children relative to the source's viewBox origin, so the instance
-        // renders the viewBox exactly as laid out in the editor (SVG-style) rather
-        // than a re-hugged content box. (Keep AutoLayoutEngine.reflowed above — it is
-        // shared with the EXPThumbnail target; do not stub it.)
-        let o = source.origin
+        // Position children relative to the bounds the instance occupies: the stable
+        // viewBox for regular sources, or the re-hugged root frame for dynamic
+        // single-frame components.
+        let o = bounds.origin
+        var shifted = laid
         if o.x != 0 || o.y != 0 {
-            laid = laid.map { var n = $0; n.frame.origin.x -= o.x; n.frame.origin.y -= o.y; return n }
+            shifted = shifted.map { var n = $0; n.frame.origin.x -= o.x; n.frame.origin.y -= o.y; return n }
         }
-        return laid
+        return (shifted, bounds)
     }
 
-    /// The size an instance occupies — its source's viewBox (SVG-style).
+    /// The fully-resolved children to draw for an instance: the source's children
+    /// with this instance's overrides + visibility applied, then run through the
+    /// auto-layout/padding engine so a button frame re-hugs an overridden label.
+    /// Children are normalised to start at (0,0) in instance-local space, so the
+    /// instance draws them at its own origin. Empty if the source is missing.
+    func resolvedChildren(of inst: ComponentInstance) -> [Node] {
+        resolvedLayout(of: inst)?.children ?? []
+    }
+
+    /// The size an instance occupies: the source viewBox, or a re-hugged managed
+    /// root frame for dynamic single-frame components.
     func resolvedSize(of inst: ComponentInstance) -> CGSize {
-        source(for: inst.sourceID)?.size ?? .zero
+        resolvedLayout(of: inst)?.bounds.size ?? .zero
     }
 
     /// The artboard that owns a shape with the given document-space frame, or
@@ -513,10 +536,23 @@ extension Node {
 
 // MARK: - Effects
 
-/// A post-composite visual effect on a node. Today: drop + inner shadow. The
-/// geometry mirrors CSS `box-shadow` (offset x/y, blur, spread).
+/// A post-composite visual effect on a node. Drop + inner shadow mirror CSS
+/// `box-shadow` (offset x/y, blur, spread). Noise + dissolve are procedural
+/// texture effects whose parameters deliberately mirror SVG `<feTurbulence>`
+/// (type / baseFrequency / numOctaves / seed) so the canvas render and the SVG
+/// export share one spec'd algorithm (see `TurbulenceNoise`):
+///   • noise    — turbulence composited over the node's own pixels, clipped to
+///                its silhouette, with a per-effect blend mode + amount. Stack
+///                several (different frequencies/blends) to build up texture.
+///   • dissolve — the same turbulence thresholded at `amount` and used as an
+///                alpha mask: the classic scattered-pixel dissolve. Frequency
+///                sets clump size; amount is the fraction dissolved away.
 struct Effect: Identifiable, Codable, Sendable {
-    enum Kind: String, Codable, Sendable { case dropShadow, innerShadow, backgroundBlur }
+    enum Kind: String, Codable, Sendable { case dropShadow, innerShadow, backgroundBlur, noise, dissolve }
+    /// SVG `feTurbulence type=` — fractalNoise is smoother (signed octaves
+    /// averaged around mid-gray, ideal for grain overlays); turbulence takes
+    /// |noise| per octave (billowy, marble-like).
+    enum TurbulenceType: String, Codable, Sendable { case fractalNoise, turbulence }
     var id = UUID()
     var kind: Kind = .dropShadow
     var color: RGBAColor = RGBAColor(r: 0, g: 0, b: 0, a: 0.33)
@@ -525,14 +561,29 @@ struct Effect: Identifiable, Codable, Sendable {
     var blur: CGFloat = 4
     var spread: CGFloat = 0
     var isEnabled: Bool = true
+    // Noise / dissolve (ignored by the shadow kinds). Defaults chosen so a
+    // freshly added effect is immediately visible.
+    var turbulenceType: TurbulenceType = .fractalNoise
+    var frequency: CGFloat = 0.9   // feTurbulence baseFrequency, per model point
+    var octaves: Int = 4           // feTurbulence numOctaves (1...8)
+    var seed: Int = 0              // feTurbulence seed
+    var monochrome: Bool = true    // grayscale grain vs independent RGB channels
+    var amount: CGFloat = 0.35     // noise: overlay opacity 0–1; dissolve: fraction gone 0–1
+    var blend: BlendMode = .normal // per-effect blend (noise only; node blend is separate)
 
     init(id: UUID = UUID(), kind: Kind = .dropShadow,
          color: RGBAColor = RGBAColor(r: 0, g: 0, b: 0, a: 0.33),
          dx: CGFloat = 0, dy: CGFloat = 2, blur: CGFloat = 4, spread: CGFloat = 0,
-         isEnabled: Bool = true) {
+         isEnabled: Bool = true,
+         turbulenceType: TurbulenceType = .fractalNoise, frequency: CGFloat = 0.9,
+         octaves: Int = 4, seed: Int = 0, monochrome: Bool = true,
+         amount: CGFloat = 0.35, blend: BlendMode = .normal) {
         self.id = id; self.kind = kind; self.color = color
         self.dx = dx; self.dy = dy; self.blur = blur; self.spread = spread
         self.isEnabled = isEnabled
+        self.turbulenceType = turbulenceType; self.frequency = frequency
+        self.octaves = octaves; self.seed = seed; self.monochrome = monochrome
+        self.amount = amount; self.blend = blend
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -544,6 +595,13 @@ struct Effect: Identifiable, Codable, Sendable {
         blur = try c.decodeIfPresent(CGFloat.self, forKey: .blur) ?? 4
         spread = try c.decodeIfPresent(CGFloat.self, forKey: .spread) ?? 0
         isEnabled = try c.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
+        turbulenceType = try c.decodeIfPresent(TurbulenceType.self, forKey: .turbulenceType) ?? .fractalNoise
+        frequency = try c.decodeIfPresent(CGFloat.self, forKey: .frequency) ?? 0.9
+        octaves = try c.decodeIfPresent(Int.self, forKey: .octaves) ?? 4
+        seed = try c.decodeIfPresent(Int.self, forKey: .seed) ?? 0
+        monochrome = try c.decodeIfPresent(Bool.self, forKey: .monochrome) ?? true
+        amount = try c.decodeIfPresent(CGFloat.self, forKey: .amount) ?? 0.35
+        blend = try c.decodeIfPresent(BlendMode.self, forKey: .blend) ?? .normal
     }
 }
 

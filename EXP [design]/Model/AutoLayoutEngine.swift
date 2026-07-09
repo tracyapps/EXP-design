@@ -41,7 +41,12 @@ enum AutoLayoutEngine {
     }
 
     private static func reflow(_ node: Node) -> Node {
-        guard case .group(let children) = node.content else { return node }
+        guard case .group(let children) = node.content else {
+            guard case .text(let text) = node.content, text.box == .auto else { return node }
+            var n = node
+            n.frame.size = text.measuredSize()
+            return n
+        }
         let laid = children.map { reflow($0) }            // size nested frames first
         var n = node
         n.content = .group(children: laid)

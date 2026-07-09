@@ -56,6 +56,7 @@
 			membershipExceptions = (
 				Color/EffectsRender.swift,
 				Color/PaintRender.swift,
+				Color/TurbulenceNoise.swift,
 				Export/ExportRenderer.swift,
 				Model/AutoLayoutEngine.swift,
 				Model/Document.swift,

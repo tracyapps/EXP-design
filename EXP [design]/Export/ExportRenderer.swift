@@ -136,7 +136,11 @@ struct ExportRenderer {
         let w = artboard.frame.width, h = artboard.frame.height
         let origin = CGPoint(x: -artboard.frame.minX, y: -artboard.frame.minY)
         var defs: [String] = []
-        var body = "<rect x=\"0\" y=\"0\" width=\"\(num(w))\" height=\"\(num(h))\"\(paintFillAttr(artboard.background, &defs))/>\n"
+        // SVG export is transparent by default: game assets and layered comps
+        // almost always want no board fill behind the shapes. (The artboard's
+        // own `background` is intentionally NOT emitted — add a shape layer if
+        // you want a real background.) PNG/PDF still fill via `drawBackground`.
+        var body = ""
         for node in document.nodes where node.isVisible
             && document.owningArtboard(of: node.frame)?.id == artboard.id {
             body += svgElement(node, offset: origin, defs: &defs)
@@ -231,42 +235,101 @@ struct ExportRenderer {
         return "<g\(transform)\(opacity)\(blend)\(filter)>\n\(inner)</g>\n"
     }
 
-    /// Build an SVG `<filter>` for a node's drop/inner shadows and return the
-    /// ` filter="url(#id)"` attribute (empty when there are none). Drop shadows
-    /// render under the source, inner shadows over it.
+    /// Build an SVG `<filter>` for a node's effects and return the
+    /// ` filter="url(#id)"` attribute (empty when there are none).
+    ///
+    /// Primitive order mirrors the raster render exactly:
+    ///   1. dissolve — feTurbulence thresholded (feComponentTransfer on alpha)
+    ///      and composited `in` against the source, so every later primitive
+    ///      (shadows included) sees the dissolved node;
+    ///   2. drop shadows under / inner shadows over the (dissolved) source,
+    ///      merged with feMerge;
+    ///   3. noise — feTurbulence, alpha scaled to `amount`, clipped to the
+    ///      source's silhouette, feBlend-ed over the merged result with the
+    ///      effect's own blend mode.
+    /// `color-interpolation-filters="sRGB"` keeps browsers compositing in the
+    /// same space Core Graphics does (the SVG default is linearRGB).
+    /// feTurbulence parameters come straight from the Effect fields — the same
+    /// numbers `TurbulenceNoise` renders with (see that file for the phase
+    /// caveat: SVG samples user space, the canvas samples node-local space).
     private func svgEffectsFilter(_ effects: [Effect], _ defs: inout [String]) -> String {
-        let shadows = effects.filter { $0.isEnabled }
-        guard !shadows.isEmpty else { return "" }
+        let shadows = effects.filter { $0.isEnabled && ($0.kind == .dropShadow || $0.kind == .innerShadow) }
+        let dissolves = effects.filter { $0.isEnabled && $0.kind == .dissolve && $0.amount > 0 }
+        let noises = effects.filter { $0.isEnabled && $0.kind == .noise && $0.amount > 0 }
+        guard !shadows.isEmpty || !dissolves.isEmpty || !noises.isEmpty else { return "" }
         let id = "fx\(defs.count)"
         var prims = ""
+
+        func turbulence(_ e: Effect, result: String) -> String {
+            "<feTurbulence type=\"\(e.turbulenceType.rawValue)\" baseFrequency=\"\(num(e.frequency))\" numOctaves=\"\(e.octaves)\" seed=\"\(e.seed)\" result=\"\(result)\"/>\n"
+        }
+
+        // 1) Dissolve: threshold turbulence into a hard alpha mask, knock the
+        //    source through it. Chained, so stacked dissolves intersect.
+        var src = "SourceGraphic"   // what "the node" means for everything below
+        for (i, e) in dissolves.enumerated() {
+            let r = "d\(i)"
+            prims += turbulence(e, result: "\(r)t")
+            // A' = R of the turbulence (grayscale channel 0 — matches TurbulenceNoise).
+            prims += "<feColorMatrix in=\"\(r)t\" type=\"matrix\" values=\"0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  1 0 0 0 0\" result=\"\(r)a\"/>\n"
+            // Steep linear ramp ≈ step(threshold): survives where noise ≥ amount.
+            let intercept = -255.0 * Double(e.amount) + 0.5
+            prims += "<feComponentTransfer in=\"\(r)a\" result=\"\(r)m\"><feFuncA type=\"linear\" slope=\"255\" intercept=\"\(num(CGFloat(intercept)))\"/></feComponentTransfer>\n"
+            prims += "<feComposite in=\"\(src)\" in2=\"\(r)m\" operator=\"in\" result=\"\(r)\"/>\n"
+            src = r
+        }
+
+        // 2) Shadows (cast from the dissolved source's alpha).
         var under: [String] = []   // drop-shadow results (below source)
         var over: [String] = []    // inner-shadow results (above source)
         for (i, e) in shadows.enumerated() {
             let r = "s\(i)", std = num(e.blur / 2)
             let flood = "<feFlood flood-color=\"\(hex(e.color))\" flood-opacity=\"\(num(CGFloat(e.color.a)))\" result=\"\(r)c\"/>\n"
+            let alphaSrc = src == "SourceGraphic" ? "SourceAlpha" : src
             if e.kind == .dropShadow {
-                let src: String
+                let castFrom: String
                 if e.spread != 0 {
-                    prims += "<feMorphology in=\"SourceAlpha\" operator=\"\(e.spread > 0 ? "dilate" : "erode")\" radius=\"\(num(abs(e.spread)))\" result=\"\(r)d\"/>\n"
-                    src = "\(r)d"
-                } else { src = "SourceAlpha" }
-                prims += "<feGaussianBlur in=\"\(src)\" stdDeviation=\"\(std)\" result=\"\(r)b\"/>\n"
+                    prims += "<feMorphology in=\"\(alphaSrc)\" operator=\"\(e.spread > 0 ? "dilate" : "erode")\" radius=\"\(num(abs(e.spread)))\" result=\"\(r)d\"/>\n"
+                    castFrom = "\(r)d"
+                } else { castFrom = alphaSrc }
+                prims += "<feGaussianBlur in=\"\(castFrom)\" stdDeviation=\"\(std)\" result=\"\(r)b\"/>\n"
                 prims += "<feOffset in=\"\(r)b\" dx=\"\(num(e.dx))\" dy=\"\(num(e.dy))\" result=\"\(r)o\"/>\n"
                 prims += flood
                 prims += "<feComposite in=\"\(r)c\" in2=\"\(r)o\" operator=\"in\" result=\"\(r)\"/>\n"
                 under.append(r)
             } else {
-                prims += "<feGaussianBlur in=\"SourceAlpha\" stdDeviation=\"\(std)\" result=\"\(r)b\"/>\n"
+                prims += "<feGaussianBlur in=\"\(alphaSrc)\" stdDeviation=\"\(std)\" result=\"\(r)b\"/>\n"
                 prims += "<feOffset in=\"\(r)b\" dx=\"\(num(e.dx))\" dy=\"\(num(e.dy))\" result=\"\(r)o\"/>\n"
-                prims += "<feComposite in=\"SourceAlpha\" in2=\"\(r)o\" operator=\"out\" result=\"\(r)i\"/>\n"
+                prims += "<feComposite in=\"\(alphaSrc)\" in2=\"\(r)o\" operator=\"out\" result=\"\(r)i\"/>\n"
                 prims += flood
                 prims += "<feComposite in=\"\(r)c\" in2=\"\(r)i\" operator=\"in\" result=\"\(r)\"/>\n"
                 over.append(r)
             }
         }
-        let order = under + ["SourceGraphic"] + over
+        let order = under + [src] + over
         let merge = order.map { "<feMergeNode in=\"\($0)\"/>\n" }.joined()
-        defs.append("  <filter id=\"\(id)\" x=\"-50%\" y=\"-50%\" width=\"200%\" height=\"200%\">\n\(prims)<feMerge>\n\(merge)</feMerge>\n  </filter>\n")
+        prims += "<feMerge result=\"base\">\n\(merge)</feMerge>\n"
+
+        // 3) Noise: turbulence at the effect's amount, clipped to the node,
+        //    blended over everything merged so far.
+        var base = "base"
+        for (i, e) in noises.enumerated() {
+            let r = "n\(i)"
+            prims += turbulence(e, result: "\(r)t")
+            let a = num(CGFloat(min(1, max(0, e.amount))))
+            // Monochrome: R drives all of RGB. Color: RGB pass through.
+            // Either way alpha becomes a flat `amount` (matches ctx.setAlpha).
+            let rows = e.monochrome
+                ? "1 0 0 0 0  1 0 0 0 0  1 0 0 0 0  0 0 0 0 \(a)"
+                : "1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  0 0 0 0 \(a)"
+            prims += "<feColorMatrix in=\"\(r)t\" type=\"matrix\" values=\"\(rows)\" result=\"\(r)c\"/>\n"
+            let clipTo = src == "SourceGraphic" ? "SourceAlpha" : src
+            prims += "<feComposite in=\"\(r)c\" in2=\"\(clipTo)\" operator=\"in\" result=\"\(r)x\"/>\n"
+            prims += "<feBlend in=\"\(r)x\" in2=\"\(base)\" mode=\"\(e.blend.cssName)\" result=\"\(r)\"/>\n"
+            base = r
+        }
+
+        defs.append("  <filter id=\"\(id)\" x=\"-50%\" y=\"-50%\" width=\"200%\" height=\"200%\" color-interpolation-filters=\"sRGB\">\n\(prims)  </filter>\n")
         return " filter=\"url(#\(id))\""
     }
 

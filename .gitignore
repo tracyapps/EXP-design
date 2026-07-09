@@ -1,0 +1,8 @@
+.DS_Store
+build/
+DerivedData/
+*.xcuserdata/
+docs/*
+!docs/ARCHITECTURE.md
+!docs/BACKLOG.md
+!docs/ROADMAP.md

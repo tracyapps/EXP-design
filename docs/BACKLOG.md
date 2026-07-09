@@ -50,7 +50,7 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: bug
 - Priority: P2
 - Area: canvas · color
-- Status: NEEDS INVESTIGATION (Session 174 — the sRGB interpolation change in Session 173 did NOT fix it; still shifts during pan/zoom)
+- Status: done (v1.2 — verified by owner)
 - Update (S174): switching the CGGradient space to sRGB did not resolve the darkening,
   so the root cause is elsewhere. Next hypotheses to test: (a) the offscreen backing is
   premultipliedFirst/BGRA and `cg.makeImage()` -> `ctx.draw` round-trips premultiplied
@@ -61,19 +61,32 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   (c) possible interaction with the new HSB/HSL/OKLCH authoring — verify the stored
   RGBAColor values are byte-identical before/after editing via the new picker modes;
   (d) instrument by dumping the affected gradient's stop colors + alphas.
+- Update (v1.2): pan/zoom snapshots now render into a document-sRGB offscreen
+  backing instead of inheriting the window/Display-P3 space. Other offscreen paths
+  keep the old window-space default. Needs owner visual verification on the
+  saturated semi-transparent gradient repro.
+- Update (v1.2 follow-up): owner testing showed the sRGB snapshot still shifted,
+  and that during node drags the moved gradient stayed correct while static
+  gradients changed. That localizes the issue to bitmap flattening of static
+  content. Current fix: visible gradients and enabled drop/inner shadows bypass
+  pan/zoom bitmap blit and force true live compositing for drag gestures when any
+  non-dragged visible gradient/shadow content is present. Plain content still uses
+  the fast snapshot paths.
+- Verified (2026-07-06): owner confirmed the gradient/shadow interaction shift is
+  fixed.
 - Repro/Detail: A saturated gradient on the canvas visibly darkens while panning or
   zooming, then snaps back to the correct color when motion stops. A near-neutral
   gradient elsewhere doesn't show it. (Anti-aliased text also shimmers slightly mid-
   gesture — that's a separate, expected blit artifact; see note.)
-- Hypothesis (confirmed): `PaintRender.drawGradient` built the `CGGradient` in
+- Prior hypothesis: `PaintRender.drawGradient` built the `CGGradient` in
   `CGColorSpaceCreateDeviceRGB()` — an UNMANAGED device space — while its stop colors
   (and every solid fill) are sRGB. During pan/zoom the scene is drawn into the
   color-managed offscreen blit bitmap (window color space, usually Display P3); an
   unmanaged device-RGB gradient color-matches differently there than in the live
   window device context, so only the blit shifts. Live settle render looked correct.
-- Fix: interpolate the gradient in sRGB (`CGColorSpace(name: .sRGB)`), matching the
-  stop colors, solid fills, and export. Shared PaintRender, so canvas + thumbnails +
-  export all stay consistent.
+- Fix attempt: keep gradient interpolation in sRGB, render pan/zoom snapshots in
+  document sRGB for plain content, and bypass snapshot flattening entirely when
+  visible gradient/shadow content would otherwise change color mid-gesture.
 - Acceptance: gradient looks identical while moving and stopped; export unchanged.
 
 

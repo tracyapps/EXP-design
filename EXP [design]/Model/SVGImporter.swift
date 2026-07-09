@@ -30,6 +30,7 @@ enum SVGImporter {
 
         var ctx = Context()
         collectGradients(in: root, into: &ctx)
+        collectFilters(in: root, into: &ctx)
 
         // viewBox → target size mapping (so 1 user unit ≈ 1 doc point at the
         // declared width/height).
@@ -56,7 +57,12 @@ enum SVGImporter {
 
     // MARK: Parsing context
 
-    private struct Context { var gradients: [String: GradientFill] = [:] }
+    private struct Context {
+        var gradients: [String: GradientFill] = [:]
+        /// `<filter id>` → the Effects we could reconstruct from its primitives
+        /// (feTurbulence noise/dissolve chains, drop/inner shadow chains).
+        var filters: [String: [Effect]] = [:]
+    }
 
     /// Resolved presentation style as it flows down the tree.
     private struct Style {
@@ -78,6 +84,21 @@ enum SVGImporter {
 
     private static func nodes(for el: XMLElement, ctm parentCTM: CGAffineTransform,
                               inherited: Style, ctx: Context) -> [Node] {
+        var out = rawNodes(for: el, ctm: parentCTM, inherited: inherited, ctx: ctx)
+        // filter="url(#…)" (attribute or style declaration) → re-attach any
+        // effects we reconstructed from that filter's primitives.
+        if let fx = filterEffects(el, ctx: ctx), !fx.isEmpty {
+            out = out.map { n in
+                var n = n
+                n.effects.append(contentsOf: fx.map { var e = $0; e.id = UUID(); return e })
+                return n
+            }
+        }
+        return out
+    }
+
+    private static func rawNodes(for el: XMLElement, ctm parentCTM: CGAffineTransform,
+                                 inherited: Style, ctx: Context) -> [Node] {
         // A child point maps as parentCTM(elementTransform(point)).
         let local = transform(el).concatenating(parentCTM)
         let style = resolveStyle(el, inherited: inherited, ctx: ctx)
@@ -119,7 +140,7 @@ enum SVGImporter {
             return textNode(el, ctm: local, style: style)
         default:
             // Recurse into unknown containers (e.g. <switch>) but skip <defs>.
-            if name == "defs" || name == "linearGradient" || name == "radialGradient" { return [] }
+            if name == "defs" || name == "linearGradient" || name == "radialGradient" || name == "filter" { return [] }
             var kids: [Node] = []
             for c in el.children?.compactMap({ $0 as? XMLElement }) ?? [] {
                 kids.append(contentsOf: nodes(for: c, ctm: local, inherited: style, ctx: ctx))
@@ -320,6 +341,151 @@ enum SVGImporter {
                 g.angle = atan2(y2 - y1, x2 - x1) * 180 / .pi
             }
             ctx.gradients[id] = g
+        }
+    }
+
+    // MARK: Filters (feTurbulence noise / dissolve, shadow chains)
+
+    /// Read `filter="url(#id)"` from an attribute or a `style=""` declaration
+    /// and return the effects reconstructed for that id (nil when none).
+    private static func filterEffects(_ el: XMLElement, ctx: Context) -> [Effect]? {
+        var raw = el.attribute(forName: "filter")?.stringValue
+        if raw == nil, let style = el.attribute(forName: "style")?.stringValue {
+            for decl in style.split(separator: ";") {
+                let kv = decl.split(separator: ":", maxSplits: 1)
+                if kv.count == 2, kv[0].trimmingCharacters(in: .whitespaces) == "filter" {
+                    raw = kv[1].trimmingCharacters(in: .whitespaces)
+                }
+            }
+        }
+        guard let v = raw?.trimmingCharacters(in: .whitespaces), v.hasPrefix("url(") else { return nil }
+        let id = v.dropFirst(4).drop(while: { $0 == "#" }).prefix(while: { $0 != ")" && $0 != "#" })
+        return ctx.filters[String(id)]
+    }
+
+    /// Reconstruct Effects from every `<filter>` def we can understand. This is
+    /// deliberately tolerant: it recognises the chains OUR exporter emits
+    /// exactly, and degrades any other feTurbulence into a plain noise effect
+    /// with that turbulence's parameters (so wild SVG textures still arrive as
+    /// something editable rather than being dropped silently).
+    private static func collectFilters(in root: XMLElement, into ctx: inout Context) {
+        guard let all = try? root.nodes(forXPath: "//*[local-name()='filter']") else { return }
+        for case let filt as XMLElement in all {
+            guard let id = filt.attribute(forName: "id")?.stringValue else { continue }
+            let prims = filt.children?.compactMap { $0 as? XMLElement } ?? []
+            var effects: [Effect] = []
+
+            func attr(_ el: XMLElement, _ n: String) -> String? { el.attribute(forName: n)?.stringValue }
+            func dnum(_ el: XMLElement, _ n: String, _ dflt: Double) -> Double {
+                attr(el, n).flatMap(Double.init) ?? dflt
+            }
+            /// The primitive consuming `result` as its `in` (linear-chain walk).
+            func consumer(of result: String) -> XMLElement? {
+                prims.first { attr($0, "in") == result }
+            }
+
+            // — feTurbulence chains → noise / dissolve —
+            for turb in prims where turb.name == "feTurbulence" {
+                var e = Effect(kind: .noise)
+                e.turbulenceType = attr(turb, "type") == "turbulence" ? .turbulence : .fractalNoise
+                // baseFrequency may be "x" or "x y"; take the first number.
+                if let bf = attr(turb, "baseFrequency")?.split(separator: " ").first,
+                   let f = Double(bf) { e.frequency = CGFloat(f) }
+                e.octaves = Int(dnum(turb, "numOctaves", 1))
+                e.seed = Int(dnum(turb, "seed", 0))
+                e.monochrome = false
+                e.amount = 0.35
+                e.blend = .normal
+
+                // Walk the chain this turbulence feeds.
+                var cursor = attr(turb, "result")
+                var hops = 0
+                var sawThreshold = false
+                while let r = cursor, let next = consumer(of: r), hops < 6 {
+                    hops += 1
+                    switch next.name {
+                    case "feColorMatrix":
+                        if let values = attr(next, "values") {
+                            let nums = values.split(whereSeparator: { $0 == " " || $0 == "\n" }).compactMap { Double($0) }
+                            if nums.count == 20 {
+                                // Alpha row constant = amount; G'-from-R = monochrome.
+                                e.amount = CGFloat(min(1, max(0, nums[19])))
+                                e.monochrome = nums[5] == 1 && nums[6] == 0
+                            }
+                        }
+                    case "feComponentTransfer":
+                        // feFuncA linear slope/intercept ≈ step(threshold) → dissolve.
+                        if let funcA = next.children?.compactMap({ $0 as? XMLElement }).first(where: { $0.name == "feFuncA" }),
+                           attr(funcA, "type") == "linear" {
+                            let slope = dnum(funcA, "slope", 1)
+                            let intercept = dnum(funcA, "intercept", 0)
+                            if slope != 0 {
+                                e.kind = .dissolve
+                                e.amount = CGFloat(min(1, max(0, (0.5 - intercept) / slope)))
+                                e.monochrome = true
+                                sawThreshold = true
+                            }
+                        }
+                    case "feBlend":
+                        if let mode = attr(next, "mode") { e.blend = blendFromCSS(mode) }
+                    default:
+                        break
+                    }
+                    cursor = attr(next, "result")
+                }
+                effects.append(e)
+            }
+
+            // — feOffset chains → drop / inner shadows (the exporter's shape) —
+            for offset in prims where offset.name == "feOffset" {
+                guard let inRef = attr(offset, "in"),
+                      let blurEl = prims.first(where: { $0.name == "feGaussianBlur" && attr($0, "result") == inRef }),
+                      let offResult = attr(offset, "result") else { continue }
+                var e = Effect(kind: .dropShadow)
+                e.dx = CGFloat(dnum(offset, "dx", 0))
+                e.dy = CGFloat(dnum(offset, "dy", 0))
+                e.blur = CGFloat(dnum(blurEl, "stdDeviation", 0) * 2)
+                // Inner shadows knock the offset back out of the source.
+                if prims.contains(where: { $0.name == "feComposite" && attr($0, "in2") == offResult && attr($0, "operator") == "out" }) {
+                    e.kind = .innerShadow
+                }
+                // Spread came from a feMorphology feeding the blur.
+                if let blurIn = attr(blurEl, "in"),
+                   let morph = prims.first(where: { $0.name == "feMorphology" && attr($0, "result") == blurIn }) {
+                    let r = CGFloat(dnum(morph, "radius", 0))
+                    e.spread = attr(morph, "operator") == "erode" ? -r : r
+                }
+                // Colour from THIS shadow's feFlood: the composite(operator in)
+                // that consumes the offset (drop) or the knocked-out ring (inner)
+                // names the flood in its `in`.
+                var shadowShape = offResult
+                if e.kind == .innerShadow,
+                   let knock = prims.first(where: { $0.name == "feComposite" && attr($0, "in2") == offResult && attr($0, "operator") == "out" }),
+                   let knockResult = attr(knock, "result") {
+                    shadowShape = knockResult
+                }
+                if let paintIn = prims.first(where: { $0.name == "feComposite" && attr($0, "in2") == shadowShape && attr($0, "operator") == "in" }),
+                   let floodRef = attr(paintIn, "in"),
+                   let flood = prims.first(where: { $0.name == "feFlood" && attr($0, "result") == floodRef }) {
+                    var c = color(attr(flood, "flood-color") ?? "#000") ?? .black
+                    c = applyAlpha(c, dnum(flood, "flood-opacity", 1))
+                    e.color = c
+                }
+                effects.append(e)
+            }
+
+            if !effects.isEmpty { ctx.filters[id] = effects }
+        }
+    }
+
+    /// CSS blend-mode name → BlendMode (reverse of BlendMode.cssName).
+    private static func blendFromCSS(_ name: String) -> BlendMode {
+        switch name {
+        case "color-dodge": return .colorDodge
+        case "color-burn":  return .colorBurn
+        case "soft-light":  return .softLight
+        case "hard-light":  return .hardLight
+        default:            return BlendMode(rawValue: name) ?? .normal
         }
     }
 
