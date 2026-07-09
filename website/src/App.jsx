@@ -5,20 +5,21 @@ const releaseUrl = "https://github.com/tracyapps/EXP-design/releases/latest";
 const releasesUrl = "https://github.com/tracyapps/EXP-design/releases";
 const issuesUrl = "https://github.com/tracyapps/EXP-design/issues/new";
 
-const navItems = [
-  { label: "features", href: "#features" },
-  { label: "accessibility", href: "#accessibility" },
-  { label: "design language", href: "#design-language" },
-  { label: "roadmap", href: "#roadmap" },
-  { label: "download", href: "/download" },
-];
-
-const downloadNavItems = [
+// One nav for every page. Feature callouts live on the homepage; the dropdown
+// jump-links to them with absolute /#anchor hrefs so they also work from
+// /download and /learn.
+const featureLinks = [
   { label: "features", href: "/#features" },
   { label: "accessibility", href: "/#accessibility" },
   { label: "design language", href: "/#design-language" },
-  { label: "install", href: "#install" },
-  { label: "reporting", href: "#reporting" },
+  { label: "multi-window", href: "/#workspace" },
+];
+
+const navItems = [
+  { label: "features", dropdown: featureLinks },
+  { label: "learn", href: "/learn" },
+  { label: "roadmap", href: "/#roadmap" },
+  { label: "download", href: "/download" },
 ];
 
 const featureMoments = [
@@ -89,6 +90,67 @@ function useScrollProgress() {
   return progress;
 }
 
+function NavDropdown({ item }) {
+  const [open, setOpen] = useState(false);
+  const ref = React.useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    function onPointerDown(event) {
+      if (ref.current && !ref.current.contains(event.target)) setOpen(false);
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [open]);
+
+  return (
+    <div
+      className={open ? "nav-dropdown open" : "nav-dropdown"}
+      ref={ref}
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+    >
+      <button
+        type="button"
+        className="nav-dropdown-trigger"
+        aria-haspopup="true"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") setOpen(false);
+          if (event.key === "ArrowDown") { event.preventDefault(); setOpen(true); }
+        }}
+      >
+        {item.label}
+        <i className="ph ph-caret-down" aria-hidden="true" />
+      </button>
+      <div className="nav-menu" role="menu">
+        {item.dropdown.map((link) => (
+          <a key={link.href} href={link.href} role="menuitem" onClick={() => setOpen(false)}>
+            {link.label}
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Nav({ items }) {
+  return (
+    <nav aria-label="primary">
+      {items.map((item) =>
+        item.dropdown ? (
+          <NavDropdown key={item.label} item={item} />
+        ) : (
+          <a key={item.href} href={item.href}>
+            {item.label}
+          </a>
+        ),
+      )}
+    </nav>
+  );
+}
+
 function Header({
   progress,
   items = navItems,
@@ -96,22 +158,37 @@ function Header({
   actionHref = "/download",
   brandHref = "#top",
 }) {
+  const release = siteContent.release;
+  const relDate = release?.date ? new Date(`${release.date}T00:00:00`) : null;
+  const dateShort = relDate
+    ? new Intl.DateTimeFormat("en", { month: "short", day: "numeric" }).format(relDate)
+    : "";
+  const dateLong = relDate
+    ? new Intl.DateTimeFormat("en", { month: "long", day: "numeric", year: "numeric" }).format(relDate)
+    : "";
+
   return (
     <header className="site-header glass-thin glass-edge">
       <a className="brand-lockup" href={brandHref} aria-label="EXP [design] home">
         <img src="/assets/exp-logo.png" alt="" />
         <span>EXP<span>[design]</span></span>
       </a>
-      <nav aria-label="primary">
-        {items.map((item) => (
-          <a key={item.href} href={item.href}>
-            {item.label}
+      <Nav items={items} />
+      <div className="header-cta">
+        {release?.version && (
+          <a
+            className="version-pill"
+            href="/download#download-signup"
+            aria-label={`current version ${release.version}${dateLong ? `, released ${dateLong}` : ""}`}
+          >
+            <span className="version-num">v{release.version}</span>
+            {dateShort && <span className="version-date">{dateShort}</span>}
           </a>
-        ))}
-      </nav>
-      <a className="header-action" href={actionHref}>
-        {actionLabel}
-      </a>
+        )}
+        <a className="header-action" href={actionHref}>
+          {actionLabel}
+        </a>
+      </div>
       <div className="scroll-progress" style={{ transform: `scaleX(${progress})` }} />
     </header>
   );
@@ -188,28 +265,6 @@ function Hero() {
   );
 }
 
-function ProductStory() {
-  return (
-    <section className="product-story" aria-labelledby="story-title">
-      <div className="section-copy">
-        <p className="section-label">product surface</p>
-        <h2 id="story-title">made for the part where design is still thinking.</h2>
-        <p>
-          EXP does not try to be everything. it keeps the high-frequency workflow
-          close: artboards, layers, source components, precise export, and notes
-          that make handoff less performative.
-        </p>
-      </div>
-      <div className="story-rail">
-        <div className="rail-line" />
-        <div className="rail-pin pin-a">pan</div>
-        <div className="rail-pin pin-b">zoom</div>
-        <div className="rail-pin pin-c">handoff</div>
-      </div>
-    </section>
-  );
-}
-
 function WorkspaceCallout() {
   return (
     <section id="workspace" className="workspace-section" aria-labelledby="workspace-title">
@@ -236,12 +291,11 @@ function WorkspaceCallout() {
           </li>
         </ul>
       </div>
-      <figure className="workspace-visual glass-medium glass-edge">
+      <figure className="workspace-visual bleed">
         <img
           src="/assets/exp-multi-monitor-workspace.png"
           alt="EXP design shown across two monitors, with the canvas on a wide display and detached panels on a vertical display"
         />
-        <figcaption>canvas on the big display. palettes on the vertical one. finally.</figcaption>
       </figure>
     </section>
   );
@@ -312,7 +366,7 @@ function DesignLanguageCallout() {
   return (
     <section id="design-language" className="design-language-section" aria-labelledby="design-language-title">
       <div className="section-copy narrow">
-        <p className="section-label">latest build</p>
+        <p className="section-label">in progress</p>
         <h2 id="design-language-title">a design language panel is starting to take shape.</h2>
         <p>
           Save colors and gradients, name them, sort them into categories, and
@@ -441,6 +495,10 @@ function Roadmap() {
           </ul>
         </section>
       </div>
+      <a className="roadmap-more" href="/download#tester-features">
+        more detail on the download page
+        <i className="ph ph-arrow-right" aria-hidden="true" />
+      </a>
     </section>
   );
 }
@@ -871,10 +929,9 @@ function DownloadPage() {
     <>
       <Header
         progress={progress}
-        items={downloadNavItems}
         actionLabel="get the build"
         actionHref="#download-signup"
-        brandHref="#top"
+        brandHref="/"
       />
       <main>
         <DownloadHero />
@@ -903,6 +960,101 @@ function Footer() {
   );
 }
 
+function youtubeId(url) {
+  if (!url) return "";
+  const match = url.match(/(?:youtu\.be\/|v=|embed\/)([\w-]{6,})/);
+  return match ? match[1] : "";
+}
+
+function VideoCard({ video }) {
+  const id = youtubeId(video.youtubeUrl);
+  const thumb = video.thumbnail || (id ? `https://img.youtube.com/vi/${id}/hqdefault.jpg` : "");
+  const ready = Boolean(video.youtubeUrl);
+
+  return (
+    <a
+      className={ready ? "video-card" : "video-card pending"}
+      href={ready ? video.youtubeUrl : undefined}
+      target={ready ? "_blank" : undefined}
+      rel={ready ? "noreferrer" : undefined}
+      aria-disabled={ready ? undefined : "true"}
+    >
+      <span className="video-thumb">
+        {thumb ? (
+          <img src={thumb} alt="" loading="lazy" />
+        ) : (
+          <span className="video-thumb-empty" aria-hidden="true" />
+        )}
+        <span className="video-play" aria-hidden="true">
+          <i className="ph ph-play-fill" />
+        </span>
+        {video.duration && <span className="video-duration">{video.duration}</span>}
+      </span>
+      <span className="video-meta">
+        {video.category && <span className="video-tag">{video.category}</span>}
+        <strong>{video.title}</strong>
+        <span>{ready ? video.description : "coming soon"}</span>
+      </span>
+    </a>
+  );
+}
+
+function LearnPage() {
+  const progress = useScrollProgress();
+  const videos = siteContent.learnVideos ?? [];
+  const readyCount = videos.filter((video) => video.youtubeUrl).length;
+
+  useEffect(() => {
+    document.title = "EXP [design] — learn";
+    document
+      .querySelector("meta[name='description']")
+      ?.setAttribute(
+        "content",
+        "Short walkthroughs and tutorials for testing EXP [design] on macOS.",
+      );
+  }, []);
+
+  return (
+    <>
+      <Header
+        progress={progress}
+        actionLabel="get the build"
+        actionHref="/download#download-signup"
+        brandHref="/"
+      />
+      <main>
+        <section id="top" className="learn-hero">
+          <div className="section-copy">
+            <p className="section-label">learn</p>
+            <h1>short walkthroughs for people actually testing it.</h1>
+            <p>
+              quick, practical videos — no tour guide hovering nearby. more are on
+              the way; the list fills in as they publish.
+            </p>
+          </div>
+        </section>
+        {videos.length > 0 && (
+          <section className="learn-videos" aria-label="tutorial videos">
+            {readyCount === 0 && (
+              <p className="learn-empty">
+                the first videos are being recorded now. in the meantime, the written
+                walkthroughs below cover the essentials.
+              </p>
+            )}
+            <div className="learn-grid">
+              {videos.map((video) => (
+                <VideoCard key={video.id ?? video.title} video={video} />
+              ))}
+            </div>
+          </section>
+        )}
+        <FieldGuide />
+      </main>
+      <Footer />
+    </>
+  );
+}
+
 export default function App() {
   const progress = useScrollProgress();
   const path = window.location.pathname.replace(/\/$/, "") || "/";
@@ -911,17 +1063,19 @@ export default function App() {
     return <DownloadPage />;
   }
 
+  if (path === "/learn") {
+    return <LearnPage />;
+  }
+
   return (
     <>
       <Header progress={progress} />
       <main>
         <Hero />
-        <ProductStory />
-        <WorkspaceCallout />
         <FeatureStory />
+        <WorkspaceCallout />
         <AccessibilityCallout />
         <DesignLanguageCallout />
-        <FieldGuide />
         <Roadmap />
         <TestingInvite />
       </main>

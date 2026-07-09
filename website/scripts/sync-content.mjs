@@ -232,7 +232,7 @@ const testerPhaseCopy = [
   {
     match: "Phase 10",
     title: "Effects",
-    body: "Adjust opacity, use number-key opacity shortcuts, and test drop shadows or inner shadows in canvas and export.",
+    body: "Adjust opacity with number-key shortcuts, add drop and inner shadows, and layer stackable noise and dissolve texture effects that round-trip through SVG.",
   },
   {
     match: "Phase 11",
@@ -266,7 +266,7 @@ function buildTesterFeatures(phases) {
 
 function buildTesterKnownIssues(backlog, limit = 4) {
   return backlog
-    .filter((item) => item.type === "bug" && item.status !== "done")
+    .filter((item) => item.type === "bug" && !/^done/i.test(item.status))
     .slice(0, limit)
     .map((item) => ({
       id: item.id,
@@ -282,13 +282,41 @@ const [roadmapMarkdown, backlogMarkdown] = await Promise.all([
   readFile(path.join(repoRoot, "docs/BACKLOG.md"), "utf8"),
 ]);
 
+function parseRelease(markdown) {
+  const matches = [...markdown.matchAll(/^##\s+v(\d+(?:\.\d+)*)\s+—\s+shipped\s+\((\d{4}-\d{2}-\d{2})\)/gm)];
+  if (matches.length === 0) return null;
+  // Newest shipped heading wins (by date).
+  const latest = matches
+    .map((m) => ({ version: m[1], date: m[2] }))
+    .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))[0];
+  return latest;
+}
+
+async function loadLearnVideos() {
+  try {
+    const raw = await readFile(path.join(repoRoot, "docs/learn-videos.json"), "utf8");
+    const parsed = JSON.parse(raw);
+    const videos = Array.isArray(parsed.videos) ? parsed.videos : [];
+    return videos
+      .filter((v) => v && v.title)
+      .slice()
+      .sort((a, b) => (a.order ?? 999) - (b.order ?? 999));
+  } catch {
+    return [];
+  }
+}
+
 const phases = parsePhases(roadmapMarkdown);
 const progressLog = parseProgressLog(roadmapMarkdown);
 const backlog = parseBacklog(backlogMarkdown);
+const release = parseRelease(roadmapMarkdown);
+const learnVideos = await loadLearnVideos();
 
 const content = {
   generatedAt: new Date().toISOString(),
   sourceFiles: ["docs/ROADMAP.md", "docs/BACKLOG.md"],
+  release,
+  learnVideos,
   roadmap: buildRoadmapCards(phases, progressLog),
   testerFeatures: buildTesterFeatures(phases),
   testerKnownIssues: buildTesterKnownIssues(backlog),
@@ -313,4 +341,4 @@ const content = {
 await mkdir(path.dirname(outputPath), { recursive: true });
 await writeFile(outputPath, `${JSON.stringify(content, null, 2)}\n`);
 
-console.log(`synced ${content.roadmap.length} roadmap cards, ${content.progressLog.length} progress notes, ${content.backlog.length} backlog items`);
+console.log(`synced ${content.roadmap.length} roadmap cards, ${content.progressLog.length} progress notes, ${content.backlog.length} backlog items, release ${release?.version ?? "?"}, ${learnVideos.length} learn videos`);

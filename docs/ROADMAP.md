@@ -45,7 +45,7 @@ transparent PNG export, a System Monospaced document font, sharper raster
 imports, the centered document titlebar, and the App/Document Settings split.
 Full notes: `RELEASE-NOTES-v1.1.md`.
 
-## v1.2 — shipped (2026-07-08)
+## v1.2 — shipped (2026-07-09)
 
 Tag `v1.2`, build 3. Headline: **Noise & Dissolve** — stackable, SVG-native
 texture effects (grain/noise and threshold-based dissolve on any shape, text, or
