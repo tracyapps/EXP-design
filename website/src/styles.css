@@ -1650,7 +1650,7 @@ code {
     border-radius: 14px 0 0 14px;
   }
   .workspace-visual.bleed img {
-    width: 116%;
+    width: 90%;
     max-width: none;
     border-radius: 12px 0 0 12px;
   }

@@ -5,7 +5,7 @@
   "outputDirectory": "website/dist",
   "rewrites": [
     {
-      "source": "/download",
+      "source": "/((?!assets/|api/).*)",
       "destination": "/"
     }
   ]

@@ -270,24 +270,25 @@ function WorkspaceCallout() {
     <section id="workspace" className="workspace-section" aria-labelledby="workspace-title">
       <div className="workspace-copy section-copy">
         <p className="section-label">multi-window mode</p>
-        <h2 id="workspace-title">you've got the space. who are we to tell you how to use it?</h2>
+        <h2 id="workspace-title">your workspace, your rules</h2>
         <p>
-          when your desk has real display real estate, EXP lets the app breathe:
-          keep the canvas wide open, move panels to another monitor, and stop
-          treating a vertical screen like an expensive sidebar.
+          you've got the space, who are we to tell you how to use it? want to
+          spread out your workspace and menus across multiple monitors? we've got
+          you. and easily toggle back to a single window view for when you're
+          working from that coffee shop.
         </p>
         <ul className="workspace-points" aria-label="multi-window workspace benefits">
           <li>
-            <strong>canvas where the work is</strong>
-            <span>give the wall the big display and keep artboards in view.</span>
+            <strong>no hassle workspace toggle</strong>
+            <span>seamlessly go from small screen to large screen(s) and back again.</span>
           </li>
           <li>
-            <strong>panels where they belong</strong>
-            <span>layers, components, and properties can live on their own screen.</span>
+            <strong>you decide where things go</strong>
+            <span>move, reorder, resize your menus and workspace to fit your workflow.</span>
           </li>
           <li>
-            <strong>no forced tab shuffle</strong>
-            <span>open the tools you need side by side, as the design gods intended.</span>
+            <strong>no more tab shufflin'</strong>
+            <span>open all the tools you need side by side, as the design gods intended.</span>
           </li>
         </ul>
       </div>
@@ -1058,6 +1059,21 @@ function LearnPage() {
 export default function App() {
   const progress = useScrollProgress();
   const path = window.location.pathname.replace(/\/$/, "") || "/";
+
+  // Cross-page jump links (e.g. /#features from /download) arrive as a full
+  // navigation, so the browser tries to scroll to the hash before React has
+  // rendered the target section. Re-run the scroll after mount, once the
+  // section exists. (Same-page hash clicks scroll natively and skip this.)
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (!hash) return undefined;
+    let raf = requestAnimationFrame(() => {
+      raf = requestAnimationFrame(() => {
+        document.querySelector(hash)?.scrollIntoView({ block: "start" });
+      });
+    });
+    return () => cancelAnimationFrame(raf);
+  }, []);
 
   if (path === "/download") {
     return <DownloadPage />;
