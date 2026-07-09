@@ -336,3 +336,204 @@ extension View {
         modifier(EXPTooltipModifier(label: label, shortcut: shortcut))
     }
 }
+
+// MARK: - Field tip (rich hover help for form fields) ========================
+
+/// The app-wide rich tip for FORM FIELDS: a short title naming the value plus
+/// an optional multi-line detail explaining what it does — direction of change
+/// ("higher = finer grain"), units, and value ranges. Never assume shorthand
+/// like "W" or "Oct" is universally understood; spell it out here.
+///
+/// Hierarchy: the title renders in the accent color; `detail` accepts inline
+/// MARKDOWN — `**bold**` runs brighten to the primary text color for subtle
+/// emphasis, and literal newlines are preserved as line breaks.
+///
+/// Presentation: the bubble lives in a borderless CHILD WINDOW, not a SwiftUI
+/// overlay — so it can spill past the panel's edge when there's monitor space,
+/// and is clamped to the visible screen frame when there isn't (it slides left
+/// / flips below the field rather than getting cut off). An overlay could
+/// never do this: the panel's scroll view and the window clip it.
+///
+/// Accessibility: the detail is ALSO attached as an `accessibilityHint`, so
+/// VoiceOver users get the same explanation the hover bubble shows.
+private struct EXPFieldTipModifier: ViewModifier {
+    let title: String
+    let detail: String
+    let edge: VerticalEdge
+    let align: HorizontalAlignment
+    @State private var hostWindow: NSWindow?
+    @State private var anchorFrame = CGRect.zero   // SwiftUI .global (window content, y-down)
+    @State private var hoverTask: Task<Void, Never>?
+    @State private var showing = false
+
+    func body(content: Content) -> some View {
+        content
+            .accessibilityHint(detail.isEmpty ? Text(title) : Text(detail))
+            .background(EXPWindowReader { hostWindow = $0 })
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { anchorFrame = $0 }
+            .onHover { inside in
+                hoverTask?.cancel()
+                if inside {
+                    hoverTask = Task { @MainActor in
+                        try? await Task.sleep(for: .milliseconds(600))
+                        guard !Task.isCancelled else { return }
+                        present()
+                    }
+                } else {
+                    dismiss()
+                }
+            }
+            .onDisappear { dismiss() }
+    }
+
+    @MainActor private func present() {
+        guard let win = hostWindow, let contentView = win.contentView else { return }
+        // SwiftUI .global (top-left, y-down) → the content view's own space.
+        // NSHostingView is flipped, so the rect passes straight through; the
+        // convert calls then handle any flippedness + the titlebar offset.
+        let inContent = CGRect(x: anchorFrame.minX, y: anchorFrame.minY,
+                               width: anchorFrame.width, height: anchorFrame.height)
+        let inWindow = contentView.convert(inContent, to: nil)
+        let onScreen = win.convertToScreen(inWindow)
+        EXPFieldTipWindow.shared.show(
+            EXPFieldTipBubble(title: title, detail: detail),
+            anchor: onScreen, parent: win, edge: edge, align: align)
+        showing = true
+    }
+
+    @MainActor private func dismiss() {
+        guard showing else { return }
+        EXPFieldTipWindow.shared.hide()
+        showing = false
+    }
+}
+
+/// Reports the NSWindow hosting this SwiftUI hierarchy (needed to convert the
+/// anchor's rect into screen coordinates and to parent the tip window).
+private struct EXPWindowReader: NSViewRepresentable {
+    let onWindow: (NSWindow?) -> Void
+    func makeNSView(context: Context) -> NSView {
+        let v = NSView(frame: .zero)
+        DispatchQueue.main.async { [weak v] in onWindow(v?.window) }
+        return v
+    }
+    func updateNSView(_ v: NSView, context: Context) {
+        DispatchQueue.main.async { [weak v] in onWindow(v?.window) }
+    }
+}
+
+/// The single floating tip window shared by every field tip: borderless,
+/// non-activating, click-through, added as a CHILD of the hovered panel so it
+/// tracks window moves and always draws above it. Placement is EDGE-AWARE in
+/// screen space: preferred spot first (above the field, leading- or trailing-
+/// aligned), then slid horizontally inside the screen's visible frame, and
+/// flipped below the field if there's no room above.
+@MainActor
+private final class EXPFieldTipWindow {
+    static let shared = EXPFieldTipWindow()
+    private var panel: NSPanel?
+
+    func show(_ bubble: EXPFieldTipBubble, anchor: CGRect, parent: NSWindow,
+              edge: VerticalEdge, align: HorizontalAlignment) {
+        hide()
+        let host = NSHostingView(rootView: bubble)
+        let size = host.fittingSize
+        let panel = NSPanel(contentRect: CGRect(origin: .zero, size: size),
+                            styleMask: [.borderless, .nonactivatingPanel],
+                            backing: .buffered, defer: false)
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = false                 // the bubble draws its own
+        panel.ignoresMouseEvents = true         // never steals the hover
+        panel.isReleasedWhenClosed = false
+        panel.contentView = host
+
+        // Preferred position (screen coords, y-up): above the field, aligned
+        // to its leading or trailing edge, floated 6pt clear of it.
+        var x = align == .trailing ? anchor.maxX - size.width : anchor.minX
+        var y = edge == .top ? anchor.maxY + 6 : anchor.minY - size.height - 6
+        if let vis = (parent.screen ?? NSScreen.main)?.visibleFrame {
+            // Slide inside the monitor horizontally (overflowing the PANEL is
+            // fine and intended — only the screen edge is a hard wall).
+            if x + size.width > vis.maxX - 4 { x = vis.maxX - 4 - size.width }
+            if x < vis.minX + 4 { x = vis.minX + 4 }
+            // No room on the preferred side → flip to the other side of the field.
+            if edge == .top, y + size.height > vis.maxY - 4 { y = anchor.minY - size.height - 6 }
+            if y < vis.minY + 4 { y = anchor.maxY + 6 }
+        }
+        panel.setFrame(CGRect(x: x, y: y, width: size.width, height: size.height), display: false)
+        parent.addChildWindow(panel, ordered: .above)
+        panel.alphaValue = 0
+        panel.orderFront(nil)
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.12
+            panel.animator().alphaValue = 1
+        }
+        self.panel = panel
+    }
+
+    func hide() {
+        guard let p = panel else { return }
+        p.parent?.removeChildWindow(p)
+        p.orderOut(nil)
+        panel = nil
+    }
+}
+
+/// The tip bubble itself (also what the tip window hosts).
+private struct EXPFieldTipBubble: View {
+    let title: String
+    let detail: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(EXPColor.accent)
+            if !detail.isEmpty {
+                detailText
+                    .font(.system(size: 10.5, weight: .light))
+                    .foregroundStyle(EXPColor.textSecondary)
+                    .lineSpacing(2)
+            }
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 6)
+        // Detail bubbles take a FIXED readable width; title-only tips hug.
+        .frame(width: detail.isEmpty ? nil : 232, alignment: .leading)
+        .fixedSize(horizontal: detail.isEmpty, vertical: true)
+        .background(EXPColor.surfacePopover,
+                    in: RoundedRectangle(cornerRadius: EXPMetric.radiusRow, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: EXPMetric.radiusRow, style: .continuous)
+            .strokeBorder(EXPColor.borderGlass, lineWidth: EXPMetric.strokeHairline))
+        .shadow(color: .black.opacity(0.5), radius: 12, y: 6)
+        .padding(14)   // room for the shadow inside the borderless window
+    }
+
+    /// `detail` parsed as inline markdown, with `**bold**` runs lifted to the
+    /// primary text color so emphasis reads as hierarchy, not just weight.
+    private var detailText: Text {
+        var attr = (try? AttributedString(
+            markdown: detail,
+            options: AttributedString.MarkdownParsingOptions(
+                interpretedSyntax: .inlineOnlyPreservingWhitespace)))
+            ?? AttributedString(detail)
+        let boldRanges = attr.runs.compactMap { run -> Range<AttributedString.Index>? in
+            run.inlinePresentationIntent?.contains(.stronglyEmphasized) == true ? run.range : nil
+        }
+        for r in boldRanges { attr[r].foregroundColor = EXPColor.textPrimary }
+        return Text(attr)
+    }
+}
+
+extension View {
+    /// App-wide rich field tip. `title` names the value ("Width"); `detail`
+    /// explains it ("In pixels…") and may use inline markdown + newlines.
+    /// Placement is screen-edge aware; `edge`/`align` only set the PREFERRED
+    /// spot (above/below, leading/trailing) before clamping kicks in.
+    func expFieldTip(_ title: String, _ detail: String = "",
+                     edge: VerticalEdge = .top,
+                     align: HorizontalAlignment = .leading) -> some View {
+        modifier(EXPFieldTipModifier(title: title, detail: detail, edge: edge, align: align))
+    }
+}

@@ -118,4 +118,29 @@ enum EffectsRender {
         ctx.endTransparencyLayer()
         ctx.restoreGState()
     }
+
+    /// Noise / grain: composite a turbulence tile over the node with the
+    /// effect's own blend mode + amount. `clip` is the node's silhouette in the
+    /// ctx's space (pass nil for silhouette-less nodes — the CALLER is then
+    /// responsible for restricting the noise to the node's pixels, e.g. via a
+    /// transparency layer + destination-in punch; see CanvasNSView.drawNode).
+    /// `rect` is the node's frame in the ctx's space; `modelSize` its size in
+    /// model points (the tile is generated in model space so texture scale is
+    /// zoom-independent and matches the SVG export's feTurbulence).
+    static func drawNoise(_ e: Effect, clip: CGPath?, rect: CGRect, modelSize: CGSize, in ctx: CGContext) {
+        guard e.isEnabled, e.kind == .noise, e.amount > 0 else { return }
+        guard let tile = TurbulenceNoise.noiseImage(for: e, size: modelSize) else { return }
+        ctx.saveGState()
+        if let clip {
+            ctx.addPath(clip)
+            ctx.clip()
+        } else {
+            ctx.clip(to: rect)
+        }
+        ctx.setAlpha(min(1, max(0, e.amount)))
+        ctx.setBlendMode(e.blend.cg)
+        ctx.interpolationQuality = .none   // crisp grain at any zoom
+        ctx.draw(tile, in: rect)
+        ctx.restoreGState()
+    }
 }

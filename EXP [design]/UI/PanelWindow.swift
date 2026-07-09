@@ -45,9 +45,17 @@ final class PanelWindowManager {
         }
     }
 
+    /// A tray window may take KEY status (its text fields need it) but never
+    /// MAIN — the document window stays `NSApp.mainWindow`, so canvas actions
+    /// (`sendCanvasAction`) and menu validation keep routing to the focused
+    /// canvas while a panel has focus. Standard macOS inspector semantics.
+    private final class TrayWindow: NSWindow {
+        override var canBecomeMain: Bool { false }
+    }
+
     private func open(_ tray: PanelTray) {
         let hosting = NSHostingController(rootView: AnyView(TrayWindowView(trayID: tray.id)))
-        let window = NSWindow(contentViewController: hosting)
+        let window = TrayWindow(contentViewController: hosting)
         window.styleMask = [.titled, .closable, .resizable, .fullSizeContentView]  // content fills under the titlebar so the glass+gradient reach the very top
         window.isOpaque = false                 // let the behind-window glass show
         window.backgroundColor = .clear

@@ -536,10 +536,23 @@ extension Node {
 
 // MARK: - Effects
 
-/// A post-composite visual effect on a node. Today: drop + inner shadow. The
-/// geometry mirrors CSS `box-shadow` (offset x/y, blur, spread).
+/// A post-composite visual effect on a node. Drop + inner shadow mirror CSS
+/// `box-shadow` (offset x/y, blur, spread). Noise + dissolve are procedural
+/// texture effects whose parameters deliberately mirror SVG `<feTurbulence>`
+/// (type / baseFrequency / numOctaves / seed) so the canvas render and the SVG
+/// export share one spec'd algorithm (see `TurbulenceNoise`):
+///   • noise    — turbulence composited over the node's own pixels, clipped to
+///                its silhouette, with a per-effect blend mode + amount. Stack
+///                several (different frequencies/blends) to build up texture.
+///   • dissolve — the same turbulence thresholded at `amount` and used as an
+///                alpha mask: the classic scattered-pixel dissolve. Frequency
+///                sets clump size; amount is the fraction dissolved away.
 struct Effect: Identifiable, Codable, Sendable {
-    enum Kind: String, Codable, Sendable { case dropShadow, innerShadow, backgroundBlur }
+    enum Kind: String, Codable, Sendable { case dropShadow, innerShadow, backgroundBlur, noise, dissolve }
+    /// SVG `feTurbulence type=` — fractalNoise is smoother (signed octaves
+    /// averaged around mid-gray, ideal for grain overlays); turbulence takes
+    /// |noise| per octave (billowy, marble-like).
+    enum TurbulenceType: String, Codable, Sendable { case fractalNoise, turbulence }
     var id = UUID()
     var kind: Kind = .dropShadow
     var color: RGBAColor = RGBAColor(r: 0, g: 0, b: 0, a: 0.33)
@@ -548,14 +561,29 @@ struct Effect: Identifiable, Codable, Sendable {
     var blur: CGFloat = 4
     var spread: CGFloat = 0
     var isEnabled: Bool = true
+    // Noise / dissolve (ignored by the shadow kinds). Defaults chosen so a
+    // freshly added effect is immediately visible.
+    var turbulenceType: TurbulenceType = .fractalNoise
+    var frequency: CGFloat = 0.9   // feTurbulence baseFrequency, per model point
+    var octaves: Int = 4           // feTurbulence numOctaves (1...8)
+    var seed: Int = 0              // feTurbulence seed
+    var monochrome: Bool = true    // grayscale grain vs independent RGB channels
+    var amount: CGFloat = 0.35     // noise: overlay opacity 0–1; dissolve: fraction gone 0–1
+    var blend: BlendMode = .normal // per-effect blend (noise only; node blend is separate)
 
     init(id: UUID = UUID(), kind: Kind = .dropShadow,
          color: RGBAColor = RGBAColor(r: 0, g: 0, b: 0, a: 0.33),
          dx: CGFloat = 0, dy: CGFloat = 2, blur: CGFloat = 4, spread: CGFloat = 0,
-         isEnabled: Bool = true) {
+         isEnabled: Bool = true,
+         turbulenceType: TurbulenceType = .fractalNoise, frequency: CGFloat = 0.9,
+         octaves: Int = 4, seed: Int = 0, monochrome: Bool = true,
+         amount: CGFloat = 0.35, blend: BlendMode = .normal) {
         self.id = id; self.kind = kind; self.color = color
         self.dx = dx; self.dy = dy; self.blur = blur; self.spread = spread
         self.isEnabled = isEnabled
+        self.turbulenceType = turbulenceType; self.frequency = frequency
+        self.octaves = octaves; self.seed = seed; self.monochrome = monochrome
+        self.amount = amount; self.blend = blend
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -567,6 +595,13 @@ struct Effect: Identifiable, Codable, Sendable {
         blur = try c.decodeIfPresent(CGFloat.self, forKey: .blur) ?? 4
         spread = try c.decodeIfPresent(CGFloat.self, forKey: .spread) ?? 0
         isEnabled = try c.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
+        turbulenceType = try c.decodeIfPresent(TurbulenceType.self, forKey: .turbulenceType) ?? .fractalNoise
+        frequency = try c.decodeIfPresent(CGFloat.self, forKey: .frequency) ?? 0.9
+        octaves = try c.decodeIfPresent(Int.self, forKey: .octaves) ?? 4
+        seed = try c.decodeIfPresent(Int.self, forKey: .seed) ?? 0
+        monochrome = try c.decodeIfPresent(Bool.self, forKey: .monochrome) ?? true
+        amount = try c.decodeIfPresent(CGFloat.self, forKey: .amount) ?? 0.35
+        blend = try c.decodeIfPresent(BlendMode.self, forKey: .blend) ?? .normal
     }
 }
 
