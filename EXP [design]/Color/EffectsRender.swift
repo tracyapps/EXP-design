@@ -27,7 +27,13 @@ import CoreGraphics
 /// The outline a shape casts a shadow from, plus spread-grown/shrunk variants.
 /// Space-agnostic (the caller builds it in view or local coordinates).
 struct Silhouette {
-    enum Shape { case roundRect(radius: CGFloat); case oval; case custom(CGPath) }
+    enum Shape {
+        case roundRect(radius: CGFloat)
+        /// v1.3 per-corner radii (already scaled to the silhouette's space).
+        case perCornerRect(CornerRadii)
+        case oval
+        case custom(CGPath)
+    }
     let rect: CGRect
     let shape: Shape
 
@@ -39,6 +45,9 @@ struct Silhouette {
             let rr = rect.insetBy(dx: -spread, dy: -spread)
             let rad = max(0, r + spread)
             return CGPath(roundedRect: rr, cornerWidth: rad, cornerHeight: rad, transform: nil)
+        case .perCornerRect(let radii):
+            // Each radius grows with the spread, mirroring the uniform case.
+            return radii.offset(by: spread).path(in: rect.insetBy(dx: -spread, dy: -spread))
         case .oval:
             return CGPath(ellipseIn: rect.insetBy(dx: -spread, dy: -spread), transform: nil)
         case .custom(let p):
@@ -69,8 +78,16 @@ enum EffectsRender {
     /// unclipped offscreen bitmap take seconds. Clipping to the caster + blur +
     /// offset bounds the buffer to the node's own footprint; the shadow cannot
     /// paint outside that region anyway, so the result is pixel-identical.
+    /// `knockout`, when provided AND `e.preserveTransparency` is set, draws the
+    /// node's TRUE silhouette/content (no spread outset); its pixels — and any
+    /// shadow beneath them — are punched out of the shadow layer with
+    /// `.destinationOut`, so the shadow exists only OUTSIDE the object. That is
+    /// what keeps a semi-transparent fill from going black on its own shadow.
+    /// Partial alpha knocks out proportionally — identical semantics to the SVG
+    /// export's `feComposite operator="out"`.
     static func drawDropShadow(_ e: Effect, scale: CGFloat, in ctx: CGContext,
-                               castBounds: CGRect? = nil, caster: () -> Void) {
+                               castBounds: CGRect? = nil,
+                               knockout: (() -> Void)? = nil, caster: () -> Void) {
         guard e.isEnabled, e.kind == .dropShadow else { return }
         ctx.saveGState()
         // Flipped (y-down) context: negate the height so +Y reads as *down*,
@@ -82,12 +99,31 @@ enum EffectsRender {
             let pad = blurPx + (abs(e.dx) + abs(e.dy)) * scale + 8
             ctx.clip(to: b.insetBy(dx: -pad, dy: -pad))
         }
-        ctx.setShadow(offset: CGSize(width: e.dx * scale, height: -e.dy * scale),
-                      blur: blurPx,
-                      color: PaintRender.nsColor(e.color).cgColor)
-        ctx.beginTransparencyLayer(auxiliaryInfo: nil)
-        caster()
-        ctx.endTransparencyLayer()
+        if e.preserveTransparency, let knockout {
+            // Outer layer: (shadowed caster) − (object's own pixels).
+            ctx.beginTransparencyLayer(auxiliaryInfo: nil)
+            ctx.setShadow(offset: CGSize(width: e.dx * scale, height: -e.dy * scale),
+                          blur: blurPx,
+                          color: PaintRender.nsColor(e.color).cgColor)
+            ctx.beginTransparencyLayer(auxiliaryInfo: nil)
+            caster()
+            ctx.endTransparencyLayer()
+            // Punch: clear the shadow state, then erase the object's footprint
+            // from the layer (grouped so overlapping punch drawing acts once).
+            ctx.setShadow(offset: .zero, blur: 0, color: nil)
+            ctx.setBlendMode(.destinationOut)
+            ctx.beginTransparencyLayer(auxiliaryInfo: nil)
+            knockout()
+            ctx.endTransparencyLayer()
+            ctx.endTransparencyLayer()
+        } else {
+            ctx.setShadow(offset: CGSize(width: e.dx * scale, height: -e.dy * scale),
+                          blur: blurPx,
+                          color: PaintRender.nsColor(e.color).cgColor)
+            ctx.beginTransparencyLayer(auxiliaryInfo: nil)
+            caster()
+            ctx.endTransparencyLayer()
+        }
         ctx.restoreGState()
     }
 

@@ -72,6 +72,7 @@ private final class SharedUndoWindowDelegate: NSObject, NSWindowDelegate {
 struct SourceEditorView: View {
     @ObservedObject var document: ExpDocument
     let sourceID: UUID
+    @Environment(\.undoManager) private var undoManager
 
     // This window's OWN view state (tool, selection, camera) — independent of
     // the main editor window.
@@ -107,6 +108,27 @@ struct SourceEditorView: View {
         }
     }
 
+    /// The source's category, written through the document funnel (undoable,
+    /// updates the Components panel + every instance immediately).
+    private var categoryBinding: Binding<AriaRole?> {
+        Binding(
+            get: { source?.a11y.role },
+            set: { newRole in
+                guard let si = document.model.sources.firstIndex(where: { $0.id == sourceID }),
+                      document.model.sources[si].a11y.role != newRole else { return }
+                var model = document.model
+                model.sources[si].a11y.role = newRole
+                document.setModel(model, undoManager: undoManager, actionName: "Set Component Category")
+            }
+        )
+    }
+
+    /// What the current choice MEANS, in plain language.
+    private var categoryBlurb: String {
+        if let role = source?.a11y.role { return role.blurb }
+        return "Optional — tag what this component IS. It organizes the Components panel today, and the same tag powers accessible code export later."
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             HStack {
@@ -122,6 +144,38 @@ struct SourceEditorView: View {
                 backdropPicker
             }
             .padding(10)
+
+            // Phase 19a follow-up (owner request): categorize the component right
+            // where it's edited, with a plain-language line describing the chosen
+            // role — similar options (Checkbox vs Switch, Menu vs Navigation…)
+            // are confusing without it. The blurb earns its vertical space.
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text("Category")
+                    .font(.system(size: EXPType.mini, weight: .medium))
+                    .foregroundStyle(EXPColor.textSecondary)
+                Picker("Component category", selection: categoryBinding) {
+                    Text("Uncategorized").tag(AriaRole?.none)
+                    ForEach(AriaRole.grouped(), id: \.category) { group in
+                        Section(group.category.label) {
+                            ForEach(group.roles, id: \.self) { role in
+                                Text(role.friendlyLabel).tag(AriaRole?.some(role))
+                            }
+                        }
+                    }
+                }
+                .labelsHidden()
+                .fixedSize()
+                .accessibilityLabel("Component category")
+                Text(categoryBlurb)
+                    .font(.system(size: EXPType.mini))
+                    .foregroundStyle(EXPColor.textTertiary)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityLabel("Category description: \(categoryBlurb)")
+            }
+            .padding(.horizontal, 10)
+            .padding(.bottom, 8)
             Divider()
 
             // Mirror the main window: the tools strip is pinned OUTSIDE the split,

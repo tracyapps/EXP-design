@@ -240,6 +240,22 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 
 ## ⚡ Performance
 
+### PERF-005 — instCacheHit/Miss counters flat at 0 — verify they still track
+- Type: perf
+- Priority: P3 (someday)
+- Area: perf
+- Status: open
+- Repro/Detail: Both Testing Mode counters read 0 (max 0) across every sample
+  in the 2026-07-09 v1.2.1 logs. The doc under test may simply contain no
+  component instances — but if the counters are ALSO flat on an
+  instance-heavy doc, the instrumentation (or the instance cache itself) has
+  silently stopped tracking. Owner is keeping an eye out.
+- Hypothesis: Doc had no instances (benign) OR counter increments were lost in
+  a refactor (check the instance-cache hit/miss paths against the
+  resolveGeneration invariants).
+- Acceptance: Testing Mode on an instance-heavy doc shows nonzero hits/misses;
+  or confirmed benign and this entry closed with a note.
+
 ### PERF-001 — Large / complex document performance (standing epic)
 - Type: perf
 - Priority: P2 (ongoing)

@@ -24,19 +24,24 @@ struct EXPDesignLanguageFile: Codable {
     var expDesignLanguage: Int
     var categories: [DLCategory]
     var assets: [DesignAsset]
+    var typeStyles: [TypeStyle]
 
-    init(expDesignLanguage: Int, categories: [DLCategory], assets: [DesignAsset]) {
+    init(expDesignLanguage: Int, categories: [DLCategory], assets: [DesignAsset],
+         typeStyles: [TypeStyle] = []) {
         self.expDesignLanguage = expDesignLanguage
         self.categories = categories
         self.assets = assets
+        self.typeStyles = typeStyles
     }
 
-    enum CodingKeys: String, CodingKey { case expDesignLanguage, categories, assets }
+    enum CodingKeys: String, CodingKey { case expDesignLanguage, categories, assets, typeStyles }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         expDesignLanguage = try c.decodeIfPresent(Int.self, forKey: .expDesignLanguage) ?? 1
         categories = try c.decodeIfPresent([DLCategory].self, forKey: .categories) ?? []
-        assets = try c.decode([DesignAsset].self, forKey: .assets)
+        // `assets` stays required-with-fallback: a type-styles-only file is valid.
+        assets = try c.decodeIfPresent([DesignAsset].self, forKey: .assets) ?? []
+        typeStyles = try c.decodeIfPresent([TypeStyle].self, forKey: .typeStyles) ?? []
     }
 }
 
@@ -48,7 +53,8 @@ enum DesignLanguageIO {
 
     static func exportJSON(_ dl: DesignLanguage) throws -> Data {
         let file = EXPDesignLanguageFile(expDesignLanguage: schemaVersion,
-                                        categories: dl.categories, assets: dl.assets)
+                                        categories: dl.categories, assets: dl.assets,
+                                        typeStyles: dl.typeStyles)
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
         return try enc.encode(file)
@@ -57,11 +63,14 @@ enum DesignLanguageIO {
     /// Tolerant import: accept the versioned envelope, a bare `[DesignAsset]`, or a
     /// full `DesignLanguage` object. Returns the entries plus any categories they
     /// reference; nil only if none of those decode.
-    static func parseJSON(_ data: Data) -> (assets: [DesignAsset], categories: [DLCategory])? {
+    static func parseJSON(_ data: Data) -> (assets: [DesignAsset], categories: [DLCategory], typeStyles: [TypeStyle])? {
         let dec = JSONDecoder()
-        if let f = try? dec.decode(EXPDesignLanguageFile.self, from: data) { return (f.assets, f.categories) }
-        if let a = try? dec.decode([DesignAsset].self, from: data) { return (a, []) }
-        if let dl = try? dec.decode(DesignLanguage.self, from: data) { return (dl.assets, dl.categories) }
+        if let f = try? dec.decode(EXPDesignLanguageFile.self, from: data),
+           !f.assets.isEmpty || !f.typeStyles.isEmpty {
+            return (f.assets, f.categories, f.typeStyles)
+        }
+        if let a = try? dec.decode([DesignAsset].self, from: data) { return (a, [], []) }
+        if let dl = try? dec.decode(DesignLanguage.self, from: data) { return (dl.assets, dl.categories, dl.typeStyles) }
         return nil
     }
 
@@ -80,8 +89,47 @@ enum DesignLanguageIO {
             used.insert(name)
             lines.append("  --\(name): \(css(for: a.value));")
         }
-        if lines.isEmpty { return ":root {\n}\n" }
-        return ":root {\n" + lines.joined(separator: "\n") + "\n}\n"
+        let root = lines.isEmpty ? ":root {\n}\n"
+            : ":root {\n" + lines.joined(separator: "\n") + "\n}\n"
+        let type = cssTypeStyles(dl)
+        return type.isEmpty ? root : root + "\n" + type
+    }
+
+    /// Type styles as CSS classes (SCSS-friendly): one `.type-<slug>` block per
+    /// style with honest `font-*` properties. Color is intentionally absent —
+    /// EXP type styles don't own color (pair them with the custom properties).
+    static func cssTypeStyles(_ dl: DesignLanguage) -> String {
+        guard !dl.typeStyles.isEmpty else { return "" }
+        var used = Set<String>()
+        var blocks: [String] = []
+        for t in dl.typeStyles {
+            let base = t.name.isEmpty ? t.fallbackLabel : t.name
+            var name = slug(base, fallback: .black)
+            var n = 2
+            while used.contains(name) { name = slug(base, fallback: .black) + "-\(n)"; n += 1 }
+            used.insert(name)
+            var props: [String] = []
+            if !t.fontName.isEmpty { props.append("  font-family: \"\(t.fontName)\";") }
+            props.append("  font-size: \(Int(t.fontSize.rounded()))px;")
+            switch t.lineHeightUnit {
+            case .auto:     props.append("  line-height: normal;")
+            case .multiple: props.append("  line-height: \(t.lineHeight);")
+            case .px:       props.append("  line-height: \(Int(t.lineHeight.rounded()))px;")
+            case .em:       props.append("  line-height: \(t.lineHeight)em;")
+            }
+            if t.tracking != 0 { props.append("  letter-spacing: \(t.tracking)px;") }
+            if t.align != .left { props.append("  text-align: \(t.align.rawValue);") }
+            if t.underline { props.append("  text-decoration: underline;") }
+            switch t.textCase {
+            case .none: break
+            case .upper:    props.append("  text-transform: uppercase;")
+            case .lower:    props.append("  text-transform: lowercase;")
+            case .title:    props.append("  text-transform: capitalize;")
+            case .sentence: props.append("  /* text-transform: sentence-case (no CSS equivalent) */")
+            }
+            blocks.append(".type-\(name) {\n" + props.joined(separator: "\n") + "\n}")
+        }
+        return blocks.joined(separator: "\n\n") + "\n"
     }
 
     /// A single CSS custom-property declaration for one paint.

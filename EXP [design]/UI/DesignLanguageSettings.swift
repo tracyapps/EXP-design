@@ -240,9 +240,11 @@ private struct DesignLanguageEditor: View {
         panel.message = "Import an EXP design-language JSON file."
         guard panel.runModal() == .OK, let url = panel.url,
               let data = try? Data(contentsOf: url),
-              let parsed = DesignLanguageIO.parseJSON(data), !parsed.assets.isEmpty else { return }
+              let parsed = DesignLanguageIO.parseJSON(data),
+              !parsed.assets.isEmpty || !parsed.typeStyles.isEmpty else { return }
         commit("Import Design Language") {
             $0.merge(parsed.assets, categories: parsed.categories, mode: mergeMode)
+            $0.mergeTypeStyles(parsed.typeStyles, categories: parsed.categories, mode: mergeMode)
         }
     }
 

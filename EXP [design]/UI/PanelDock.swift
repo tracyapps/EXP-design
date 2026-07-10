@@ -477,10 +477,64 @@ struct ComponentsPanel: View {
     @ObservedObject var document: ExpDocument
     @Environment(\.undoManager) private var undoManager
 
+    /// Phase 19a: filter by component category (= curated ARIA role). "All" when
+    /// nothing is chosen; "Uncategorized" is a real bucket, not an absence.
+    enum CategoryFilter: Hashable { case all, uncategorized, role(AriaRole) }
+    @State private var filter: CategoryFilter = .all
+
+    /// Roles actually present in this document (the filter menu stays short).
+    private var presentRoles: [AriaRole] {
+        var seen: Set<AriaRole> = []
+        var out: [AriaRole] = []
+        for s in document.model.sources {
+            if let r = s.a11y.role, seen.insert(r).inserted { out.append(r) }
+        }
+        return out.sorted { $0.friendlyLabel < $1.friendlyLabel }
+    }
+
+    private func matches(_ s: ComponentSource) -> Bool {
+        switch filter {
+        case .all:            return true
+        case .uncategorized:  return s.a11y.role == nil
+        case .role(let r):    return s.a11y.role == r
+        }
+    }
+
+    private var filterLabel: String {
+        switch filter {
+        case .all:            return "All Categories"
+        case .uncategorized:  return "Uncategorized"
+        case .role(let r):    return r.friendlyLabel
+        }
+    }
+
+    @ViewBuilder private var filterBar: some View {
+        if !presentRoles.isEmpty || document.model.sources.contains(where: { $0.a11y.role == nil }) {
+            HStack {
+                Menu {
+                    Button("All Categories") { filter = .all }
+                    Button("Uncategorized") { filter = .uncategorized }
+                    if !presentRoles.isEmpty { Divider() }
+                    ForEach(presentRoles, id: \.self) { role in
+                        Button(role.friendlyLabel) { filter = .role(role) }
+                    }
+                } label: {
+                    Label(filterLabel, systemImage: "line.3.horizontal.decrease.circle")
+                        .font(.system(size: EXPType.mini))
+                }
+                .menuStyle(.borderlessButton).fixedSize()
+                .help("Filter components by category")
+                .accessibilityLabel("Filter components by category, currently \(filterLabel)")
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 8).padding(.top, 6)
+        }
+    }
+
     var body: some View {
-        let sources = document.model.sources
+        let sources = document.model.sources.filter(matches)
         Group {
-            if sources.isEmpty {
+            if document.model.sources.isEmpty {
                 VStack(spacing: 8) {
                     Image(systemName: "square.on.square.dashed")
                         .font(.system(size: 26)).foregroundStyle(EXPColor.textTertiary)
@@ -492,16 +546,25 @@ struct ComponentsPanel: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding(16)
             } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 2) {
-                        ForEach(sources) { src in
-                            ComponentRow(source: src, document: document, undoManager: undoManager) {
-                                SourceEditorWindowManager.shared.open(
-                                    sourceID: src.id, document: document, undoManager: undoManager)
+                VStack(spacing: 0) {
+                    filterBar
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 2) {
+                            ForEach(sources) { src in
+                                ComponentRow(source: src, document: document, undoManager: undoManager) {
+                                    SourceEditorWindowManager.shared.open(
+                                        sourceID: src.id, document: document, undoManager: undoManager)
+                                }
+                            }
+                            if sources.isEmpty {
+                                Text("No components in “\(filterLabel)”.")
+                                    .font(.system(size: EXPType.mini))
+                                    .foregroundStyle(EXPColor.textTertiary)
+                                    .padding(8)
                             }
                         }
+                        .padding(6)
                     }
-                    .padding(6)
                 }
             }
         }
@@ -544,6 +607,33 @@ private struct ComponentRow: View {
                     .font(.system(size: EXPType.micro)).foregroundStyle(EXPColor.textSecondary)
             }
             Spacer(minLength: 0)
+            // v1.3: live instance count — click to select every instance on the
+            // canvas (highlighting them). Hidden at zero to keep rows quiet.
+            if instanceCount > 0 {
+                Button(action: selectInstances) {
+                    Text("×\(instanceCount)")
+                        .font(.system(size: EXPType.micro, weight: .semibold))
+                        .monospacedDigit()
+                        .foregroundStyle(EXPColor.textSecondary)
+                        .padding(.horizontal, 5).padding(.vertical, 2)
+                        .background(Capsule().fill(EXPColor.rowHover))
+                }
+                .buttonStyle(.plain)
+                .help(instanceCount == 1 ? "1 instance on the canvas — click to select it"
+                                         : "\(instanceCount) instances on the canvas — click to select them all")
+                .accessibilityLabel("\(instanceCount) instance\(instanceCount == 1 ? "" : "s") on canvas. Select all.")
+            }
+            // Phase 19a: the category tag — a TEXT label (never color-only), read
+            // by VoiceOver as part of the row.
+            if let role = source.a11y.role {
+                Text(role.friendlyLabel)
+                    .font(.system(size: EXPType.micro, weight: .medium))
+                    .foregroundStyle(EXPColor.textSecondary)
+                    .padding(.horizontal, 5).padding(.vertical, 2)
+                    .background(Capsule().fill(EXPColor.rowHover))
+                    .lineLimit(1)
+                    .accessibilityLabel("Category: \(role.friendlyLabel)")
+            }
         }
         .padding(.horizontal, 8).padding(.vertical, 6)
         .background(RoundedRectangle(cornerRadius: EXPMetric.radiusRow, style: .continuous)
@@ -555,9 +645,33 @@ private struct ComponentRow: View {
         .onTapGesture { if !isRenaming { open() } }
         .contextMenu {
             Button("Create Instance", action: createInstance)
+            Button(instanceCount == 1 ? "Select Instance on Canvas"
+                                      : "Select Instances on Canvas (\(instanceCount))",
+                   action: selectInstances)
+                .disabled(instanceCount == 0)
             Divider()
             Button("Open in Editor", action: open)
             Button("Rename", action: beginRename)
+            Menu("Set Category") {
+                Button {
+                    setCategory(nil)
+                } label: {
+                    if source.a11y.role == nil { Label("Uncategorized", systemImage: "checkmark") }
+                    else { Text("Uncategorized") }
+                }
+                ForEach(AriaRole.grouped(), id: \.category) { group in
+                    Section(group.category.label) {
+                        ForEach(group.roles, id: \.self) { role in
+                            Button {
+                                setCategory(role)
+                            } label: {
+                                if source.a11y.role == role { Label(role.friendlyLabel, systemImage: "checkmark") }
+                                else { Text(role.friendlyLabel) }
+                            }
+                        }
+                    }
+                }
+            }
             Divider()
             Button("Delete Component", role: .destructive, action: deleteComponent)
         }
@@ -591,6 +705,37 @@ private struct ComponentRow: View {
         draft = source.name
         isRenaming = true
         nameFocused = true
+    }
+
+    /// IDs of every instance of this component in the document (nested included).
+    private var instanceIDs: [UUID] {
+        var ids: [UUID] = []
+        func walk(_ nodes: [Node]) {
+            for n in nodes {
+                if case .instance(let i) = n.content, i.sourceID == source.id { ids.append(n.id) }
+                if case .group(let kids) = n.content { walk(kids) }
+            }
+        }
+        walk(document.model.nodes)
+        return ids
+    }
+    private var instanceCount: Int { instanceIDs.count }
+
+    /// Select (highlight) every canvas instance of this component.
+    private func selectInstances() {
+        let ids = instanceIDs
+        guard !ids.isEmpty else { return }
+        app.selectedNodeIDs = Set(ids)
+        app.selectedArtboardIDs = []
+    }
+
+    /// Phase 19a: assign the category (ARIA token stored, friendly label shown).
+    private func setCategory(_ role: AriaRole?) {
+        guard let i = document.model.sources.firstIndex(where: { $0.id == source.id }),
+              document.model.sources[i].a11y.role != role else { return }
+        var model = document.model
+        model.sources[i].a11y.role = role
+        document.setModel(model, undoManager: undoManager, actionName: "Set Component Category")
     }
 
     private func commitRename() {

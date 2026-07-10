@@ -86,21 +86,109 @@ low-stakes. v1.3 stays reserved for Design Language.
 
 ---
 
-## v1.3 scope (next — starts next session)
+## v1.3 scope (CURRENT — kicked off 2026-07-09)
 
 Build 4, target `MARKETING_VERSION 1.3`. Development on the **`dev`** branch,
 merges to `main` at release (see `docs/RELEASE-CHECKLIST.md`). Primary focus is the
 **Design Language** system (Phase 18):
 
-- **Fonts in the Design Language** — bring type into the per-document library
-  alongside colors/gradients: saved typefaces / type styles, categories, and reuse
-  across a document. (Direction, not a locked spec — refine at kickoff.)
-- **Component categories** — organize the component/source library into categories,
-  mirroring the Design Language color categories (candidate; "we'll see where the
-  winds take us").
+- [x] **Type styles in the Design Language** (kickoff decision 2026-07-09): a
+  saved type style captures **everything except color** — face, size, underline,
+  alignment, line-height (+unit), tracking, text case. Color stays with the DL
+  colors so type + color remain independently reusable. `box` excluded (layout,
+  not style). Shares the SAME cross-cutting categories as colors/gradients.
+  Built: `TypeStyle` model (tolerant decode) + capture/apply; save from Type
+  menu / right-click / DL panel menu; apply via panel double-click, panel
+  context menu, and canvas right-click "Apply Type Style ▸"; rename / category
+  / update-from-selection / delete in the panel; EXP JSON export/import
+  (schema-compatible: `typeStyles` array, old files unaffected) and CSS export
+  as `.type-<slug>` classes (font-* only, honestly no color).
+  **FUTURE (needs discovery, do not spec yet):** per-style "color notes" /
+  variations — a style RECOMMENDING pairings from the color library without
+  owning them. Workflow undesigned; revisit after type styles get real use.
+  Settings-window editor parity for type styles is also still open (panel is
+  the primary surface for now).
+- [x] **Component categories → Phase 19a shipped** (see Phase 19 below; boxes
+  checked there). Vocabulary = curated ARIA roles, friendly labels shown,
+  tokens stored.
+- [x] **Tester diagnostics: file-based perf logging** (owner choice: BOTH modes).
+  New `UI/DiagnosticLog.swift` (app target ONLY — do not add to EXPThumbnail):
+  Testing Mode (⌃⌘T) streams every perf summary + blit-budget warning to a
+  per-day rotating log (keep 5) in ~/Library/Logs/EXP [design]/ (sandbox
+  container) with an app/macOS/hardware session header; Help ▸ Save Diagnostic
+  Report… bundles header + display info + doc stats + geometry audit + log
+  tail via NSSavePanel; Help ▸ Reveal Diagnostic Log in Finder. Writes are on
+  a serial background queue (`nonisolated` + `@unchecked Sendable` — the queue
+  is the isolation); logging never blocks the canvas.
+- [x] **Pixel-measurement audit** (owner report: equal-dimension shape+artboard
+  "didn't quite line up"). Finding: no transform bug is possible in the math —
+  both fills go through the identical `docToView`; equal doc frames give
+  identical view rects. The visual mismatch mechanisms are (1) shape strokes
+  are CENTERED on the frame (extend strokeWidth/2 outside; artboard hairline
+  draws fully INSIDE its frame), (2) the artboard drop shadow softens its
+  bottom edge, (3) fractional origins antialias across 2px. Built numeric
+  proof: **View ▸ Log Geometry Audit** — logs doc frames + exact view rects
+  for the selection (or everything), cross-checks equal-sized pairs, alert
+  summarizes MATCH/MISMATCH, details go to the diagnostic log. If it ever
+  reports a mismatch, THAT is a real bug. OWNER VERIFIED 2026-07-10: full-doc
+  audit (82 objects) passed with zero mismatches. The log also identified the
+  original repro's true cause: SVG-imported content carries FRACTIONAL frames
+  (e.g. artboard "wrapping-paper-orange-01" is 148×150 at x 3954 while its SVG
+  content is 150.781×150.755 at x 3953) — the dimensions were never actually
+  equal; the inspector's rounded display made them look it. Closed as
+  not-a-renderer-bug.
+  Follow-up (owner pulled (a) and (b) into v1.3 same day — see the
+  2026-07-10 log entry): stroke alignment and Round to Pixel are DONE;
+  (c) rounding SVG-import frames at import time remains an open backlog
+  candidate.
+- [x] **Stroke alignment (inside / center / outside)** for closed shapes —
+  rect, ellipse, polygon, closed/multi-contour paths; lines + open paths stay
+  center (no interior). `StrokeAlignment` on each shape payload (tolerant
+  decode; default center = legacy). EXACT rendering everywhere: canvas +
+  raster export use clip/2×-width (`PaintRender.strokeAligned`); SVG export
+  offsets geometry ±w/2 for rect/ellipse and uses clipPath (inside) / mask
+  (outside) for polygon/path — no approximations. `strokeReach` (hit-test +
+  cull margins) is alignment-aware. Inspector: segmented Center/Inside/Outside
+  in the Stroke section, shown only when a closed shape is selected.
+- [x] **Round to Pixel** — snaps selected node AND artboard frames (origin +
+  size, min 1×1) to whole pixels in one undo step; auto-layout reflows in the
+  same step; works in the source-editor scope too. Command coverage: `@objc
+  roundToPixelAction:`, Object menu, right-click (nodes + artboards),
+  validateMenuItem. The one-step fix for imported-SVG fractional fuzziness.
+- [x] **Drop shadow "Preserve transparency"** (owner request 2026-07-10: a
+  semi-transparent object went black on its own shadow). Per-shadow checkbox,
+  DEFAULT OFF so every existing document renders unchanged; ON knocks the
+  shadow out from behind the object (cast only OUTSIDE the silhouette).
+  Canvas/raster: `.destinationOut` punch of the TRUE silhouette (spread-0 —
+  the spread ring survives) inside the shadow layer; dissolve masks respected.
+  SVG: `feComposite operator="out"` against the source alpha — identical
+  proportional-alpha semantics. Checkbox sits under the shadow's X/Y/Blur/Spr
+  row with a plain-language field tip. OWNER VERIFIED 2026-07-10.
+- [x] **Per-corner border radius** (rectangles) — `CornerRadii` (+ CSS overlap
+  clamp + CGPath builder) in Document.swift; nil = uniform `cornerRadius`
+  stays the default simple control; Advanced disclosure in the inspector with
+  TL/TR/BL/BR; auto-collapses to uniform when corners match. Renders exactly
+  on canvas, raster export, SVG (arc path), and shadow silhouettes.
+- [x] **BUG FIX: convert-to-path dropped corner radius** — rounded rects now
+  convert with κ-bézier corner anchors (per-corner aware); conversions also
+  preserve stroke alignment.
+- [x] **FIX: stroke position picker was multi-select-only** — added to the
+  single-selection shape and (closed) path inspector sections.
 - Carry-overs still open: Phase 9.5 rich-text editor bug, BUG-004 (centered-title
   rename popover anchor), and the nested-group unified multi-select/transform box
   (still move-only under transformed ancestors).
+
+### Planned next (owner-flagged 2026-07-10 — design the interface first, don't tack on)
+- [ ] **Instance navigation:** from a Components-panel row, center the canvas
+      on an instance and page next/back through all N of them. The ×N badge +
+      select-all shipped as step one; the navigation UI needs a proper design
+      pass before building (owner explicitly wants it to not feel bolted on).
+      Sketch ideas: expander under the row? prev/next chevrons flanking the
+      badge? a HUD once paging starts?
+- [ ] **Components panel grid view:** second view mode — thumbnails in a grid
+      for fast visual scanning (list stays the default). Needs a component
+      thumbnail renderer (the EXPThumbnail extension's render path may be
+      reusable) + the same EXPSegmented grid/list toggle as the DL panel.
 
 Resume at the next unchecked box in Phase 18 (and Phase 19 for the a11y-native
 component north star).
@@ -1057,6 +1145,27 @@ Current baseline:
 - [x] The Design Language panel feels like the start of a styleguide/design
       system workflow, while leaving type/spacing/effects open for later.
 
+#### 18h — Type styles (v1.3, DONE 2026-07-09)
+- [x] `TypeStyle` in the document design language: everything EXCEPT color
+      (owner decision) — face, size, underline, align, line-height (+unit),
+      tracking, text case; `box` excluded (layout). Same cross-cutting
+      categories as colors/gradients; tolerant decode both directions.
+- [x] Capture: Type ▸ Save as Type Style / right-click a text layer / DL panel
+      menu "Save Type Style from Selection" (named after the layer; rename in
+      panel). Apply: panel double-click, panel context menu, canvas right-click
+      "Apply Type Style ▸" — every path re-hugs frames + reflows auto-layout in
+      one undo step. "Update from Selection" re-captures values keeping
+      identity/name/category.
+- [x] Panel rows preview the style name in its own face (display size capped),
+      with VoiceOver labels; detail line carries face/size/lh/tracking/category.
+- [x] Export/import: EXP JSON `typeStyles` array (merge modes incl. value
+      de-dup via `sameValues`), CSS `.type-<slug>` classes (font-* only — no
+      color, on purpose).
+- [ ] FUTURE (discovery first): per-style color notes / recommended pairings
+      from the color library. Do not spec until the workflow is designed.
+- [ ] Settings-window Design Language editor: type-style section parity
+      (panel is the primary surface for now).
+
 ### Phase 19 — Accessibility-native components (NORTH STAR)
 
 **The idea:** give every step of the design process an accessibility affordance,
@@ -1098,7 +1207,10 @@ markup.
 > the Target-Membership trap and the Xcode-agent auto-stubbing behavior.
 
 #### 19a — Component categories (ship first; the visible "dessert")
-- [ ] **Model:** add `var a11y: A11ySemantics = .init()` to `ComponentSource`
+_Shipped 2026-07-09 (v1.3 kickoff). All types inline in `Document.swift` per the
+shared-target gotcha; unknown future role tokens decode to nil instead of
+failing the document._
+- [x] **Model:** add `var a11y: A11ySemantics = .init()` to `ComponentSource`
       with a `decodeIfPresent` decoder so every legacy `.design`/`.exp` file opens
       unchanged.
       ```swift
@@ -1118,21 +1230,25 @@ markup.
           var ariaCategory: AriaCategory { /* for grouping in the picker */ }
       }
       ```
-- [ ] **Category picker** — designer-friendly labels grouped by ARIA category,
+- [x] **Category picker** — designer-friendly labels grouped by ARIA category,
       with a clear "Uncategorized" default. Store the role token, show the label.
-- [ ] **Components panel:** filter/sort by category; show a small role tag on
+- [x] **Components panel:** filter by category (menu of roles present in the
+      document + Uncategorized); role tag shown on
       each component row so the organizing value is immediate.
-- [ ] **Command coverage (per CLAUDE.md rule — wire ALL ways in one change):**
-      `@objc setComponentCategory:` on `CanvasNSView` (single source of truth);
+- [x] **Command coverage (per CLAUDE.md rule — wire ALL ways in one change):**
+      `@objc setComponentCategoryAction:` on `CanvasNSView` (single source of
+      truth; the ARIA token rides in the sender NSMenuItem's representedObject —
+      the SwiftUI Object-menu leg wraps it in a stand-in item since `send()` is
+      parameterless);
       **Object menu** item (e.g. "Set Category…", submenu of roles) with
       `validateMenuItem` enabling only when a component source is selected;
       **right-click** on a component / its instance; **Inspector control** (the
       picker) when a component source is the selection. No keyboard shortcut
       required (inherently a menu/inspector choice).
-- [ ] **A11y of the feature itself:** the picker follows system appearance +
+- [x] **A11y of the feature itself:** the picker follows system appearance +
       accessibility settings; role labels are readable by VoiceOver; the tag is
       not color-only.
-- [ ] **Acceptance:** a designer can assign a category to a component, see it on
+- [ ] **Acceptance (owner verify):** a designer can assign a category to a component, see it on
       the row, filter by it, and reopen the file with the category intact. No
       accessibility "task" was ever presented — it felt like organizing.
 
@@ -1200,8 +1316,9 @@ launch, and manual "Check for Updates…" always works.
       `bin/` tools). Paste the printed public key into Info.plist
       `SUPublicEDKey`. The private key lives in the login Keychain — NEVER in
       the repo or Dropbox.
-- [ ] First signed release: run `generate_appcast` (see §4.5), deploy the
+- [x] First signed release: run `generate_appcast` (see §4.5), deploy the
       site, confirm `https://expdesign.app/appcast.xml` serves the entry.
+      (v1.2.1, 2026-07-09 — owner ran the full §4.5 flow.)
 - [ ] Verify end-to-end: install the previous build, publish the test
       appcast, confirm the update prompt appears, signature validates, and
       install + relaunch works. Also verify the update dialog with VoiceOver
@@ -1277,6 +1394,111 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+- **2026-07-10 (evening) — design-system polish + component workflow + DL Add
+  upgrades:** Owner verified component tagging works. (1) All new segmented
+  pickers (stroke position ×3, DL grid/list toggle) now use the design-system
+  **EXPSegmented** (accent fill) instead of the stock grey `.segmented` picker;
+  EXPSegmented gained per-segment `accessibilityLabel` (for icon-only
+  segments) + `.isSelected` traits. (2) **Source editor** gained a Category
+  row under the header: grouped role picker + a plain-language description of
+  the chosen role (`AriaRole.blurb`, new — one-liners disambiguating
+  confusables like Checkbox vs Switch, Menu vs Navigation). Undoable through
+  the document funnel. (3) **Drag-to-canvas instances**: the Components panel
+  row's existing `.onDrag` (source UUID string) now has a canvas drop side —
+  `componentSourceID(from:)` guards that the string is a UUID matching a
+  document source (checked before the SVG/text sniffers), instance lands
+  centered at the drop point, one undo step, self-nesting into a component's
+  own source editor refused. (4) **Instance count + highlight**: each
+  Components row shows an ×N capsule (hidden at 0) — click selects every
+  instance on the canvas; also in the row context menu. (5) **DL panel Add
+  upgraded**: selecting a GROUP now adds every descendant's fill (as if
+  individually selected — `selectionFlattened()` dedupes nested selections),
+  and the same + button now also captures unsaved TYPE STYLES from selected/
+  descendant text layers (deduped by value); help text reads "Add 2 fills and
+  1 type style…". OWNER NEXT: build; check the picker styling matches primary
+  buttons, categorize from the source editor (read the blurbs!), drag a
+  component onto the canvas, click an ×N badge, select a mixed group and hit
+  + in the DL panel. NOTE: type styles were already addable via Type ▸ Save
+  as Type Style / right-click — the + button is a third, faster path.
+- **2026-07-10 (later) — stroke-picker fix, per-corner radii, convert-to-path
+  radius bug:** Owner verified the shadow Preserve-transparency checkbox works.
+  (1) FIX: the stroke position picker only existed in the MULTI-select stroke
+  section — single selection renders `shapeControls()`/`pathControls()`, which
+  had no picker. Added the segmented Center/Inside/Outside to both (paths:
+  closed/multi-contour only), with single-selection bindings. (2) **Per-corner
+  border radius** (owner request): `CornerRadii` struct in Document.swift
+  (shared target) with CSS-style overlap clamping and a CGPath arc builder;
+  `RectangleShape.cornerRadii: CornerRadii?` — nil = the uniform
+  `cornerRadius`, which STAYS the default simple control. Inspector: single
+  Corner field (setting it clears per-corner), plus an "Advanced" disclosure
+  (mirrors the noise accordion, remembered via AppStorage) with TL/TR/BL/BR
+  fields; matching all four collapses back to uniform automatically.
+  Rendering: canvas + raster export use the shared path builder; silhouettes
+  (shadows/knockout, spread-aware) gained `.perCornerRect`; SVG emits an
+  A-command arc path (uniform rects keep plain `<rect rx>`), with
+  inside/outside strokes via the generic clip/mask helper. (3) BUG FIX:
+  convert-to-path dropped the corner radius — `pathShape(from:)` now builds
+  κ-bézier rounded anchors (`PathShape.roundedRectPoints`, per-corner aware);
+  rect/ellipse/polygon conversions also carry `strokeAlignment` through now.
+  OWNER NEXT: build; verify the picker appears for a single selected
+  rectangle AND a closed path; try Advanced corners (one corner 0, one huge —
+  watch the CSS-style clamp), shadow + per-corner rect, convert a rounded
+  rect to path and check the outline matches, SVG-export a per-corner rect
+  with an outside stroke.
+- **2026-07-10 — v1.3 continued: geometry audit verified + stroke alignment,
+  Round to Pixel, shadow Preserve transparency:** Owner ran View ▸ Log
+  Geometry Audit on the full doc (82 objects): ZERO mismatches — renderer math
+  verified; the original "didn't line up" repro traced to SVG-imported content
+  with fractional frames (e.g. 150.781×150.755 content on a 148×150 board),
+  closed as not-a-renderer-bug. Owner then pulled three items in: (1) **Stroke
+  alignment** inside/center/outside on all closed shapes — `StrokeAlignment`
+  enum + per-shape field (tolerant decode), exact clip/2× rendering via new
+  `PaintRender.strokeAligned` on canvas + raster export, exact SVG via
+  geometry offset (rect/ellipse) and clipPath/mask (polygon/path, new
+  `svgAlignedStrokeCopy` helper), alignment-aware `strokeReach`, segmented
+  inspector control (closed shapes only). (2) **Round to Pixel** — full
+  command coverage, artboards included, reflow in the same undo step. (3)
+  **Drop shadow "Preserve transparency"** (owner wording pick) — per-shadow
+  checkbox, default off = legacy render for existing docs; knockout via
+  `.destinationOut` punch (canvas/raster, true silhouette not the spread
+  outset) and `feComposite out` (SVG). `drawDropShadow` gained an optional
+  `knockout:` closure — call sites in CanvasView + ExportRenderer pass both
+  casters. OWNER NEXT: build; visually check (a) a semi-transparent shape
+  with shadow, toggling the new checkbox, (b) inside/outside strokes on a
+  rounded rect + a star polygon at several zooms, (c) SVG export of both, (d)
+  Round to Pixel on the wrapping-paper SVGs from the audit. Still open:
+  v1.2.1 Sparkle end-to-end confirm; VoiceOver pass on 19a picker +
+  type-style rows.
+- **2026-07-09 — v1.3 kickoff: type styles, ARIA categories (19a), tester
+  diagnostics, pixel audit:** Four workstreams in one session. (1) **Type
+  styles** (Phase 18h, new): `TypeStyle` in `DesignLanguage` — everything
+  except color per owner decision (future color-notes/variations parked for
+  discovery); capture/apply/rename/categorize/update/delete wired through
+  Type menu, canvas right-click, and a new Type Styles panel section; EXP JSON
+  + CSS export extended (`typeStyles` array; `.type-<slug>` classes). (2)
+  **Phase 19a shipped:** `A11ySemantics` + curated `AriaRole` enum inline in
+  `Document.swift` (shared-target safe, tolerant decode); category picker
+  grouped by ARIA category everywhere the command-coverage rule demands —
+  `setComponentCategoryAction:` on CanvasNSView, Object menu submenu (token
+  rides a stand-in NSMenuItem's representedObject), instance right-click,
+  Components-panel row context menu + filter + text-capsule role tag (never
+  color-only), Inspector Category picker on instances, validateMenuItem.
+  Accessible-name hook modeled, no UI yet (as planned). (3) **Tester
+  diagnostics:** new `UI/DiagnosticLog.swift` (app target ONLY) — Testing Mode
+  streams perf summaries + blit-budget warnings to a per-day rotating log in
+  ~/Library/Logs/EXP [design]/ with machine header; Help ▸ Save Diagnostic
+  Report… (NSSavePanel bundle) + Reveal Diagnostic Log in Finder. (4) **Pixel
+  audit:** analysis says equal doc frames CANNOT render at different sizes
+  (same `docToView`); the look-off causes are centered shape strokes vs
+  inside artboard hairline, artboard shadow, fractional coords. Added View ▸
+  Log Geometry Audit (numeric proof + alert + log). OWNER NEXT: build in
+  Xcode (new file DiagnosticLog.swift auto-syncs; do NOT add it to
+  EXPThumbnail), run the geometry audit on the original repro, sanity-pass
+  VoiceOver on the category picker + type-style rows, and confirm the v1.2.1
+  Sparkle end-to-end box (still open from last session). Watch the known
+  Xcode-agent stubbing gotcha if the thumbnail target complains about new
+  Document.swift symbols (TypeStyle/A11ySemantics/AriaRole are all inline
+  there on purpose).
 - **2026-07-09 — v1.2.1 kickoff: Sparkle keys + noise-flashing fix:** Sparkle
   updater verified in-app (build clean, menu item wired; placeholder-key
   warning as expected pre-key). Owner ran `generate_keys`; real public key now
@@ -1289,8 +1511,15 @@ font import → Phase 9, shadows → Phase 10._
   in `Color/TurbulenceNoise.swift`: promote-on-hit LRU, byte-budgeted eviction
   (256 MB + 512-tile safety net, masks counted at 1 B/px vs RGBA 4 B/px), and
   coalesced notifications (≤30/sec). Perf log from the repro showed healthy
-  frames (≤11.6 ms) which ruled out stalls and pointed at eviction. NEXT:
-  owner re-tests the heavy doc zoomed out; then first Sparkle-served release.
+  frames (≤11.6 ms) which ruled out stalls and pointed at eviction. Owner
+  VERIFIED the fix (no flashing, clean frames, real EdDSA key accepted).
+  Release then run per RELEASE-CHECKLIST (incl. new §4.5): notarized ditto
+  zip, GitHub release, `generate_appcast`, site deploy — appcast generation
+  confirmed working by owner. STILL TO CONFIRM next session: an installed 1.2
+  build actually sees + installs 1.2.1 (the end-to-end Phase 20 box). Also
+  logged PERF-005 (instCache counters flat at 0 — verify on an instance-heavy
+  doc). NEXT SESSION: v1.3 kickoff (Design Language, Phase 18) + website
+  language update for auto-updates.
 - **2026-07-09 — Sparkle auto-updates (Phase 20 kickoff):** Integrated the
   Sparkle 2.x update framework for the direct-download build (no App Store).
   New `UI/UpdaterController.swift` (`UpdaterModel` wrapping

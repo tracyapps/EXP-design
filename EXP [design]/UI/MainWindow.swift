@@ -517,6 +517,8 @@ struct RightPanel: View {
     /// Noise/Dissolve "Advanced" accordion — remembered across effects, panel
     /// rebuilds, and app launches, so it stays the way the designer left it.
     @AppStorage("inspector.effects.advancedOpen") private var effectsAdvancedOpen = false
+    /// Per-corner radius accordion (v1.3) — same remembered-disclosure pattern.
+    @AppStorage("inspector.corners.advancedOpen") private var cornersAdvancedOpen = false
 
     /// Which node list this inspector edits: the document's top-level nodes, or a
     /// component source's children (the source-editor window).
@@ -1461,6 +1463,45 @@ struct RightPanel: View {
             }
         })
     }
+    /// True when any selected node is a closed shape (alignment applies).
+    private var multiHasClosedShape: Bool {
+        selectedResolvedNodes.contains { n in
+            switch n.content {
+            case .rectangle, .ellipse, .polygon: return true
+            case .path(let ps): return ps.closed || ps.isMultiContour
+            default: return false
+            }
+        }
+    }
+
+    /// First selected closed shape's alignment (the picker's current value).
+    private var multiStrokeAlignment: StrokeAlignment {
+        for n in selectedResolvedNodes {
+            switch n.content {
+            case .rectangle(let s): return s.strokeAlignment
+            case .ellipse(let s):   return s.strokeAlignment
+            case .polygon(let s):   return s.strokeAlignment
+            case .path(let s) where s.closed || s.isMultiContour: return s.strokeAlignment
+            default: continue
+            }
+        }
+        return .center
+    }
+
+    private var multiStrokeAlignmentBinding: Binding<StrokeAlignment> {
+        Binding(get: { multiStrokeAlignment }, set: { a in
+            mutateAllSelected("Stroke Position") { node in
+                switch node.content {
+                case .rectangle(var s): s.strokeAlignment = a; node.content = .rectangle(s)
+                case .ellipse(var s):   s.strokeAlignment = a; node.content = .ellipse(s)
+                case .polygon(var s):   s.strokeAlignment = a; node.content = .polygon(s)
+                case .path(var s):      s.strokeAlignment = a; node.content = .path(s)
+                default: break   // lines/open paths: no interior, stays centered
+                }
+            }
+        })
+    }
+
     private var multiStrokeWidthBinding: Binding<Double> {
         Binding(get: { Double(multiStrokeWidth) }, set: { v in
             let w = Swift.max(0, CGFloat(v))
@@ -1530,6 +1571,15 @@ struct RightPanel: View {
                         .multilineTextAlignment(.trailing).monospacedDigit()
                         .numericStepping(multiStrokeWidthBinding, min: 0)
                     Spacer()
+                }
+                if multiHasClosedShape {
+                    // v1.3 stroke alignment: closed shapes only (lines and open
+                    // paths have no interior — they always render centered).
+                    EXPSegmented(selection: multiStrokeAlignmentBinding,
+                                 segments: StrokeAlignment.allCases.map { .init(value: $0, label: $0.label) })
+                    .expFieldTip("Stroke position",
+                                 "Where the stroke sits on the shape's edge. **Center** straddles it (half in, half out — the classic default). **Inside** keeps the whole stroke within the shape's frame. **Outside** paints it entirely beyond the edge. Lines and open paths are always centered.")
+                    .accessibilityLabel("Stroke position: center, inside, or outside the shape edge")
                 }
             }
         }
@@ -1842,6 +1892,14 @@ struct RightPanel: View {
             }
             .font(.caption)
             .frame(maxWidth: .infinity, alignment: .leading)
+            if effect.kind == .dropShadow {
+                Toggle("Preserve transparency", isOn: effectPreserveTransparencyBinding(idx))
+                    .toggleStyle(.checkbox)
+                    .font(.caption)
+                    .expFieldTip("Preserve transparency",
+                                 "Keeps the shadow from showing through a see-through object. On: the shadow is cast only OUTSIDE the shape, so a semi-transparent fill stays its own color instead of going dark on its own shadow. Off (default): classic behavior — the shadow is visible behind the object.")
+                    .accessibilityLabel("Preserve transparency — cast the shadow only outside the object")
+            }
             if effect.kind == .noise || effect.kind == .dissolve {
                 // ADVANCED accordion — a disclosure most people never open.
                 VStack(alignment: .leading, spacing: 4) {
@@ -2006,6 +2064,10 @@ struct RightPanel: View {
     private func effectMonoBinding(_ idx: Int) -> Binding<Bool> {
         Binding(get: { effectAt(idx)?.monochrome ?? true },
                 set: { v in updateEffect(idx, action: "Noise Color") { $0.monochrome = v } })
+    }
+    private func effectPreserveTransparencyBinding(_ idx: Int) -> Binding<Bool> {
+        Binding(get: { effectAt(idx)?.preserveTransparency ?? false },
+                set: { v in updateEffect(idx, action: "Shadow Transparency") { $0.preserveTransparency = v } })
     }
     private func effectBlendBinding(_ idx: Int) -> Binding<BlendMode> {
         Binding(get: { effectAt(idx)?.blend ?? .normal },
@@ -2384,10 +2446,43 @@ struct RightPanel: View {
         return (inst, source)
     }
 
+    /// Two-way binding to a component source's category (Phase 19a) — undoable
+    /// through the document funnel like every other inspector edit.
+    private func componentCategoryBinding(_ sourceID: UUID) -> Binding<AriaRole?> {
+        Binding(
+            get: { document.model.source(for: sourceID)?.a11y.role },
+            set: { newRole in
+                guard let si = document.model.sources.firstIndex(where: { $0.id == sourceID }),
+                      document.model.sources[si].a11y.role != newRole else { return }
+                var model = document.model
+                model.sources[si].a11y.role = newRole
+                document.setModel(model, undoManager: undoManager, actionName: "Set Component Category")
+            }
+        )
+    }
+
     @ViewBuilder
     private func instanceControls() -> some View {
         if let ctx = selectedInstanceContext {
             VStack(alignment: .leading, spacing: 10) {
+                Divider()
+                // Phase 19a: component CATEGORY (curated ARIA roles as organizing
+                // vocabulary). Friendly labels shown; token stored on the SOURCE,
+                // so every instance and the Components panel update together.
+                Text("Category").expSectionLabel()
+                Picker("Component category", selection: componentCategoryBinding(ctx.source.id)) {
+                    Text("Uncategorized").tag(AriaRole?.none)
+                    ForEach(AriaRole.grouped(), id: \.category) { group in
+                        Section(group.category.label) {
+                            ForEach(group.roles, id: \.self) { role in
+                                Text(role.friendlyLabel).tag(AriaRole?.some(role))
+                            }
+                        }
+                    }
+                }
+                .labelsHidden()
+                .help("Organize components by what they are — the same choice powers accessible export later")
+
                 Divider()
                 Text("Overrides").expSectionLabel()
 
@@ -2511,7 +2606,40 @@ struct RightPanel: View {
                     TextField("", value: cornerRadiusBinding, format: .number.precision(.fractionLength(0)))
                         .textFieldStyle(.exp).frame(width: 56).multilineTextAlignment(.trailing)
                         .numericStepping(cornerRadiusBinding, min: 0)
+                        .expFieldTip("Corner radius",
+                                     "Rounds all four corners at once — the everyday control. Open Advanced below to set each corner separately.")
                     Spacer()
+                }
+                // v1.3: per-corner radii behind an Advanced disclosure (default
+                // stays the single all-corners field — no extra actions).
+                VStack(alignment: .leading, spacing: 4) {
+                    Button {
+                        withAnimation(EXPMotion.fast) { cornersAdvancedOpen.toggle() }
+                    } label: {
+                        HStack(spacing: 3) {
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 8, weight: .semibold))
+                                .rotationEffect(.degrees(cornersAdvancedOpen ? 90 : 0))
+                            Text("Advanced")
+                        }
+                        .font(.caption)
+                        .foregroundStyle(EXPColor.textSecondary)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(cornersAdvancedOpen
+                        ? "Hide per-corner radius settings" : "Show per-corner radius settings")
+                    if cornersAdvancedOpen {
+                        HStack(spacing: 4) {
+                            cornerField("TL", \.topLeft, tip: "Top-left corner radius")
+                            cornerField("TR", \.topRight, tip: "Top-right corner radius")
+                        }
+                        HStack(spacing: 4) {
+                            cornerField("BL", \.bottomLeft, tip: "Bottom-left corner radius")
+                            cornerField("BR", \.bottomRight, tip: "Bottom-right corner radius")
+                        }
+                        Text("Matching all four snaps back to the single Corner field.")
+                            .font(.caption2).foregroundStyle(EXPColor.textTertiary)
+                    }
                 }
             }
             Divider()
@@ -2524,9 +2652,31 @@ struct RightPanel: View {
                     .numericStepping(strokeWidthShapeBinding, min: 0)
                 Spacer()
             }
+            // v1.3 stroke alignment (rect/ellipse/polygon are all closed).
+            // EXPSegmented = the design-system accent segmented control.
+            EXPSegmented(selection: shapeStrokeAlignmentBinding,
+                         segments: StrokeAlignment.allCases.map { .init(value: $0, label: $0.label) })
+            .expFieldTip("Stroke position",
+                         "Where the stroke sits on the shape's edge. **Center** straddles it (half in, half out — the classic default). **Inside** keeps the whole stroke within the frame. **Outside** paints it entirely beyond the edge.")
+            .accessibilityLabel("Stroke position: center, inside, or outside the shape edge")
         }
         .padding(.horizontal, 12)
         .padding(.bottom, 12)
+    }
+
+    /// One per-corner radius field (v1.3 Advanced corners).
+    @ViewBuilder
+    private func cornerField(_ label: String, _ kp: WritableKeyPath<CornerRadii, CGFloat>, tip: String) -> some View {
+        HStack(spacing: 2) {
+            Text(label).foregroundStyle(EXPColor.textSecondary).font(.caption2)
+            TextField("", value: cornerRadiiBinding(kp), format: .number.precision(.fractionLength(0)))
+                .labelsHidden().textFieldStyle(.exp)
+                .multilineTextAlignment(.trailing).monospacedDigit()
+                .frame(width: 44).numericStepping(cornerRadiiBinding(kp), min: 0)
+        }
+        .help(tip)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(tip)
     }
 
     // Read helpers (fill/stroke/width exist on both rect + ellipse).
@@ -2585,7 +2735,66 @@ struct RightPanel: View {
                     mutateScopedNode(id, action: "Corner Radius") { node in
                         guard case .rectangle(var s) = node.content else { return }
                         s.cornerRadius = max(0, CGFloat(v))
+                        // The simple field is the uniform control: setting it
+                        // dissolves any per-corner overrides (v1.3 spec).
+                        s.cornerRadii = nil
                         node.content = .rectangle(s)
+                    }
+                })
+    }
+
+    /// Effective per-corner radii of the selected rectangle (v1.3).
+    private var rectRadii: CornerRadii {
+        if case .rectangle(let s)? = selectedNode?.content { return s.effectiveRadii }
+        return CornerRadii()
+    }
+
+    /// One corner's binding. Diverging any corner switches the shape to
+    /// per-corner mode; making all four match again collapses back to the
+    /// single uniform `cornerRadius` (so the simple field stays truthful).
+    private func cornerRadiiBinding(_ kp: WritableKeyPath<CornerRadii, CGFloat>) -> Binding<Double> {
+        Binding(get: { Double(rectRadii[keyPath: kp]) },
+                set: { v in
+                    guard let id = app.singleSelectedNodeID else { return }
+                    mutateScopedNode(id, action: "Corner Radius") { node in
+                        guard case .rectangle(var s) = node.content else { return }
+                        var r = s.effectiveRadii
+                        r[keyPath: kp] = max(0, CGFloat(v))
+                        if r.isUniform {
+                            s.cornerRadius = r.topLeft
+                            s.cornerRadii = nil
+                        } else {
+                            s.cornerRadii = r
+                        }
+                        node.content = .rectangle(s)
+                    }
+                })
+    }
+
+    /// Selected shape's stroke alignment (single selection; v1.3).
+    private var shapeStrokeAlignment: StrokeAlignment {
+        guard let content = selectedNode?.content else { return .center }
+        switch content {
+        case .rectangle(let s): return s.strokeAlignment
+        case .ellipse(let s):   return s.strokeAlignment
+        case .polygon(let s):   return s.strokeAlignment
+        case .path(let s):      return s.strokeAlignment
+        default: return .center
+        }
+    }
+
+    private var shapeStrokeAlignmentBinding: Binding<StrokeAlignment> {
+        Binding(get: { shapeStrokeAlignment },
+                set: { a in
+                    guard let id = app.singleSelectedNodeID else { return }
+                    mutateScopedNode(id, action: "Stroke Position") { node in
+                        switch node.content {
+                        case .rectangle(var s): s.strokeAlignment = a; node.content = .rectangle(s)
+                        case .ellipse(var s):   s.strokeAlignment = a; node.content = .ellipse(s)
+                        case .polygon(var s):   s.strokeAlignment = a; node.content = .polygon(s)
+                        case .path(var s):      s.strokeAlignment = a; node.content = .path(s)
+                        default: break
+                        }
                     }
                 })
     }
@@ -2690,6 +2899,15 @@ extension RightPanel {
                         .textFieldStyle(.exp).frame(width: 56).multilineTextAlignment(.trailing)
                         .numericStepping(pathStrokeWidthBinding, min: 0)
                     Spacer()
+                }
+                if ps.closed || ps.isMultiContour {
+                    // v1.3 stroke alignment — closed outlines only (an open
+                    // stroke has no interior, so it always renders centered).
+                    EXPSegmented(selection: shapeStrokeAlignmentBinding,
+                                 segments: StrokeAlignment.allCases.map { .init(value: $0, label: $0.label) })
+                    .expFieldTip("Stroke position",
+                                 "Where the stroke sits on the path's edge: centered on it, fully inside, or fully outside. Available because this path is closed.")
+                    .accessibilityLabel("Stroke position: center, inside, or outside the path edge")
                 }
             }
             .padding(.horizontal, 12)

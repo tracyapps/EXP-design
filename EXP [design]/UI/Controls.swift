@@ -24,6 +24,8 @@ struct EXPSegmented<Value: Hashable>: View {
         let value: Value
         var label: String? = nil
         var icon: String? = nil
+        /// VoiceOver name when the segment is icon-only (falls back to `label`).
+        var accessibilityLabel: String? = nil
         var id: Value { value }
     }
 
@@ -48,6 +50,8 @@ struct EXPSegmented<Value: Hashable>: View {
                     .contentShape(RoundedRectangle(cornerRadius: EXPMetric.radiusControl - 2, style: .continuous))
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel(seg.accessibilityLabel ?? seg.label ?? "")
+                .accessibilityAddTraits(sel ? [.isSelected] : [])
             }
         }
         .padding(2)

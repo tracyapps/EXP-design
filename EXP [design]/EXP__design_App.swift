@@ -49,6 +49,13 @@ struct EXP__design_App: App {
             CommandGroup(replacing: .help) {
                 Button("Send Feedback\u{2026}") { send("sendFeedbackAction:") }
                     .keyboardShortcut("/", modifiers: [.command, .shift])
+                Divider()
+                // Tester diagnostics (v1.3): the report bundles machine info +
+                // geometry audit + the perf stream tail into one attachable file;
+                // the reveal item opens the always-on daily stream log. Reveal is
+                // app-chrome (no canvas needed), so it calls DiagnosticLog directly.
+                Button("Save Diagnostic Report\u{2026}") { send("saveDiagnosticReportAction:") }
+                Button("Reveal Diagnostic Log in Finder") { DiagnosticLog.revealInFinder() }
             }
 
             // FILE ▸ Export (alongside the DocumentGroup's New/Open/Save/Close).
@@ -114,9 +121,24 @@ struct EXP__design_App: App {
                 Button("New Empty Component") { send("newEmptyComponentAction:") }
                 Button("Edit Component") { send("editComponentAction:") }
                 Button("Detach Component") { send("detachComponentAction:") }
+                // Phase 19a: component categories, vocabulary = curated ARIA roles.
+                // Friendly labels shown; the ARIA token rides in representedObject
+                // (send() is parameterless, so each choice ships its token on a
+                // stand-in NSMenuItem sender the canvas action reads back).
+                Menu("Set Component Category") {
+                    Button("Uncategorized") { sendComponentCategory(nil) }
+                    ForEach(AriaRole.grouped(), id: \.category) { group in
+                        Section(group.category.label) {
+                            ForEach(group.roles, id: \.self) { role in
+                                Button(role.friendlyLabel) { sendComponentCategory(role) }
+                            }
+                        }
+                    }
+                }
                     .keyboardShortcut("k", modifiers: [.command, .shift])
                 Divider()
                 Button("Convert to Path") { send("convertToPathAction:") }
+                Button("Round to Pixel") { send("roundToPixelAction:") }
                 Divider()
                 // No key-equivalent: `i` is a canvas key (like the V/A/R/… tool
                 // letters), handled in the canvas's keyDown so it never hijacks a
@@ -134,6 +156,8 @@ struct EXP__design_App: App {
                     .keyboardShortcut("u", modifiers: .command)
                 Divider()
                 Button("Convert to Outlines") { send("convertTextToShapesAction:") }
+                Divider()
+                Button("Save as Type Style") { send("saveTypeStyleAction:") }
                     .keyboardShortcut("o", modifiers: [.command, .shift])
             }
 
@@ -194,6 +218,7 @@ struct EXP__design_App: App {
                 Divider()
                 Button("Testing Mode (Perf Logging)") { send("toggleTestingModeAction:") }
                     .keyboardShortcut("t", modifiers: [.command, .control])
+                Button("Log Geometry Audit") { send("runGeometryAuditAction:") }
             }
 
             // WINDOW ▸ appended after the system window list (which shows the
@@ -216,5 +241,15 @@ struct EXP__design_App: App {
     /// Send an action up the responder chain to whichever canvas is focused.
     private func send(_ selectorName: String) {
         NSApp.sendAction(NSSelectorFromString(selectorName), to: nil, from: nil)
+    }
+
+    /// Phase 19a helper: category choices need a payload, and `send` can't carry
+    /// one — so wrap the ARIA token in a stand-in NSMenuItem and pass it as the
+    /// action's sender (nil token = uncategorized).
+    private func sendComponentCategory(_ role: AriaRole?) {
+        let item = NSMenuItem(title: role?.friendlyLabel ?? "Uncategorized",
+                              action: nil, keyEquivalent: "")
+        item.representedObject = role?.rawValue
+        NSApp.sendAction(NSSelectorFromString("setComponentCategoryAction:"), to: nil, from: item)
     }
 }

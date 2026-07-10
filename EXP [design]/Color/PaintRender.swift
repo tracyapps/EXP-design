@@ -27,6 +27,46 @@ enum PaintRender {
     }
 
     /// Fill a plain rect (no clip path) — used for artboard backgrounds.
+    /// Stroke with alignment (v1.3). center = plain stroke. inside = clip to the
+    /// path and stroke at 2× width (the outer half is clipped away — exact).
+    /// outside = clip to everything EXCEPT the path (even-odd against a padded
+    /// bounding rect) and stroke at 2× (the inner half is clipped away — exact).
+    /// Only call with closed outlines for inside/outside; open paths must pass
+    /// `.center` (an open stroke has no interior to clip against).
+    static func strokeAligned(_ path: NSBezierPath, width: CGFloat,
+                              alignment: StrokeAlignment, color: NSColor,
+                              join: CGLineJoin = .miter, cap: CGLineCap = .butt,
+                              in ctx: CGContext) {
+        guard width > 0 else { return }
+        let cg = path.cgPath
+        ctx.saveGState()
+        ctx.setStrokeColor(color.cgColor)
+        ctx.setLineJoin(join)
+        ctx.setLineCap(cap)
+        switch alignment {
+        case .center:
+            ctx.addPath(cg)
+            ctx.setLineWidth(width)
+            ctx.strokePath()
+        case .inside:
+            ctx.addPath(cg)
+            ctx.clip()
+            ctx.addPath(cg)
+            ctx.setLineWidth(width * 2)
+            ctx.strokePath()
+        case .outside:
+            let outer = CGMutablePath()
+            outer.addRect(cg.boundingBoxOfPath.insetBy(dx: -width * 2 - 8, dy: -width * 2 - 8))
+            outer.addPath(cg)
+            ctx.addPath(outer)
+            ctx.clip(using: .evenOdd)
+            ctx.addPath(cg)
+            ctx.setLineWidth(width * 2)
+            ctx.strokePath()
+        }
+        ctx.restoreGState()
+    }
+
     static func fillRect(_ paint: Paint, rect: CGRect, in ctx: CGContext) {
         switch paint {
         case .solid(let c):

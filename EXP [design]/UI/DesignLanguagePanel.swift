@@ -26,6 +26,9 @@ struct DesignLanguagePanel: View {
 
     @State private var renaming: DesignAsset?
     @State private var renameDraft = ""
+    @State private var renamingStyle: TypeStyle?
+    @State private var styleRenameDraft = ""
+    @State private var assignStyleAfterCreate: UUID?
     @State private var creatingCategory = false
     @State private var categoryDraft = ""
     @State private var assignAfterCreate: UUID?
@@ -64,6 +67,11 @@ struct DesignLanguagePanel: View {
             Button("Save") { commitRename() }
             Button("Cancel", role: .cancel) { renaming = nil }
         }
+        .alert("Rename type style", isPresented: styleRenameActive) {
+            TextField("Name", text: $styleRenameDraft)
+            Button("Save") { commitRenameStyle() }
+            Button("Cancel", role: .cancel) { renamingStyle = nil }
+        }
         .alert("New category", isPresented: $creatingCategory) {
             TextField("Category name", text: $categoryDraft)
             Button("Create") { commitNewCategory() }
@@ -79,13 +87,14 @@ struct DesignLanguagePanel: View {
     }
 
     @ViewBuilder private var content: some View {
-        if dl.assets.isEmpty && dl.recents.isEmpty {
+        if dl.assets.isEmpty && dl.typeStyles.isEmpty && dl.recents.isEmpty {
             emptyState
         } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     typeSection("Colors", dl.solids)
                     typeSection("Gradients", dl.gradients)
+                    typeStylesSection
                     recentsSection
                 }
                 .padding(10)
@@ -97,12 +106,14 @@ struct DesignLanguagePanel: View {
     /// Sticky bottom bar for view settings (swatches / list, room for more later).
     private var viewOptionsBar: some View {
         HStack(spacing: 8) {
-            Picker("", selection: $viewMode) {
-                Image(systemName: "square.grid.2x2").tag(DLViewMode.swatches)
-                Image(systemName: "list.bullet").tag(DLViewMode.list)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
+            // Design-system segmented control (accent selection), not the stock
+            // grey picker — matches the app's primary controls.
+            EXPSegmented(selection: $viewMode, segments: [
+                .init(value: DLViewMode.swatches, icon: "square.grid.2x2",
+                      accessibilityLabel: "View as swatches"),
+                .init(value: DLViewMode.list, icon: "list.bullet",
+                      accessibilityLabel: "View as list"),
+            ])
             .fixedSize()
             .help("View as swatches or list")
             Spacer(minLength: 0)
@@ -142,7 +153,7 @@ struct DesignLanguagePanel: View {
                         .help("New category")
                     }
                 } else {
-                    Text("\(dl.assets.count) saved")
+                    Text("\(dl.assets.count + dl.typeStyles.count) saved")
                         .font(.system(size: EXPType.micro))
                         .foregroundStyle(EXPColor.textTertiary)
                 }
@@ -160,7 +171,7 @@ struct DesignLanguagePanel: View {
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
                     .tint(EXPColor.accent)
-                    .disabled(addableSelectionFills.isEmpty)
+                    .disabled(addableSelectionFills.isEmpty && addableSelectionTypeStyles.isEmpty)
                     .help(addHelp)
                 }
                 Button {
@@ -184,8 +195,13 @@ struct DesignLanguagePanel: View {
         Divider()
         Button("New Category...") { categoryDraft = ""; assignAfterCreate = nil; creatingCategory = true }
         Divider()
-        Button("Export EXP JSON...") { exportToFile() }.disabled(dl.assets.isEmpty)
-        Button("Copy All as CSS") { copy(DesignLanguageIO.exportCSS(dl)) }.disabled(dl.assets.isEmpty)
+        Button("Export EXP JSON...") { exportToFile() }
+            .disabled(dl.assets.isEmpty && dl.typeStyles.isEmpty)
+        Button("Copy All as CSS") { copy(DesignLanguageIO.exportCSS(dl)) }
+            .disabled(dl.assets.isEmpty && dl.typeStyles.isEmpty)
+        Divider()
+        Button("Save Type Style from Selection") { saveTypeStyleFromSelection() }
+            .disabled(selectedTextContent == nil)
     }
 
     private var emptyState: some View {
@@ -285,6 +301,196 @@ struct DesignLanguagePanel: View {
                 .font(.system(size: EXPType.micro)).foregroundStyle(EXPColor.textTertiary)
             Spacer(minLength: 0)
         }
+    }
+
+    // MARK: Type styles section (v1.3)
+
+    private struct StyleCluster { let key: String; let label: String; let items: [TypeStyle] }
+
+    /// Same category clustering as colors/gradients — categories are cross-cutting.
+    private func styleClusters(_ items: [TypeStyle]) -> [StyleCluster] {
+        guard dl.hasCategories else {
+            return items.isEmpty ? [] : [StyleCluster(key: "all", label: "", items: items)]
+        }
+        var out: [StyleCluster] = []
+        for cat in dl.categories where !hiddenCategories.contains(cat.id) {
+            let group = items.filter { $0.categoryID == cat.id }
+            if !group.isEmpty { out.append(StyleCluster(key: cat.id.uuidString, label: cat.name, items: group)) }
+        }
+        let other = items.filter { $0.categoryID == nil }
+        if !other.isEmpty { out.append(StyleCluster(key: "other", label: DesignLanguage.otherLabel, items: other)) }
+        return out
+    }
+
+    @ViewBuilder private var typeStylesSection: some View {
+        let groups = styleClusters(dl.typeStyles)
+        if !groups.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                sectionHeader("Type Styles", dl.typeStyles.count)
+                ForEach(groups, id: \.key) { cluster in
+                    VStack(alignment: .leading, spacing: 6) {
+                        if !cluster.label.isEmpty {
+                            Text(cluster.label)
+                                .font(.system(size: EXPType.micro, weight: .medium))
+                                .foregroundStyle(EXPColor.textTertiary)
+                        }
+                        VStack(spacing: 4) {
+                            ForEach(cluster.items) { typeStyleRow($0) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// One type-style row: the style name PREVIEWED in its own face (display
+    /// size capped so big display styles don't blow up the panel; the real size
+    /// shows in the detail line). List layout only — type is inherently textual.
+    private func typeStyleRow(_ style: TypeStyle) -> some View {
+        let title = style.name.isEmpty ? style.fallbackLabel : style.name
+        let previewSize = min(max(style.fontSize, 11), 18)
+        let previewFont: Font = style.fontName.isEmpty
+            ? .system(size: previewSize)
+            : .custom(style.fontName, fixedSize: previewSize)
+        return HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                    .font(previewFont)
+                    .underline(style.underline)
+                    .foregroundStyle(EXPColor.textPrimary)
+                    .lineLimit(1)
+                Text(typeStyleDetail(style))
+                    .font(.system(size: EXPType.micro))
+                    .foregroundStyle(EXPColor.textTertiary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+            Image(systemName: "textformat")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(EXPColor.textTertiary)
+                .help("Double-click to apply")
+        }
+        .padding(.horizontal, 6)
+        .frame(height: 38)
+        .background(RoundedRectangle(cornerRadius: EXPMetric.radiusRow).fill(EXPColor.rowHover.opacity(0.45)))
+        .contentShape(RoundedRectangle(cornerRadius: EXPMetric.radiusRow))
+        .onTapGesture(count: 2) { applyTypeStyle(style) }
+        .contextMenu { typeStyleMenu(style) }
+        .help("\(title) — \(typeStyleDetail(style)) · double-click to apply")
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(title), type style, \(typeStyleDetail(style))")
+    }
+
+    private func typeStyleDetail(_ style: TypeStyle) -> String {
+        let face = style.fontName.isEmpty ? "System" : style.fontName
+        var parts = ["\(face) \(Int(style.fontSize.rounded()))pt"]
+        switch style.lineHeightUnit {
+        case .auto: break
+        case .multiple: parts.append("lh \(style.lineHeight)")
+        case .px:       parts.append("lh \(Int(style.lineHeight.rounded()))px")
+        case .em:       parts.append("lh \(style.lineHeight)em")
+        }
+        if style.tracking != 0 { parts.append("tracking \(style.tracking)") }
+        if let cat = dl.category(style.categoryID) { parts.insert(cat.name, at: 0) }
+        return parts.joined(separator: " · ")
+    }
+
+    @ViewBuilder private func typeStyleMenu(_ style: TypeStyle) -> some View {
+        Button("Apply to Selection") { applyTypeStyle(style) }
+            .disabled(app.selectedNodeIDs.isEmpty)
+        Button("Update from Selection") { updateTypeStyleFromSelection(style) }
+            .disabled(selectedTextContent == nil)
+        Divider()
+        Menu("Category") {
+            Button("Other") { commit("Set Category") { $0.setTypeStyleCategory(style.id, to: nil) } }
+                .disabled(style.categoryID == nil)
+            if !dl.categories.isEmpty { Divider() }
+            ForEach(dl.categories) { cat in
+                Button {
+                    commit("Set Category") { $0.setTypeStyleCategory(style.id, to: cat.id) }
+                } label: {
+                    if style.categoryID == cat.id { Label(cat.name, systemImage: "checkmark") }
+                    else { Text(cat.name) }
+                }
+            }
+            Divider()
+            Button("New Category...") {
+                categoryDraft = ""; assignStyleAfterCreate = style.id; creatingCategory = true
+            }
+        }
+        Button("Rename...") { styleRenameDraft = style.name; renamingStyle = style }
+        Button("Copy as CSS") {
+            var solo = dl; solo.typeStyles = [style]
+            copy(DesignLanguageIO.cssTypeStyles(solo))
+        }
+        Divider()
+        Button("Delete", role: .destructive) { commit("Delete Type Style") { $0.removeTypeStyle(style.id) } }
+    }
+
+    // MARK: Type style apply / save
+
+    /// The single selected TEXT layer's content, if any (capture source).
+    private var selectedTextContent: (name: String, content: TextContent)? {
+        guard let id = app.singleSelectedNodeID else { return nil }
+        var found: (String, TextContent)?
+        func walk(_ nodes: [Node]) {
+            for n in nodes {
+                if n.id == id, case .text(let tc) = n.content { found = (n.name, tc); return }
+                if case .group(let kids) = n.content { walk(kids) }
+            }
+        }
+        walk(document.model.nodes)
+        return found
+    }
+
+    /// Apply to every selected text layer (nested included), re-hugging frames —
+    /// the same rule as canvas text styling ops. One undo step.
+    private func applyTypeStyle(_ style: TypeStyle) {
+        let ids = app.selectedNodeIDs
+        guard !ids.isEmpty else { return }
+        var model = document.model
+        func walk(_ nodes: inout [Node]) {
+            for i in nodes.indices {
+                if ids.contains(nodes[i].id), case .text(var tc) = nodes[i].content {
+                    style.apply(to: &tc)
+                    nodes[i].content = .text(tc)
+                    nodes[i].frame.size = tc.measuredSize(boxWidth: nodes[i].frame.width)
+                }
+                if case .group(var kids) = nodes[i].content {
+                    walk(&kids); nodes[i].content = .group(children: kids)
+                }
+            }
+        }
+        walk(&model.nodes)
+        model.nodes = AutoLayoutEngine.reflowed(model.nodes)
+        document.setModel(model, undoManager: undoManager, actionName: "Apply Type Style")
+    }
+
+    private func saveTypeStyleFromSelection() {
+        guard let sel = selectedTextContent else { return }
+        commit("Save Type Style") {
+            $0.saveTypeStyle(TypeStyle.capture(from: sel.content, name: sel.name))
+        }
+    }
+
+    /// Re-capture an existing style's VALUES from the selected text layer,
+    /// keeping its identity, name, and category.
+    private func updateTypeStyleFromSelection(_ style: TypeStyle) {
+        guard let sel = selectedTextContent else { return }
+        commit("Update Type Style") {
+            $0.setTypeStyleValues(style.id, from: TypeStyle.capture(from: sel.content))
+        }
+    }
+
+    private var styleRenameActive: Binding<Bool> {
+        Binding(get: { renamingStyle != nil }, set: { if !$0 { renamingStyle = nil } })
+    }
+
+    private func commitRenameStyle() {
+        guard let s = renamingStyle else { return }
+        let name = styleRenameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        commit("Rename Type Style") { $0.renameTypeStyle(s.id, to: name) }
+        renamingStyle = nil
     }
 
     // MARK: Swatch cell + menus
@@ -518,21 +724,53 @@ struct DesignLanguagePanel: View {
         selectionFills().first
     }
 
-    private func selectionFills() -> [Paint] {
+    /// The selection EXPANDED: selected nodes plus every descendant of any
+    /// selected group (v1.3 owner request — "select the group, add everything
+    /// in it, as if each item were selected directly").
+    private func selectionFlattened() -> [Node] {
         let ids = app.selectedNodeIDs
         guard !ids.isEmpty else { return [] }
-        var fills: [Paint] = []
-        func appendUnique(_ paint: Paint) {
-            if !fills.contains(paint) { fills.append(paint) }
-        }
-        func walk(_ nodes: [Node]) {
+        var roots: [Node] = []
+        func find(_ nodes: [Node]) {
             for n in nodes {
-                if ids.contains(n.id), let f = fillOf(n) { appendUnique(f) }
-                if case .group(let kids) = n.content { walk(kids) }
+                if ids.contains(n.id) { roots.append(n) }
+                // Keep descending even inside a selected group, so a nested
+                // selection isn't collected twice below (flatten dedupes by id).
+                if case .group(let kids) = n.content { find(kids) }
             }
         }
-        walk(document.model.nodes)
+        find(document.model.nodes)
+        var out: [Node] = []
+        var seen: Set<UUID> = []
+        func flatten(_ n: Node) {
+            if seen.insert(n.id).inserted { out.append(n) }
+            if case .group(let kids) = n.content { for k in kids { flatten(k) } }
+        }
+        for n in roots { flatten(n) }
+        return out
+    }
+
+    private func selectionFills() -> [Paint] {
+        var fills: [Paint] = []
+        for n in selectionFlattened() {
+            if let f = fillOf(n), !fills.contains(f) { fills.append(f) }
+        }
         return fills
+    }
+
+    /// Type styles in the selection (nested text included) not yet saved —
+    /// the same + button adds these alongside fills (v1.3 owner request).
+    private var addableSelectionTypeStyles: [TypeStyle] {
+        var out: [TypeStyle] = []
+        for n in selectionFlattened() {
+            guard case .text(let tc) = n.content else { continue }
+            let cand = TypeStyle.capture(from: tc, name: n.name)
+            if !dl.typeStyles.contains(where: { $0.sameValues(as: cand) }),
+               !out.contains(where: { $0.sameValues(as: cand) }) {
+                out.append(cand)
+            }
+        }
+        return out
     }
 
     private func fillOf(_ n: Node) -> Paint? {
@@ -555,20 +793,26 @@ struct DesignLanguagePanel: View {
     }
 
     private var addHelp: String {
-        let fills = selectionFills()
-        let addable = addableSelectionFills
-        if fills.isEmpty { return "Select shapes to save their fills" }
-        if addable.isEmpty { return fills.count == 1 ? "This color is already in your design language"
-                                                     : "These colors are already in your design language" }
-        return addable.count == 1 ? "Save the selected shape's fill"
-                                  : "Save \(addable.count) selected fills"
+        let fills = addableSelectionFills
+        let styles = addableSelectionTypeStyles
+        if fills.isEmpty && styles.isEmpty {
+            return selectionFlattened().isEmpty
+                ? "Select shapes or text (or a group of them) to save fills and type styles"
+                : "Everything in this selection is already in your design language"
+        }
+        var parts: [String] = []
+        if !fills.isEmpty { parts.append(fills.count == 1 ? "1 fill" : "\(fills.count) fills") }
+        if !styles.isEmpty { parts.append(styles.count == 1 ? "1 type style" : "\(styles.count) type styles") }
+        return "Add \(parts.joined(separator: " and ")) from the selection (groups included)"
     }
 
     private func saveFromSelection() {
         let fills = addableSelectionFills
-        guard !fills.isEmpty else { return }
-        commit(fills.count == 1 ? "Save Color" : "Save Colors") { dl in
+        let styles = addableSelectionTypeStyles
+        guard !fills.isEmpty || !styles.isEmpty else { return }
+        commit("Add to Design Language") { dl in
             for fill in fills { dl.save(fill, provenance: "selection") }
+            for style in styles { dl.saveTypeStyle(style) }
         }
     }
 
@@ -591,11 +835,14 @@ struct DesignLanguagePanel: View {
     private func commitNewCategory() {
         let name = categoryDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         let assign = assignAfterCreate
+        let assignStyle = assignStyleAfterCreate
         assignAfterCreate = nil
+        assignStyleAfterCreate = nil
         guard !name.isEmpty else { return }
         commit("New Category") { dl in
             let id = dl.ensureCategory(name)
             if let a = assign { dl.setCategory(a, to: id) }
+            if let s = assignStyle { dl.setTypeStyleCategory(s, to: id) }
         }
     }
 
@@ -642,9 +889,11 @@ struct DesignLanguagePanel: View {
         panel.message = "Import an EXP design-language JSON file."
         guard panel.runModal() == .OK, let url = panel.url,
               let data = try? Data(contentsOf: url),
-              let parsed = DesignLanguageIO.parseJSON(data), !parsed.assets.isEmpty else { return }
+              let parsed = DesignLanguageIO.parseJSON(data),
+              !parsed.assets.isEmpty || !parsed.typeStyles.isEmpty else { return }
         commit("Import Design Language") {
             $0.merge(parsed.assets, categories: parsed.categories, mode: mergeMode)
+            $0.mergeTypeStyles(parsed.typeStyles, categories: parsed.categories, mode: mergeMode)
         }
     }
 

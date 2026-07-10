@@ -561,6 +561,11 @@ struct Effect: Identifiable, Codable, Sendable {
     var blur: CGFloat = 4
     var spread: CGFloat = 0
     var isEnabled: Bool = true
+    /// Drop shadow only: when true, the shadow is knocked out from behind the
+    /// object, so a semi-transparent fill no longer sits on its own shadow and
+    /// go muddy/black. Default false = legacy behavior (shadow visible through
+    /// transparency), so existing documents render unchanged.
+    var preserveTransparency: Bool = false
     // Noise / dissolve (ignored by the shadow kinds). Defaults chosen so a
     // freshly added effect is immediately visible.
     var turbulenceType: TurbulenceType = .fractalNoise
@@ -574,13 +579,13 @@ struct Effect: Identifiable, Codable, Sendable {
     init(id: UUID = UUID(), kind: Kind = .dropShadow,
          color: RGBAColor = RGBAColor(r: 0, g: 0, b: 0, a: 0.33),
          dx: CGFloat = 0, dy: CGFloat = 2, blur: CGFloat = 4, spread: CGFloat = 0,
-         isEnabled: Bool = true,
+         isEnabled: Bool = true, preserveTransparency: Bool = false,
          turbulenceType: TurbulenceType = .fractalNoise, frequency: CGFloat = 0.9,
          octaves: Int = 4, seed: Int = 0, monochrome: Bool = true,
          amount: CGFloat = 0.35, blend: BlendMode = .normal) {
         self.id = id; self.kind = kind; self.color = color
         self.dx = dx; self.dy = dy; self.blur = blur; self.spread = spread
-        self.isEnabled = isEnabled
+        self.isEnabled = isEnabled; self.preserveTransparency = preserveTransparency
         self.turbulenceType = turbulenceType; self.frequency = frequency
         self.octaves = octaves; self.seed = seed; self.monochrome = monochrome
         self.amount = amount; self.blend = blend
@@ -595,6 +600,7 @@ struct Effect: Identifiable, Codable, Sendable {
         blur = try c.decodeIfPresent(CGFloat.self, forKey: .blur) ?? 4
         spread = try c.decodeIfPresent(CGFloat.self, forKey: .spread) ?? 0
         isEnabled = try c.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
+        preserveTransparency = try c.decodeIfPresent(Bool.self, forKey: .preserveTransparency) ?? false
         turbulenceType = try c.decodeIfPresent(TurbulenceType.self, forKey: .turbulenceType) ?? .fractalNoise
         frequency = try c.decodeIfPresent(CGFloat.self, forKey: .frequency) ?? 0.9
         octaves = try c.decodeIfPresent(Int.self, forKey: .octaves) ?? 4
@@ -630,6 +636,113 @@ struct ImageContent: Codable, Sendable {
 
 // MARK: - Shape payloads
 
+/// Per-corner radii for a rectangle (v1.3 "advanced corners"). The DEFAULT
+/// remains one uniform `cornerRadius` on the shape — this struct only exists
+/// on a rectangle once the designer opens Advanced and diverges a corner, and
+/// it collapses back to nil the moment all four match again (so the simple
+/// field keeps working with zero extra actions, per the owner's spec).
+/// Corner names are visual (y-down document space): topLeft = min-x/min-y.
+struct CornerRadii: Codable, Equatable, Sendable {
+    var topLeft: CGFloat = 0
+    var topRight: CGFloat = 0
+    var bottomRight: CGFloat = 0
+    var bottomLeft: CGFloat = 0
+
+    init(topLeft: CGFloat = 0, topRight: CGFloat = 0,
+         bottomRight: CGFloat = 0, bottomLeft: CGFloat = 0) {
+        self.topLeft = max(0, topLeft); self.topRight = max(0, topRight)
+        self.bottomRight = max(0, bottomRight); self.bottomLeft = max(0, bottomLeft)
+    }
+    init(all r: CGFloat) { self.init(topLeft: r, topRight: r, bottomRight: r, bottomLeft: r) }
+
+    var isUniform: Bool { topLeft == topRight && topRight == bottomRight && bottomRight == bottomLeft }
+    var isZero: Bool { topLeft == 0 && topRight == 0 && bottomRight == 0 && bottomLeft == 0 }
+
+    func scaled(by s: CGFloat) -> CornerRadii {
+        CornerRadii(topLeft: topLeft * s, topRight: topRight * s,
+                    bottomRight: bottomRight * s, bottomLeft: bottomLeft * s)
+    }
+    /// Grow/shrink every radius (spread, stroke offsets); clamps at 0.
+    func offset(by d: CGFloat) -> CornerRadii {
+        CornerRadii(topLeft: max(0, topLeft + d), topRight: max(0, topRight + d),
+                    bottomRight: max(0, bottomRight + d), bottomLeft: max(0, bottomLeft + d))
+    }
+    /// CSS overlap rule: if two adjacent radii overflow their shared edge, scale
+    /// ALL radii by the worst ratio so arcs never cross.
+    func clamped(to size: CGSize) -> CornerRadii {
+        var f: CGFloat = 1
+        func limit(_ a: CGFloat, _ b: CGFloat, _ edge: CGFloat) {
+            let sum = a + b
+            if sum > edge, sum > 0 { f = Swift.min(f, edge / sum) }
+        }
+        limit(topLeft, topRight, size.width)
+        limit(bottomLeft, bottomRight, size.width)
+        limit(topLeft, bottomLeft, size.height)
+        limit(topRight, bottomRight, size.height)
+        return f < 1 ? scaled(by: f) : self
+    }
+
+    /// The rounded-rect outline (CoreGraphics only — safe for the shared
+    /// model target). `scale` multiplies the radii first (view = doc × zoom).
+    func path(in rect: CGRect, scale: CGFloat = 1) -> CGPath {
+        let c = scaled(by: scale).clamped(to: rect.size)
+        let p = CGMutablePath()
+        p.move(to: CGPoint(x: rect.minX + c.topLeft, y: rect.minY))
+        if c.topRight > 0 {
+            p.addArc(tangent1End: CGPoint(x: rect.maxX, y: rect.minY),
+                     tangent2End: CGPoint(x: rect.maxX, y: rect.maxY), radius: c.topRight)
+        } else { p.addLine(to: CGPoint(x: rect.maxX, y: rect.minY)) }
+        if c.bottomRight > 0 {
+            p.addArc(tangent1End: CGPoint(x: rect.maxX, y: rect.maxY),
+                     tangent2End: CGPoint(x: rect.minX, y: rect.maxY), radius: c.bottomRight)
+        } else { p.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY)) }
+        if c.bottomLeft > 0 {
+            p.addArc(tangent1End: CGPoint(x: rect.minX, y: rect.maxY),
+                     tangent2End: CGPoint(x: rect.minX, y: rect.minY), radius: c.bottomLeft)
+        } else { p.addLine(to: CGPoint(x: rect.minX, y: rect.maxY)) }
+        if c.topLeft > 0 {
+            p.addArc(tangent1End: CGPoint(x: rect.minX, y: rect.minY),
+                     tangent2End: CGPoint(x: rect.maxX, y: rect.minY), radius: c.topLeft)
+        } else { p.addLine(to: CGPoint(x: rect.minX, y: rect.minY)) }
+        p.closeSubpath()
+        return p
+    }
+
+    // Tolerant decode (future fields never break older builds).
+    enum CodingKeys: String, CodingKey { case topLeft, topRight, bottomRight, bottomLeft }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        topLeft = max(0, try c.decodeIfPresent(CGFloat.self, forKey: .topLeft) ?? 0)
+        topRight = max(0, try c.decodeIfPresent(CGFloat.self, forKey: .topRight) ?? 0)
+        bottomRight = max(0, try c.decodeIfPresent(CGFloat.self, forKey: .bottomRight) ?? 0)
+        bottomLeft = max(0, try c.decodeIfPresent(CGFloat.self, forKey: .bottomLeft) ?? 0)
+    }
+}
+
+/// Where a stroke sits relative to the shape's edge (v1.3). CSS/SVG only do
+/// `center`; EXP renders inside/outside exactly (clip + double-width on
+/// canvas/raster; geometry offset or clipPath/mask in the SVG export). Only
+/// meaningful on CLOSED outlines — lines and open paths are always centered.
+enum StrokeAlignment: String, Codable, Sendable, CaseIterable {
+    case center, inside, outside
+    var label: String {
+        switch self {
+        case .center:  return "Center"
+        case .inside:  return "Inside"
+        case .outside: return "Outside"
+        }
+    }
+    /// How far past the frame the stroke paints, per edge, for width `w` —
+    /// drives hit-test tolerance and cull margins.
+    func reach(for w: CGFloat) -> CGFloat {
+        switch self {
+        case .center:  return w / 2
+        case .inside:  return 0
+        case .outside: return w
+        }
+    }
+}
+
 /// `strokeWidth == 0` means no stroke (matches a plain filled shape). Custom
 /// decoders default the newer stroke fields so older files still open.
 struct RectangleShape: Codable, Sendable {
@@ -637,11 +750,25 @@ struct RectangleShape: Codable, Sendable {
     var cornerRadius: CGFloat = 0
     var stroke: RGBAColor = .black
     var strokeWidth: CGFloat = 0
+    var strokeAlignment: StrokeAlignment = .center
+    /// Per-corner radii (v1.3). nil = uniform `cornerRadius` (the default,
+    /// simple case). Setting the plain Corner field clears this back to nil.
+    var cornerRadii: CornerRadii? = nil
+
+    /// The four radii actually in effect (uniform expands to all corners).
+    var effectiveRadii: CornerRadii { cornerRadii ?? CornerRadii(all: cornerRadius) }
+    /// True when corners genuinely differ (drives the per-corner render path).
+    var hasPerCornerRadii: Bool {
+        guard let r = cornerRadii else { return false }
+        return !r.isUniform
+    }
 
     init(fill: Paint = .white, cornerRadius: CGFloat = 0,
-         stroke: RGBAColor = .black, strokeWidth: CGFloat = 0) {
+         stroke: RGBAColor = .black, strokeWidth: CGFloat = 0,
+         strokeAlignment: StrokeAlignment = .center, cornerRadii: CornerRadii? = nil) {
         self.fill = fill; self.cornerRadius = cornerRadius
         self.stroke = stroke; self.strokeWidth = strokeWidth
+        self.strokeAlignment = strokeAlignment; self.cornerRadii = cornerRadii
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -649,6 +776,8 @@ struct RectangleShape: Codable, Sendable {
         cornerRadius = try c.decodeIfPresent(CGFloat.self, forKey: .cornerRadius) ?? 0
         stroke = try c.decodeIfPresent(RGBAColor.self, forKey: .stroke) ?? .black
         strokeWidth = try c.decodeIfPresent(CGFloat.self, forKey: .strokeWidth) ?? 0
+        strokeAlignment = try c.decodeIfPresent(StrokeAlignment.self, forKey: .strokeAlignment) ?? .center
+        cornerRadii = try c.decodeIfPresent(CornerRadii.self, forKey: .cornerRadii)
     }
 }
 
@@ -656,15 +785,19 @@ struct EllipseShape: Codable, Sendable {
     var fill: Paint = .white
     var stroke: RGBAColor = .black
     var strokeWidth: CGFloat = 0
+    var strokeAlignment: StrokeAlignment = .center
 
-    init(fill: Paint = .white, stroke: RGBAColor = .black, strokeWidth: CGFloat = 0) {
+    init(fill: Paint = .white, stroke: RGBAColor = .black, strokeWidth: CGFloat = 0,
+         strokeAlignment: StrokeAlignment = .center) {
         self.fill = fill; self.stroke = stroke; self.strokeWidth = strokeWidth
+        self.strokeAlignment = strokeAlignment
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         fill = try c.decodeIfPresent(Paint.self, forKey: .fill) ?? .white
         stroke = try c.decodeIfPresent(RGBAColor.self, forKey: .stroke) ?? .black
         strokeWidth = try c.decodeIfPresent(CGFloat.self, forKey: .strokeWidth) ?? 0
+        strokeAlignment = try c.decodeIfPresent(StrokeAlignment.self, forKey: .strokeAlignment) ?? .center
     }
 }
 
@@ -677,9 +810,13 @@ struct PolygonShape: Codable, Sendable {
     var stroke: RGBAColor = .black
     var strokeWidth: CGFloat = 0
 
-    init(sides: Int = 3, fill: Paint = .white, stroke: RGBAColor = .black, strokeWidth: CGFloat = 0) {
+    var strokeAlignment: StrokeAlignment = .center
+
+    init(sides: Int = 3, fill: Paint = .white, stroke: RGBAColor = .black, strokeWidth: CGFloat = 0,
+         strokeAlignment: StrokeAlignment = .center) {
         self.sides = Swift.min(25, Swift.max(3, sides))
         self.fill = fill; self.stroke = stroke; self.strokeWidth = strokeWidth
+        self.strokeAlignment = strokeAlignment
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -687,6 +824,7 @@ struct PolygonShape: Codable, Sendable {
         fill = try c.decodeIfPresent(Paint.self, forKey: .fill) ?? .white
         stroke = try c.decodeIfPresent(RGBAColor.self, forKey: .stroke) ?? .black
         strokeWidth = try c.decodeIfPresent(CGFloat.self, forKey: .strokeWidth) ?? 0
+        strokeAlignment = try c.decodeIfPresent(StrokeAlignment.self, forKey: .strokeAlignment) ?? .center
     }
 
     /// Vertices (point-up) inscribed in `rect`, in that rect's coordinate space.
@@ -732,12 +870,20 @@ struct PathShape: Codable, Sendable {
     var fill: Paint = .white
     var stroke: RGBAColor = .black
     var strokeWidth: CGFloat = 2
+    var strokeAlignment: StrokeAlignment = .center
     var contours: [[PathPoint]]? = nil
 
+    /// Alignment is only meaningful on a closed outline; open paths render center.
+    var effectiveStrokeAlignment: StrokeAlignment {
+        (closed || isMultiContour) ? strokeAlignment : .center
+    }
+
     init(points: [PathPoint], closed: Bool = false, fill: Paint = .white,
-         stroke: RGBAColor = .black, strokeWidth: CGFloat = 2, contours: [[PathPoint]]? = nil) {
+         stroke: RGBAColor = .black, strokeWidth: CGFloat = 2,
+         strokeAlignment: StrokeAlignment = .center, contours: [[PathPoint]]? = nil) {
         self.points = points; self.closed = closed; self.fill = fill
-        self.stroke = stroke; self.strokeWidth = strokeWidth; self.contours = contours
+        self.stroke = stroke; self.strokeWidth = strokeWidth
+        self.strokeAlignment = strokeAlignment; self.contours = contours
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -746,7 +892,45 @@ struct PathShape: Codable, Sendable {
         fill = try c.decodeIfPresent(Paint.self, forKey: .fill) ?? .white
         stroke = try c.decodeIfPresent(RGBAColor.self, forKey: .stroke) ?? .black
         strokeWidth = try c.decodeIfPresent(CGFloat.self, forKey: .strokeWidth) ?? 2
+        strokeAlignment = try c.decodeIfPresent(StrokeAlignment.self, forKey: .strokeAlignment) ?? .center
         contours = try c.decodeIfPresent([[PathPoint]].self, forKey: .contours)
+    }
+
+    /// Anchors for a rounded rectangle in LOCAL space (v1.3 — fixes "convert
+    /// to path drops the corner radius"). Each rounded corner becomes two
+    /// anchors whose handles trace the standard κ ≈ 0.5523 quarter-circle
+    /// approximation; a zero corner stays one plain anchor. Clockwise from
+    /// the top-left, matching the un-rounded conversion's winding.
+    static func roundedRectPoints(size: CGSize, radii: CornerRadii) -> [PathPoint] {
+        let w = size.width, h = size.height
+        let c = radii.clamped(to: size)
+        let k: CGFloat = 0.5522847498   // circle-to-bézier constant
+        var pts: [PathPoint] = []
+        // Top-left
+        if c.topLeft > 0 {
+            let r = c.topLeft
+            pts.append(PathPoint(point: CGPoint(x: 0, y: r), controlOut: CGPoint(x: 0, y: r * (1 - k))))
+            pts.append(PathPoint(point: CGPoint(x: r, y: 0), controlIn: CGPoint(x: r * (1 - k), y: 0)))
+        } else { pts.append(PathPoint(point: .zero)) }
+        // Top-right
+        if c.topRight > 0 {
+            let r = c.topRight
+            pts.append(PathPoint(point: CGPoint(x: w - r, y: 0), controlOut: CGPoint(x: w - r * (1 - k), y: 0)))
+            pts.append(PathPoint(point: CGPoint(x: w, y: r), controlIn: CGPoint(x: w, y: r * (1 - k))))
+        } else { pts.append(PathPoint(point: CGPoint(x: w, y: 0))) }
+        // Bottom-right
+        if c.bottomRight > 0 {
+            let r = c.bottomRight
+            pts.append(PathPoint(point: CGPoint(x: w, y: h - r), controlOut: CGPoint(x: w, y: h - r * (1 - k))))
+            pts.append(PathPoint(point: CGPoint(x: w - r, y: h), controlIn: CGPoint(x: w - r * (1 - k), y: h)))
+        } else { pts.append(PathPoint(point: CGPoint(x: w, y: h))) }
+        // Bottom-left
+        if c.bottomLeft > 0 {
+            let r = c.bottomLeft
+            pts.append(PathPoint(point: CGPoint(x: r, y: h), controlOut: CGPoint(x: r * (1 - k), y: h)))
+            pts.append(PathPoint(point: CGPoint(x: 0, y: h - r), controlIn: CGPoint(x: 0, y: h - r * (1 - k))))
+        } else { pts.append(PathPoint(point: CGPoint(x: 0, y: h))) }
+        return pts
     }
 
     /// All contours to render: the multi-contour set if present, else the single
@@ -946,13 +1130,19 @@ struct ComponentSource: Identifiable, Codable, Sendable {
     var size: CGSize
     var children: [Node]
 
+    /// Accessibility semantics (Phase 19a). Day one this is the component's
+    /// CATEGORY — an ARIA role used as an organizing filter. Underneath, the
+    /// same choice anchors accessible code export later. Defaults empty so
+    /// every legacy `.design`/`.exp` file opens unchanged.
+    var a11y: A11ySemantics = A11ySemantics()
+
     /// The component's viewBox — what an instance renders, like an SVG viewBox.
     var bounds: CGRect { CGRect(origin: origin, size: size) }
 
     init(id: UUID = UUID(), name: String, origin: CGPoint = .zero,
-         size: CGSize, children: [Node]) {
+         size: CGSize, children: [Node], a11y: A11ySemantics = A11ySemantics()) {
         self.id = id; self.name = name; self.origin = origin
-        self.size = size; self.children = children
+        self.size = size; self.children = children; self.a11y = a11y
     }
 
     init(from decoder: Decoder) throws {
@@ -962,6 +1152,189 @@ struct ComponentSource: Identifiable, Codable, Sendable {
         origin = try c.decodeIfPresent(CGPoint.self, forKey: .origin) ?? .zero
         size = try c.decode(CGSize.self, forKey: .size)
         children = try c.decode([Node].self, forKey: .children)
+        a11y = try c.decodeIfPresent(A11ySemantics.self, forKey: .a11y) ?? A11ySemantics()
+    }
+}
+
+// MARK: - Accessibility semantics (Phase 19a — "the health food in the dessert")
+
+/// Per-component accessibility semantics. Phase 1 surfaces the ROLE only (the
+/// component "category"); the accessible-name hook is modeled NOW so export has
+/// something real to work with later, even though no UI sets it yet.
+///
+/// Lives in Document.swift on purpose: `ComponentSource` references it, and this
+/// file is shared with the EXPThumbnail extension target (see CLAUDE.md gotcha).
+struct A11ySemantics: Codable, Equatable, Sendable {
+    /// The component's category. nil = uncategorized. UI shows the friendly
+    /// label ("Button"); the model persists the ARIA token ("button").
+    var role: AriaRole?
+    /// Which child layer supplies the accessible name (wired now, no UI yet).
+    var accessibleNameLayerID: UUID?
+    // TODO(explore later): required/expressible states per role (aria-checked,
+    // aria-selected, …), modeled once a component-state system exists.
+
+    init(role: AriaRole? = nil, accessibleNameLayerID: UUID? = nil) {
+        self.role = role
+        self.accessibleNameLayerID = accessibleNameLayerID
+    }
+
+    enum CodingKeys: String, CodingKey { case role, accessibleNameLayerID }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        // Unknown future tokens decode to nil instead of failing the document.
+        role = (try? c.decodeIfPresent(AriaRole.self, forKey: .role)) ?? nil
+        accessibleNameLayerID = try c.decodeIfPresent(UUID.self, forKey: .accessibleNameLayerID)
+    }
+}
+
+/// Grouping for the category picker — mirrors how the ARIA spec organizes
+/// non-abstract roles a designer actually places.
+enum AriaCategory: String, Codable, Sendable, CaseIterable {
+    case landmark, widget, composite, structure
+
+    var label: String {
+        switch self {
+        case .landmark:  return "Landmarks"
+        case .widget:    return "Widgets"
+        case .composite: return "Composite"
+        case .structure: return "Structure"
+        }
+    }
+}
+
+/// A curated, design-relevant subset of non-abstract ARIA roles. Abstract and
+/// author-forbidden roles are never offered, so nothing invalid can ever reach
+/// export. Raw values ARE the ARIA tokens (what the model persists and what the
+/// semantic emitters will write); `friendlyLabel` is what designers see.
+enum AriaRole: String, Codable, Sendable, CaseIterable {
+    // Landmarks — page regions.
+    case banner, navigation, main, complementary, contentinfo, search, form, region
+    // Widgets — interactive controls.
+    case button, link, checkbox, radio, `switch`, textbox, searchbox, slider,
+         spinbutton, progressbar, tooltip
+    // Composite — widgets made of parts.
+    case tablist, tab, tabpanel, menu, menubar, menuitem, listbox, option,
+         radiogroup, toolbar, dialog, alertdialog, alert
+    // Structure — document structure.
+    case heading, list, listitem, img, figure, table, separator, group
+
+    /// Designer-friendly display name. Shown in every picker/tag; the raw ARIA
+    /// token is what's stored.
+    var friendlyLabel: String {
+        switch self {
+        case .banner:        return "Header (Banner)"
+        case .navigation:    return "Navigation"
+        case .main:          return "Main Content"
+        case .complementary: return "Sidebar (Complementary)"
+        case .contentinfo:   return "Footer (Content Info)"
+        case .search:        return "Search Area"
+        case .form:          return "Form"
+        case .region:        return "Region"
+        case .button:        return "Button"
+        case .link:          return "Link"
+        case .checkbox:      return "Checkbox"
+        case .radio:         return "Radio Button"
+        case .switch:        return "Switch / Toggle"
+        case .textbox:       return "Text Field"
+        case .searchbox:     return "Search Field"
+        case .slider:        return "Slider"
+        case .spinbutton:    return "Stepper (Spin Button)"
+        case .progressbar:   return "Progress Bar"
+        case .tooltip:       return "Tooltip"
+        case .tablist:       return "Tab Bar (Tab List)"
+        case .tab:           return "Tab"
+        case .tabpanel:      return "Tab Panel"
+        case .menu:          return "Menu"
+        case .menubar:       return "Menu Bar"
+        case .menuitem:      return "Menu Item"
+        case .listbox:       return "Dropdown List (Listbox)"
+        case .option:        return "Dropdown Option"
+        case .radiogroup:    return "Radio Group"
+        case .toolbar:       return "Toolbar"
+        case .dialog:        return "Dialog / Modal"
+        case .alertdialog:   return "Alert Dialog"
+        case .alert:         return "Alert / Banner Message"
+        case .heading:       return "Heading"
+        case .list:          return "List"
+        case .listitem:      return "List Item"
+        case .img:           return "Image (Non-text)"
+        case .figure:        return "Figure"
+        case .table:         return "Table"
+        case .separator:     return "Divider (Separator)"
+        case .group:         return "Group"
+        }
+    }
+
+    /// One-line "is this the right one?" helper shown next to pickers (v1.3,
+    /// owner request: similar options confuse people who don't live in ARIA).
+    var blurb: String {
+        switch self {
+        case .banner:        return "The site-wide top area — logo, product name, global bar. One per page."
+        case .navigation:    return "A set of links for moving around — a nav bar, sidebar menu, or breadcrumbs."
+        case .main:          return "The page's primary content area. One per page."
+        case .complementary: return "Supporting content that stands alone — a sidebar of related info."
+        case .contentinfo:   return "The site-wide footer — copyright, legal, footer links. One per page."
+        case .search:        return "The region wrapping search — field plus button. (The field itself is a Search Field.)"
+        case .form:          return "A region of inputs that submit together. Use for the whole form, not one field."
+        case .region:        return "A generic named section when nothing more specific fits. Use sparingly."
+        case .button:        return "Triggers an action on the page — save, close, submit. If it navigates somewhere, it's a Link."
+        case .link:          return "Navigates somewhere when clicked. If it performs an action instead, it's a Button."
+        case .checkbox:      return "On/off choice; multiple can be checked at once. For exactly-one-of-a-set, use Radio."
+        case .radio:         return "One choice among several — picking one deselects the others."
+        case .switch:        return "An immediate on/off toggle (like Settings). A Checkbox is for forms; a Switch acts instantly."
+        case .textbox:       return "A free-typing field — single or multi-line."
+        case .searchbox:     return "A text field specifically for typing search queries."
+        case .slider:        return "Picks a value from a range by dragging."
+        case .spinbutton:    return "A number with increment/decrement steppers."
+        case .progressbar:   return "Shows how far along something is. Display-only — not interactive."
+        case .tooltip:       return "A small hover/focus bubble describing another element."
+        case .tablist:       return "The row of tabs itself (the container). Each tab inside is a Tab."
+        case .tab:           return "One clickable tab in a tab bar. The content it reveals is a Tab Panel."
+        case .tabpanel:      return "The content area a tab reveals."
+        case .menu:          return "A list of actions/commands that pops open. Not for site navigation — that's Navigation."
+        case .menubar:       return "A persistent horizontal strip of menus (like an app's menu bar)."
+        case .menuitem:      return "One command inside a menu."
+        case .listbox:       return "A dropdown/select where the options are its children. Each choice is a Dropdown Option."
+        case .option:        return "One selectable choice inside a dropdown list."
+        case .radiogroup:    return "The container holding a set of radio buttons."
+        case .toolbar:       return "A compact strip of frequently used controls/buttons."
+        case .dialog:        return "A window/modal layered over the page that expects interaction."
+        case .alertdialog:   return "A dialog that interrupts with something urgent and needs a response."
+        case .alert:         return "An important inline message that appears without user action — errors, warnings. Not clickable."
+        case .heading:       return "A section title (h1–h6 territory)."
+        case .list:          return "The container of a bulleted/numbered set. Each entry is a List Item."
+        case .listitem:      return "One entry inside a List."
+        case .img:           return "Graphic content that MEANS something (gets alt text). Purely decorative art needs no role."
+        case .figure:        return "A self-contained illustration/diagram, often with a caption."
+        case .table:         return "Real rows-and-columns data. Don't use for layout."
+        case .separator:     return "A visual divider between sections."
+        case .group:         return "Related controls that belong together but aren't a full region."
+        }
+    }
+
+    /// Which picker section this role sits in.
+    var ariaCategory: AriaCategory {
+        switch self {
+        case .banner, .navigation, .main, .complementary, .contentinfo, .search,
+             .form, .region:
+            return .landmark
+        case .button, .link, .checkbox, .radio, .switch, .textbox, .searchbox,
+             .slider, .spinbutton, .progressbar, .tooltip:
+            return .widget
+        case .tablist, .tab, .tabpanel, .menu, .menubar, .menuitem, .listbox,
+             .option, .radiogroup, .toolbar, .dialog, .alertdialog, .alert:
+            return .composite
+        case .heading, .list, .listitem, .img, .figure, .table, .separator,
+             .group:
+            return .structure
+        }
+    }
+
+    /// Roles grouped in picker order (stable, spec-shaped).
+    static func grouped() -> [(category: AriaCategory, roles: [AriaRole])] {
+        AriaCategory.allCases.map { cat in
+            (cat, AriaRole.allCases.filter { $0.ariaCategory == cat })
+        }
     }
 }
 
@@ -1093,6 +1466,9 @@ struct DesignLanguage: Codable, Equatable, Sendable {
     /// Named entries — colors and gradients.
     var assets: [DesignAsset]
 
+    /// Named type styles (v1.3) — see `TypeStyle` for what one captures.
+    var typeStyles: [TypeStyle]
+
     /// Recently used paints (most-recent first, capped).
     var recents: [Paint]
 
@@ -1100,19 +1476,22 @@ struct DesignLanguage: Codable, Equatable, Sendable {
     /// Label for the uncategorized bucket once categories exist.
     static let otherLabel = "Other"
 
-    init(categories: [DLCategory] = [], assets: [DesignAsset] = [], recents: [Paint] = []) {
+    init(categories: [DLCategory] = [], assets: [DesignAsset] = [],
+         typeStyles: [TypeStyle] = [], recents: [Paint] = []) {
         self.categories = categories
         self.assets = assets
+        self.typeStyles = typeStyles
         self.recents = recents
     }
 
     // Tolerant decode so older files (no design language, or the pre-category
     // status model) and future files both open cleanly.
-    enum CodingKeys: String, CodingKey { case categories, assets, recents }
+    enum CodingKeys: String, CodingKey { case categories, assets, typeStyles, recents }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         categories = try c.decodeIfPresent([DLCategory].self, forKey: .categories) ?? []
         assets     = try c.decodeIfPresent([DesignAsset].self, forKey: .assets) ?? []
+        typeStyles = try c.decodeIfPresent([TypeStyle].self, forKey: .typeStyles) ?? []
         recents    = try c.decodeIfPresent([Paint].self, forKey: .recents) ?? []
         migrateLegacyStatusIfNeeded()
     }
@@ -1136,7 +1515,7 @@ struct DesignLanguage: Codable, Equatable, Sendable {
         for i in assets.indices { assets[i].legacyStatus = nil }
     }
 
-    var isEmpty: Bool { assets.isEmpty && recents.isEmpty && categories.isEmpty }
+    var isEmpty: Bool { assets.isEmpty && typeStyles.isEmpty && recents.isEmpty && categories.isEmpty }
     var hasCategories: Bool { !categories.isEmpty }
 
     // MARK: Grouped / filtered views
@@ -1158,8 +1537,14 @@ struct DesignLanguage: Codable, Equatable, Sendable {
     }
 
     func assets(in categoryID: UUID?) -> [DesignAsset] { assets.filter { $0.categoryID == categoryID } }
-    func count(in categoryID: UUID?) -> Int { assets.reduce(0) { $0 + ($1.categoryID == categoryID ? 1 : 0) } }
-    var hasUncategorized: Bool { assets.contains { $0.categoryID == nil } }
+    func typeStyles(in categoryID: UUID?) -> [TypeStyle] { typeStyles.filter { $0.categoryID == categoryID } }
+    func count(in categoryID: UUID?) -> Int {
+        assets.reduce(0) { $0 + ($1.categoryID == categoryID ? 1 : 0) }
+            + typeStyles.reduce(0) { $0 + ($1.categoryID == categoryID ? 1 : 0) }
+    }
+    var hasUncategorized: Bool {
+        assets.contains { $0.categoryID == nil } || typeStyles.contains { $0.categoryID == nil }
+    }
 
     /// The first saved entry whose value exactly matches (used by the picker link).
     func firstAsset(matching paint: Paint) -> DesignAsset? { assets.first { $0.value == paint } }
@@ -1198,6 +1583,64 @@ struct DesignLanguage: Codable, Equatable, Sendable {
     }
     mutating func remove(_ id: UUID) { assets.removeAll { $0.id == id } }
 
+    // MARK: Type style mutations (v1.3 — same shape as the asset API)
+
+    @discardableResult
+    mutating func saveTypeStyle(_ style: TypeStyle) -> UUID {
+        typeStyles.append(style)
+        return style.id
+    }
+    func typeStyle(_ id: UUID) -> TypeStyle? { typeStyles.first { $0.id == id } }
+    mutating func renameTypeStyle(_ id: UUID, to name: String) {
+        guard let i = typeStyles.firstIndex(where: { $0.id == id }) else { return }
+        typeStyles[i].name = name
+    }
+    mutating func setTypeStyleCategory(_ id: UUID, to categoryID: UUID?) {
+        guard let i = typeStyles.firstIndex(where: { $0.id == id }) else { return }
+        typeStyles[i].categoryID = categoryID
+    }
+    /// Re-capture a saved style from new values (e.g. "Update from Selection").
+    mutating func setTypeStyleValues(_ id: UUID, from other: TypeStyle) {
+        guard let i = typeStyles.firstIndex(where: { $0.id == id }) else { return }
+        var updated = other
+        updated.id = typeStyles[i].id
+        updated.name = typeStyles[i].name
+        updated.categoryID = typeStyles[i].categoryID
+        typeStyles[i] = updated
+    }
+    mutating func removeTypeStyle(_ id: UUID) { typeStyles.removeAll { $0.id == id } }
+
+    /// Merge imported type styles (mirrors `merge` for assets; one undo step at
+    /// the call site). Categories are matched by name or created.
+    @discardableResult
+    mutating func mergeTypeStyles(_ incoming: [TypeStyle], categories incomingCats: [DLCategory] = [],
+                                  mode: MergeMode) -> Int {
+        var remap: [UUID: UUID] = [:]
+        for cat in incomingCats { remap[cat.id] = ensureCategory(cat.name) }
+        var changed = 0
+        for var style in incoming {
+            style.id = UUID()
+            if let cid = style.categoryID { style.categoryID = remap[cid] }
+            switch mode {
+            case .keepBoth:
+                typeStyles.append(style); changed += 1
+            case .skipDuplicateValues:
+                if !typeStyles.contains(where: { $0.sameValues(as: style) }) {
+                    typeStyles.append(style); changed += 1
+                }
+            case .replaceByName:
+                if !style.name.isEmpty,
+                   let i = typeStyles.firstIndex(where: { $0.name.caseInsensitiveCompare(style.name) == .orderedSame }) {
+                    let keep = (typeStyles[i].id, typeStyles[i].name, typeStyles[i].categoryID)
+                    typeStyles[i] = style
+                    (typeStyles[i].id, typeStyles[i].name, typeStyles[i].categoryID) = keep
+                    changed += 1
+                } else { typeStyles.append(style); changed += 1 }
+            }
+        }
+        return changed
+    }
+
     // MARK: Category mutations
 
     @discardableResult
@@ -1224,6 +1667,7 @@ struct DesignLanguage: Codable, Equatable, Sendable {
     mutating func removeCategory(_ id: UUID) {
         categories.removeAll { $0.id == id }
         for i in assets.indices where assets[i].categoryID == id { assets[i].categoryID = nil }
+        for i in typeStyles.indices where typeStyles[i].categoryID == id { typeStyles[i].categoryID = nil }
     }
     mutating func moveCategory(fromOffsets source: IndexSet, toOffset destination: Int) {
         let moved = source.map { categories[$0] }
@@ -1355,5 +1799,123 @@ struct DesignAsset: Codable, Equatable, Identifiable, Sendable {
         try c.encode(tags, forKey: .tags)
         try c.encode(provenance, forKey: .provenance)
         // legacyStatus intentionally NOT encoded.
+    }
+}
+
+/// A saved, named text treatment in the Design Language (v1.3).
+///
+/// Captures EVERYTHING except color — owner decision 2026-07-09: color stays
+/// with the Design Language colors so type and color choices remain
+/// independently reusable (matching how text styles work in other tools, and
+/// how CSS separates `font-*` from `color`).
+///
+/// FUTURE (needs discovery before speccing): per-style "color notes" /
+/// variations — e.g. a heading style that RECOMMENDS pairings from the color
+/// library without owning them. Parked until the workflow is designed.
+///
+/// Character properties come from `TextRun` (minus color); paragraph
+/// properties from `TextContent` (minus `box`, which is layout, not style).
+/// Lives in Document.swift on purpose — shared with the EXPThumbnail target.
+struct TypeStyle: Codable, Equatable, Identifiable, Sendable {
+    var id: UUID
+    var name: String
+    /// Shares the SAME cross-cutting categories as colors/gradients.
+    var categoryID: UUID?
+    var notes: String
+    var provenance: String
+
+    // Character (TextRun minus color)
+    var fontName: String        // PostScript face; "" = system font
+    var fontSize: CGFloat
+    var underline: Bool
+
+    // Paragraph (TextContent minus box + color)
+    var align: TextAlign
+    var lineHeight: CGFloat
+    var lineHeightUnit: LineHeightUnit
+    var tracking: CGFloat
+    var textCase: TextCase
+
+    init(id: UUID = UUID(), name: String = "", categoryID: UUID? = nil,
+         notes: String = "", provenance: String = "",
+         fontName: String = "", fontSize: CGFloat = 16, underline: Bool = false,
+         align: TextAlign = .left, lineHeight: CGFloat = 1.3,
+         lineHeightUnit: LineHeightUnit = .auto, tracking: CGFloat = 0,
+         textCase: TextCase = .none) {
+        self.id = id; self.name = name; self.categoryID = categoryID
+        self.notes = notes; self.provenance = provenance
+        self.fontName = fontName; self.fontSize = fontSize; self.underline = underline
+        self.align = align; self.lineHeight = lineHeight
+        self.lineHeightUnit = lineHeightUnit; self.tracking = tracking
+        self.textCase = textCase
+    }
+
+    // Tolerant decode so future fields never break older builds.
+    enum CodingKeys: String, CodingKey {
+        case id, name, categoryID, notes, provenance
+        case fontName, fontSize, underline
+        case align, lineHeight, lineHeightUnit, tracking, textCase
+    }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
+        categoryID = try c.decodeIfPresent(UUID.self, forKey: .categoryID)
+        notes = try c.decodeIfPresent(String.self, forKey: .notes) ?? ""
+        provenance = try c.decodeIfPresent(String.self, forKey: .provenance) ?? ""
+        fontName = try c.decodeIfPresent(String.self, forKey: .fontName) ?? ""
+        fontSize = try c.decodeIfPresent(CGFloat.self, forKey: .fontSize) ?? 16
+        underline = try c.decodeIfPresent(Bool.self, forKey: .underline) ?? false
+        align = try c.decodeIfPresent(TextAlign.self, forKey: .align) ?? .left
+        lineHeight = try c.decodeIfPresent(CGFloat.self, forKey: .lineHeight) ?? 1.3
+        lineHeightUnit = try c.decodeIfPresent(LineHeightUnit.self, forKey: .lineHeightUnit) ?? .auto
+        tracking = try c.decodeIfPresent(CGFloat.self, forKey: .tracking) ?? 0
+        textCase = try c.decodeIfPresent(TextCase.self, forKey: .textCase) ?? .none
+    }
+
+    // MARK: Capture / apply
+
+    /// Capture a style from a text layer's content. Character values come from
+    /// the FIRST run (the inspector's convention for mixed-style text).
+    static func capture(from tc: TextContent, name: String = "",
+                        categoryID: UUID? = nil, provenance: String = "selection") -> TypeStyle {
+        let run = tc.firstRun
+        return TypeStyle(name: name, categoryID: categoryID, provenance: provenance,
+                         fontName: run.fontName, fontSize: run.fontSize,
+                         underline: run.underline,
+                         align: tc.align, lineHeight: tc.lineHeight,
+                         lineHeightUnit: tc.lineHeightUnit, tracking: tc.tracking,
+                         textCase: tc.textCase)
+    }
+
+    /// Apply this style to text content. Every run takes the style's character
+    /// values (a style is one treatment — per-run face/size differences flatten
+    /// by design); run COLORS are untouched (color is not part of a type style).
+    /// `box` is untouched (layout). Call sites re-hug auto-box frames.
+    func apply(to tc: inout TextContent) {
+        tc.applyToAllRuns {
+            $0.fontName = fontName
+            $0.fontSize = fontSize
+            $0.underline = underline
+        }
+        tc.align = align
+        tc.lineHeight = lineHeight
+        tc.lineHeightUnit = lineHeightUnit
+        tc.tracking = tracking
+        tc.textCase = textCase
+    }
+
+    /// Value equality ignoring identity/labels (import de-duplication).
+    func sameValues(as other: TypeStyle) -> Bool {
+        fontName == other.fontName && fontSize == other.fontSize
+            && underline == other.underline && align == other.align
+            && lineHeight == other.lineHeight && lineHeightUnit == other.lineHeightUnit
+            && tracking == other.tracking && textCase == other.textCase
+    }
+
+    /// A readable fallback label when unnamed, e.g. "Avenir 24" / "System 16".
+    var fallbackLabel: String {
+        let face = fontName.isEmpty ? "System" : fontName
+        return "\(face) \(Int(fontSize.rounded()))"
     }
 }

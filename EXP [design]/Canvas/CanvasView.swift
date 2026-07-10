@@ -1085,9 +1085,19 @@ final class CanvasNSView: NSView {
         let w = size.width, h = size.height
         switch content {
         case .rectangle(let s):
-            let pts = [CGPoint(x: 0, y: 0), CGPoint(x: w, y: 0), CGPoint(x: w, y: h), CGPoint(x: 0, y: h)]
-            return PathShape(points: pts.map { PathPoint(point: $0) }, closed: true,
-                             fill: s.fill, stroke: s.stroke, strokeWidth: s.strokeWidth)
+            // v1.3 BUG FIX: rounded rectangles convert with their corners intact
+            // (κ-bézier arcs, per-corner aware) instead of snapping square.
+            let radii = s.effectiveRadii.clamped(to: size)
+            let pts: [PathPoint]
+            if radii.isZero {
+                pts = [CGPoint(x: 0, y: 0), CGPoint(x: w, y: 0),
+                       CGPoint(x: w, y: h), CGPoint(x: 0, y: h)].map { PathPoint(point: $0) }
+            } else {
+                pts = PathShape.roundedRectPoints(size: size, radii: radii)
+            }
+            return PathShape(points: pts, closed: true, fill: s.fill,
+                             stroke: s.stroke, strokeWidth: s.strokeWidth,
+                             strokeAlignment: s.strokeAlignment)
         case .ellipse(let s):
             let kx = w / 2 * 0.5523, ky = h / 2 * 0.5523
             let top = CGPoint(x: w / 2, y: 0), right = CGPoint(x: w, y: h / 2)
@@ -1097,7 +1107,8 @@ final class CanvasNSView: NSView {
             pts.append(PathPoint(point: right, controlIn: CGPoint(x: right.x, y: right.y - ky), controlOut: CGPoint(x: right.x, y: right.y + ky)))
             pts.append(PathPoint(point: bottom, controlIn: CGPoint(x: bottom.x + kx, y: bottom.y), controlOut: CGPoint(x: bottom.x - kx, y: bottom.y)))
             pts.append(PathPoint(point: left, controlIn: CGPoint(x: left.x, y: left.y + ky), controlOut: CGPoint(x: left.x, y: left.y - ky)))
-            return PathShape(points: pts, closed: true, fill: s.fill, stroke: s.stroke, strokeWidth: s.strokeWidth)
+            return PathShape(points: pts, closed: true, fill: s.fill, stroke: s.stroke,
+                             strokeWidth: s.strokeWidth, strokeAlignment: s.strokeAlignment)
         case .line(let ls):
             return PathShape(points: [PathPoint(point: ls.start), PathPoint(point: ls.end)],
                              closed: false, fill: .clear, stroke: ls.stroke, strokeWidth: ls.strokeWidth)
@@ -1105,7 +1116,8 @@ final class CanvasNSView: NSView {
         case .polygon(let s):
             let pts = s.vertices(in: CGRect(x: 0, y: 0, width: w, height: h))
             return PathShape(points: pts.map { PathPoint(point: $0) }, closed: true,
-                             fill: s.fill, stroke: s.stroke, strokeWidth: s.strokeWidth)
+                             fill: s.fill, stroke: s.stroke, strokeWidth: s.strokeWidth,
+                             strokeAlignment: s.strokeAlignment)
         default:
             return nil
         }
@@ -1127,6 +1139,42 @@ final class CanvasNSView: NSView {
         guard let app, let id = app.singleSelectedNodeID, let n = node(id),
               case .text = n.content else { return false }
         return true
+    }
+
+    // MARK: Type styles (v1.3 — Design Language)
+
+    /// TYPE ▸ Save as Type Style: capture the selected text layer's treatment —
+    /// everything EXCEPT color (owner decision; color pairs from the color
+    /// library) — into the document's Design Language. Starts named after the
+    /// layer; rename in the Design Language panel.
+    @objc func saveTypeStyleAction(_ sender: Any?) {
+        guard let app, let document, let id = app.singleSelectedNodeID,
+              let n = node(id), case .text(let tc) = n.content else { return }
+        var model = document.model
+        let style = TypeStyle.capture(from: tc, name: n.name)
+        model.designLanguage.saveTypeStyle(style)
+        document.setModel(model, undoManager: undoManager, actionName: "Save Type Style")
+    }
+
+    /// Right-click ▸ Apply Type Style ▸ <style>. The NSMenuItem carries the
+    /// style's UUID in representedObject (menus are built per-document).
+    @objc func applyTypeStyleMenuAction(_ sender: NSMenuItem) {
+        guard let styleID = sender.representedObject as? UUID,
+              let style = document?.model.designLanguage.typeStyle(styleID),
+              let id = app?.singleSelectedNodeID else { return }
+        applyTypeStyle(style, toTextNode: id)
+    }
+
+    /// Apply a type style to a text node (one undo step). Same re-hug rule as
+    /// every whole-text styling op (`toggleWholeText`).
+    func applyTypeStyle(_ style: TypeStyle, toTextNode id: UUID) {
+        guard let n = node(id), case .text(var tc) = n.content else { return }
+        style.apply(to: &tc)
+        var nodes = currentNodes
+        guard let i = nodes.firstIndex(where: { $0.id == id }) else { return }
+        nodes[i].content = .text(tc)
+        nodes[i].frame.size = tc.measuredSize(boxWidth: nodes[i].frame.width)
+        commitNodes(nodes, actionName: "Apply Type Style")
     }
 
     @objc func convertTextToShapesAction(_ sender: Any?) { convertSelectedTextToShapes() }
@@ -2345,9 +2393,11 @@ final class CanvasNSView: NSView {
                 panZoomBlitDisabled = true
                 NSLog("⏱ [EXP perf] blit-capture took %.0fms (> %.0fms budget, 2nd strike) — pan/zoom blit disabled for this run",
                       elapsed * 1000, Self.blitCaptureBudget * 1000)
+                DiagnosticLog.shared.log(String(format: "blit-capture %.0fms > %.0fms budget (2nd strike) — pan/zoom blit disabled for this run", elapsed * 1000, Self.blitCaptureBudget * 1000))
             } else {
                 NSLog("⏱ [EXP perf] blit-capture took %.0fms (> %.0fms budget) — likely cold caches, will retry next gesture",
                       elapsed * 1000, Self.blitCaptureBudget * 1000)
+                DiagnosticLog.shared.log(String(format: "blit-capture %.0fms > %.0fms budget — likely cold caches, will retry next gesture", elapsed * 1000, Self.blitCaptureBudget * 1000))
             }
         } else {
             panZoomCaptureStrikes = 0
@@ -3621,14 +3671,16 @@ final class CanvasNSView: NSView {
         return margin
     }
 
-    /// Half the stroke width (document space) for stroked leaf content, else 0.
+    /// How far past the frame the stroke paints (document space), else 0 —
+    /// alignment-aware (v1.3): inside strokes never leave the frame, outside
+    /// strokes reach a full width, centered ones half.
     private func strokeReach(_ c: NodeContent) -> CGFloat {
         switch c {
-        case .rectangle(let s): return s.strokeWidth / 2
-        case .ellipse(let s):   return s.strokeWidth / 2
-        case .polygon(let s):   return s.strokeWidth / 2
+        case .rectangle(let s): return s.strokeAlignment.reach(for: s.strokeWidth)
+        case .ellipse(let s):   return s.strokeAlignment.reach(for: s.strokeWidth)
+        case .polygon(let s):   return s.strokeAlignment.reach(for: s.strokeWidth)
         case .line(let s):      return s.strokeWidth / 2
-        case .path(let s):      return s.strokeWidth / 2
+        case .path(let s):      return s.effectiveStrokeAlignment.reach(for: s.strokeWidth)
         default:                return 0
         }
     }
@@ -3876,15 +3928,27 @@ final class CanvasNSView: NSView {
             for e in enabled where e.kind == .dropShadow {
                 if let s = sil {
                     let outset = s.path(spread: CGFloat(e.spread) * app.zoom)
+                    // Knockout punches the TRUE silhouette (spread 0), not the
+                    // outset — the spread ring must survive outside the object.
                     EffectsRender.drawDropShadow(e, scale: app.zoom, in: ctx,
-                                                 castBounds: outset.boundingBoxOfPath) {
+                                                 castBounds: outset.boundingBoxOfPath,
+                                                 knockout: {
+                        if !dissolves.isEmpty { ctx.saveGState(); applyDissolveMasks() }
+                        ctx.addPath(s.path(spread: 0)); ctx.setFillColor(NSColor.black.cgColor); ctx.fillPath()
+                        if !dissolves.isEmpty { ctx.restoreGState() }
+                    }) {
                         if !dissolves.isEmpty { ctx.saveGState(); applyDissolveMasks() }
                         ctx.addPath(outset); ctx.setFillColor(NSColor.black.cgColor); ctx.fillPath()
                         if !dissolves.isEmpty { ctx.restoreGState() }
                     }
                 } else {
                     EffectsRender.drawDropShadow(e, scale: app.zoom, in: ctx,
-                                                 castBounds: rect) {
+                                                 castBounds: rect,
+                                                 knockout: {
+                        if !dissolves.isEmpty { ctx.saveGState(); applyDissolveMasks() }
+                        self.drawNodeContent(node, frameDoc: frameDoc, rect: rect, in: ctx)
+                        if !dissolves.isEmpty { ctx.restoreGState() }
+                    }) {
                         if !dissolves.isEmpty { ctx.saveGState(); applyDissolveMasks() }
                         self.drawNodeContent(node, frameDoc: frameDoc, rect: rect, in: ctx)
                         if !dissolves.isEmpty { ctx.restoreGState() }
@@ -4047,7 +4111,10 @@ final class CanvasNSView: NSView {
     private func nodeSilhouette(_ node: Node, frameDoc: CGRect, rect: CGRect) -> Silhouette? {
         guard let app else { return nil }
         switch node.content {
-        case .rectangle(let s): return Silhouette(rect: rect, shape: .roundRect(radius: s.cornerRadius * app.zoom))
+        case .rectangle(let s):
+            return s.hasPerCornerRadii
+                ? Silhouette(rect: rect, shape: .perCornerRect(s.effectiveRadii.scaled(by: app.zoom)))
+                : Silhouette(rect: rect, shape: .roundRect(radius: s.cornerRadius * app.zoom))
         case .ellipse:          return Silhouette(rect: rect, shape: .oval)
         case .polygon(let s):   return Silhouette(rect: rect, shape: .custom(Self.polygonBezier(s.vertices(in: rect)).cgPath))
         case .path(let ps) where ps.closed && ps.points.count >= 2:
@@ -4070,30 +4137,37 @@ final class CanvasNSView: NSView {
         defer { if capLeafT != 0 { capShapeMs += (CFAbsoluteTimeGetCurrent() - capLeafT) * 1000 } }
         switch node.content {
         case .rectangle(let shape):
-            let radius = shape.cornerRadius * app.zoom
-            let path = NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
+            let path: NSBezierPath
+            if shape.hasPerCornerRadii {
+                // v1.3 per-corner radii: shared CGPath builder (radii in doc
+                // points, scaled into view space here).
+                path = NSBezierPath(cgPath: shape.effectiveRadii.path(in: rect, scale: app.zoom))
+            } else {
+                let radius = shape.cornerRadius * app.zoom
+                path = NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
+            }
             PaintRender.fill(shape.fill, path: path, bounds: rect, in: ctx)
             if shape.strokeWidth > 0 {
-                shape.stroke.nsColor.setStroke()
-                path.lineWidth = shape.strokeWidth * app.zoom
-                path.stroke()
+                PaintRender.strokeAligned(path, width: shape.strokeWidth * app.zoom,
+                                          alignment: shape.strokeAlignment,
+                                          color: shape.stroke.nsColor, in: ctx)
             }
         case .ellipse(let shape):
             let path = NSBezierPath(ovalIn: rect)
             PaintRender.fill(shape.fill, path: path, bounds: rect, in: ctx)
             if shape.strokeWidth > 0 {
-                shape.stroke.nsColor.setStroke()
-                path.lineWidth = shape.strokeWidth * app.zoom
-                path.stroke()
+                PaintRender.strokeAligned(path, width: shape.strokeWidth * app.zoom,
+                                          alignment: shape.strokeAlignment,
+                                          color: shape.stroke.nsColor, in: ctx)
             }
         case .polygon(let shape):
             let path = Self.polygonBezier(shape.vertices(in: rect))
             PaintRender.fill(shape.fill, path: path, bounds: rect, in: ctx)
             if shape.strokeWidth > 0 {
-                shape.stroke.nsColor.setStroke()
-                path.lineWidth = shape.strokeWidth * app.zoom
-                path.lineJoinStyle = .miter
-                path.stroke()
+                PaintRender.strokeAligned(path, width: shape.strokeWidth * app.zoom,
+                                          alignment: shape.strokeAlignment,
+                                          color: shape.stroke.nsColor,
+                                          join: .miter, in: ctx)
             }
         case .line(let ls):
             let a = docToViewPoint(CGPoint(x: frameDoc.minX + ls.start.x, y: frameDoc.minY + ls.start.y))
@@ -4113,11 +4187,10 @@ final class CanvasNSView: NSView {
                 PaintRender.fill(ps.fill, path: bez, bounds: bez.bounds, in: ctx)
             }
             if ps.strokeWidth > 0 {
-                ps.stroke.nsColor.setStroke()
-                bez.lineWidth = ps.strokeWidth * app.zoom
-                bez.lineJoinStyle = .round
-                bez.lineCapStyle = .round
-                bez.stroke()
+                PaintRender.strokeAligned(bez, width: ps.strokeWidth * app.zoom,
+                                          alignment: ps.effectiveStrokeAlignment,
+                                          color: ps.stroke.nsColor,
+                                          join: .round, cap: .round, in: ctx)
             }
         case .text(let text):
             // Lay the text out at TRUE size and scale the drawing, so wrapping and
@@ -6461,6 +6534,12 @@ final class CanvasNSView: NSView {
     }
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         let at = convert(sender.draggingLocation, from: nil)
+        // Component drag from the Components panel (the pasteboard string is the
+        // source's UUID) — checked FIRST so a UUID never falls through to the
+        // SVG/text sniffers.
+        if let sid = componentSourceID(from: sender.draggingPasteboard) {
+            return placeComponentInstance(sid, at: at)
+        }
         if let svg = svgData(from: sender.draggingPasteboard) { return placeSVG(svg, at: at) }
         let datas = imageDatas(from: sender.draggingPasteboard)
         guard !datas.isEmpty else { return false }
@@ -6468,7 +6547,41 @@ final class CanvasNSView: NSView {
     }
 
     private func canDrop(_ pb: NSPasteboard) -> Bool {
-        svgData(from: pb) != nil || !imageDatas(from: pb).isEmpty
+        componentSourceID(from: pb) != nil || svgData(from: pb) != nil || !imageDatas(from: pb).isEmpty
+    }
+
+    // MARK: Component drop (v1.3 — drag a component from the panel onto the canvas)
+
+    /// The dragged component's source id, IF the pasteboard string is a UUID
+    /// matching one of this document's sources (a plain text drag never is).
+    private func componentSourceID(from pb: NSPasteboard) -> UUID? {
+        guard let s = pb.string(forType: .string),
+              let id = UUID(uuidString: s.trimmingCharacters(in: .whitespacesAndNewlines)),
+              document?.model.source(for: id) != nil else { return nil }
+        return id
+    }
+
+    /// Create an instance centered at the drop point (one undo step). Refuses
+    /// to drop a component inside its OWN source editor (no self-nesting).
+    @discardableResult
+    private func placeComponentInstance(_ sourceID: UUID, at viewPoint: CGPoint) -> Bool {
+        guard let app, let document,
+              let source = document.model.source(for: sourceID) else { return false }
+        if case .source(let editingSID) = scope, editingSID == sourceID { return false }
+        let center = viewToDoc(viewPoint)
+        let frame = CGRect(x: center.x - source.size.width / 2,
+                           y: center.y - source.size.height / 2,
+                           width: source.size.width, height: source.size.height)
+        let node = Node(name: source.name, frame: frame,
+                        content: .instance(ComponentInstance(sourceID: sourceID)))
+        var nodes = currentNodes
+        nodes.append(node)
+        commitNodes(nodes, actionName: "Create Instance")
+        app.selectedNodeIDs = [node.id]
+        app.selectedArtboardIDs = []
+        app.tool = .select
+        needsDisplay = true
+        return true
     }
 
     // MARK: SVG (import as editable vector layers)
@@ -6908,7 +7021,170 @@ final class CanvasNSView: NSView {
         let on = app?.testingMode == true
         perf.enabled = on
         perf.reset()
-        print("⏱ [EXP perf] Testing Mode \(on ? "ON — logging frame / snap / cull stats ~2×/sec" : "off")")
+        let msg = "⏱ [EXP perf] Testing Mode \(on ? "ON — logging frame / snap / cull stats ~2×/sec" : "off")"
+        print(msg)
+        DiagnosticLog.shared.log(msg)
+    }
+
+    // MARK: Round to Pixel (v1.3 — companion to the geometry audit)
+
+    /// Snap every selected node's and artboard's frame (origin AND size) to
+    /// whole pixels, in one undo step. The cure for imported-SVG fuzziness:
+    /// fractional frames antialias across 2px and read "soft" (see the
+    /// geometry audit). Nested selections round in their local space — the
+    /// same space their frames live in.
+    @objc func roundToPixelAction(_ sender: Any?) {
+        guard let app, let document else { return }
+        let nodeIDs = app.selectedNodeIDs
+        let boardIDs = app.selectedArtboardIDs
+        guard !nodeIDs.isEmpty || !boardIDs.isEmpty else { return }
+        var model = document.model
+        func rounded(_ r: CGRect) -> CGRect {
+            CGRect(x: r.origin.x.rounded(), y: r.origin.y.rounded(),
+                   width: max(1, r.width.rounded()), height: max(1, r.height.rounded()))
+        }
+        func walk(_ nodes: inout [Node]) {
+            for i in nodes.indices {
+                if nodeIDs.contains(nodes[i].id) { nodes[i].frame = rounded(nodes[i].frame) }
+                if case .group(var kids) = nodes[i].content {
+                    walk(&kids); nodes[i].content = .group(children: kids)
+                }
+            }
+        }
+        switch scope {
+        case .document:
+            walk(&model.nodes)
+            model.nodes = AutoLayoutEngine.reflowed(model.nodes)
+            for i in model.artboards.indices where boardIDs.contains(model.artboards[i].id) {
+                model.artboards[i].frame = rounded(model.artboards[i].frame)
+            }
+        case .source(let sid):
+            guard let si = model.sources.firstIndex(where: { $0.id == sid }) else { return }
+            walk(&model.sources[si].children)
+            model.sources[si].children = AutoLayoutEngine.reflowed(model.sources[si].children)
+        }
+        document.setModel(model, undoManager: undoManager, actionName: "Round to Pixel")
+        needsDisplay = true
+    }
+
+    // MARK: Geometry audit + diagnostic report (v1.3 tester tooling)
+
+    /// Numeric proof for "do these two objects REALLY have the same size?" —
+    /// reports doc-space frames and the EXACT view-space rects the renderer
+    /// paints, for the current selection (or every artboard + top-level node
+    /// when nothing is selected), then cross-checks every pair with equal doc
+    /// sizes. Separates "the math is wrong" (a real bug — flagged loudly) from
+    /// "the paint reads differently":
+    ///  • a shape's stroke is CENTERED on its frame → extends strokeWidth/2
+    ///    OUTSIDE the frame on every edge;
+    ///  • an artboard's 1px hairline is drawn fully INSIDE its frame, and its
+    ///    drop shadow softens the bottom edge;
+    ///  • fractional origins/sizes antialias across 2px and read "soft".
+    private func geometryAuditLines() -> [String] {
+        guard let app, let document else { return ["(geometry audit: no document)"] }
+        struct Item { let kind: String; let name: String; let frame: CGRect; let visualNote: String }
+        var items: [Item] = []
+
+        let selBoards = app.selectedArtboardIDs
+        let selNodes = app.selectedNodeIDs
+        let auditAll = selBoards.isEmpty && selNodes.isEmpty
+
+        for ab in document.model.artboards where auditAll || selBoards.contains(ab.id) {
+            items.append(Item(kind: "artboard", name: ab.name, frame: ab.frame,
+                              visualNote: "1px hairline drawn INSIDE frame; shadow softens bottom edge"))
+        }
+        for node in currentNodes where auditAll || selNodes.contains(node.id) {
+            let reach = strokeReach(node.content)
+            let note = reach > 0
+                ? String(format: "centered stroke extends %.2fpt OUTSIDE frame per edge", reach)
+                : "no stroke — visual edge == frame edge"
+            items.append(Item(kind: "node", name: node.name, frame: node.frame, visualNote: note))
+        }
+
+        var lines: [String] = []
+        lines.append(String(format: "— GEOMETRY AUDIT — zoom %.4f  pan (%.2f, %.2f)  backing %.0f×  scope: %@  (%d object(s))",
+                            app.zoom, app.panOffset.x, app.panOffset.y, backingScale,
+                            auditAll ? "all" : "selection", items.count))
+        for it in items {
+            let v = docToView(it.frame)
+            let frac = it.frame.minX != it.frame.minX.rounded()
+                    || it.frame.minY != it.frame.minY.rounded()
+                    || it.frame.width != it.frame.width.rounded()
+                    || it.frame.height != it.frame.height.rounded()
+            lines.append(String(format: "%@ \"%@\": doc(x %.3f, y %.3f, w %.3f, h %.3f)%@",
+                                it.kind, it.name, it.frame.minX, it.frame.minY,
+                                it.frame.width, it.frame.height,
+                                frac ? "  ⚠️ fractional — edges antialias across 2px" : ""))
+            lines.append(String(format: "    view(x %.3f, y %.3f, w %.3f, h %.3f) — %@",
+                                v.minX, v.minY, v.width, v.height, it.visualNote))
+        }
+        // Any two audited objects with equal doc sizes MUST produce identical
+        // view sizes (same docToView math). If they don't, that IS the bug.
+        for i in items.indices {
+            for j in items.indices where j > i {
+                let a = items[i], b = items[j]
+                guard a.frame.size == b.frame.size else { continue }
+                let va = docToView(a.frame), vb = docToView(b.frame)
+                let dw = abs(va.width - vb.width), dh = abs(va.height - vb.height)
+                if dw < 0.0001, dh < 0.0001 {
+                    lines.append("✓ \"\(a.name)\" + \"\(b.name)\": equal doc sizes → identical view sizes (renderer math agrees)")
+                } else {
+                    lines.append(String(format: "✗ \"%@\" vs \"%@\": equal doc sizes but view sizes differ by (%.4f, %.4f) — REPORT THIS",
+                                        a.name, b.name, dw, dh))
+                }
+            }
+        }
+        return lines
+    }
+
+    /// VIEW ▸ Log Geometry Audit. Prints to console, streams to the diagnostic
+    /// log, and confirms with a small alert (testers don't watch consoles).
+    @objc func runGeometryAuditAction(_ sender: Any?) {
+        let lines = geometryAuditLines()
+        for l in lines { print(l) }
+        DiagnosticLog.shared.log(lines: lines)
+
+        let mismatches = lines.filter { $0.hasPrefix("✗") }.count
+        let alert = NSAlert()
+        alert.messageText = "Geometry Audit Complete"
+        alert.informativeText = mismatches == 0
+            ? "Size math checks out for every audited object. Details were written to the diagnostic log (Help ▸ Reveal Diagnostic Log in Finder)."
+            : "\(mismatches) size mismatch(es) found — details are in the diagnostic log. Please send them via Help ▸ Save Diagnostic Report."
+        alert.alertStyle = mismatches == 0 ? .informational : .warning
+        alert.runModal()
+    }
+
+    /// HELP ▸ Save Diagnostic Report… — one shareable file: machine/app header,
+    /// document stats, geometry audit, and the tail of today's perf stream.
+    /// NSSavePanel keeps it sandbox-safe and lets the tester choose where.
+    @objc func saveDiagnosticReportAction(_ sender: Any?) {
+        guard let window else { return }
+        let panel = NSSavePanel()
+        panel.title = "Save Diagnostic Report"
+        let df = DateFormatter()
+        df.dateFormat = "yyyy-MM-dd-HHmm"
+        df.locale = Locale(identifier: "en_US_POSIX")
+        panel.nameFieldStringValue = "EXP-diagnostic-report-\(df.string(from: Date())).txt"
+        panel.allowedContentTypes = [.plainText]
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard response == .OK, let url = panel.url, let self else { return }
+            var lines = DiagnosticLog.sessionHeader()
+            let scales = NSScreen.screens
+                .map { String(format: "%.0f×", $0.backingScaleFactor) }
+                .joined(separator: ", ")
+            lines.append("Displays: \(NSScreen.screens.count) (backing \(scales))")
+            if let model = self.document?.model {
+                lines.append("Document: \(model.nodes.count) top-level node(s), \(model.artboards.count) artboard(s), \(model.sources.count) component source(s)")
+            }
+            lines.append("")
+            lines.append(contentsOf: self.geometryAuditLines())
+            lines.append("")
+            lines.append("— Recent perf stream (today's log tail) —")
+            let tail = DiagnosticLog.tailOfCurrentLog()
+            lines.append(contentsOf: tail.isEmpty
+                ? ["(empty — turn on Testing Mode (⌃⌘T) to stream perf lines here)"] : tail)
+            try? lines.joined(separator: "\n").write(to: url, atomically: true, encoding: .utf8)
+        }
     }
 
     @objc func deselectAllAction(_ sender: Any?) {
@@ -7452,6 +7728,63 @@ final class CanvasNSView: NSView {
         openSourceEditor(source.id)
     }
 
+    // MARK: Component categories (Phase 19a — ARIA-role organizing)
+
+    /// The component source the category commands act on: the source being
+    /// edited in a source-editor window, else the source of the first selected
+    /// instance in the document.
+    private var categoryTargetSourceID: UUID? {
+        if case .source(let sid) = scope { return sid }
+        guard let app else { return nil }
+        for n in currentNodes where app.selectedNodeIDs.contains(n.id) {
+            if case .instance(let inst) = n.content { return inst.sourceID }
+        }
+        return nil
+    }
+
+    /// Single source of truth for assigning a component category. The sender's
+    /// representedObject carries the ARIA token (String; nil = uncategorized) —
+    /// the UI always shows the friendly label, the model always stores the token.
+    @objc func setComponentCategoryAction(_ sender: NSMenuItem) {
+        guard let document, let sid = categoryTargetSourceID,
+              let si = document.model.sources.firstIndex(where: { $0.id == sid }) else { return }
+        let role = (sender.representedObject as? String).flatMap(AriaRole.init(rawValue:))
+        var model = document.model
+        guard model.sources[si].a11y.role != role else { return }
+        model.sources[si].a11y.role = role
+        document.setModel(model, undoManager: undoManager, actionName: "Set Component Category")
+    }
+
+    /// "Set Category" submenu for the right-click menu: friendly labels grouped
+    /// by ARIA category, checkmark on the current choice, "Uncategorized" on top.
+    private func categoryMenuItem(for sourceID: UUID) -> NSMenuItem {
+        let current = document?.model.sources.first { $0.id == sourceID }?.a11y.role
+        let item = NSMenuItem(title: "Set Category", action: nil, keyEquivalent: "")
+        let sub = NSMenu()
+        let none = NSMenuItem(title: "Uncategorized",
+                              action: #selector(setComponentCategoryAction(_:)), keyEquivalent: "")
+        none.target = self
+        none.state = current == nil ? .on : .off
+        sub.addItem(none)
+        for group in AriaRole.grouped() {
+            sub.addItem(.separator())
+            let header = NSMenuItem(title: group.category.label, action: nil, keyEquivalent: "")
+            header.isEnabled = false   // section label, not a choice
+            sub.addItem(header)
+            for role in group.roles {
+                let it = NSMenuItem(title: role.friendlyLabel,
+                                    action: #selector(setComponentCategoryAction(_:)), keyEquivalent: "")
+                it.target = self
+                it.representedObject = role.rawValue
+                it.state = current == role ? .on : .off
+                it.indentationLevel = 1
+                sub.addItem(it)
+            }
+        }
+        item.submenu = sub
+        return item
+    }
+
     @objc func editComponentAction(_ sender: Any?) {
         guard let app, let id = app.selectedNodeIDs.first, let node = node(id),
               case .instance(let inst) = node.content else { return }
@@ -7563,15 +7896,31 @@ final class CanvasNSView: NSView {
                 add(menu, "Move Item Backward", #selector(nudgeItemBackwardAction(_:)))
             }
             add(menu, "Create Component", #selector(createComponentAction(_:)))
-            if case .instance = hit.content {
+            if case .instance(let inst) = hit.content {
                 add(menu, "Edit Component", #selector(editComponentAction(_:)))
                 add(menu, "Detach Component", #selector(detachComponentAction(_:)))
+                menu.addItem(categoryMenuItem(for: inst.sourceID))
             }
             switch hit.content {
             case .rectangle, .ellipse, .polygon, .line:
                 add(menu, "Convert to Path", #selector(convertToPathAction(_:)))
             case .text:
                 add(menu, "Convert to Outlines", #selector(convertTextToShapesAction(_:)))
+                add(menu, "Save as Type Style", #selector(saveTypeStyleAction(_:)))
+                if let styles = document?.model.designLanguage.typeStyles, !styles.isEmpty {
+                    let styleItem = NSMenuItem(title: "Apply Type Style", action: nil, keyEquivalent: "")
+                    let sub = NSMenu()
+                    for s in styles {
+                        let it = NSMenuItem(title: s.name.isEmpty ? s.fallbackLabel : s.name,
+                                            action: #selector(applyTypeStyleMenuAction(_:)),
+                                            keyEquivalent: "")
+                        it.target = self
+                        it.representedObject = s.id
+                        sub.addItem(it)
+                    }
+                    styleItem.submenu = sub
+                    menu.addItem(styleItem)
+                }
             default: break
             }
             menu.addItem(.separator())
@@ -7582,6 +7931,7 @@ final class CanvasNSView: NSView {
             menu.addItem(.separator())
             add(menu, "Flip Horizontal", #selector(flipHorizontalAction(_:)))
             add(menu, "Flip Vertical", #selector(flipVerticalAction(_:)))
+            add(menu, "Round to Pixel", #selector(roundToPixelAction(_:)))
             menu.addItem(.separator())
             add(menu, "Eyedropper (Pick Fill)", #selector(eyedropperAction(_:)))
             if (app?.selectedNodeIDs.count ?? 0) >= 2 {
@@ -7608,6 +7958,7 @@ final class CanvasNSView: NSView {
                 needsDisplay = true
             }
             add(menu, "Rename", #selector(renameArtboardAction(_:)))
+            add(menu, "Round to Pixel", #selector(roundToPixelAction(_:)))
             menu.addItem(.separator())
             add(menu, "Cut", #selector(cut(_:)))
             add(menu, "Copy", #selector(copy(_:)))
@@ -7713,9 +8064,11 @@ extension CanvasNSView: NSMenuItemValidation {
             return selectedItemInAutoLayout
         case #selector(editComponentAction(_:)), #selector(detachComponentAction(_:)):
             return selectionHasInstance
+        case #selector(setComponentCategoryAction(_:)):
+            return categoryTargetSourceID != nil
         case #selector(convertToPathAction(_:)):
             return selectionConvertibleToPath
-        case #selector(convertTextToShapesAction(_:)):
+        case #selector(convertTextToShapesAction(_:)), #selector(saveTypeStyleAction(_:)):
             return selectionIsText
         case #selector(alignLeftAction(_:)), #selector(alignHCenterAction(_:)), #selector(alignRightAction(_:)),
              #selector(alignTopAction(_:)), #selector(alignVCenterAction(_:)), #selector(alignBottomAction(_:)):
@@ -7747,6 +8100,10 @@ extension CanvasNSView: NSMenuItemValidation {
         case #selector(toggleTestingModeAction(_:)):
             item.state = (app?.testingMode ?? false) ? .on : .off
             return true
+        case #selector(runGeometryAuditAction(_:)), #selector(saveDiagnosticReportAction(_:)):
+            return document != nil
+        case #selector(roundToPixelAction(_:)):
+            return hasNodes || hasArtboards
         case #selector(paste(_:)):
             return NSPasteboard.general.data(forType: Self.nodePasteboardType) != nil
                 || NSPasteboard.general.data(forType: Self.artboardPasteboardType) != nil
@@ -7839,7 +8196,13 @@ final class PerfMeter {
             guard let g = gauges[k] else { continue }
             parts.append("\(k) \(g.last) (max \(g.mx))")
         }
-        if !parts.isEmpty { print("⏱ [EXP perf] " + parts.joined(separator: "  |  ")) }
+        if !parts.isEmpty {
+            let summary = "⏱ [EXP perf] " + parts.joined(separator: "  |  ")
+            print(summary)
+            // Testers can't see Xcode's console — stream the same line to the
+            // diagnostic log file (Help ▸ Reveal Diagnostic Log in Finder).
+            DiagnosticLog.shared.log(summary)
+        }
         timers.removeAll(keepingCapacity: true)
         gauges.removeAll(keepingCapacity: true)
         timerOrder.removeAll(keepingCapacity: true)
