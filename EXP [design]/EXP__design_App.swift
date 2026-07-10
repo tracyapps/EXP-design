@@ -15,6 +15,11 @@ struct EXP__design_App: App {
     // See UI/FontRegistration.swift for the licensing note.
     init() { EXPFonts.registerBundledFonts() }
 
+    // Sparkle auto-updates (Phase 20): one UpdaterModel for the app's
+    // lifetime drives the "Check for Updates…" item below. See
+    // UI/UpdaterController.swift for the canImport guard + consent notes.
+    @StateObject private var updaterModel = UpdaterModel()
+
     var body: some Scene {
         // DocumentGroup gives us New / Open / Save / Duplicate / Rename / Revert
         // and multi-window for free — each window hosts one ExpDocument.
@@ -30,6 +35,15 @@ struct EXP__design_App: App {
             // is a graphics app, not a text editor) so ⌘G / ⇧⌘G dispatch through the
             // responder chain to the focused canvas.
             CommandGroup(replacing: .textEditing) { }
+
+            // APP MENU ▸ Check for Updates… (right under "About EXP [design]").
+            // App-chrome action, not a canvas action, so the command-coverage
+            // rule's canvas/@objc/context-menu legs don't apply; enablement
+            // comes from Sparkle via canCheckForUpdates.
+            CommandGroup(after: .appInfo) {
+                Button("Check for Updates\u{2026}") { updaterModel.checkForUpdates() }
+                    .disabled(!updaterModel.canCheckForUpdates)
+            }
 
             // HELP ▸ Send Feedback (in-app bug / idea reporter).
             CommandGroup(replacing: .help) {

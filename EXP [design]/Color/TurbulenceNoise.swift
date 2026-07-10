@@ -161,9 +161,17 @@ enum TurbulenceNoise {
         let w: Int, h: Int
     }
     private static var tileCache: [Key: CGImage] = [:]
-    private static var tileOrder: [Key] = []          // LRU, oldest first
+    private static var tileOrder: [Key] = []          // true LRU, oldest first
+    private static var cacheBytes = 0                 // decoded bytes resident
     private static let tileLock = NSLock()             // guards ALL mutable state below
-    private static let maxTiles = 48
+    // Eviction is BYTE-budgeted, not tile-counted: tiles range from a few KB to
+    // ~8 MB (maxPixels × RGBA), so a fixed count was either wasteful or — the
+    // v1.2 zoom-out "flashing" bug — too small for docs with many noise layers
+    // (more live tiles on screen than the cap → every frame evicted tiles that
+    // were still visible → skip-a-frame + regenerate churn). 256 MB holds ≥32
+    // worst-case tiles / hundreds of typical ones; maxTiles is just a safety net.
+    private static let maxCacheBytes = 256 << 20       // 256 MB
+    private static let maxTiles = 512
     /// Cap on generated pixels; larger nodes get a scaled-down tile.
     private static let maxPixels = 2_097_152           // ≈ 1448×1448
 
@@ -176,6 +184,7 @@ enum TurbulenceNoise {
     private static var pendingMakes: [Key: @Sendable () -> CGImage?] = [:]
     private static var generatingKey: Key?             // the one tile being made right now
     private static var workerRunning = false
+    private static var notifyScheduled = false         // coalesces tileReady posts
     private static let maxPending = 6
 
     /// Background queue for cold-tile generation. A SINGLE worker drains the
@@ -188,12 +197,23 @@ enum TurbulenceNoise {
     /// cache-warm. See `CanvasNSView.noiseTileBecameReady`.
     static let tileReadyNotification = Notification.Name("EXPTurbulenceTileReady")
 
+    /// Resident cost of a tile: RGBA for noise, 8-bit gray for masks.
+    private static func bytes(of key: Key) -> Int {
+        key.w * key.h * (key.kind == "noise" ? 4 : 1)
+    }
+
     private static func store(_ key: Key, _ img: CGImage) {
+        if tileCache[key] == nil { cacheBytes += bytes(of: key) }
         tileCache[key] = img
         tileOrder.removeAll { $0 == key }
         tileOrder.append(key)
-        while tileOrder.count > maxTiles {
-            tileCache.removeValue(forKey: tileOrder.removeFirst())
+        // Evict least-recently-USED first (hits promote below), but always keep
+        // the tile just stored.
+        while (cacheBytes > maxCacheBytes || tileOrder.count > maxTiles),
+              tileOrder.count > 1 {
+            let evicted = tileOrder.removeFirst()
+            tileCache.removeValue(forKey: evicted)
+            cacheBytes -= bytes(of: evicted)
         }
     }
 
@@ -204,7 +224,17 @@ enum TurbulenceNoise {
     /// render thread and must capture only value types (no `Effect`, no view state).
     private static func cachedAsync(_ key: Key, make: @escaping @Sendable () -> CGImage?) -> CGImage? {
         tileLock.lock()
-        if let hit = tileCache[key] { tileLock.unlock(); return hit }
+        if let hit = tileCache[key] {
+            // Promote on hit — this is what makes the eviction order truly LRU.
+            // Without it (v1.2) the order was insertion-only, so a zoomed-out
+            // frame drawing more live tiles than the cap evicted tiles that
+            // were STILL ON SCREEN → skip-a-frame flash + regenerate churn.
+            if tileOrder.last != key {
+                tileOrder.removeAll { $0 == key }
+                tileOrder.append(key)
+            }
+            tileLock.unlock(); return hit
+        }
         if key == generatingKey { tileLock.unlock(); return nil }   // already being made
         // Insert / promote as the newest pending request.
         if pendingMakes[key] == nil { pendingKeys.append(key) }
@@ -243,8 +273,20 @@ enum TurbulenceNoise {
             tileLock.unlock()
 
             if img != nil {
-                DispatchQueue.main.async {
-                    NotificationCenter.default.post(name: tileReadyNotification, object: nil)
+                // Coalesce to ≤30 posts/sec: each post drops every canvas's
+                // pan/zoom snapshot, and per-tile posts during a big warm-up
+                // (zoomed-out doc, dozens of cold tiles) meant rapid-fire full
+                // redraws — the other half of the v1.2 flashing. One deferred
+                // post batches every tile that lands within the window.
+                tileLock.lock()
+                let schedule = !notifyScheduled
+                if schedule { notifyScheduled = true }
+                tileLock.unlock()
+                if schedule {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.033) {
+                        tileLock.lock(); notifyScheduled = false; tileLock.unlock()
+                        NotificationCenter.default.post(name: tileReadyNotification, object: nil)
+                    }
                 }
             }
         }

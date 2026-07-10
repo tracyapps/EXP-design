@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Sparkle appcast for EXP [design]. Placeholder: an empty channel is a
+     valid "no updates available" response, so the URL serves 200 before the
+     first Sparkle-signed release. Sparkle's `generate_appcast` overwrites
+     this file at each release (RELEASE-CHECKLIST.md §4.5) — don't hand-edit
+     entries. -->
+<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+    <channel>
+        <title>EXP [design]</title>
+    </channel>
+</rss>

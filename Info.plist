@@ -48,5 +48,19 @@
 			</dict>
 		</dict>
 	</array>
+	<!--
+	  Sparkle auto-updates (Phase 20). SUFeedURL is the self-hosted appcast on
+	  the tester site; SUPublicEDKey lets Sparkle verify each downloaded update
+	  against the EdDSA private key that signs releases (owner generates the
+	  pair ONCE with Sparkle's `generate_keys` — see docs/RELEASE-CHECKLIST.md
+	  §4.5). Until the real key replaces the placeholder, update checks fail
+	  validation — build & run are unaffected. SUEnableAutomaticChecks is
+	  deliberately NOT set: Sparkle asks the user for permission on the second
+	  launch (consent first); manual checks always work.
+	-->
+	<key>SUFeedURL</key>
+	<string>https://expdesign.app/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>TqxmbbR6S9Tvedexzp/pXLv3VpgrxXkVjYsrYOp0wNI=</string>
 </dict>
 </plist>

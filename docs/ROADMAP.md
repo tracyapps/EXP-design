@@ -61,6 +61,31 @@ and shadows no longer darken during pan/zoom or drag), **noise/dissolve pan-zoom
 performance** (parallel + async tile generation), and **transparent SVG export by
 default**. Full notes: `RELEASE-NOTES-v1.2.md`.
 
+## v1.2.1 scope (current — patch)
+
+Build 4, `MARKETING_VERSION 1.2.1`. Small on purpose: perf fixes + the first
+live test of the Sparkle update pipeline (Phase 20), so the update payload is
+low-stakes. v1.3 stays reserved for Design Language.
+
+- [x] Sparkle app-side integration complete (package added, keys generated,
+      public key in Info.plist — see Phase 20).
+- [x] **PERF: zoomed-out "flashing" on noise/dissolve-heavy docs.** Root cause
+      was the tile cache, not memory: cache hits never promoted in the LRU
+      order, so eviction was FIFO — a zoomed-out frame with more live tiles
+      than the 48-tile cap evicted tiles still on screen (skip-a-frame flash →
+      regenerate → evict others → churn). Fixed: true promote-on-hit LRU;
+      byte-budgeted eviction (256 MB, count as safety net) since tiles range
+      KBs→8 MB; `tileReadyNotification` coalesced to ≤30/sec so a big warm-up
+      no longer rapid-fires snapshot-dropping redraws.
+- [x] Owner verify: reload the noise-heavy doc, zoom out, confirm no flashing
+      (Testing Mode on; watch for regenerate churn). VERIFIED 2026-07-09 —
+      no flashing, frames 1–10 ms (one-off ≤23 ms spikes on full-doc redraws
+      only), no EdDSA error in the log (real key accepted).
+- [ ] Ship as the first Sparkle-served update (RELEASE-CHECKLIST §4.5) and
+      confirm an installed 1.2 build sees + installs it.
+
+---
+
 ## v1.3 scope (next — starts next session)
 
 Build 4, target `MARKETING_VERSION 1.3`. Development on the **`dev`** branch,
@@ -1146,6 +1171,43 @@ blocked by shipping 19a first. That's the whole point — the health food is
 already on the plate before anyone orders the vegetables.
 
 
+### Phase 20 — Sparkle auto-updates (v1.3, IN PROGRESS)
+
+Self-hosted updates for the direct-download build — no App Store required.
+Sparkle 2.x via SPM; appcast served from expdesign.app; EdDSA-signed archives
+on top of the existing Developer ID signing + notarization. Consent-first: no
+silent automatic checks — Sparkle asks the user for permission on second
+launch, and manual "Check for Updates…" always works.
+
+- [x] `UI/UpdaterController.swift` — `UpdaterModel` wrapping
+      `SPUStandardUpdaterController`, guarded by `#if canImport(Sparkle)` so the
+      project builds BEFORE the package is added (menu item disabled until then).
+      Guard also defends against the Xcode-agent stubbing gotcha (see CLAUDE.md).
+- [x] App menu ▸ "Check for Updates…" (`CommandGroup(after: .appInfo)`), enabled
+      state driven by Sparkle's `canCheckForUpdates`. App-chrome action, so the
+      command-coverage rule's canvas legs don't apply.
+- [x] Info.plist: `SUFeedURL` → `https://expdesign.app/appcast.xml`;
+      `SUPublicEDKey` placeholder awaiting the real key.
+- [x] Placeholder `website/public/appcast.xml` (valid empty channel = "no
+      updates"; `generate_appcast` overwrites it each release).
+- [x] RELEASE-CHECKLIST.md §4.5 — the per-release appcast routine.
+- [x] OWNER (Xcode): File ▸ Add Package Dependencies… →
+      `https://github.com/sparkle-project/Sparkle` (Up to Next Major, 2.x),
+      add the **Sparkle** product to the **app target ONLY** (not EXPThumbnail).
+      Then build — the canImport guard flips on automatically.
+- [x] OWNER (once): run Sparkle's `generate_keys` (bundled in the SPM
+      artifacts under DerivedData, or download a Sparkle release for the
+      `bin/` tools). Paste the printed public key into Info.plist
+      `SUPublicEDKey`. The private key lives in the login Keychain — NEVER in
+      the repo or Dropbox.
+- [ ] First signed release: run `generate_appcast` (see §4.5), deploy the
+      site, confirm `https://expdesign.app/appcast.xml` serves the entry.
+- [ ] Verify end-to-end: install the previous build, publish the test
+      appcast, confirm the update prompt appears, signature validates, and
+      install + relaunch works. Also verify the update dialog with VoiceOver
+      and increased-contrast mode (Sparkle's standard UI is accessible out of
+      the box, but confirm — a11y is a hard requirement here).
+
 ### Phase 4.5 — Shape styling + vector paths (pulled in before export)
 - [x] Stroke color + width on rectangle/ellipse (model + render + Inspector;
       `strokeWidth == 0` = none; backward-compatible decoders so older files open)
@@ -1215,6 +1277,34 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+- **2026-07-09 — v1.2.1 kickoff: Sparkle keys + noise-flashing fix:** Sparkle
+  updater verified in-app (build clean, menu item wired; placeholder-key
+  warning as expected pre-key). Owner ran `generate_keys`; real public key now
+  in Info.plist. Version bumped 1.2.1 / build 4 (all configs). Then diagnosed
+  the zoomed-out noise/dissolve "flashing": NOT memory — `TurbulenceNoise`
+  cache hits never promoted in `tileOrder`, so eviction was FIFO and a
+  zoomed-out frame with >48 live tiles evicted tiles still on screen
+  (skip-frame flash + regenerate churn); per-tile `tileReadyNotification`
+  posts also dropped the pan/zoom snapshot rapid-fire during warm-ups. Fixed
+  in `Color/TurbulenceNoise.swift`: promote-on-hit LRU, byte-budgeted eviction
+  (256 MB + 512-tile safety net, masks counted at 1 B/px vs RGBA 4 B/px), and
+  coalesced notifications (≤30/sec). Perf log from the repro showed healthy
+  frames (≤11.6 ms) which ruled out stalls and pointed at eviction. NEXT:
+  owner re-tests the heavy doc zoomed out; then first Sparkle-served release.
+- **2026-07-09 — Sparkle auto-updates (Phase 20 kickoff):** Integrated the
+  Sparkle 2.x update framework for the direct-download build (no App Store).
+  New `UI/UpdaterController.swift` (`UpdaterModel` wrapping
+  `SPUStandardUpdaterController`, `#if canImport(Sparkle)`-guarded so the app
+  compiles before the SPM package is added); "Check for Updates…" in the app
+  menu after About, enablement via `canCheckForUpdates`; Info.plist gains
+  `SUFeedURL` (expdesign.app/appcast.xml) + `SUPublicEDKey` placeholder —
+  `SUEnableAutomaticChecks` deliberately unset so Sparkle asks the user for
+  consent before any automatic checking. Placeholder empty appcast added at
+  `website/public/appcast.xml`; RELEASE-CHECKLIST §4.5 documents the
+  per-release `generate_appcast` routine. NEXT (owner, in Xcode): add the
+  Sparkle package (app target only), run `generate_keys` once, paste the
+  public key into Info.plist. Private EdDSA key stays in the Keychain, never
+  the repo.
 - **2026-07-08 — Session 191 (noise/dissolve pan-zoom performance + transparent SVG):**
   (1) Killed the multi-second frame stalls when panning/zooming over noise or
   dissolve effects. `TurbulenceNoise` tiles (up to ~2M px of pure-Swift
