@@ -1,11 +1,20 @@
-<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
 <!-- Sparkle appcast for EXP [design]. Placeholder: an empty channel is a
      valid "no updates available" response, so the URL serves 200 before the
      first Sparkle-signed release. Sparkle's `generate_appcast` overwrites
      this file at each release (RELEASE-CHECKLIST.md §4.5) — don't hand-edit
      entries. -->
-<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
     <channel>
         <title>EXP [design]</title>
+        <item>
+            <title>1.2.1</title>
+            <pubDate>Thu, 09 Jul 2026 21:10:46 -0500</pubDate>
+            <sparkle:version>4</sparkle:version>
+            <sparkle:shortVersionString>1.2.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>26.2</sparkle:minimumSystemVersion>
+            <sparkle:releaseNotesLink>https://expdesign.app/EXP-design-v1.2.1.html</sparkle:releaseNotesLink>
+            <enclosure url="https://github.com/tracyapps/EXP-design/releases/tag/EXP-design-v1.2.1.zip" length="26385736" type="application/octet-stream" sparkle:edSignature="O5SqUbrCVvADYzilG+9Tm0PT2FMFBby3K73agOuvwvppkoWaIdPbeW/Ow3VJtBjrockZA4OvFUgYxBrcpE1xCA=="/>
+        </item>
     </channel>
 </rss>
