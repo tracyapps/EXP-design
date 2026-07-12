@@ -1412,6 +1412,21 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+- **2026-07-12 — Sparkle update error traced to missing sandbox network entitlement:**
+  After the appcast URL/delta issues were fixed, Check for Updates still showed
+  Sparkle's generic "retrieving update information" error. Verified the live
+  appcast and release-note URLs were HTTP 200, then inspected the installed
+  v1.2.1 app and exported v1.3 app entitlements: both were sandboxed but lacked
+  `com.apple.security.network.client`, so Sparkle could not fetch
+  `appcast.xml` from inside the app. Enabled
+  `ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES` on the app target, hardened
+  `scripts/verify_sparkle_setup.sh`, made `scripts/generate_sparkle_appcast.sh`
+  reject zips whose contained app lacks the network entitlement, and updated the
+  release checklist with a post-export entitlement check. Release build succeeds
+  and the newly built app includes `com.apple.security.network.client = true`.
+  Existing 1.2.1 installs cannot self-update because that shipped entitlement is
+  missing; v1.3 likely needs a manual download/install once, after which future
+  Sparkle updates should be able to fetch the appcast.
 - **2026-07-12 — Sparkle update error root-caused: bad delta + old URL rewrite:**
   Owner tested Check for Updates after publishing v1.3 and Sparkle showed
   "An error occurred in retrieving update information." The live appcast itself

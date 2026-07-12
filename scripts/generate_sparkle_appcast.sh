@@ -45,6 +45,14 @@ notes_html="$releases_dir/EXP-design-v$version.html"
 download_prefix="https://github.com/$repo/releases/download/v$version/"
 release_notes_prefix="https://expdesign.app/"
 local_appcast="$releases_dir/appcast.xml"
+tmpdir=""
+
+cleanup() {
+  if [[ -n "$tmpdir" && -d "$tmpdir" ]]; then
+    rm -rf "$tmpdir"
+  fi
+}
+trap cleanup EXIT
 
 find_generate_appcast() {
   if [[ -n "${SPARKLE_GENERATE_APPCAST:-}" && -x "${SPARKLE_GENERATE_APPCAST:-}" ]]; then
@@ -56,6 +64,29 @@ find_generate_appcast() {
 
 html_escape() {
   sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'
+}
+
+verify_zip_entitlements() {
+  local archive="$1"
+  local app
+
+  tmpdir="$(mktemp -d)"
+  ditto -x -k "$archive" "$tmpdir"
+  app="$(find "$tmpdir" -maxdepth 1 -type d -name '*.app' | head -1)"
+
+  if [[ -z "$app" ]]; then
+    echo "error: zip does not contain a top-level .app bundle" >&2
+    exit 1
+  fi
+
+  if ! codesign -d --entitlements :- "$app" 2>/dev/null \
+    | plutil -extract com.apple.security.network.client raw -o - - 2>/dev/null \
+    | grep -qx true; then
+    echo "error: exported app is missing com.apple.security.network.client" >&2
+    echo "       Sparkle runs inside the app sandbox and cannot fetch appcast.xml without it." >&2
+    echo "       Re-export from Xcode after enabling Outgoing Connections, then re-zip." >&2
+    exit 1
+  fi
 }
 
 if [[ ! -f "$zip_path" ]]; then
@@ -74,6 +105,7 @@ if [[ ! -f "$notes_md" ]]; then
 fi
 
 "$root/scripts/verify_sparkle_setup.sh" "$version" "$build"
+verify_zip_entitlements "$zip_path"
 
 generate_appcast="$(find_generate_appcast || true)"
 if [[ -z "$generate_appcast" ]]; then

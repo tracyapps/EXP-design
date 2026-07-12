@@ -68,6 +68,7 @@ find_generate_appcast() {
 
 check "MARKETING_VERSION is $version in every build config" unique_setting MARKETING_VERSION "$version"
 check "CURRENT_PROJECT_VERSION is $build in every build config" unique_setting CURRENT_PROJECT_VERSION "$build"
+check "app target allows outgoing network connections for Sparkle" unique_setting ENABLE_OUTGOING_NETWORK_CONNECTIONS YES
 check "Sparkle package is resolved" grep -q '"identity" : "sparkle"' "$package_resolved"
 check "Info.plist SUFeedURL points to expdesign.app appcast" test "$(plist_value SUFeedURL)" = "https://expdesign.app/appcast.xml"
 public_key="$(plist_value SUPublicEDKey || true)"
