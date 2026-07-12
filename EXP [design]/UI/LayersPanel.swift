@@ -97,6 +97,7 @@ struct LayersPanel: View {
             // ⌘-toggle, and dragging a row (from anywhere on it) all come for
             // free and crisp. Rename lives in the row's context menu so no
             // custom gesture competes with the drag.
+            ScrollViewReader { proxy in
             List {
                 ForEach(groups) { group in
                     // Collapsible section per artboard / Wall (chevron in the header).
@@ -146,12 +147,19 @@ struct LayersPanel: View {
             .listStyle(.sidebar)
             .scrollContentBackground(.hidden)   // transparent list → panel surface shows
             // Selecting a nested layer (e.g. from the canvas) opens its ancestor
-            // groups + un-collapses its section so the row is visible. (Future: also
-            // scroll it into view — needs a ScrollViewReader around the List.)
-            .onChange(of: app.selectedNodeIDs) { _, sel in revealSelectedLayers(sel) }
+            // groups + un-collapses its section AND scrolls it into view.
+            .onChange(of: app.selectedNodeIDs) { _, sel in
+                revealSelectedLayers(sel)
+                revealScroll(sel, proxy: proxy)
+            }
             // Delete key while the panel is focused removes the selected layers —
             // previously only worked when they were selected on the canvas.
             .onDeleteCommand { deleteLayers(app.selectedNodeIDs) }
+            // Arrow keys nudge the selected layers. The focused List swallows key
+            // events, so the canvas's keyDown never sees them — same focus gap the
+            // onDeleteCommand above works around. ⇧ = 10pt step (via current event).
+            .onMoveCommand { direction in nudgeSelectedLayers(direction) }
+            }   // ScrollViewReader
         }
         .background(.clear)
         // The document panel owns the View-menu expand/collapse-all hook.
@@ -197,6 +205,19 @@ struct LayersPanel: View {
     }
 
     /// Open ancestor groups + the owning section for each selected layer.
+    /// Scroll the panel so the selected layer is visible. Only fires for a SINGLE
+    /// selected node (clicking one layer) — a marquee multi-select shouldn't yank
+    /// the panel around. Scrolls to the top-level ancestor row (always present in
+    /// the List; nested rows live inside their parent row and aren't scroll targets)
+    /// after expansion has had a tick to render.
+    private func revealScroll(_ sel: Set<UUID>, proxy: ScrollViewProxy) {
+        guard sel.count == 1, let id = sel.first else { return }
+        let top = ancestorGroupIDs(of: id).first ?? id
+        DispatchQueue.main.async {
+            withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo(top, anchor: .center) }
+        }
+    }
+
     private func revealSelectedLayers(_ sel: Set<UUID>) {
         guard !sel.isEmpty else { return }
         for id in sel {
@@ -457,6 +478,43 @@ struct LayersPanel: View {
     /// Delete `ids` (and any nested descendants) from the scoped node list as one
     /// undo step, reflowing so an auto-layout parent re-packs. Mirrors the canvas's
     /// Delete so layers picked in THIS panel can be removed without canvas focus.
+    /// Arrow-key nudge for layers selected in THIS panel (canvas keyDown can't
+    /// fire while the List holds focus). Moves in doc space; ⇧ steps by 10pt.
+    /// (Ancestor-group rotation isn't compensated here — the canvas handles that
+    /// case; panel nudging targets the common unrotated layout.)
+    private func nudgeSelectedLayers(_ direction: MoveCommandDirection) {
+        let ids = app.selectedNodeIDs
+        guard !ids.isEmpty else { return }
+        let large = NSApp.currentEvent?.modifierFlags.contains(.shift) ?? false
+        let step: CGFloat = large ? 10 : 1
+        var d = CGPoint.zero
+        switch direction {
+        case .left:  d.x = -step
+        case .right: d.x =  step
+        case .up:    d.y = -step
+        case .down:  d.y =  step
+        @unknown default: return
+        }
+        var nodes = scopeNodes
+        Self.moveIDs(ids, by: d, in: &nodes)
+        commitNodes(AutoLayoutEngine.reflowed(nodes), ids.count == 1 ? "Move Shape" : "Move Shapes")
+    }
+
+    /// Add `d` to the frame origin of every node in `ids`, recursing into groups
+    /// (a node's origin is in its parent's space).
+    private static func moveIDs(_ ids: Set<UUID>, by d: CGPoint, in nodes: inout [Node]) {
+        for i in nodes.indices {
+            if ids.contains(nodes[i].id) {
+                nodes[i].frame.origin.x += d.x
+                nodes[i].frame.origin.y += d.y
+            }
+            if case .group(var k) = nodes[i].content {
+                moveIDs(ids, by: d, in: &k)
+                nodes[i].content = .group(children: k)
+            }
+        }
+    }
+
     private func deleteLayers(_ ids: Set<UUID>) {
         guard !ids.isEmpty else { return }
         var nodes = scopeNodes
