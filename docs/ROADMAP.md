@@ -1412,6 +1412,14 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+- **2026-07-12 — Release checklist now matches owner's local folders:**
+  Updated `docs/RELEASE-CHECKLIST.md` with v1.3 copy/paste commands that match
+  the owner's actual release layout: Xcode exports to `../releases/v1.3/`, and
+  Sparkle archives live in `../sparkle-releases/` beside the repo. Adjusted
+  `scripts/generate_sparkle_appcast.sh` so its default `SPARKLE_RELEASES_DIR`
+  is that sibling `../sparkle-releases` folder instead of a home-directory
+  fallback. Verified `bash -n scripts/*.sh`, script help text, and
+  `scripts/verify_sparkle_setup.sh 1.3 5`.
 - **2026-07-12 — Sparkle release path hardened for v1.3:**
   Owner clarified that v1.2.1 was the Sparkle setup/rehearsal and v1.3 should
   be the next real release. Bumped the Xcode project to `MARKETING_VERSION 1.3`

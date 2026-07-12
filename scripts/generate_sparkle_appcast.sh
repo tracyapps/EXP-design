@@ -11,7 +11,7 @@ Example:
 
 Environment:
   SPARKLE_RELEASES_DIR       Local folder holding every Sparkle release zip.
-                             Default: ~/EXP-design-sparkle-releases
+                             Default: ../sparkle-releases next to this repo.
   SPARKLE_GENERATE_APPCAST   Optional explicit path to Sparkle's generate_appcast.
   GITHUB_REPOSITORY          owner/repo for release URLs. Default: tracyapps/EXP-design
 
@@ -36,7 +36,7 @@ build="$2"
 zip_path="$3"
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 repo="${GITHUB_REPOSITORY:-tracyapps/EXP-design}"
-releases_dir="${SPARKLE_RELEASES_DIR:-$HOME/EXP-design-sparkle-releases}"
+releases_dir="${SPARKLE_RELEASES_DIR:-$(cd "$root/.." && pwd)/sparkle-releases}"
 appcast="$root/website/public/appcast.xml"
 notes_md="$root/RELEASE-NOTES-v$version.md"
 zip_name="EXP-design-v$version.zip"
