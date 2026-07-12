@@ -112,7 +112,9 @@ manual send/approve step.
 
 ## Public content filtering
 
-Website builds auto-sync progress from `docs/ROADMAP.md`, but small website-only
+Website builds auto-sync progress from `docs/ROADMAP.md`; the header version
+pill is read from `website/public/appcast.xml` first, with shipped roadmap
+headings as a fallback for older/no-appcast states. Small website-only
 maintenance entries should not clutter the public roadmap or release-notification
 drafts. Add one of these markers to the progress-log title when an entry should
 stay internal:

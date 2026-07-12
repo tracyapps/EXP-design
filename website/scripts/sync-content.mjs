@@ -292,6 +292,36 @@ function parseRelease(markdown) {
   return latest;
 }
 
+function appcastDateToISO(pubDate) {
+  if (!pubDate) return "";
+  const parsed = new Date(pubDate);
+  return Number.isNaN(parsed.valueOf()) ? "" : parsed.toISOString().slice(0, 10);
+}
+
+function parseReleaseFromAppcast(appcast) {
+  const items = [...appcast.matchAll(/<item>([\s\S]*?)<\/item>/g)]
+    .map((match) => {
+      const item = match[1];
+      const version = item.match(/<sparkle:shortVersionString>([^<]+)<\/sparkle:shortVersionString>/)?.[1]?.trim();
+      const build = Number(item.match(/<sparkle:version>([^<]+)<\/sparkle:version>/)?.[1] ?? 0);
+      const pubDate = item.match(/<pubDate>([^<]+)<\/pubDate>/)?.[1]?.trim() ?? "";
+      return version ? { version, build, date: appcastDateToISO(pubDate), source: "appcast" } : null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.build - a.build);
+
+  return items[0] ?? null;
+}
+
+async function loadAppcastRelease() {
+  try {
+    const appcast = await readFile(path.join(repoRoot, "website/public/appcast.xml"), "utf8");
+    return parseReleaseFromAppcast(appcast);
+  } catch {
+    return null;
+  }
+}
+
 async function loadLearnVideos() {
   try {
     const raw = await readFile(path.join(repoRoot, "docs/learn-videos.json"), "utf8");
@@ -309,12 +339,12 @@ async function loadLearnVideos() {
 const phases = parsePhases(roadmapMarkdown);
 const progressLog = parseProgressLog(roadmapMarkdown);
 const backlog = parseBacklog(backlogMarkdown);
-const release = parseRelease(roadmapMarkdown);
+const release = (await loadAppcastRelease()) ?? parseRelease(roadmapMarkdown);
 const learnVideos = await loadLearnVideos();
 
 const content = {
   generatedAt: new Date().toISOString(),
-  sourceFiles: ["docs/ROADMAP.md", "docs/BACKLOG.md"],
+  sourceFiles: ["docs/ROADMAP.md", "docs/BACKLOG.md", "website/public/appcast.xml"],
   release,
   learnVideos,
   roadmap: buildRoadmapCards(phases, progressLog),

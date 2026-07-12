@@ -1412,6 +1412,15 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+- **2026-07-12 — Website release pill now follows appcast [site]:**
+  The header version pill was still showing v1.2 after v1.3 because
+  `website/scripts/sync-content.mjs` only parsed roadmap headings shaped like
+  `## vX.Y — shipped (YYYY-MM-DD)`, while v1.3 was represented as the current
+  release scope. Changed the sync source of truth for `siteContent.release` to
+  `website/public/appcast.xml` first, with shipped roadmap headings as fallback,
+  so the pill follows the actual public Sparkle/download release. Verified
+  `npm run sync`, `npm run build`, and local browser QA: homepage header renders
+  `v1.3` / `Jul 12`, and the version pill links to `/download#download-signup`.
 - **2026-07-12 — Sparkle update error traced to missing sandbox network entitlement:**
   After the appcast URL/delta issues were fixed, Check for Updates still showed
   Sparkle's generic "retrieving update information" error. Verified the live
