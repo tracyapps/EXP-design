@@ -30,6 +30,13 @@ final class ExportPanels: NSObject {
     /// PNG renders at this scale (a future Settings panel can expose it).
     private let pngScale: CGFloat = 2
 
+    /// The single-format popup items, in display order. Decoupled from
+    /// `ExportFormat.allCases` so adding a format never shifts the index math.
+    /// JPG is offered as an extra option (not part of "All").
+    private let singleFormats: [ExportFormat] = [.png, .jpg, .pdf, .svg]
+    /// True when the popup's trailing "All" item (folder flow only) is chosen.
+    private var isAllSelected: Bool { formatIndex >= singleFormats.count }
+
     init(model: Document) {
         self.model = model
         self.renderer = ExportRenderer(document: model)
@@ -48,7 +55,7 @@ final class ExportPanels: NSObject {
 
         let complete: (NSApplication.ModalResponse) -> Void = { [weak self] response in
             guard let self, response == .OK, let url = panel.url else { return }
-            let format = ExportFormat.allCases[self.formatIndex]
+            let format = self.singleFormats[self.formatIndex]
             let notes = self.notesCheckbox?.state == .on
             let transparentPNG = self.transparentPNGCheckbox?.state == .on
             if let data = self.renderer.data(for: artboard, format: format,
@@ -83,9 +90,9 @@ final class ExportPanels: NSObject {
             let combine = self.combineCheckbox?.state == .on
             let notes = self.notesCheckbox?.state == .on
             let transparentPNG = self.transparentPNGCheckbox?.state == .on
-            // Index 3 = "All"; otherwise a single format.
-            let formats: [ExportFormat] = self.formatIndex == 3
-                ? ExportFormat.allCases : [ExportFormat.allCases[self.formatIndex]]
+            // The trailing "All" item = PNG + PDF + SVG; otherwise the chosen format.
+            let formats: [ExportFormat] = self.isAllSelected
+                ? [.png, .pdf, .svg] : [self.singleFormats[self.formatIndex]]
             self.writeAll(artboards, to: dir, formats: formats, combinePDF: combine,
                           includeNotes: notes, transparentPNG: transparentPNG)
         }
@@ -125,7 +132,7 @@ final class ExportPanels: NSObject {
         let label = NSTextField(labelWithString: "Format:")
 
         let popup = NSPopUpButton(frame: .zero, pullsDown: false)
-        var titles = ["PNG (@2×)", "PDF", "SVG"]
+        var titles = ["PNG (@2×)", "JPG (@2×)", "PDF", "SVG"]
         if includeCombine { titles.append("All (PNG + PDF + SVG)") }
         popup.addItems(withTitles: titles)
         popup.target = self
@@ -177,7 +184,7 @@ final class ExportPanels: NSObject {
     /// the popup. No-op for the folder flow, where `savePanel` is nil.
     private func applyFormatToSavePanel() {
         guard let panel = savePanel else { return }
-        let format = ExportFormat.allCases[formatIndex]
+        let format = singleFormats[min(formatIndex, singleFormats.count - 1)]
         panel.allowedContentTypes = [format.utType]
         var name = (panel.nameFieldStringValue as NSString).deletingPathExtension
         if name.isEmpty { name = "Artboard" }
@@ -185,9 +192,11 @@ final class ExportPanels: NSObject {
     }
 
     private func updateCheckboxesEnabled() {
-        // PDF (index 1) or All (index 3) make the PDF-only options meaningful.
-        let pdfInvolved = (formatIndex == 1 || formatIndex == 3)
-        let pngInvolved = (formatIndex == 0 || formatIndex == 3)
+        // PDF (or All) make the PDF-only options meaningful; transparent bg is a
+        // PNG-only trait (JPEG can't be transparent).
+        let sel: ExportFormat? = formatIndex < singleFormats.count ? singleFormats[formatIndex] : nil
+        let pdfInvolved = (sel == .pdf || isAllSelected)
+        let pngInvolved = (sel == .png || isAllSelected)
         combineCheckbox?.isEnabled = pdfInvolved
         notesCheckbox?.isEnabled = pdfInvolved
         transparentPNGCheckbox?.isEnabled = pngInvolved

@@ -22,7 +22,7 @@ import PDFKit
 import UniformTypeIdentifiers
 
 enum ExportFormat: String, CaseIterable {
-    case png, pdf, svg
+    case png, pdf, svg, jpg
 
     var ext: String { rawValue }
 
@@ -31,6 +31,7 @@ enum ExportFormat: String, CaseIterable {
         case .png: return .png
         case .pdf: return .pdf
         case .svg: return UTType(filenameExtension: "svg") ?? .data
+        case .jpg: return .jpeg
         }
     }
 
@@ -39,6 +40,7 @@ enum ExportFormat: String, CaseIterable {
         case "png": self = .png
         case "pdf": self = .pdf
         case "svg": self = .svg
+        case "jpg", "jpeg": self = .jpg
         default: return nil
         }
     }
@@ -53,6 +55,7 @@ struct ExportRenderer {
         case .pdf: return pdfData(for: artboard, includeNotes: includeNotes)
         case .png: return pngData(for: artboard, scale: scale,
                                   transparentBackground: transparentPNGBackground)
+        case .jpg: return jpgData(for: artboard, scale: scale)
         case .svg: return svgString(for: artboard).data(using: .utf8)
         }
     }
@@ -128,6 +131,33 @@ struct ExportRenderer {
         NSGraphicsContext.restoreGraphicsState()
 
         return rep.representation(using: .png, properties: [:])
+    }
+
+    // MARK: JPG (rasterize like PNG, but flattened onto white — JPEG has no alpha)
+
+    func jpgData(for artboard: Artboard, scale: CGFloat, quality: CGFloat = 0.9) -> Data? {
+        let w = artboard.frame.width, h = artboard.frame.height
+        guard w > 0, h > 0,
+              let image = NSImage(data: pdfData(for: artboard, drawBackground: true)) else { return nil }
+        guard let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: Int(w * scale), pixelsHigh: Int(h * scale),
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+        ) else { return nil }
+        rep.size = NSSize(width: w, height: h)
+
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        // JPEG can't be transparent — fill white first so any transparency in the
+        // board (or its background) flattens to white rather than black.
+        NSColor.white.setFill()
+        NSRect(x: 0, y: 0, width: w, height: h).fill()
+        image.draw(in: NSRect(x: 0, y: 0, width: w, height: h))
+        NSGraphicsContext.restoreGraphicsState()
+
+        return rep.representation(using: .jpeg,
+                                  properties: [.compressionFactor: quality])
     }
 
     // MARK: SVG (emit from the model)
