@@ -106,6 +106,7 @@ fi
   cd "$releases_dir"
   "$generate_appcast" \
   --versions "$build" \
+  --maximum-deltas 0 \
   --download-url-prefix "$download_prefix" \
   --release-notes-url-prefix "$release_notes_prefix" \
   "$releases_dir"
@@ -135,6 +136,10 @@ if ! grep -q "$expected_notes_url" "$appcast"; then
 fi
 if ! grep -q 'sparkle:edSignature="' "$appcast"; then
   echo "error: generated appcast is missing sparkle:edSignature" >&2
+  exit 1
+fi
+if grep -q '<sparkle:deltas>' "$appcast"; then
+  echo "error: generated appcast contains delta updates, but this release flow uploads only the full zip" >&2
   exit 1
 fi
 

@@ -1412,6 +1412,20 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+- **2026-07-12 — Sparkle update error root-caused: bad delta + old URL rewrite:**
+  Owner tested Check for Updates after publishing v1.3 and Sparkle showed
+  "An error occurred in retrieving update information." The live appcast itself
+  was reachable, but it advertised a generated delta asset
+  `EXP [design]5-4.delta` under the GitHub v1.3 release that had not been
+  uploaded (404). It also rewrote the older v1.2.1 item to
+  `releases/download/v1.3/EXP-design-v1.2.1.zip` (also 404). Fixed the local
+  and website appcasts to remove deltas and restore the v1.2.1 URL, then hardened
+  `scripts/generate_sparkle_appcast.sh` with `--maximum-deltas 0` because this
+  release flow uploads only the full zip. Hardened `scripts/verify_sparkle_setup.sh`
+  to fail if `<sparkle:deltas>` appears or if older entries point at the current
+  release tag. Verified the local appcast, script syntax, website build, and both
+  GitHub zip URLs. NEXT: commit/push these fixes and let Vercel redeploy before
+  retrying Check for Updates.
 - **2026-07-12 — Release checklist now matches owner's local folders:**
   Updated `docs/RELEASE-CHECKLIST.md` with v1.3 copy/paste commands that match
   the owner's actual release layout: Xcode exports to `../releases/v1.3/`, and
