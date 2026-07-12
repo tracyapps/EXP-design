@@ -77,7 +77,7 @@ check "release notes exist for v$version" test -f "$notes"
 generate_appcast="$(find_generate_appcast || true)"
 check "Sparkle generate_appcast tool is available" test -n "$generate_appcast"
 
-if [[ -f "$appcast" ]]; then
+if [[ "${SPARKLE_SKIP_APPCAST_SHAPE:-0}" != "1" && -f "$appcast" ]]; then
   check "checked-in appcast does not use GitHub release-page URLs" bash -c "! grep -q '/releases/tag/' '$appcast'"
   check "checked-in appcast has no delta update entries" bash -c "! grep -q '<sparkle:deltas>' '$appcast'"
   check "older appcast entries do not point at the v$version GitHub tag" bash -c "! grep -q 'releases/download/v$version/EXP-design-v1\\.2\\.1\\.zip' '$appcast'"

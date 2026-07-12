@@ -5,4 +5,5 @@ DerivedData/
 docs/*
 !docs/ARCHITECTURE.md
 !docs/BACKLOG.md
+!docs/RELEASE-CHECKLIST.md
 !docs/ROADMAP.md

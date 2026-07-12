@@ -66,9 +66,20 @@ html_escape() {
   sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'
 }
 
+normalize_github_release_urls() {
+  local feed="$1"
+
+  REPO="$repo" perl -0pi -e '
+    my $repo = $ENV{"REPO"};
+    s{https://github\.com/\Q$repo\E/releases/download/v[^/]+/(EXP-design-v([0-9][0-9.]*[0-9])\.zip)}
+     {"https://github.com/$repo/releases/download/v$2/$1"}ge;
+  ' "$feed"
+}
+
 verify_zip_entitlements() {
   local archive="$1"
   local app
+  local entitlements
 
   tmpdir="$(mktemp -d)"
   ditto -x -k "$archive" "$tmpdir"
@@ -79,8 +90,9 @@ verify_zip_entitlements() {
     exit 1
   fi
 
-  if ! codesign -d --entitlements :- "$app" 2>/dev/null \
-    | plutil -extract com.apple.security.network.client raw -o - - 2>/dev/null \
+  entitlements="$tmpdir/entitlements.plist"
+  codesign -d --entitlements :- "$app" > "$entitlements" 2>/dev/null
+  if ! /usr/libexec/PlistBuddy -c "Print :com.apple.security.network.client" "$entitlements" 2>/dev/null \
     | grep -qx true; then
     echo "error: exported app is missing com.apple.security.network.client" >&2
     echo "       Sparkle runs inside the app sandbox and cannot fetch appcast.xml without it." >&2
@@ -104,7 +116,7 @@ if [[ ! -f "$notes_md" ]]; then
   exit 1
 fi
 
-"$root/scripts/verify_sparkle_setup.sh" "$version" "$build"
+SPARKLE_SKIP_APPCAST_SHAPE=1 "$root/scripts/verify_sparkle_setup.sh" "$version" "$build"
 verify_zip_entitlements "$zip_path"
 
 generate_appcast="$(find_generate_appcast || true)"
@@ -142,6 +154,7 @@ fi
   --download-url-prefix "$download_prefix" \
   --release-notes-url-prefix "$release_notes_prefix" \
   "$releases_dir"
+  normalize_github_release_urls "$local_appcast"
 )
 
 mkdir -p "$root/website/public"
@@ -183,4 +196,5 @@ echo "Next:"
 echo "  1. Upload the SAME zip to GitHub release v$version."
 echo "  2. Deploy website/public/appcast.xml and the HTML notes."
 echo "  3. Verify: curl -s https://expdesign.app/appcast.xml | grep 'v$version\\|edSignature'"
-echo "  4. Install the previous public build and run Check for Updates..."
+echo "  4. Install a previous network-enabled public build and run Check for Updates."
+echo "     For v1.3, install manually once because v1.2.1 lacked the network entitlement."
