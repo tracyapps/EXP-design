@@ -24,7 +24,7 @@ struct EXP__design_App: App {
         // DocumentGroup gives us New / Open / Save / Duplicate / Rename / Revert
         // and multi-window for free — each window hosts one ExpDocument.
         DocumentGroup(newDocument: { ExpDocument() }) { configuration in
-            MainWindow(document: configuration.document)
+            MainWindow(document: configuration.document, fileURL: configuration.fileURL)
         }
         // A roomier default window so the canvas + both panels have breathing room
         // on first launch (users can resize; this only sets the initial size).
@@ -62,6 +62,10 @@ struct EXP__design_App: App {
             CommandGroup(replacing: .importExport) {
                 Button("Place Image…") { send("placeImageAction:") }
                     .keyboardShortcut("p", modifiers: [.command, .shift])
+                // Import a PDF's pages as artboards into the current document (the
+                // page picker lives in the canvas action). Opening a .pdf via
+                // File ▸ Open instead makes a NEW document.
+                Button("Import PDF…") { send("importPDFAction:") }
                 Divider()
                 Button("Export Selected Artboard(s)…") { send("exportSelectedArtboard:") }
                     .keyboardShortcut("e", modifiers: [.command, .shift])

@@ -17,6 +17,7 @@ struct MainWindow: View {
     // The document this window is editing (provided by DocumentGroup). The
     // design data lives in `document.model`.
     @ObservedObject var document: ExpDocument
+    var fileURL: URL?
 
     // Per-window view state — camera, selection, panel layout. `@State` owns it
     // for the window's lifetime; `.environment(app)` hands it down so any panel
@@ -52,7 +53,7 @@ struct MainWindow: View {
                         .frame(minWidth: 200, idealWidth: app.workspace.left.width, maxWidth: 420)
                 }
 
-                CanvasView(app: app, document: document)
+                CanvasView(app: app, document: document, documentURL: fileURL)
                     .overlay(alignment: .topLeading) { ArtboardNotesOverlay(document: document) }
                     .frame(minWidth: 400, maxWidth: .infinity, maxHeight: .infinity)
                     .layoutPriority(1) // canvas gets the leftover space

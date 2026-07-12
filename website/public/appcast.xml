@@ -14,7 +14,7 @@
             <sparkle:shortVersionString>1.2.1</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>26.2</sparkle:minimumSystemVersion>
             <sparkle:releaseNotesLink>https://expdesign.app/EXP-design-v1.2.1.html</sparkle:releaseNotesLink>
-            <enclosure url="https://github.com/tracyapps/EXP-design/releases/tag/EXP-design-v1.2.1.zip" length="26385736" type="application/octet-stream" sparkle:edSignature="O5SqUbrCVvADYzilG+9Tm0PT2FMFBby3K73agOuvwvppkoWaIdPbeW/Ow3VJtBjrockZA4OvFUgYxBrcpE1xCA=="/>
+            <enclosure url="https://github.com/tracyapps/EXP-design/releases/download/v1.2.1/EXP-design-v1.2.1.zip" length="26385736" type="application/octet-stream" sparkle:edSignature="O5SqUbrCVvADYzilG+9Tm0PT2FMFBby3K73agOuvwvppkoWaIdPbeW/Ow3VJtBjrockZA4OvFUgYxBrcpE1xCA=="/>
         </item>
     </channel>
 </rss>

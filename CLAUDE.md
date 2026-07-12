@@ -72,10 +72,14 @@ Core editor is shipped and in tester hands (public download page at
 expdesign.app/download). Phases 0–7, 8.5, 9, 11, and 13 are ✅ DONE; Phases 8
 (color/gradients) and 10 (effects) are ✅ DONE with refinements planned; 9.5
 (rich text) is IN PROGRESS with one open editor bug. Documents save as
-**`.design`** (legacy `.exp` opens for migration). Recent work (v1.3 kickoff,
-2026-07-09): type styles in the Design Language (Phase 18h — everything except
-color), ARIA-role component categories (Phase 19a shipped), file-based tester
-diagnostics (`UI/DiagnosticLog.swift` — app target ONLY, never EXPThumbnail),
-and the View ▸ Log Geometry Audit measurement tool. See ROADMAP.md for the
+**`.design`** (legacy `.exp` opens for migration). Phases 18 (Design Language —
+colors, gradients, categories, import/export, contrast, TYPE STYLES) and 19a
+(ARIA-role component categories) are ✅ CLOSED as of 2026-07-10 with
+improvements planned (see ROADMAP "Planned next" + unchecked sub-boxes).
+Recent v1.3 work also shipped: file-based tester diagnostics
+(`UI/DiagnosticLog.swift` — app target ONLY, never EXPThumbnail), View ▸ Log
+Geometry Audit, stroke alignment (inside/center/outside), per-corner border
+radius, drop-shadow "Preserve transparency", Round to Pixel, drag-to-canvas
+component instances, and the ×N instance badge. See ROADMAP.md for the
 authoritative checklist; phase statuses there feed the public site via
 `website/scripts/sync-content.mjs`.

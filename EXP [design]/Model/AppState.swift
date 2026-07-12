@@ -389,7 +389,7 @@ final class AppState {
     var zoom: CGFloat = 1.0
     var panOffset: CGPoint = .zero      // in view points
 
-    let minZoom: CGFloat = 0.05         // 5%
+    let minZoom: CGFloat = 0.01         // 1% — the wall can hold a LOT of spread-out content
     let maxZoom: CGFloat = 256.0        // 25600% — close-in pixel/anchor work
 
     func clampZoom(_ z: CGFloat) -> CGFloat {

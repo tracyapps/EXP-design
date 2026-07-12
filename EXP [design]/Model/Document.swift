@@ -159,7 +159,14 @@ struct Document: Codable, Sendable {
             let overlap = artboard.frame.intersection(frame)
             guard !overlap.isNull else { continue }
             let coverage = overlap.width * overlap.height
-            guard coverage > area * 0.5 else { continue }
+            // Own the node when the overlap covers >50% of the NODE *or* >50% of the
+            // BOARD. Using min() of the two areas fixes the "group popped onto the
+            // wall" bug: a group whose bounding FRAME is much larger than the board
+            // (e.g. an imported logo carrying a big transparent/stray element) still
+            // covers the whole board, so it stays owned even though it's <50% of its
+            // own inflated frame. A node fully on the wall (no overlap) is unaffected.
+            let boardArea = artboard.frame.width * artboard.frame.height
+            guard coverage > 0.5 * Swift.min(area, boardArea) else { continue }
             if best == nil || coverage > best!.coverage { best = (artboard, coverage) }
         }
         return best?.artboard

@@ -39,6 +39,8 @@ struct DesignLanguagePanel: View {
     @State private var hiddenCategories: Set<UUID> = []
     @State private var showingPaste = false
     @State private var pasteText = ""
+    @State private var showingTransfer = false
+    @State private var transferMode: DLTransferMode = .importing
     @State private var mergeMode: DesignLanguage.MergeMode = .keepBoth
     @State private var showingGenerate = false
     @State private var seed: RGBAColor = .black
@@ -83,6 +85,9 @@ struct DesignLanguagePanel: View {
             Button("Cancel", role: .cancel) { renamingCategory = nil }
         }
         .sheet(isPresented: $showingPaste) { pasteSheet }
+        .sheet(isPresented: $showingTransfer) {
+            DesignLanguageTransferSheet(document: document, mode: transferMode)
+        }
         .sheet(isPresented: $showingGenerate) { generateSheet }
     }
 
@@ -162,9 +167,13 @@ struct DesignLanguagePanel: View {
 
             VStack(alignment: .trailing, spacing: 5) {
                 HStack(spacing: 6) {
-                    Menu { importExportMenu } label: { Image(systemName: "square.and.arrow.up") }
+                    // arrow.up.arrow.down: bidirectional on purpose — the old
+                    // square.and.arrow.up is the system SHARE/export glyph and
+                    // undersold that importing lives here too.
+                    Menu { importExportMenu } label: { Image(systemName: "arrow.up.arrow.down") }
                         .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
                         .help("Import or export the design language")
+                        .accessibilityLabel("Import or export the design language")
                     Button(action: saveFromSelection) {
                         Image(systemName: "plus")
                     }
@@ -189,16 +198,15 @@ struct DesignLanguagePanel: View {
     }
 
     @ViewBuilder private var importExportMenu: some View {
-        Button("Import from File...") { importFromFile() }
-        Button("Paste Palette...") { pasteText = ""; showingPaste = true }
+        // v1.3: the transfer sheet replaces the old pile of dropdown items
+        // (Paste Palette / Import from File / Export JSON / Copy CSS) — those
+        // flows live INSIDE the sheet now, with room for format options and a
+        // real preview.
+        Button("Import…") { transferMode = .importing; showingTransfer = true }
+        Button("Export…") { transferMode = .exporting; showingTransfer = true }
+        Divider()
         Button("Generate from Color...") { seed = generatorSeed(); showingGenerate = true }
-        Divider()
         Button("New Category...") { categoryDraft = ""; assignAfterCreate = nil; creatingCategory = true }
-        Divider()
-        Button("Export EXP JSON...") { exportToFile() }
-            .disabled(dl.assets.isEmpty && dl.typeStyles.isEmpty)
-        Button("Copy All as CSS") { copy(DesignLanguageIO.exportCSS(dl)) }
-            .disabled(dl.assets.isEmpty && dl.typeStyles.isEmpty)
         Divider()
         Button("Save Type Style from Selection") { saveTypeStyleFromSelection() }
             .disabled(selectedTextContent == nil)

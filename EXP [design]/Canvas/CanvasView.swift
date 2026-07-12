@@ -40,12 +40,14 @@ struct CanvasView: NSViewRepresentable {
     let app: AppState
     @ObservedObject var document: ExpDocument
     var scope: CanvasScope = .document
+    var documentURL: URL?
 
     func makeNSView(context: Context) -> CanvasNSView {
         let view = CanvasNSView()
         view.app = app
         view.document = document
         view.scope = scope
+        view.documentURL = documentURL
         return view
     }
 
@@ -53,6 +55,7 @@ struct CanvasView: NSViewRepresentable {
         nsView.app = app
         nsView.document = document
         nsView.scope = scope
+        nsView.documentURL = documentURL
         _ = (app.zoom, app.panOffset, app.tool,
              app.selectedArtboardIDs, app.selectedNodeIDs,
              document.model.nodes.count, document.model.artboards.count,
@@ -74,11 +77,13 @@ final class CanvasNSView: NSView {
     weak var app: AppState?
     weak var document: ExpDocument?
     var scope: CanvasScope = .document
+    var documentURL: URL?
 
     static let nodePasteboardType = NSPasteboard.PasteboardType("tapps.exp-design.nodes")
     static let artboardPasteboardType = NSPasteboard.PasteboardType("tapps.exp-design.artboards")
 
     override var isFlipped: Bool { true }
+    override var isOpaque: Bool { true }
     override var acceptsFirstResponder: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
@@ -195,6 +200,8 @@ final class CanvasNSView: NSView {
     private let rulerThickness: CGFloat = 20
 
     private var didInitialFit = false
+    private var cameraPersistTimer: Timer?
+    private var lastPersistedCamera: PersistedCanvasCamera?
 
     // Inline text editing: an NSTextView overlay sits over the node while you
     // type; the model is updated on commit.
@@ -268,7 +275,10 @@ final class CanvasNSView: NSView {
         needsDisplay = true
     }
 
-    deinit { NotificationCenter.default.removeObserver(self) }
+    deinit {
+        cameraPersistTimer?.invalidate()
+        NotificationCenter.default.removeObserver(self)
+    }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
@@ -284,7 +294,9 @@ final class CanvasNSView: NSView {
         if app?.viewportSize != bounds.size { app?.viewportSize = bounds.size }
         if !didInitialFit, bounds.width > 1, bounds.height > 1 {
             didInitialFit = true
-            fitContent()
+            if !restorePersistedCamera() {
+                fitContent()
+            }
         }
     }
 
@@ -296,6 +308,75 @@ final class CanvasNSView: NSView {
                                   owner: self, userInfo: nil)
         addTrackingArea(area)
         trackingArea = area
+    }
+
+    // MARK: Camera persistence
+
+    /// Local view state for reopening a document near the last working area.
+    /// Stored in UserDefaults keyed by file URL: it is not part of the design data,
+    /// so ordinary pan/zoom does not dirty the document or create undo steps.
+    private struct PersistedCanvasCamera: Codable, Equatable {
+        var zoom: Double
+        var centerX: Double
+        var centerY: Double
+        var viewportWidth: Double
+        var viewportHeight: Double
+    }
+
+    private var persistedCameraKey: String? {
+        guard !isSourceScope, let path = documentURL?.standardizedFileURL.path,
+              !path.isEmpty else { return nil }
+        var encoded = Data(path.utf8).base64EncodedString()
+        encoded = encoded.replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "=", with: ".")
+        return "exp.canvas.camera.v1.\(encoded)"
+    }
+
+    private func currentPersistedCamera() -> PersistedCanvasCamera? {
+        guard let app, didInitialFit, bounds.width > 1, bounds.height > 1 else { return nil }
+        let center = viewToDoc(viewCenter)
+        let camera = PersistedCanvasCamera(
+            zoom: Double(app.zoom),
+            centerX: Double(center.x),
+            centerY: Double(center.y),
+            viewportWidth: Double(bounds.width),
+            viewportHeight: Double(bounds.height))
+        guard camera.zoom.isFinite, camera.centerX.isFinite, camera.centerY.isFinite else { return nil }
+        return camera
+    }
+
+    func scheduleCameraPersistenceIfReady() {
+        guard persistedCameraKey != nil, currentPersistedCamera() != nil else { return }
+        cameraPersistTimer?.invalidate()
+        let timer = Timer(timeInterval: 0.45, repeats: false) { [weak self] _ in
+            self?.persistCameraNow()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        cameraPersistTimer = timer
+    }
+
+    private func persistCameraNow() {
+        guard let key = persistedCameraKey,
+              let camera = currentPersistedCamera(),
+              camera != lastPersistedCamera,
+              let data = try? JSONEncoder().encode(camera) else { return }
+        UserDefaults.standard.set(data, forKey: key)
+        lastPersistedCamera = camera
+    }
+
+    private func restorePersistedCamera() -> Bool {
+        guard let app, let key = persistedCameraKey,
+              let data = UserDefaults.standard.data(forKey: key),
+              let camera = try? JSONDecoder().decode(PersistedCanvasCamera.self, from: data),
+              camera.zoom.isFinite, camera.centerX.isFinite, camera.centerY.isFinite else { return false }
+        let zoom = app.clampZoom(CGFloat(camera.zoom))
+        app.zoom = zoom
+        app.panOffset = CGPoint(x: viewCenter.x - CGFloat(camera.centerX) * zoom,
+                                y: viewCenter.y - CGFloat(camera.centerY) * zoom)
+        lastPersistedCamera = camera
+        needsDisplay = true
+        return true
     }
 
     // MARK: Camera helpers
@@ -490,26 +571,56 @@ final class CanvasNSView: NSView {
     private func hitTestPathPoint(atViewPoint p: CGPoint) -> (id: UUID, target: PathPointTarget)? {
         guard let sel = selectedPath(), let n = node(sel.id) else { return nil }
         let chain = ancestorGroups(of: n.id)
-        func v(_ local: CGPoint) -> CGPoint { nodeLocalToView(local, n, chain: chain) }
         let contours = sel.ps.editContours
-        // Handles take priority over anchors so you can grab a handle on top of one.
+        if perf.enabled {
+            perf.gauge("pathPts", contours.reduce(0) { $0 + $1.count })
+            perf.gauge("selectedPts", selectedPointAddresses.count)
+        }
+
+        // Point/handle chrome is constant-size in view space, but the node/group
+        // transforms are rotation/flip/translate only. Convert the cursor once and
+        // compare in local units instead of projecting every point/handle to view
+        // space on each click.
+        let local = viewToNodeLocal(p, n, chain: chain)
+        let grab = handleGrab / max(app?.zoom ?? 1, 0.0001)
+        func dist(_ q: CGPoint) -> CGFloat { hypot(local.x - q.x, local.y - q.y) }
+
+        // Anchors win when they overlap their own handles. That matches what users
+        // see (the anchor square sits on top) and prevents collapsed handles from
+        // stealing attempts to move the actual point.
+        var bestAnchor: (target: PathPointTarget, distance: CGFloat)?
         for (c, pts) in contours.enumerated() {
             for (i, pt) in pts.enumerated() {
-                if let cin = pt.controlIn, hypot(p.x - v(cin).x, p.y - v(cin).y) <= handleGrab {
-                    return (sel.id, .controlIn(c, i))
-                }
-                if let cout = pt.controlOut, hypot(p.x - v(cout).x, p.y - v(cout).y) <= handleGrab {
-                    return (sel.id, .controlOut(c, i))
+                let d = dist(pt.point)
+                if d <= grab, bestAnchor == nil || d < bestAnchor!.distance {
+                    bestAnchor = (.anchor(c, i), d)
                 }
             }
         }
-        for (c, pts) in contours.enumerated() {
-            for (i, pt) in pts.enumerated() {
-                if hypot(p.x - v(pt.point).x, p.y - v(pt.point).y) <= handleGrab {
-                    return (sel.id, .anchor(c, i))
+        if let bestAnchor { return (sel.id, bestAnchor.target) }
+
+        // Only selected anchors expose handles, so only those handles should be
+        // interactive. This also keeps dense imported SVG paths from checking
+        // invisible handles on every point click.
+        var bestHandle: (target: PathPointTarget, distance: CGFloat)?
+        for addr in selectedPointAddresses {
+            guard contours.indices.contains(addr.contour),
+                  contours[addr.contour].indices.contains(addr.index) else { continue }
+            let pt = contours[addr.contour][addr.index]
+            if let cin = pt.controlIn {
+                let d = dist(cin)
+                if d <= grab, bestHandle == nil || d < bestHandle!.distance {
+                    bestHandle = (.controlIn(addr.contour, addr.index), d)
+                }
+            }
+            if let cout = pt.controlOut {
+                let d = dist(cout)
+                if d <= grab, bestHandle == nil || d < bestHandle!.distance {
+                    bestHandle = (.controlOut(addr.contour, addr.index), d)
                 }
             }
         }
+        if let bestHandle { return (sel.id, bestHandle.target) }
         return nil
     }
 
@@ -813,7 +924,7 @@ final class CanvasNSView: NSView {
         let anchorLocal = ps.points[anchorIndex].point
         let outLocal = docToLocal(docP, n)
         let inLocal = CGPoint(x: 2 * anchorLocal.x - outLocal.x, y: 2 * anchorLocal.y - outLocal.y)
-        updateNode(nodeID) {
+        updateNodeLive(nodeID) {
             if case .path(var p2) = $0.content {
                 p2.points[anchorIndex].controlOut = outLocal
                 p2.points[anchorIndex].controlIn = inLocal
@@ -851,7 +962,7 @@ final class CanvasNSView: NSView {
         guard let app, let document else { return }
 
         // 1) An anchor or handle of the path currently being point-edited.
-        if let hit = hitTestPathPoint(atViewPoint: p) {
+        if let hit = perf.measure("hit-points", { hitTestPathPoint(atViewPoint: p) }) {
             switch hit.target {
             case .anchor(let c, let i):
                 let addr = PointAddress(contour: c, index: i)
@@ -923,14 +1034,16 @@ final class CanvasNSView: NSView {
     /// rotation channel (`AppState.applyPointRotation`/`selectedPointCount`) in
     /// sync — same install/uninstall pattern as `applyTextStyle`.
     private func setSelectedPoints(_ addrs: Set<PointAddress>) {
-        selectedPointAddresses = addrs
-        app?.selectedPointCount = addrs.count
-        if addrs.isEmpty {
-            app?.applyPointRotation = nil
-            app?.pointSelectionRotation = 0
-        } else {
-            app?.pointSelectionRotation = 0   // a fresh dial for this selection
-            app?.applyPointRotation = { [weak self] delta in self?.rotateSelectedPoints(by: delta) }
+        perf.measure("select-points") {
+            selectedPointAddresses = addrs
+            app?.selectedPointCount = addrs.count
+            if addrs.isEmpty {
+                app?.applyPointRotation = nil
+                app?.pointSelectionRotation = 0
+            } else {
+                app?.pointSelectionRotation = 0   // a fresh dial for this selection
+                app?.applyPointRotation = { [weak self] delta in self?.rotateSelectedPoints(by: delta) }
+            }
         }
         needsDisplay = true
     }
@@ -966,10 +1079,13 @@ final class CanvasNSView: NSView {
     /// Move every selected anchor (+ its handles) by the same delta from where
     /// the group drag started — keeps the whole multi-point selection rigid.
     private func pathPointGroupDrag(_ p: CGPoint, nodeID: UUID, startLocal: CGPoint,
-                                     originals: [PointAddress: (point: CGPoint, controlIn: CGPoint?, controlOut: CGPoint?)]) {
+                                     originals: [PointAddress: (point: CGPoint, controlIn: CGPoint?, controlOut: CGPoint?)],
+                                     shift: Bool = false) {
         guard let n = node(nodeID), case .path(var ps) = n.content else { return }
         let local = viewToNodeLocal(p, n, chain: ancestorGroups(of: n.id))
-        let dx = local.x - startLocal.x, dy = local.y - startLocal.y
+        var dx = local.x - startLocal.x, dy = local.y - startLocal.y
+        // Shift locks the move to the dominant axis (Figma/Illustrator-style).
+        if shift { if abs(dx) >= abs(dy) { dy = 0 } else { dx = 0 } }
         for (addr, orig) in originals {
             ps.mutatePoint(contour: addr.contour, index: addr.index) { pt in
                 pt.point = CGPoint(x: orig.point.x + dx, y: orig.point.y + dy)
@@ -977,7 +1093,7 @@ final class CanvasNSView: NSView {
                 pt.controlOut = orig.controlOut.map { CGPoint(x: $0.x + dx, y: $0.y + dy) }
             }
         }
-        updateNode(nodeID) { $0.content = .path(ps) }
+        updateNodeLive(nodeID) { $0.content = .path(ps) }
         didEdit = true
         needsDisplay = true
     }
@@ -1037,12 +1153,13 @@ final class CanvasNSView: NSView {
         needsDisplay = true
     }
 
-    private func pathPointDrag(_ p: CGPoint, nodeID: UUID, target: PathPointTarget) {
+    private func pathPointDrag(_ p: CGPoint, nodeID: UUID, target: PathPointTarget, shift: Bool = false) {
         guard let n = node(nodeID), case .path(var ps) = n.content else { return }
-        let local = viewToNodeLocal(p, n, chain: ancestorGroups(of: n.id))
+        var local = viewToNodeLocal(p, n, chain: ancestorGroups(of: n.id))
         switch target {
         case .anchor(let c, let i):
             guard let cur = ps.editPoint(contour: c, index: i) else { return }
+            if shift { local = constrainLineEndpoint(local, from: cur.point) }   // lock to axis/45°
             let dx = local.x - cur.point.x, dy = local.y - cur.point.y
             ps.mutatePoint(contour: c, index: i) {
                 $0.point = local
@@ -1050,11 +1167,14 @@ final class CanvasNSView: NSView {
                 $0.controlOut = $0.controlOut.map { CGPoint(x: $0.x + dx, y: $0.y + dy) }
             }
         case .controlIn(let c, let i):
+            // Shift snaps a handle to 45°/axis about its own anchor.
+            if shift, let a = ps.editPoint(contour: c, index: i)?.point { local = constrainLineEndpoint(local, from: a) }
             ps.mutatePoint(contour: c, index: i) { $0.controlIn = local }
         case .controlOut(let c, let i):
+            if shift, let a = ps.editPoint(contour: c, index: i)?.point { local = constrainLineEndpoint(local, from: a) }
             ps.mutatePoint(contour: c, index: i) { $0.controlOut = local }
         }
-        updateNode(nodeID) { $0.content = .path(ps) }
+        updateNodeLive(nodeID) { $0.content = .path(ps) }
         didEdit = true
         needsDisplay = true
     }
@@ -1312,25 +1432,34 @@ final class CanvasNSView: NSView {
 
     // MARK: Path-point overlay (anchors + handles)
 
-    private func drawPathPoints(_ node: Node, in ctx: CGContext, selected: Set<PointAddress> = []) {
+    private func drawPathPoints(_ node: Node, in ctx: CGContext,
+                                selected: Set<PointAddress> = [],
+                                handleOwners: Set<PointAddress> = []) {
         guard case .path(let ps) = node.content else { return }
         let chain = ancestorGroups(of: node.id)
         func v(_ local: CGPoint) -> CGPoint { nodeLocalToView(local, node, chain: chain) }
+        let visible = bounds.insetBy(dx: -32, dy: -32)
         ctx.saveGState()
         for (c, pts) in ps.editContours.enumerated() {
             for (i, pt) in pts.enumerated() {
                 let a = v(pt.point)
-                let isSelected = selected.contains(PointAddress(contour: c, index: i))
-                // Handles: line from anchor + small circle.
-                for handle in [pt.controlIn, pt.controlOut].compactMap({ $0 }) {
-                    let hv = v(handle)
-                    NSColor.controlAccentColor.withAlphaComponent(0.6).setStroke()
-                    ctx.setLineWidth(1)
-                    ctx.move(to: a); ctx.addLine(to: hv); ctx.strokePath()
-                    let r: CGFloat = 3
-                    NSColor.white.setFill(); NSColor.controlAccentColor.setStroke()
-                    let dot = CGRect(x: hv.x - r, y: hv.y - r, width: r * 2, height: r * 2)
-                    ctx.fillEllipse(in: dot); ctx.strokeEllipse(in: dot)
+                guard visible.contains(a) else { continue }
+                let addr = PointAddress(contour: c, index: i)
+                let isSelected = selected.contains(addr)
+                // Handles are the expensive/visually noisy part on imported SVGs.
+                // Show them for selected/active anchors, not for every point in a
+                // dense compound path.
+                if isSelected || handleOwners.contains(addr) {
+                    for handle in [pt.controlIn, pt.controlOut].compactMap({ $0 }) {
+                        let hv = v(handle)
+                        NSColor.controlAccentColor.withAlphaComponent(0.6).setStroke()
+                        ctx.setLineWidth(1)
+                        ctx.move(to: a); ctx.addLine(to: hv); ctx.strokePath()
+                        let r: CGFloat = 3
+                        NSColor.white.setFill(); NSColor.controlAccentColor.setStroke()
+                        let dot = CGRect(x: hv.x - r, y: hv.y - r, width: r * 2, height: r * 2)
+                        ctx.fillEllipse(in: dot); ctx.strokeEllipse(in: dot)
+                    }
                 }
                 // Anchor square — solid accent fill when selected (so a multi-
                 // point selection reads clearly), hollow/white otherwise.
@@ -1480,6 +1609,7 @@ final class CanvasNSView: NSView {
         let docY = (anchor.y - app.panOffset.y) / old
         app.zoom = new
         app.panOffset = CGPoint(x: anchor.x - docX * new, y: anchor.y - docY * new)
+        scheduleCameraPersistenceIfReady()
         suppressBlurDuringInteraction()
         needsDisplay = true
     }
@@ -1509,6 +1639,7 @@ final class CanvasNSView: NSView {
         guard let app else { return }
         app.zoom = 1.0
         fitContent()
+        scheduleCameraPersistenceIfReady()
     }
 
     // MARK: Scoped node access
@@ -1832,6 +1963,16 @@ final class CanvasNSView: NSView {
         }
     }
 
+    /// Fast path for live point editing. Moving anchors/handles only changes the
+    /// path's local geometry; it does not require re-running auto-layout across the
+    /// whole document on every mouse tick. The commit path normalizes/reflows once
+    /// on mouse-up through `normalizePath` + undo registration.
+    private func updateNodeLive(_ id: UUID, _ change: (inout Node) -> Void) {
+        withNodes { nodes in
+            _ = Self.mutateNested(id, in: &nodes, change)
+        }
+    }
+
     /// Apply `change` to the node with `id` anywhere in the tree (recursing into
     /// groups). Returns true if found.
     @discardableResult
@@ -2001,11 +2142,7 @@ final class CanvasNSView: NSView {
     /// parent). Generalizes the old top-level-only unit to nested layers.
     private func selectionTransformIDs() -> [UUID] {
         guard let app else { return [] }
-        return app.selectedNodeIDs.filter { id in
-            node(id) != nil
-                && ancestorsUntransformed(id)
-                && !hasSelectedAncestor(id)
-        }
+        return selectionTransformNodesDoc(for: app.selectedNodeIDs).map(\.id)
     }
 
     /// True if any ancestor group of `id` is itself selected.
@@ -2025,21 +2162,47 @@ final class CanvasNSView: NSView {
     /// The transform's selected nodes with frames lifted into DOCUMENT space (parent
     /// offset folded in), so union/box/scale/rotate math is uniform across nesting.
     private func selectionTransformNodesDoc() -> [Node] {
-        selectionTransformIDs().compactMap { id in
-            guard var n = node(id) else { return nil }
-            let off = nodeOffset(id)
-            n.frame = n.frame.offsetBy(dx: off.x, dy: off.y)
-            return n
+        guard let app else { return [] }
+        return selectionTransformNodesDoc(for: app.selectedNodeIDs)
+    }
+
+    private func selectionTransformNodesDoc(for selectedIDs: Set<UUID>) -> [Node] {
+        guard !selectedIDs.isEmpty else { return [] }
+        var result: [Node] = []
+        func walk(_ nodes: [Node], offset: CGPoint,
+                  ancestorsUntransformed: Bool, selectedAbove: Bool) {
+            for node in nodes {
+                let selected = selectedIDs.contains(node.id)
+                if selected, ancestorsUntransformed, !selectedAbove {
+                    var docNode = node
+                    docNode.frame = node.frame.offsetBy(dx: offset.x, dy: offset.y)
+                    result.append(docNode)
+                }
+                if case .group(let kids) = node.content {
+                    let childOffset = CGPoint(x: offset.x + node.frame.minX,
+                                              y: offset.y + node.frame.minY)
+                    let childAncestorsUntransformed = ancestorsUntransformed
+                        && node.rotation == 0 && !node.flipH && !node.flipV
+                    walk(kids, offset: childOffset,
+                         ancestorsUntransformed: childAncestorsUntransformed,
+                         selectedAbove: selectedAbove || selected)
+                }
+            }
         }
+        walk(currentNodes, offset: .zero, ancestorsUntransformed: true, selectedAbove: false)
+        return result
     }
 
     /// Whether the unified selection box (8 handles + rotate knob) is in play:
     /// more than one node selected, or a single GROUP (which needs child-aware
     /// resize). A lone non-group node keeps the existing single-node handles.
     private func usesSelectionTransform() -> Bool {
-        let ids = selectionTransformIDs()
-        if ids.count > 1 { return true }
-        if ids.count == 1, let n = node(ids[0]), case .group = n.content { return true }
+        usesSelectionTransform(selectionTransformNodesDoc())
+    }
+
+    private func usesSelectionTransform(_ nodes: [Node]) -> Bool {
+        if nodes.count > 1 { return true }
+        if nodes.count == 1, case .group = nodes[0].content { return true }
         return false
     }
 
@@ -2331,8 +2494,16 @@ final class CanvasNSView: NSView {
     // of it. These buckets say where the offscreen milliseconds ACTUALLY go, so
     // the next fix targets the measured hotspot instead of a hypothesis.
     private var capturingSnapshot = false
+    private var currentRenderRegion: CGRect?
     private var capShadowMs = 0.0, capImageMs = 0.0, capTextMs = 0.0
     private var capShapeMs = 0.0, capBoardMs = 0.0, capLayerMs = 0.0
+
+    private func withCanvasAppearance<T>(_ body: () -> T) -> T {
+        let prior = NSAppearance.current
+        NSAppearance.current = effectiveAppearance
+        defer { NSAppearance.current = prior }
+        return body()
+    }
 
     /// One full scene render (no rulers) into the reusable offscreen backing,
     /// kept as a CGImage together with the transform it was rendered at.
@@ -2351,6 +2522,7 @@ final class CanvasNSView: NSView {
         let t0 = CFAbsoluteTimeGetCurrent()   // always timed — feeds the safety valve
         let scale = backingScale
         cg.saveGState()
+        cg.clear(CGRect(x: 0, y: 0, width: cg.width, height: cg.height))
         cg.translateBy(x: 0, y: CGFloat(cg.height))
         cg.scaleBy(x: scale, y: -scale)
         cg.translateBy(x: -region.minX, y: -region.minY)   // region origin → bitmap origin
@@ -2361,7 +2533,9 @@ final class CanvasNSView: NSView {
         let tRender = CFAbsoluteTimeGetCurrent()
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = nsctx
-        renderCanvas(into: cg, includeRulers: false, viewport: region)
+        withCanvasAppearance {
+            renderCanvas(into: cg, includeRulers: false, viewport: region)
+        }
         NSGraphicsContext.restoreGraphicsState()
         let renderMs = (CFAbsoluteTimeGetCurrent() - tRender) * 1000
         capturingSnapshot = false
@@ -2536,12 +2710,15 @@ final class CanvasNSView: NSView {
 
         func renderLayer(_ body: (CGContext) -> Void) -> CGImage? {
             cg.saveGState()
+            cg.clear(CGRect(x: 0, y: 0, width: cg.width, height: cg.height))
             cg.translateBy(x: 0, y: CGFloat(cg.height))
             cg.scaleBy(x: scale, y: -scale)
             let nsctx = NSGraphicsContext(cgContext: cg, flipped: true)
             NSGraphicsContext.saveGraphicsState()
             NSGraphicsContext.current = nsctx
-            body(cg)
+            withCanvasAppearance {
+                body(cg)
+            }
             NSGraphicsContext.restoreGraphicsState()
             cg.restoreGState()
             return cg.makeImage()
@@ -2728,6 +2905,7 @@ final class CanvasNSView: NSView {
         if documentHasBackgroundBlur, !blurSuppressed, let cg = offscreenBacking() {
             let scale = backingScale
             cg.saveGState()
+            cg.clear(CGRect(x: 0, y: 0, width: cg.width, height: cg.height))
             // Map point-space (y-down, top-left, as docToView produces) onto the
             // bottom-up bitmap buffer.
             cg.translateBy(x: 0, y: CGFloat(cg.height))
@@ -2735,7 +2913,9 @@ final class CanvasNSView: NSView {
             let nsctx = NSGraphicsContext(cgContext: cg, flipped: true)
             NSGraphicsContext.saveGraphicsState()
             NSGraphicsContext.current = nsctx
-            renderCanvas(into: cg)               // drawNode samples this same cg
+            withCanvasAppearance {
+                renderCanvas(into: cg)           // drawNode samples this same cg
+            }
             NSGraphicsContext.restoreGraphicsState()
             cg.restoreGState()
             if let img = cg.makeImage(), let ctx = NSGraphicsContext.current?.cgContext {
@@ -2771,19 +2951,26 @@ final class CanvasNSView: NSView {
         // `viewport` widens the render region for the pan/zoom snapshot's halo
         // (culling + background fill follow it); nil = the on-screen bounds.
         let region = viewport ?? bounds
+        let priorRenderRegion = currentRenderRegion
+        currentRenderRegion = region
+        defer { currentRenderRegion = priorRenderRegion }
 
-        NSColor.underPageBackgroundColor.setFill()
-        region.fill()
+        perf.measure("draw-bg") {
+            NSColor.underPageBackgroundColor.setFill()
+            region.fill()
+        }
 
         if isSourceScope {
-            // Draw the component's viewBox "page" (a stable, resizable frame) plus its
-            // resize handles, so it reads and behaves like its own little artboard.
-            if let rect = sourceBoundsRect() {
-                drawSourceBounds(rect, in: ctx)
-                drawArtboardHandles(docToView(rect), in: ctx)
-            }
-            for node in currentNodes where node.isVisible && node.id != editingNodeID {
-                drawNode(node, offset: .zero, in: ctx)
+            perf.measure("draw-source") {
+                // Draw the component's viewBox "page" (a stable, resizable frame) plus its
+                // resize handles, so it reads and behaves like its own little artboard.
+                if let rect = sourceBoundsRect() {
+                    drawSourceBounds(rect, in: ctx)
+                    drawArtboardHandles(docToView(rect), in: ctx)
+                }
+                for node in currentNodes where node.isVisible && node.id != editingNodeID {
+                    drawNode(node, offset: .zero, in: ctx)
+                }
             }
         } else {
             // Viewport culling — only paint what can land inside the visible region.
@@ -2791,19 +2978,23 @@ final class CanvasNSView: NSView {
             // the difference between O(everything) and O(what's on screen) per frame.
             let visible = region
             var perfDrawn = 0, perfBoards = 0
-            for artboard in document.model.artboards {
-                // Grow for the name label above and the soft drop shadow around it.
-                guard docToView(artboard.frame).insetBy(dx: -24, dy: -24).intersects(visible)
-                else { continue }
-                let capB = capturingSnapshot ? CFAbsoluteTimeGetCurrent() : 0
-                drawArtboardBackground(artboard, in: ctx)
-                if capB != 0 { capBoardMs += (CFAbsoluteTimeGetCurrent() - capB) * 1000 }
-                perfBoards += 1
+            perf.measure("draw-boards") {
+                for artboard in document.model.artboards {
+                    // Grow for the name label above and the soft drop shadow around it.
+                    guard docToView(artboard.frame).insetBy(dx: -24, dy: -24).intersects(visible)
+                    else { continue }
+                    let capB = capturingSnapshot ? CFAbsoluteTimeGetCurrent() : 0
+                    drawArtboardBackground(artboard, in: ctx)
+                    if capB != 0 { capBoardMs += (CFAbsoluteTimeGetCurrent() - capB) * 1000 }
+                    perfBoards += 1
+                }
             }
             // Shapes clipped to the artboard that owns them (or unclipped on the
             // wall). The node being text-edited is skipped — the overlay stands in.
-            for node in document.model.nodes where node.isVisible && node.id != editingNodeID {
-                if drawCulledTopLevelNode(node, visible: visible, in: ctx) { perfDrawn += 1 }
+            perf.measure("draw-nodes") {
+                for node in document.model.nodes where node.isVisible && node.id != editingNodeID {
+                    if drawCulledTopLevelNode(node, visible: visible, in: ctx) { perfDrawn += 1 }
+                }
             }
             if perf.enabled {
                 perf.gauge("nodes(total)", document.model.nodes.count)
@@ -2816,16 +3007,18 @@ final class CanvasNSView: NSView {
 
         // Grids over content (document scope only), then guides, then chrome.
         if !isSourceScope {
-            drawLayoutGrids(in: ctx)
-            if app?.showGrid == true { drawUniformGrid(in: ctx) }
+            perf.measure("draw-grids") {
+                drawLayoutGrids(in: ctx)
+                if app?.showGrid == true { drawUniformGrid(in: ctx) }
+            }
         }
-        if app?.showGuides == true { drawGuides(in: ctx) }
+        if app?.showGuides == true { perf.measure("draw-guides") { drawGuides(in: ctx) } }
         
         // Smart guides (shown during drag, on top of static guides)
-        drawSmartGuides(in: ctx)
+        perf.measure("draw-smart") { drawSmartGuides(in: ctx) }
 
         // Selection chrome on top (shared with the drag-overlay blit path).
-        drawSelectionChrome(in: ctx)
+        perf.measure("draw-chrome") { drawSelectionChrome(in: ctx) }
 
         var rubberBandStart: CGPoint?
         if case .marquee(let start, _) = dragMode { rubberBandStart = start }
@@ -2843,11 +3036,13 @@ final class CanvasNSView: NSView {
             ctx.restoreGState()
         }
 
-        if optionHeld { drawMeasurements(in: ctx) }
+        if optionHeld { perf.measure("draw-measure") { drawMeasurements(in: ctx) } }
 
         // Rulers are chrome at the very top, over everything else. (Excluded from
         // the pan/zoom gesture snapshot — the blit path draws them live instead.)
-        if includeRulers && app?.showRulers == true && !isSourceScope { drawRulers(in: ctx) }
+        if includeRulers && app?.showRulers == true && !isSourceScope {
+            perf.measure("draw-rulers") { drawRulers(in: ctx) }
+        }
     }
 
     /// One top-level node: viewport + artboard culling, then the standard clip
@@ -2891,39 +3086,62 @@ final class CanvasNSView: NSView {
     /// it on top of the composited snapshot without re-rendering the scene.
     private func drawSelectionChrome(in ctx: CGContext) {
         guard let app else { return }
-        let single = app.selectedNodeIDs.count == 1
-        for id in app.selectedNodeIDs {
-            guard let node = node(id) else { continue }
-            // Resize/rotate handles for a lone selection that's top-level OR
-            // nested under only UNrotated groups (handle math is a pure offset
-            // there). Nested under a rotated group stays move-only.
-            drawNodeSelection(node, offset: nodeOffset(id), ctx: ctx, handles: single)
+        let selectedIDs = app.selectedNodeIDs
+        let selectedCount = selectedIDs.count
+        if perf.enabled { perf.gauge("selectedNodes", selectedCount) }
+        let single = selectedCount == 1
+        let drawPerNodeHints = single || selectedCount <= 32
+        if drawPerNodeHints {
+            perf.measure("chrome-node-selection") {
+                for id in selectedIDs {
+                    guard let node = node(id) else { continue }
+                    // Resize/rotate handles for a lone selection that's top-level OR
+                    // nested under only UNrotated groups (handle math is a pure offset
+                    // there). Nested under a rotated group stays move-only.
+                    drawNodeSelection(node, offset: nodeOffset(id), ctx: ctx, handles: single)
+                }
+            }
         }
         // Unified selection box (8 handles + rotate knob) for a multi-selection
         // or a single group — the per-node boxes above stay as a hint.
-        if usesSelectionTransform(), let b = selectionDocBounds() {
-            drawSelectionTransformBox(b, in: ctx)
+        perf.measure("chrome-transform-box") {
+            let transformNodes = selectionTransformNodesDoc(for: selectedIDs)
+            if usesSelectionTransform(transformNodes),
+               let b = SelectionTransform.unionBounds(transformNodes) {
+                drawSelectionTransformBox(b, in: ctx)
+            }
         }
         // Path anchors + handles: while editing points (node tool) or
         // while the pen is drawing.
         if app.tool == .node, let id = app.singleSelectedNodeID, let n = node(id),
            case .path = n.content {
-            drawPathPoints(n, in: ctx, selected: selectedPointAddresses)
+            perf.measure("chrome-path-points") {
+                drawPathPoints(n, in: ctx, selected: selectedPointAddresses,
+                               handleOwners: selectedPointAddresses)
+            }
         }
         if let penID = penNodeID, let n = node(penID) {
-            drawPathPoints(n, in: ctx)
+            var active = Set<PointAddress>()
+            if case .path(let ps) = n.content, !ps.points.isEmpty {
+                active.insert(PointAddress(contour: 0, index: ps.points.count - 1))
+            }
+            perf.measure("chrome-pen-active-points") {
+                drawPathPoints(n, in: ctx, selected: active, handleOwners: active)
+            }
         }
         // Pen tool, not mid-draw: show the anchors of the SELECTED path and the
         // path under the cursor, so you can see exactly where to add / remove a
         // point on an existing vector.
         if app.tool == .pen, penNodeID == nil {
-            var shown = Set<UUID>()
-            if let id = app.singleSelectedNodeID, let n = node(id), case .path = n.content {
-                drawPathPoints(n, in: ctx); shown.insert(id)
-            }
-            if let hover = penHover(atViewPoint: lastMouse), !shown.contains(hover.leafID),
-               let n = node(hover.leafID), case .path = n.content {
-                drawPathPoints(n, in: ctx)
+            perf.measure("chrome-pen-hover-points") {
+                var shown = Set<UUID>()
+                if let id = app.singleSelectedNodeID, let n = node(id), case .path = n.content {
+                    drawPathPoints(n, in: ctx); shown.insert(id)
+                }
+                if let hover = penHover(atViewPoint: lastMouse), !shown.contains(hover.leafID),
+                   let n = node(hover.leafID), case .path = n.content {
+                    drawPathPoints(n, in: ctx)
+                }
             }
         }
     }
@@ -4271,13 +4489,19 @@ final class CanvasNSView: NSView {
             ctx.restoreGState()
         case .image(let img):
             let capT = capturingSnapshot ? CFAbsoluteTimeGetCurrent() : 0
-            // Ask for a variant sized to what this draw actually covers on screen.
-            let targetPx = max(rect.width, rect.height) * backingScale
+            // Ask for a variant sized to the VISIBLE portion, not the placed
+            // image's full frame. Large stock photos are often cropped by the
+            // viewport/artboard; sizing from the full rect made snapshot captures
+            // decode/draw 2K–8K variants for a few hundred visible pixels.
+            let renderRegion = currentRenderRegion ?? bounds
+            let visibleRect = rect.intersection(renderRegion)
+            let sampleRect = visibleRect.isNull || visibleRect.isEmpty ? rect : visibleRect
+            let targetPx = max(sampleRect.width, sampleRect.height) * backingScale
             if let cg = cgImage(for: img, targetPx: targetPx) {
                 // The context is y-down (flipped view); CGImage draws y-up, so flip
                 // within the node's rect before drawing.
                 ctx.saveGState()
-                ctx.interpolationQuality = .high
+                ctx.interpolationQuality = capturingSnapshot ? .medium : .high
                 ctx.translateBy(x: rect.minX, y: rect.maxY)
                 ctx.scaleBy(x: 1, y: -1)
                 ctx.draw(cg, in: CGRect(x: 0, y: 0, width: rect.width, height: rect.height))
@@ -4554,7 +4778,9 @@ final class CanvasNSView: NSView {
         // rotation and the flip mirror), with handles + knob at their mapped
         // positions so the node stays resizable/rotatable inside the group.
         if chain.contains(where: { $0.rotation != 0 || $0.flipH || $0.flipV }) {
-            drawTransformedSelectionBox(node, chain: chain, in: ctx, handles: handles)
+            perf.measure("sel-transformed-box") {
+                drawTransformedSelectionBox(node, chain: chain, in: ctx, handles: handles)
+            }
             return
         }
 
@@ -4566,7 +4792,9 @@ final class CanvasNSView: NSView {
         var boxFrame = absFrame
         if case .group = node.content, node.rotation == 0,
            node.autoLayout == nil, node.autoPadding == nil,
-           let cb = groupContentBounds(node, parentOffset: offset) {
+           let cb = perf.measure("sel-group-bounds", {
+               groupContentBounds(node, parentOffset: offset)
+           }) {
             // The group's own flip mirrors its children about ITS center — the
             // live content union must mirror the same way to sit on the ink.
             var mirrored = cb
@@ -4596,67 +4824,76 @@ final class CanvasNSView: NSView {
         // Paths also trace their actual outline (clearer than just a box), then
         // fall through to the box + handles so they're resizable/rotatable too.
         if case .path(let ps) = node.content {
-            let bez = bezierPath(for: ps, frameOrigin: absFrame.origin)
-            ctx.saveGState()
-            // Mirror the trace to match a flipped path (flip is applied INSIDE the
-            // rotation above, matching the renderer). The box/handles are symmetric,
-            // so only the outline needs this.
-            if node.flipH || node.flipV {
-                ctx.translateBy(x: center.x, y: center.y)
-                ctx.scaleBy(x: node.flipH ? -1 : 1, y: node.flipV ? -1 : 1)
-                ctx.translateBy(x: -center.x, y: -center.y)
+            if perf.enabled { perf.gauge("selectedPathPts", ps.points.count) }
+            perf.measure("sel-path-outline") {
+                let bez = bezierPath(for: ps, frameOrigin: absFrame.origin)
+                ctx.saveGState()
+                // Mirror the trace to match a flipped path (flip is applied INSIDE the
+                // rotation above, matching the renderer). The box/handles are symmetric,
+                // so only the outline needs this.
+                if node.flipH || node.flipV {
+                    ctx.translateBy(x: center.x, y: center.y)
+                    ctx.scaleBy(x: node.flipH ? -1 : 1, y: node.flipV ? -1 : 1)
+                    ctx.translateBy(x: -center.x, y: -center.y)
+                }
+                NSColor.controlAccentColor.setStroke()
+                bez.lineWidth = 1
+                bez.stroke()
+                ctx.restoreGState()
             }
-            NSColor.controlAccentColor.setStroke()
-            bez.lineWidth = 1
-            bez.stroke()
-            ctx.restoreGState()
         }
 
         // Auto-padding overlay: shade the MARGIN band (frame → background box) and
         // the PADDING band (background box → content) in distinct colors, so both are
         // visible and update live as the values change.
         if let pad = node.autoPadding, let app {
-            let z = app.zoom
-            // Background (padding) box = frame inset by the margin.
-            let box = CGRect(x: rect.minX + pad.marginLeft * z, y: rect.minY + pad.marginTop * z,
-                             width: max(0, rect.width - pad.marginW * z),
-                             height: max(0, rect.height - pad.marginH * z))
-            // Content box = padding box inset by the padding.
-            let content = CGRect(x: box.minX + pad.paddingLeft * z, y: box.minY + pad.paddingTop * z,
-                                 width: max(0, box.width - (pad.paddingLeft + pad.paddingRight) * z),
-                                 height: max(0, box.height - (pad.paddingTop + pad.paddingBottom) * z))
-            func band(_ outer: CGRect, _ inner: CGRect, _ color: NSColor) {
+            perf.measure("sel-autopad") {
+                let z = app.zoom
+                // Background (padding) box = frame inset by the margin.
+                let box = CGRect(x: rect.minX + pad.marginLeft * z, y: rect.minY + pad.marginTop * z,
+                                 width: max(0, rect.width - pad.marginW * z),
+                                 height: max(0, rect.height - pad.marginH * z))
+                // Content box = padding box inset by the padding.
+                let content = CGRect(x: box.minX + pad.paddingLeft * z, y: box.minY + pad.paddingTop * z,
+                                     width: max(0, box.width - (pad.paddingLeft + pad.paddingRight) * z),
+                                     height: max(0, box.height - (pad.paddingTop + pad.paddingBottom) * z))
+                func band(_ outer: CGRect, _ inner: CGRect, _ color: NSColor) {
+                    ctx.saveGState()
+                    let p = CGMutablePath(); p.addRect(outer); p.addRect(inner); ctx.addPath(p)
+                    color.setFill(); ctx.drawPath(using: .eoFill)
+                    ctx.restoreGState()
+                }
+                if pad.marginW > 0 || pad.marginH > 0 {
+                    band(rect, box, NSColor.systemOrange.withAlphaComponent(0.18))   // margin
+                }
+                band(box, content, NSColor.systemTeal.withAlphaComponent(0.22))       // padding
                 ctx.saveGState()
-                let p = CGMutablePath(); p.addRect(outer); p.addRect(inner); ctx.addPath(p)
-                color.setFill(); ctx.drawPath(using: .eoFill)
+                NSColor.systemTeal.withAlphaComponent(0.85).setStroke()
+                ctx.setLineWidth(1); ctx.setLineDash(phase: 0, lengths: [3, 3])
+                ctx.stroke(content)
                 ctx.restoreGState()
             }
-            if pad.marginW > 0 || pad.marginH > 0 {
-                band(rect, box, NSColor.systemOrange.withAlphaComponent(0.18))   // margin
-            }
-            band(box, content, NSColor.systemTeal.withAlphaComponent(0.22))       // padding
-            ctx.saveGState()
-            NSColor.systemTeal.withAlphaComponent(0.85).setStroke()
-            ctx.setLineWidth(1); ctx.setLineDash(phase: 0, lengths: [3, 3])
-            ctx.stroke(content)
-            ctx.restoreGState()
         }
 
         // The bounding-box outline is optional (View ▸ Show Selection Bounds).
         if app?.showSelectionBounds ?? true {
-            ctx.saveGState()
-            NSColor.controlAccentColor.setStroke()
-            ctx.setLineWidth(1.5)
-            ctx.stroke(rect)
-            ctx.restoreGState()
+            perf.measure("sel-bounds") {
+                ctx.saveGState()
+                NSColor.controlAccentColor.setStroke()
+                ctx.setLineWidth(1.5)
+                ctx.stroke(rect)
+                ctx.restoreGState()
+            }
         }
 
         // 8-handle box + rotate knob only for box-resizable shapes.
         guard handles, isBoxResizable(node) else { return }
-        for handle in Handle.allCases {
-            drawHandleBox(centeredAt: handlePoint(handle, in: rect), in: ctx)
+        perf.measure("sel-handles") {
+            for handle in Handle.allCases {
+                drawHandleBox(centeredAt: handlePoint(handle, in: rect), in: ctx)
+            }
+            drawRotateKnob(topMid: handlePoint(.top, in: rect), in: ctx)
         }
-        drawRotateKnob(topMid: handlePoint(.top, in: rect), in: ctx)
     }
 
     /// The unified selection box for a multi-selection or a single group: an
@@ -4789,6 +5026,7 @@ final class CanvasNSView: NSView {
         beginPanZoomInteraction()
         app.panOffset.x += event.scrollingDeltaX
         app.panOffset.y += event.scrollingDeltaY
+        scheduleCameraPersistenceIfReady()
         suppressBlurDuringInteraction()
         needsDisplay = true
     }
@@ -5311,6 +5549,7 @@ final class CanvasNSView: NSView {
             app.panOffset.x += p.x - last.x
             app.panOffset.y += p.y - last.y
             lastDragPoint = p
+            scheduleCameraPersistenceIfReady()
             suppressBlurDuringInteraction()
             needsDisplay = true
 
@@ -5550,10 +5789,10 @@ final class CanvasNSView: NSView {
             penHandleDrag(p, nodeID: nodeID, anchorIndex: anchorIndex)
 
         case .pathPoint(let nodeID, let target):
-            pathPointDrag(p, nodeID: nodeID, target: target)
+            pathPointDrag(p, nodeID: nodeID, target: target, shift: shift)
 
         case .pathPointGroup(let nodeID, let startLocal, let originals):
-            pathPointGroupDrag(p, nodeID: nodeID, startLocal: startLocal, originals: originals)
+            pathPointGroupDrag(p, nodeID: nodeID, startLocal: startLocal, originals: originals, shift: shift)
 
         case .marquee:
             marqueeCurrent = p
@@ -6264,6 +6503,14 @@ final class CanvasNSView: NSView {
         let dx: CGFloat = keyCode == 123 ? -step : keyCode == 124 ? step : 0
         let dy: CGFloat = keyCode == 126 ? -step : keyCode == 125 ? step : 0
 
+        // Node tool with a point selection → nudge just those points, not the
+        // whole shape. (Arrow keys used to move the entire object even while a
+        // subset of its anchors was selected in Edit Points.)
+        if app.tool == .node, !selectedPointAddresses.isEmpty {
+            nudgeSelectedPoints(dx: dx, dy: dy)
+            return
+        }
+
         if !app.selectedNodeIDs.isEmpty {
             var nodes = currentNodes
             for id in app.selectedNodeIDs {
@@ -6294,6 +6541,33 @@ final class CanvasNSView: NSView {
             }
             document.setModel(model, undoManager: undoManager, actionName: "Move Artboard")
         }
+        needsDisplay = true
+    }
+
+    /// Nudge the node tool's selected anchors (+ their handles) by a doc-space
+    /// delta, translated into the edited path's LOCAL space. This is the
+    /// points-only counterpart to `nudgeSelection`'s whole-object move — mirrors
+    /// `rotateSelectedPoints`'s selection source and commit pattern.
+    private func nudgeSelectedPoints(dx: CGFloat, dy: CGFloat) {
+        guard let id = app?.singleSelectedNodeID, let n = node(id),
+              case .path(let ps0) = n.content, !selectedPointAddresses.isEmpty else { return }
+        // Doc-space delta → node-local: undo ancestor + own rotation, then flips
+        // (mirror negates the axis). A pure vector needs no translation term.
+        var d = rotateVector(CGPoint(x: dx, y: dy), byDegrees: -ancestorRotation(of: id))
+        if n.rotation != 0 { d = rotateVector(d, byDegrees: -n.rotation) }
+        if n.flipH { d.x = -d.x }
+        if n.flipV { d.y = -d.y }
+        var ps = ps0
+        for addr in selectedPointAddresses {
+            ps.mutatePoint(contour: addr.contour, index: addr.index) { pt in
+                pt.point = CGPoint(x: pt.point.x + d.x, y: pt.point.y + d.y)
+                pt.controlIn  = pt.controlIn.map  { CGPoint(x: $0.x + d.x, y: $0.y + d.y) }
+                pt.controlOut = pt.controlOut.map { CGPoint(x: $0.x + d.x, y: $0.y + d.y) }
+            }
+        }
+        var nodes = currentNodes
+        guard Self.mutateNested(id, in: &nodes, { $0.content = .path(ps) }) else { return }
+        commitNodes(nodes, actionName: selectedPointAddresses.count == 1 ? "Move Point" : "Move Points")
         needsDisplay = true
     }
 
@@ -6337,10 +6611,21 @@ final class CanvasNSView: NSView {
             app.selectedNodeIDs = []
         } else if !isSourceScope, !app.selectedArtboardIDs.isEmpty {
             var model = document.model
-            model.artboards.removeAll { app.selectedArtboardIDs.contains($0.id) }
+            let ids = app.selectedArtboardIDs
+            // Deleting an artboard also deletes the artwork it contains. Ownership
+            // is geometric, so resolve it BEFORE the boards are removed (otherwise
+            // owningArtboard has nothing to match and the nodes get orphaned onto
+            // the wall — which is what left stray PDF-page content behind).
+            let ownedIDs = Set(model.nodes.compactMap { n -> UUID? in
+                guard let owner = model.owningArtboard(of: n.frame), ids.contains(owner.id) else { return nil }
+                return n.id
+            })
+            model.nodes.removeAll { ownedIDs.contains($0.id) }
+            model.artboards.removeAll { ids.contains($0.id) }
             document.setModel(model, undoManager: undoManager,
-                              actionName: app.selectedArtboardIDs.count == 1 ? "Delete Artboard" : "Delete Artboards")
+                              actionName: ids.count == 1 ? "Delete Artboard" : "Delete Artboards")
             app.selectedArtboardIDs = []
+            app.selectedNodeIDs = []
         }
         needsDisplay = true
     }
@@ -6437,6 +6722,10 @@ final class CanvasNSView: NSView {
         }
         // An SVG on the clipboard → import as editable vector layers.
         if let svg = svgData(from: pb) { placeSVG(svg, at: nil); return }
+        // A PDF on the clipboard (a vector copy from Illustrator/Figma/Sketch/
+        // Preview lands as com.adobe.pdf, NOT svg) → import as an editable vector
+        // group. Checked before the raster branch so vector wins over NSImage.
+        if let pdf = pdfData(from: pb) { placePDF(pdf, at: nil); return }
         // Otherwise: image(s) on the clipboard (copied image(s), or file(s)) → place them.
         let datas = imageDatas(from: pb)
         if !datas.isEmpty { placeImagesData(datas, at: nil) }
@@ -6541,13 +6830,15 @@ final class CanvasNSView: NSView {
             return placeComponentInstance(sid, at: at)
         }
         if let svg = svgData(from: sender.draggingPasteboard) { return placeSVG(svg, at: at) }
+        if let pdf = pdfData(from: sender.draggingPasteboard) { return placePDF(pdf, at: at) }
         let datas = imageDatas(from: sender.draggingPasteboard)
         guard !datas.isEmpty else { return false }
         return placeImagesData(datas, at: at)
     }
 
     private func canDrop(_ pb: NSPasteboard) -> Bool {
-        componentSourceID(from: pb) != nil || svgData(from: pb) != nil || !imageDatas(from: pb).isEmpty
+        componentSourceID(from: pb) != nil || svgData(from: pb) != nil
+            || pdfData(from: pb) != nil || !imageDatas(from: pb).isEmpty
     }
 
     // MARK: Component drop (v1.3 — drag a component from the panel onto the canvas)
@@ -6633,6 +6924,123 @@ final class CanvasNSView: NSView {
         return true
     }
 
+    // MARK: PDF (import as editable vector layers / artboards)
+
+    /// Pull PDF bytes from a pasteboard: a dragged/pasted `.pdf` FILE, or the
+    /// `com.adobe.pdf` flavor apps put down for a vector copy. nil if there's none.
+    private func pdfData(from pb: NSPasteboard) -> Data? {
+        if let urls = pb.readObjects(forClasses: [NSURL.self], options: nil) as? [URL] {
+            for url in urls where url.pathExtension.lowercased() == "pdf" {
+                if let data = try? Data(contentsOf: url) { return data }
+            }
+        }
+        if let data = pb.data(forType: NSPasteboard.PasteboardType("com.adobe.pdf")) { return data }
+        if let data = pb.data(forType: NSPasteboard.PasteboardType(UTType.pdf.identifier)) { return data }
+        return nil
+    }
+
+    /// Import a PDF's first page as a group of editable vector layers, centred at
+    /// `viewPoint` (paste/drop semantics — mirrors `placeSVG`). Falls back to a
+    /// raster image if the page can't be reconstructed. One undo step.
+    @discardableResult
+    func placePDF(_ data: Data, at viewPoint: CGPoint?) -> Bool {
+        guard let app else { return false }
+        guard var group = PDFImporter.importGroup(from: data) else {
+            // Couldn't reconstruct → place a faithful PNG raster of page 1. NEVER
+            // hand the raw PDF bytes to an image node: NSImage treats them as a
+            // PDF-backed image, which errors and beach-balls the canvas on redraw.
+            if let png = PDFImporter.rasterPNGForPage(from: data, page: 1) {
+                return placeImageData(png, at: viewPoint)
+            }
+            NSSound.beep(); return false
+        }
+        let size = group.frame.size
+        let center = viewPoint.map { viewToDoc($0) } ?? viewToDoc(viewCenter)
+        group.frame.origin = CGPoint(x: center.x - size.width / 2, y: center.y - size.height / 2)
+        var nodes = currentNodes
+        nodes.append(group)
+        commitNodes(nodes, actionName: "Paste Vector")
+        app.selectedArtboardID = nil
+        app.selectedNodeIDs = [group.id]
+        app.tool = .select
+        needsDisplay = true
+        return true
+    }
+
+    /// File ▸ Import PDF… — pick a PDF, choose pages (each becomes an artboard),
+    /// and add them to the CURRENT document beside its existing content.
+    @objc func importPDFAction(_ sender: Any?) {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.pdf]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        guard panel.runModal() == .OK, let url = panel.url,
+              let data = try? Data(contentsOf: url) else { return }
+        let count = PDFImporter.pageCount(from: data)
+        guard count > 0 else { NSSound.beep(); return }
+        var pages: [Int]? = nil
+        if count > 1 {
+            guard let chosen = askPageSelection(count: count) else { return }   // cancelled
+            pages = chosen
+        }
+        guard let imported = PDFImporter.importPages(from: data, pages: pages), !imported.isEmpty else {
+            NSSound.beep(); return
+        }
+        placeImportedPages(imported, sourceName: url.deletingPathExtension().lastPathComponent)
+    }
+
+    /// Append imported PDF pages as new artboards to the right of existing content
+    /// (one undo step) and select the first.
+    private func placeImportedPages(_ pages: [PDFImporter.Page], sourceName: String) {
+        guard let document else { return }
+        var model = document.model
+        let startX = (model.artboards.map { $0.frame.maxX }.max() ?? -120) + 120
+        let laid = PDFImporter.layout(pages, origin: CGPoint(x: startX, y: 0),
+                                      namePrefix: sourceName.isEmpty ? "Page" : sourceName)
+        model.artboards.append(contentsOf: laid.artboards)
+        model.nodes.append(contentsOf: laid.nodes)
+        document.setModel(model, undoManager: undoManager,
+                          actionName: pages.count > 1 ? "Import PDF Pages" : "Import PDF")
+        app?.selectedArtboardID = laid.artboards.first?.id
+        app?.selectedNodeIDs = []
+        needsDisplay = true
+    }
+
+    /// Ask which pages to import from a multi-page PDF. Returns 1-based page
+    /// numbers, or nil if cancelled. "All"/empty ⇒ every page.
+    private func askPageSelection(count: Int) -> [Int]? {
+        let alert = NSAlert()
+        alert.messageText = "Import PDF"
+        alert.informativeText = "This PDF has \(count) pages. Which pages? (e.g. 1-3, 5 — or leave “All”.) Each page becomes its own artboard."
+        alert.addButton(withTitle: "Import")
+        alert.addButton(withTitle: "Cancel")
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 220, height: 24))
+        field.stringValue = "All"
+        alert.accessoryView = field
+        alert.window.initialFirstResponder = field
+        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
+        let text = field.stringValue.trimmingCharacters(in: .whitespaces)
+        if text.isEmpty || text.lowercased() == "all" { return Array(1...count) }
+        let parsed = Self.parsePageRanges(text, max: count)
+        return parsed.isEmpty ? Array(1...count) : parsed
+    }
+
+    /// Parse "1-3, 5, 8-9" → sorted unique 1-based page numbers within [1, max].
+    static func parsePageRanges(_ s: String, max: Int) -> [Int] {
+        var out = Set<Int>()
+        for part in s.split(separator: ",") {
+            let p = part.trimmingCharacters(in: .whitespaces)
+            if let dash = p.firstIndex(of: "-") {
+                let lo = Int(p[p.startIndex..<dash].trimmingCharacters(in: .whitespaces))
+                let hi = Int(p[p.index(after: dash)...].trimmingCharacters(in: .whitespaces))
+                if let lo, let hi, lo <= hi { for n in lo...hi where n >= 1 && n <= max { out.insert(n) } }
+            } else if let n = Int(p), n >= 1, n <= max {
+                out.insert(n)
+            }
+        }
+        return out.sorted()
+    }
+
     /// Paste shapes, retargeting to the focused artboard: same position relative
     /// to that board if it fits, otherwise centered in the board. With no target
     /// board (wall), just nudge by 10pt like a plain duplicate.
@@ -6642,7 +7050,7 @@ final class CanvasNSView: NSView {
         if let target = pasteTargetBoard() {
             clones = repositioned(clones, from: clip, into: target)
         } else {
-            for i in clones.indices { clones[i].frame.origin.x += 10; clones[i].frame.origin.y += 10 }
+            clones = centered(clones, atDoc: viewToDoc(viewCenter))   // land near the viewport, not far off on the wall
         }
         var newNodes = currentNodes
         newNodes.append(contentsOf: clones)
@@ -6655,15 +7063,26 @@ final class CanvasNSView: NSView {
     /// The board paste should land on: the selected board, else the owning board
     /// of a selected shape, else none (paste to the wall).
     private func pasteTargetBoard() -> Artboard? {
-        guard let app, let document, !isSourceScope else { return nil }
-        if let id = app.selectedArtboardID, let ab = document.model.artboards.first(where: { $0.id == id }) { return ab }
-        if let nid = app.selectedNodeIDs.first, let n = node(nid),
-           let ab = document.model.owningArtboard(of: n.frame) { return ab }
-        return nil
+        guard let document, !isSourceScope else { return nil }
+        // Paste lands where you're LOOKING: the board under the viewport centre. If
+        // the viewport is over empty wall (far from any board), return nil so the
+        // caller drops the paste at the viewport centre instead of on a board you
+        // selected earlier and then scrolled away from.
+        let centerDoc = viewToDoc(viewCenter)
+        return document.model.artboards.first { $0.frame.contains(centerDoc) }
     }
 
     /// Shift the pasted group onto `target`: same offset-from-board-origin when it
     /// fits, otherwise centered.
+    /// Shift a set of clones so their combined bounding box is centred on `c`
+    /// (document space). Used when pasting onto the open wall.
+    private func centered(_ clones: [Node], atDoc c: CGPoint) -> [Node] {
+        guard let first = clones.first else { return clones }
+        let bbox = clones.dropFirst().reduce(first.frame) { $0.union($1.frame) }
+        let delta = CGPoint(x: c.x - bbox.midX, y: c.y - bbox.midY)
+        return clones.map { var n = $0; n.frame.origin.x += delta.x; n.frame.origin.y += delta.y; return n }
+    }
+
     private func repositioned(_ clones: [Node], from clip: NodeClipboard, into target: Artboard) -> [Node] {
         guard !clones.isEmpty else { return clones }
         let bbox = clones.dropFirst().reduce(clones[0].frame) { $0.union($1.frame) }
@@ -6975,9 +7394,24 @@ final class CanvasNSView: NSView {
     }
 
     @objc func fitToScreen(_ sender: Any?) { resetZoom() }
-    @objc func zoomInAction(_ sender: Any?) { app?.viewportSize = bounds.size; app?.zoomIn() }
-    @objc func zoomOutAction(_ sender: Any?) { app?.viewportSize = bounds.size; app?.zoomOut() }
-    @objc func zoomActualAction(_ sender: Any?) { app?.viewportSize = bounds.size; app?.zoomActual() }
+    @objc func zoomInAction(_ sender: Any?) {
+        app?.viewportSize = bounds.size
+        app?.zoomIn()
+        scheduleCameraPersistenceIfReady()
+        needsDisplay = true
+    }
+    @objc func zoomOutAction(_ sender: Any?) {
+        app?.viewportSize = bounds.size
+        app?.zoomOut()
+        scheduleCameraPersistenceIfReady()
+        needsDisplay = true
+    }
+    @objc func zoomActualAction(_ sender: Any?) {
+        app?.viewportSize = bounds.size
+        app?.zoomActual()
+        scheduleCameraPersistenceIfReady()
+        needsDisplay = true
+    }
 
     @objc func toggleSelectionBounds(_ sender: Any?) {
         app?.showSelectionBounds.toggle()
@@ -7275,7 +7709,13 @@ final class CanvasNSView: NSView {
             var dir = CGPoint(x: next.x - prev.x, y: next.y - prev.y)
             let len = hypot(dir.x, dir.y)
             if len > 0 { dir.x /= len; dir.y /= len } else { dir = CGPoint(x: 1, y: 0) }
-            let reach = max(20, min(hypot(next.x - a.x, next.y - a.y), hypot(a.x - prev.x, a.y - prev.y)) * 0.4)
+            let prevLen = hypot(a.x - prev.x, a.y - prev.y)
+            let nextLen = hypot(next.x - a.x, next.y - a.y)
+            let usable = [prevLen, nextLen].filter { $0 > 0.001 }
+            let localScale = usable.min() ?? max(min(n.frame.width, n.frame.height), 4)
+            // Keep the default gentle. The old minimum of 20 document units could
+            // dwarf small imported SVG paths and create giant handles/segments.
+            let reach = min(max(localScale * 0.25, 1), 12)
             ps.mutatePoint(contour: c, index: index) {
                 $0.controlOut = CGPoint(x: a.x + dir.x * reach, y: a.y + dir.y * reach)
                 $0.controlIn = CGPoint(x: a.x - dir.x * reach, y: a.y - dir.y * reach)
@@ -8105,8 +8545,10 @@ extension CanvasNSView: NSMenuItemValidation {
         case #selector(roundToPixelAction(_:)):
             return hasNodes || hasArtboards
         case #selector(paste(_:)):
-            return NSPasteboard.general.data(forType: Self.nodePasteboardType) != nil
-                || NSPasteboard.general.data(forType: Self.artboardPasteboardType) != nil
+            let pb = NSPasteboard.general
+            return pb.data(forType: Self.nodePasteboardType) != nil
+                || pb.data(forType: Self.artboardPasteboardType) != nil
+                || canDrop(pb)   // external SVG / PDF / image / component (⌘V was disabled for these)
         default:
             return true
         }

@@ -61,11 +61,11 @@ and shadows no longer darken during pan/zoom or drag), **noise/dissolve pan-zoom
 performance** (parallel + async tile generation), and **transparent SVG export by
 default**. Full notes: `RELEASE-NOTES-v1.2.md`.
 
-## v1.2.1 scope (current — patch)
+## v1.2.1 scope (setup patch)
 
 Build 4, `MARKETING_VERSION 1.2.1`. Small on purpose: perf fixes + the first
-live test of the Sparkle update pipeline (Phase 20), so the update payload is
-low-stakes. v1.3 stays reserved for Design Language.
+live rehearsal of the Sparkle update pipeline (Phase 20), so the update payload
+was low-stakes. v1.3 is the first full Design Language + Sparkle-update release.
 
 - [x] Sparkle app-side integration complete (package added, keys generated,
       public key in Info.plist — see Phase 20).
@@ -81,14 +81,16 @@ low-stakes. v1.3 stays reserved for Design Language.
       (Testing Mode on; watch for regenerate churn). VERIFIED 2026-07-09 —
       no flashing, frames 1–10 ms (one-off ≤23 ms spikes on full-doc redraws
       only), no EdDSA error in the log (real key accepted).
-- [ ] Ship as the first Sparkle-served update (RELEASE-CHECKLIST §4.5) and
-      confirm an installed 1.2 build sees + installs it.
+- [x] Treat the remaining end-to-end update verification as a v1.3 release
+      gate, not a v1.2.1 blocker. v1.2.1 did the app-side Sparkle integration
+      and first appcast/signing rehearsal; v1.3 does the real previous-build →
+      update → relaunch test.
 
 ---
 
-## v1.3 scope (CURRENT — kicked off 2026-07-09)
+## v1.3 scope (CURRENT — release prep started 2026-07-12)
 
-Build 4, target `MARKETING_VERSION 1.3`. Development on the **`dev`** branch,
+Build 5, target `MARKETING_VERSION 1.3`. Development on the **`dev`** branch,
 merges to `main` at release (see `docs/RELEASE-CHECKLIST.md`). Primary focus is the
 **Design Language** system (Phase 18):
 
@@ -1034,7 +1036,15 @@ north-star screenshot; light is a faithful mirror; every macOS accessibility +
 appearance setting honored; no regression in keyboard/VoiceOver. Update CLAUDE.md
 "Current status" (it still says Phase 0) as part of closing this phase.
 
-### Phase 18 — Design language library & color workflow (v2 IN PROGRESS)
+### Phase 18 — Design language library & color workflow (✅ DONE 2026-07-10 — improvements planned)
+
+_CLOSED at the owner's call: colors, gradients, categories, import/export,
+contrast, palette generation, and type styles (18h) are all shipped and in
+tester hands. The unchecked boxes below (OKLCH ramp generation 18b, APCA
+advisory + contrast surfacing helpers 18c, panel core-action completeness 18d,
+local palette providers 18f, type-style color-notes + Settings-editor parity
+18h) are the "improvements planned" backlog — real, wanted, and deliberately
+not blocking the phase._
 
 _Owner brain dump captured 2026-07-05. This is the bridge from "a good color
 picker" to "a document-local design language": colors, gradients, candidates,
@@ -1104,7 +1114,7 @@ Current baseline:
 - [x] Gradients display separately from solids but share the same naming,
       status, apply, copy, import/export, and provenance behaviors.
 
-#### 18e — Import / export
+#### 18e — Import / export (v1.3 transfer sheet added 2026-07-11 — see log)
 - [x] Define a canonical EXP design-language JSON export for document-to-document
       sharing. Keep it small, readable, versioned, and stable.
 - [x] Export useful developer/design formats: CSS custom properties for colors
@@ -1206,8 +1216,11 @@ markup.
 > `Document.swift`** (or a file already shared with the extension) to sidestep
 > the Target-Membership trap and the Xcode-agent auto-stubbing behavior.
 
-#### 19a — Component categories (ship first; the visible "dessert")
-_Shipped 2026-07-09 (v1.3 kickoff). All types inline in `Document.swift` per the
+#### 19a — Component categories (✅ SHIPPED — improvements planned; see "Planned next")
+_Shipped 2026-07-09 (v1.3 kickoff); owner verified 2026-07-10 ("that looks
+good") after adding the source-editor category row + role blurbs, drag-to-
+canvas instances, and the ×N instance badge. Remaining polish (instance
+navigation UI, grid view) lives in "Planned next" under the v1.3 scope._ All types inline in `Document.swift` per the
 shared-target gotcha; unknown future role tokens decode to nil instead of
 failing the document._
 - [x] **Model:** add `var a11y: A11ySemantics = .init()` to `ComponentSource`
@@ -1248,7 +1261,7 @@ failing the document._
 - [x] **A11y of the feature itself:** the picker follows system appearance +
       accessibility settings; role labels are readable by VoiceOver; the tag is
       not color-only.
-- [ ] **Acceptance (owner verify):** a designer can assign a category to a component, see it on
+- [x] **Acceptance (owner verified 2026-07-10):** a designer can assign a category to a component, see it on
       the row, filter by it, and reopen the file with the category intact. No
       accessibility "task" was ever presented — it felt like organizing.
 
@@ -1318,8 +1331,13 @@ launch, and manual "Check for Updates…" always works.
       the repo or Dropbox.
 - [x] First signed release: run `generate_appcast` (see §4.5), deploy the
       site, confirm `https://expdesign.app/appcast.xml` serves the entry.
-      (v1.2.1, 2026-07-09 — owner ran the full §4.5 flow.)
-- [ ] Verify end-to-end: install the previous build, publish the test
+      (v1.2.1 rehearsal, 2026-07-09 — owner ran the §4.5 flow.)
+- [x] Release helpers added: `scripts/set_release_version.sh`,
+      `scripts/verify_sparkle_setup.sh`, and
+      `scripts/generate_sparkle_appcast.sh` reduce the version/appcast/signature
+      steps to repeatable commands and reject common mistakes (wrong GitHub URL,
+      missing notes, wrong build number, non-identical replacement zip).
+- [ ] Verify v1.3 end-to-end: install the previous public build, publish the
       appcast, confirm the update prompt appears, signature validates, and
       install + relaunch works. Also verify the update dialog with VoiceOver
       and increased-contrast mode (Sparkle's standard UI is accessible out of
@@ -1394,6 +1412,358 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+- **2026-07-12 — Sparkle release path hardened for v1.3:**
+  Owner clarified that v1.2.1 was the Sparkle setup/rehearsal and v1.3 should
+  be the next real release. Bumped the Xcode project to `MARKETING_VERSION 1.3`
+  / build 5 across app + thumbnail configs using a new
+  `scripts/set_release_version.sh` helper. Added `scripts/verify_sparkle_setup.sh`
+  (checks version/build, Sparkle package, feed URL, public key, release notes,
+  local `generate_appcast`, and appcast URL/signature shape) plus
+  `scripts/generate_sparkle_appcast.sh` (copies the notarized zip into the local
+  Sparkle releases folder, refuses non-identical replacement zips, seeds/reuses
+  that folder's `appcast.xml`, generates the HTML update notes, runs Sparkle's
+  `generate_appcast --versions BUILD`, and verifies the vX.Y enclosure
+  URL/build/signature). Added `RELEASE-NOTES-v1.3.md`, fixed the
+  checked-in v1.2.1 appcast URL from a GitHub release-page path to the downloadable
+  asset path, and added the missing v1.2.1 HTML notes file referenced by the
+  appcast. Updated `docs/RELEASE-CHECKLIST.md` to prefer the scripts and to call
+  out the website's shipped-heading version parser. Verified:
+  `scripts/verify_sparkle_setup.sh 1.3 5`, `bash -n scripts/*.sh`,
+  `xcodebuild -project "EXP [design].xcodeproj" -scheme "EXP [design]"
+  -configuration Debug build`, and `npm run build` in `website/` all pass.
+- **2026-07-12 — Release-readiness review before next build:**
+  Reviewed `docs/ROADMAP.md`, `docs/RELEASE-CHECKLIST.md`, project version
+  settings, Sparkle appcast, release-note files, and current git status. Debug
+  build succeeds with Sparkle 2.9.4 resolved. Before shipping, clean up the
+  release identity: the project is consistently `MARKETING_VERSION 1.2.1` /
+  build 4, while the roadmap also has a v1.3 current scope with substantial
+  v1.3 work already in the dirty tree. Also fix/regenerate the Sparkle appcast
+  before relying on it: the checked-in enclosure URL currently looks like a
+  release-page path rather than the checklist's downloadable GitHub asset URL,
+  and there is no checked-in `RELEASE-NOTES-v1.2.1.md` / appcast HTML note.
+  Recommended blocker list: decide v1.2.1 patch vs v1.3 release, create notes,
+  regenerate/deploy appcast from the byte-identical notarized zip, then verify
+  install-from-1.2 -> update -> relaunch plus VoiceOver/increased-contrast on
+  Sparkle UI.
+- **2026-07-12 — New manageable perf baseline after image clamp:**
+  Owner confirmed the canvas now feels much more manageable and pasted another
+  Testing Mode log. The image-clamp pass appears to have worked: `blit-images`
+  is now usually tiny (`avg_of_avgs` about 0.9ms, max 16.2ms in this run)
+  instead of repeatedly spiking into ~18–30ms. `chrome-transform-box` remains
+  fixed (`avg_of_avgs` about 0.1ms, max 0.2ms). The remaining ongoing perf work
+  is now the general dense-vector render path: `draw-nodes` averaged ~16.8ms
+  with ~33ms max spikes, while snapshot `blit-shapes` averaged ~6.5ms with
+  ~12ms max spikes. No code change this pass; treat this as the current baseline
+  for future targeted optimization.
+- **2026-07-12 — Clamp image snapshot variants to visible pixels:**
+  Owner confirmed the multi-selection fix helped and pasted an updated Testing
+  Mode log. `chrome-transform-box` dropped from ~30–45ms to ~0.1–0.2ms and
+  total `draw-chrome` is generally under 1ms, so the selection-chrome regression
+  is no longer the bottleneck. The remaining repeat offender is image-heavy
+  pan/zoom capture: `blit-images` still spikes into ~18–30ms when large stock
+  photos enter the snapshot region. Tightened image rendering so canvas cache
+  variants are sized from the visible portion of the placed image, not the full
+  frame, and lowered interpolation quality only for temporary pan/zoom snapshot
+  captures. The settle/full-quality render remains high quality. Verified with
+  `xcodebuild -project "EXP [design].xcodeproj" -scheme "EXP [design]"
+  -configuration Debug build` — build succeeded.
+- **2026-07-12 — Fast multi-selection transform bounds after follow-up log:**
+  Owner pasted the next Testing Mode log. The new sub-buckets confirmed the
+  previous large-selection shortcut removed per-node chrome cost, but exposed the
+  remaining culprit: `chrome-transform-box` alone stayed around ~30–45ms while
+  39–46 nodes were selected. Root cause was repeated recursive selection lookup:
+  every frame recomputed transform ids, ancestor state, selected-ancestor state,
+  node lookup, node offsets, and union bounds through separate tree walks. Reworked
+  selection transform discovery into a single traversal that lifts selected nodes
+  into document space once, then reuses that result to decide whether to draw the
+  transform box and to compute its union bounds. Verified with `xcodebuild
+  -project "EXP [design].xcodeproj" -scheme "EXP [design]" -configuration Debug
+  build` — build succeeded.
+- **2026-07-12 — Selection-chrome probes for image/SVG lag report:**
+  Owner pasted another Xcode log after trying large stock-photo images resized
+  down in the same SVG-heavy document. The image hunch is partially right:
+  snapshot capture showed `blit-images` spikes around ~7–11ms when image layers
+  were in play. The persistent "thinking on click" state, though, was dominated
+  by `draw-chrome` at ~45–58ms per frame while `draw-nodes` was only ~7–16ms,
+  so the worst offender is selection chrome rather than raw image drawing.
+  Added Testing Mode sub-buckets for `chrome-node-selection`,
+  `chrome-transform-box`, path/pen point overlays, selected path outlines,
+  group bounds, selection bounds, handles, and selected-node/path gauges. Also
+  added a conservative large multi-selection shortcut: selections over 32 nodes
+  draw the unified transform box but skip per-node hint outlines, avoiding a
+  frame-budget blowup on dense imported assets. Verified with `xcodebuild
+  -project "EXP [design].xcodeproj" -scheme "EXP [design]" -configuration Debug
+  build` — build succeeded.
+- **2026-07-12 — Render-phase probes after latest SVG point-edit log:**
+  Owner pasted a final bedtime Xcode log after the point hit-test / curve-handle
+  pass. New probes showed `hit-points` stayed cheap (0.0–1.1ms, even on a
+  122-point path) and `select-points` was effectively 0ms, so the remaining
+  "thinking" feel is not point hit-testing or Inspector point-selection sync. The
+  cost is still the full redraw path: ~19–22ms baseline with frequent ~30–40ms
+  spikes while drawing 80 visible nodes. Added narrow Testing Mode buckets around
+  `renderCanvas`: `draw-bg`, `draw-source`, `draw-boards`, `draw-nodes`,
+  `draw-grids`, `draw-guides`, `draw-smart`, `draw-chrome`, `draw-measure`, and
+  `draw-rulers`. No behavioral change intended; this is instrumentation so the
+  next log identifies the expensive render phase directly. Verified with
+  `xcodebuild -project "EXP [design].xcodeproj" -scheme "EXP [design]"
+  -configuration Debug build` — build succeeded.
+- **2026-07-12 — Point hit-testing + curve-handle UX pass:**
+  Owner pasted a second Xcode log after point editing still felt laggy, especially
+  when simply clicking anchors in imported SVG icons. The log again showed steady
+  full redraw cost (~20–30ms frames, occasional ~30–40ms spikes) rather than memory
+  collapse; the direct UX bugs were in path editing. Fixed
+  `Canvas/CanvasView.swift`: point hit-testing now converts the click once into
+  node-local coordinates instead of projecting every anchor/handle to view space;
+  invisible handles no longer hit-test; selected anchors take priority over their
+  own overlapping handles; and Testing Mode now logs `hit-points`, `select-points`,
+  `pathPts`, and `selectedPts` to isolate any remaining click delay. Also changed
+  Make Curved's default handle length from a forced 20-document-unit minimum to a
+  conservative neighbor-based value capped at 12, so tiny imported SVG corners no
+  longer sprout huge curve handles. Verified with `xcodebuild -project
+  "EXP [design].xcodeproj" -scheme "EXP [design]" -configuration Debug build` —
+  build succeeded.
+- **2026-07-12 — Point overlay optimization for dense SVG paths:**
+  Owner pasted the Xcode log after point-edit lag persisted. The noisy
+  `/private/var/db/DetachedSignatures` + Sparkle installer probe lines are not the
+  interaction lag; EXP perf output showed steady ~20–22ms frames, 80 visible nodes,
+  with repeated ~39–42ms spikes. The missing measured bucket was selection/path
+  chrome. Imported SVG icons can be dense compound paths, and `drawPathPoints`
+  previously drew every anchor **and every Bezier handle** for the selected/hovered
+  path every frame. Optimized `Canvas/CanvasView.swift`: point chrome now culls
+  off-screen anchors and only draws handles for selected anchors / the active pen
+  point. Unselected anchors still show as lightweight squares for editing context,
+  but the expensive handle lines/dots no longer explode on dense SVGs. Verified
+  with `xcodebuild -project "EXP [design].xcodeproj" -scheme "EXP [design]"
+  -configuration Debug build` — build succeeded.
+- **2026-07-12 — Point-edit lag fix for imported SVG icons:**
+  Owner reported more beach-balling while moving points around imported SVG icons.
+  Found two hot-path issues in `Canvas/CanvasView.swift`: the reopen-camera patch
+  was scheduling camera persistence from `updateNSView`, so ordinary model redraws
+  during point drags churned timers; and live node-tool / pen handle drags updated
+  paths through `updateNode`, which re-runs `AutoLayoutEngine.reflowed(...)` over
+  the whole node list on every mouse tick. Fixed: camera persistence is now only
+  scheduled from actual camera changes, and live anchor/handle drags use a new
+  `updateNodeLive` path that mutates the path without whole-document auto-layout
+  reflow. Mouse-up still normalizes/reflows once and registers undo. Verified with
+  `xcodebuild -project "EXP [design].xcodeproj" -scheme "EXP [design]"
+  -configuration Debug build` — build succeeded.
+- **2026-07-12 — Restore per-document canvas position on reopen:**
+  Opening a saved document no longer always starts at the broad initial
+  `fitContent()` view. `DocumentGroup` now passes the file URL into `MainWindow`
+  and down to `CanvasView`; the AppKit canvas stores a local per-file camera in
+  `UserDefaults` (zoom + document-space viewport center, debounced after pan/zoom).
+  On first layout, the canvas restores that camera if present; otherwise it keeps
+  the old fit-to-content behavior. This is deliberately local view state, not part
+  of the design file, so pan/zoom does not dirty the document or add undo history.
+  Verified with `xcodebuild -project "EXP [design].xcodeproj" -scheme
+  "EXP [design]" -configuration Debug build` — build succeeded.
+- **2026-07-12 — Fix intermittent light canvas + ghosting during pan/zoom:**
+  Owner reported the canvas background sometimes flipped light while panning/zooming
+  and left ghosted copies of artwork/artboards. Root cause was in the fast pan/zoom
+  bitmap path, not Mac memory pressure: offscreen snapshot passes reused a backing
+  `CGContext` without an explicit whole-buffer clear, and semantic system colors in
+  that offscreen context could resolve outside the live canvas/window appearance.
+  Fixed in `Canvas/CanvasView.swift`: `CanvasNSView` is now explicitly opaque;
+  pan/zoom snapshot, drag snapshot, and background-blur offscreen passes clear the
+  full reused bitmap before drawing; offscreen render passes temporarily adopt the
+  canvas `effectiveAppearance` so `.underPageBackgroundColor` stays dark in dark
+  mode. Verified with `xcodebuild -project "EXP [design].xcodeproj" -scheme
+  "EXP [design]" -configuration Debug build` — build succeeded.
+- **2026-07-11 — Export: add JPG as an optional format:**
+  `ExportFormat` gains `.jpg` (ext `jpg`, UTType `.jpeg`); `ExportRenderer.jpgData`
+  rasterizes like PNG but flattens onto white first (JPEG has no alpha), 0.9
+  quality. The export popup now lists PNG / **JPG** / PDF / SVG (folder flow also
+  keeps the trailing "All = PNG + PDF + SVG" — JPG is deliberately NOT in "All",
+  it's an opt-in pick). Decoupled the popup from `ExportFormat.allCases` indexing
+  (new `singleFormats` list + `isAllSelected`) so the format order no longer has to
+  match the enum's `allCases` order. Transparent-background checkbox stays PNG-only.
+  Files: `Export/ExportRenderer.swift` (shared w/ EXPThumbnail — AppKit-only, clean),
+  `Export/ExportPanels.swift`.
+- **2026-07-11 — Wall usability: zoom-out, paste location, layer reveal, artboard-ownership bug:**
+  Owner-requested batch after heavy wall use. **(1) Zoom out further:**
+  `AppState.minZoom` 5% → **1%** (culling already handles it) so a sprawling wall
+  fits on screen. **(2) Paste/place location:** `pasteTargetBoard` now returns the
+  board under the VIEWPORT CENTRE (not a board selected earlier and scrolled away
+  from); when the viewport is over open wall, `pasteNodes` centres the paste at the
+  viewport centre via a new `centered(_:atDoc:)` helper — so paste lands where
+  you're looking. (Menu Place Image/SVG/PDF already centred on the viewport.)
+  **(3) Find the selected layer:** the Layers panel List is now wrapped in a
+  `ScrollViewReader`; selecting a SINGLE layer scrolls it into view (`revealScroll`,
+  scrolls to the top-level ancestor row after a tick) on top of the existing
+  ancestor-group + section auto-expand. Multi-select (marquee) doesn't yank the
+  panel. **(4) "Group popped onto the wall / exported blank" bug:**
+  `Document.owningArtboard` required the overlap to cover >50% of the NODE's frame.
+  A group whose bounding frame is much larger than the board (e.g. an imported logo
+  carrying a big transparent/stray element inflating its bbox) fell under 50% of its
+  own frame when the board was cropped tight, so it orphaned onto the wall and
+  exported blank. Ownership now needs >50% of the NODE **or** >50% of the BOARD
+  (`coverage > 0.5 * min(nodeArea, boardArea)`), which keeps a board-covering group
+  owned. Likely root cause of the inflated frame: SVG/PDF import keeps fully
+  transparent elements (a clear-fill bounding rect), which enlarges the group bbox —
+  noted for a possible future "skip invisible imported elements" option. Files:
+  `Model/AppState.swift`, `Model/Document.swift`, `Canvas/CanvasView.swift`,
+  `UI/LayersPanel.swift`.
+- **2026-07-11 — PDF import: gibberish text + heavy-path beach-ball:**
+  **(1) Gibberish beside good text:** the culprit is subset fonts with no ToUnicode
+  map — `CGPDFStringCopyTextString` decodes them through a scrambled built-in
+  encoding, producing valid-but-WRONG letters (so the earlier output heuristic
+  passed them). Now judged at the FONT level: `fontDecodesReliably` treats a font
+  as reliable only if it has a ToUnicode CMap, a standard named encoding
+  (WinAnsi/MacRoman/Standard/MacExpert), or is a non-subset base font; `showText`
+  rasterizes the page when the font is unreliable. Consequence/trade-off: a page
+  mixing reliable + unreliable fonts now rasterizes ENTIRELY (no gibberish, but the
+  good text on it is no longer editable). Alternative (keep reliable text editable,
+  drop the unreliable runs) is a one-line change if the owner prefers holes over a
+  flat page. **(2) Beach-ball on interaction:** a single PDF path can carry tens of
+  thousands of points; one such node renders + hit-tests O(n) every frame and hangs
+  the canvas. `buildNode` now caps points per node (12k) and per page (60k) and
+  rasterizes past that (on top of the existing 2500 node cap + finite/sane geometry
+  guards). File: `Model/PDFImporter.swift`.
+- **2026-07-11 — Delete an artboard → delete its artwork too:**
+  `CanvasNSView.deleteSelection` (the single delete behavior behind ⌫ / Edit ▸
+  Delete / right-click) previously removed only the artboard FRAME, orphaning the
+  nodes it contained onto the wall — so deleting imported PDF pages left all their
+  content behind (and that stray content was part of what kept crashing). It now
+  resolves each board's owned nodes via `owningArtboard(of:)` BEFORE removing the
+  boards, then deletes both in one undo step. Consistent with copy/paste, which
+  already carried an artboard's owned nodes. File: `Canvas/CanvasView.swift`.
+- **2026-07-11 — PDF import freeze guards (2nd tester pass — froze on imported pages):**
+  The menu-imported pages froze even before a delete (so NOT the raw-bytes issue —
+  those pages use PNG). Root-caused to invalid geometry: a degenerate/extreme PDF
+  transform can yield NaN/Inf/absurd coordinates → a NaN `CGRect`, which
+  beach-balls AppKit on every redraw and hit-test (so selecting-to-delete can't
+  even proceed); a node explosion is the other cliff. Guards added in
+  `PDFImporter`: `buildNode` rejects any non-finite/absurd point or bounds
+  (`finite`/`sane`, |coord| < 1e6); `showText` skips corrupt-transform text;
+  `paint`/`showText` enforce a per-page node cap (**2500** — denser pages
+  rasterize instead; tunable); `rasterPNG` caps the bitmap's long side to 4096px;
+  and `importOne` falls back to US-Letter if the page box is NaN/absurd.
+  `ExpDocument.sanitizePDFImages` now also DROPS nodes with a corrupt frame on
+  open (broadened from the PDF-bytes-image fix), so a saved bad document opens
+  instead of re-freezing. Files: `Model/PDFImporter.swift`,
+  `Model/ExpDocument.swift`.
+- **2026-07-11 — PDF import v1 fix round (first tester pass):**
+  Fixes for the three issues from the first build. **(1) Beach-ball / bricked doc
+  — `'PDF' initImage failed err=-50`:** the drag fallback stored RAW PDF bytes in
+  an image node (NSImage accepts PDF data + passes the size guard), so every
+  redraw re-decoded a PDF as a bitmap and hung. `placePDF` now rasterizes page 1
+  to PNG (`PDFImporter.rasterPNGForPage`) instead of `placeImageData(rawPDF)`; and
+  `ExpDocument.sanitizePDFImages` runs on open to convert any existing PDF-bytes
+  image node to a PNG raster (or drop it) — un-bricks already-saved documents.
+  **(2) Upside-down / mirrored raster pages:** replaced the hand-rolled CGContext
+  y-flip with PDFKit (`PDFPage.thumbnail(of:for:.cropBox)`) — the reference
+  renderer, always upright + /Rotate-correct. `importOne` now takes the matching
+  PDFKit page. **(3) Gibberish text:** subset/CID fonts with no ToUnicode decode
+  to junk; `showText` now runs `isLikelyText` (flags control / private-use / U+FFFD
+  scalars, needs ≥70% good) and undecodable strings flip the page to a faithful
+  raster instead of showing garbage. Editable text still comes through whenever
+  the PDF carries a usable ToUnicode/encoding.
+  Known/by-design: dragging a PDF imports page 1 only (vector-paste semantics —
+  use File ▸ Import PDF… for multi-page → artboards). NEXT (full-fidelity tail):
+  per-image extraction, shading/pattern → GradientFill, clipping, blend/soft-mask,
+  and glyph→unicode maps so subset-font text stays editable. Files:
+  `Model/PDFImporter.swift`, `Model/ExpDocument.swift`, `Canvas/CanvasView.swift`.
+- **2026-07-11 — Import/edit batch, part 2 of 2 (PDF import + paste-vector):**
+  New **Model/PDFImporter.swift** (app-target only; the project's
+  file-system-synchronized group auto-adds it — no pbxproj edit). Walks each
+  page's content stream with a `CGPDFScanner` operator table into editable
+  native layers: path construction (m/l/c/v/y/re/h), fill/stroke/both/close
+  painting, solid color (gray/RGB/CMYK + sc/scn component heuristic), the q/Q
+  graphics-state stack, `cm` transforms, **Form XObject recursion**
+  (`CGPDFContentStreamCreateWithStream`), and **editable text** (BT/ET/Td/TD/Tm/
+  T*/TL/Tf/Tj/TJ/'/"), decoded via `CGPDFStringCopyTextString`, positioned from
+  the text matrix, measured with CoreText, system-font fallback when the PDF font
+  isn't installed. PDF y-up → our y-down via `m0`.
+  **v1 fidelity policy (honest staging toward "full fidelity"):** a page that
+  uses an **image XObject, a shading/`sh`, a pattern (gradient) fill, or a
+  rotated page** flips THAT page to a faithful flat raster (whole-page render)
+  instead of shipping a broken partial reconstruction — pure vector/text pages
+  come in fully editable. Peeling images/gradients/clips out of mixed pages is the
+  planned next iteration. (Clipping `W` is currently ignored, not rasterized.)
+  **Isolation note:** the `@convention(c)` scanner callbacks are nonisolated, so
+  `PageScan` + its file-scope helpers are marked `nonisolated` and text is
+  measured with CoreText rather than the MainActor `TextContent.measuredSize()`
+  (build uses `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`).
+  **Wiring (command coverage):** (1) `ExpDocument` adds `.pdf` to
+  `readableContentTypes` (read-only) → File ▸ Open a .pdf makes a NEW document,
+  each page an artboard (saves as .design). (2) `CanvasView.importPDFAction` →
+  File ▸ Import PDF… — NSOpenPanel + a page-range picker (`askPageSelection` /
+  `parsePageRanges`, "1-3, 5" or All) → pages appended as artboards to the
+  current doc. (3) Paste (⌘V) & drag-drop of a PDF (a vector copy lands as
+  `com.adobe.pdf`, not svg) → `placePDF` imports page 1 as an editable vector
+  GROUP (mirrors `placeSVG`); raster fallback if unparseable. Also fixed a
+  pre-existing gap: ⌘V was disabled for external SVG/image/PDF (paste
+  `validateMenuItem` now uses `canDrop`). Menu item in `EXP__design_App.swift`.
+  Files: `Model/PDFImporter.swift` (new), `Model/ExpDocument.swift`,
+  `Canvas/CanvasView.swift`, `EXP__design_App.swift`. **Needs a build + real-file
+  iteration pass** (can't compile in the authoring env). If it fails to build, the
+  most likely spot is the `@convention(c)` callback isolation.
+- **2026-07-11 — Import/edit batch, part 1 of 2 (four vector-editing bugs):**
+  Owner-requested fixes ahead of PDF-import work. All in the SVG/vector-edit
+  paths. **(1) Node-tool point nudge** — `CanvasView.nudgeSelection` now checks
+  for an active Edit-Points selection FIRST and calls a new
+  `nudgeSelectedPoints(dx:dy:)` (translates the doc-space delta into the path's
+  local space, undoing ancestor + own rotation and flips) so arrow keys move the
+  selected anchors, not the whole object. **(2) Shift axis-lock on points** —
+  `pathPointGroupDrag` now takes `shift` and locks the move to the dominant axis;
+  `pathPointDrag` snaps anchor/handle drags to 45°/axis about their reference via
+  the existing `constrainLineEndpoint`. **(3) Layers-panel arrow nudge** — the
+  focused SwiftUI List swallowed key events (same gap the existing
+  `onDeleteCommand` works around), so arrow keys never reached the canvas. Added
+  `.onMoveCommand` → `nudgeSelectedLayers` + a static `moveIDs` recursive mover
+  (⇧ = 10pt via `NSApp.currentEvent`). **(4) SVG import data loss** in
+  `SVGImporter`: the named-color table was 11 entries — any other keyword
+  (`steelblue`, `crimson`, …) parsed to nil and the fill vanished; replaced with
+  the full 148-keyword CSS table (`cssNamed` + `namedColor`), added
+  `currentColor`/`inherit` → black, `hsl()`/`hsla()` (`hslToRGBA`), and rgb()
+  percentage support. Also honored SVG's implicit fill-close: a filled `<path>`
+  with no explicit `Z` now renders closed (was coming in as an open, unfilled
+  stroke) via `isClearPaint` + a `parsed.contains{closed} || hasFill` rule.
+  Files: `Canvas/CanvasView.swift`, `UI/LayersPanel.swift`,
+  `Model/SVGImporter.swift`. **Part 2 (next): PDF import subsystem + paste-vector
+  -from-other-apps** — owner chose full fidelity, editable text (system-font
+  fallback), and both Open-.pdf-as-doc (pages → artboards) + Place-into-current.
+  Not started; needs its own build-iterate loop on real files.
+- **2026-07-11 — DL transfer sheet: real import/export window with preview:**
+  Phase 18 improvement round (owner-directed). (1) Panel menu icon
+  `square.and.arrow.up` → `arrow.up.arrow.down` (the old one is the system
+  SHARE glyph and undersold import; owner may still swap it). (2) New
+  **UI/DesignLanguageTransfer.swift** — one resizable sheet, Import/Export
+  modes (EXPSegmented toggle), opened pre-set from the menu's new Import… /
+  Export… items, which REPLACE Paste Palette / Import from File / Export
+  JSON / Copy CSS (those flows now live inside the sheet with room for
+  options + a preview). Import: forgiving CSS/SCSS variable paste
+  (`DesignLanguageIO.parseVariables` — strips comments/smart quotes/!default,
+  reads `--var`/`$var` colors in hex/rgb/hsl/oklch AND type from font
+  shorthand or family lists, mixed paste fine, round-trips our own `.type-*`
+  CSS classes, falls back to hex-list/Coolors scan), automatic preview on
+  change PLUS a dedicated Preview button (anti-stale), swatch + type-row
+  preview grid, batch category assign or create-new, merge mode, one undoable
+  Import; EXP JSON file import on the same screen. Export: format picker with
+  honest per-format blurbs — CSS vars, **SCSS vars (new: `$vars` + `@mixin
+  type-*`)**, EXP JSON, **W3C Design Tokens JSON (new — Style Dictionary
+  ecosystem)**, **`.sketchpalette` (new — solids only)** — live monospaced
+  preview that IS the output, Copy to Clipboard ("Copied ✓") + Save File….
+  Cleanup queued: the panel's old pasteSheet/importFromFile/exportToFile are
+  now dead code (nothing opens them) — strip after owner verifies the sheet;
+  Settings-window import/export should eventually reuse the sheet too. Import
+  of W3C tokens JSON = future (export-only today). ASE stays parked. OWNER
+  NEXT: build; paste something ugly (SCSS with comments + mixed fonts/colors)
+  and watch the preview; check the icon; export each format; confirm sheet
+  resizes.
+- **2026-07-10 (close of session) — Phase 18 + 19a CLOSED (improvements
+  planned):** Owner call: the component-tagging and design-language phase of
+  v1.3 is done for this round. Phase 18 marked ✅ DONE (open sub-boxes =
+  improvements backlog: OKLCH ramps, APCA advisory, contrast surfacing, panel
+  core actions, palette providers, type-style color notes, Settings parity).
+  Phase 19a marked ✅ SHIPPED with acceptance checked; its follow-ups
+  (instance navigation UI — design first, components grid view) are queued in
+  "Planned next" under the v1.3 scope. Still open for v1.3 elsewhere: Phase
+  9.5 rich-text bug, BUG-004, nested-group transform box, v1.2.1 Sparkle
+  end-to-end confirm, and owner build-verify of tonight's batch (EXPSegmented
+  styling, source-editor category row, drag-to-canvas instances, ×N badge,
+  group-aware DL Add, per-corner radii, stroke alignment, shadow knockout,
+  Round to Pixel).
 - **2026-07-10 (evening) — design-system polish + component workflow + DL Add
   upgrades:** Owner verified component tagging works. (1) All new segmented
   pickers (stroke position ×3, DL grid/list toggle) now use the design-system

@@ -214,6 +214,7 @@ enum DesignLanguageIO {
         let lower = t.lowercased()
         if lower.contains("rgb") { return ColorMath.parse(t, .rgba, currentAlpha: 1) }
         if lower.contains("hsl") { return ColorMath.parse(t, .hsl, currentAlpha: 1) }
+        if lower.contains("oklch") { return ColorMath.parse(t, .oklch, currentAlpha: 1) }
         return nil
     }
 
@@ -230,5 +231,343 @@ enum DesignLanguageIO {
             if t.allSatisfy({ $0.isHexDigit }) { out.append("#" + t) }
         }
         return out
+    }
+
+    // MARK: Forgiving variable paste (v1.3 transfer sheet — CSS + SCSS, mixed)
+
+    /// What a pasted blob parsed into: named colors/gradients + type styles.
+    struct ParsedVariables {
+        var assets: [DesignAsset] = []
+        var typeStyles: [TypeStyle] = []
+        var isEmpty: Bool { assets.isEmpty && typeStyles.isEmpty }
+    }
+
+    /// Parse pasted CSS/SCSS **deliberately forgivingly** — paste from other
+    /// apps arrives with stray prose, smart quotes, `:root {` wrappers,
+    /// `!default` flags, whatever. Picks up BOTH kinds of declaration in one
+    /// mixed paste:
+    ///   • `--name: <color>` / `$name: <color>`  → named color (hex, rgb[a],
+    ///     hsl[a], oklch)
+    ///   • `--name: <font shorthand or family>` / `$name: …` → type style
+    ///     (CSS font shorthand `[weight] size[/line-height] family` or a bare
+    ///     family list)
+    ///   • `.type-x { font-*: …; }` class blocks — round-trips our own CSS
+    ///     export losslessly.
+    /// Falls back to the loose hex-list/Coolors scan when nothing declared.
+    static func parseVariables(_ text: String) -> ParsedVariables {
+        var out = ParsedVariables()
+        // Normalize smart quotes; strip /* */ and // comments.
+        var clean = text
+            .replacingOccurrences(of: "\u{201C}", with: "\"")
+            .replacingOccurrences(of: "\u{201D}", with: "\"")
+            .replacingOccurrences(of: "\u{2018}", with: "'")
+            .replacingOccurrences(of: "\u{2019}", with: "'")
+        clean = removing(clean, pattern: "/\\*[\\s\\S]*?\\*/")
+        clean = removing(clean, pattern: "(?m)//[^\\n]*$")
+
+        var seenColorKeys = Set<String>()
+        var seenStyleNames = Set<String>()
+
+        // 1. `.type-x { … }` blocks (our own CSS export round-trip) — parsed
+        //    FIRST and their ranges skipped by the variable pass below.
+        var blockRanges: [Range<String.Index>] = []
+        if let re = try? NSRegularExpression(pattern: "\\.([A-Za-z][A-Za-z0-9_-]*)\\s*\\{([^}]*)\\}") {
+            let ns = clean as NSString
+            for m in re.matches(in: clean, range: NSRange(location: 0, length: ns.length)) {
+                guard let whole = Range(m.range, in: clean),
+                      let nameR = Range(m.range(at: 1), in: clean),
+                      let bodyR = Range(m.range(at: 2), in: clean) else { continue }
+                let body = String(clean[bodyR])
+                guard body.lowercased().contains("font") || body.lowercased().contains("letter-spacing") else { continue }
+                blockRanges.append(whole)
+                var name = String(clean[nameR])
+                if name.lowercased().hasPrefix("type-") { name = String(name.dropFirst(5)) }
+                if let style = typeStyle(fromCSSBody: body, name: name),
+                   seenStyleNames.insert(name.lowercased()).inserted {
+                    out.typeStyles.append(style)
+                }
+            }
+        }
+
+        // 2. Variable declarations — CSS custom properties and SCSS variables.
+        if let re = try? NSRegularExpression(pattern: "(?:--|\\$)([A-Za-z_][A-Za-z0-9_-]*)\\s*:\\s*([^;{}\\n]+)") {
+            let ns = clean as NSString
+            for m in re.matches(in: clean, range: NSRange(location: 0, length: ns.length)) {
+                guard let whole = Range(m.range, in: clean),
+                      let nameR = Range(m.range(at: 1), in: clean),
+                      let valueR = Range(m.range(at: 2), in: clean) else { continue }
+                if blockRanges.contains(where: { $0.overlaps(whole) }) { continue }
+                let name = String(clean[nameR])
+                var value = String(clean[valueR]).trimmingCharacters(in: .whitespaces)
+                value = removing(value, pattern: "!\\s*(default|important|global)\\b")
+                    .trimmingCharacters(in: .whitespaces)
+                if let color = parseColorToken(value) {
+                    let key = name.lowercased() + "|" + ColorMath.string(color, .hex)
+                    if seenColorKeys.insert(key).inserted {
+                        out.assets.append(DesignAsset(name: name, value: .solid(color),
+                                                      provenance: "import: variables"))
+                    }
+                } else if let style = typeStyle(fromFontValue: value, name: name),
+                          seenStyleNames.insert(name.lowercased()).inserted {
+                    out.typeStyles.append(style)
+                }
+                // Anything else (sizes alone, spacing, z-indexes…) is skipped
+                // quietly — forgiveness means never erroring on junk.
+            }
+        }
+
+        // 3. Nothing declared? Try the loose scan (bare hex lists, Coolors URLs).
+        if out.isEmpty { out.assets = parsePalette(text) }
+        return out
+    }
+
+    /// CSS `font:` shorthand (`[weight] size[/line-height] family, …`) or a
+    /// bare family list ("'Avenir Next', sans-serif"). nil = not type-ish.
+    static func typeStyle(fromFontValue raw: String, name: String) -> TypeStyle? {
+        let value = raw.trimmingCharacters(in: .whitespaces)
+        guard !value.isEmpty else { return nil }
+        // Shorthand: find `size[/lh]` then treat the rest as the family.
+        if let re = try? NSRegularExpression(
+            pattern: "(?:^|\\s)([0-9.]+)(px|pt|rem|em)\\s*(?:/\\s*([0-9.]+)(px|em)?)?\\s+(.+)$"),
+           let m = re.firstMatch(in: value, range: NSRange(value.startIndex..., in: value)) {
+            func g(_ i: Int) -> String? {
+                guard let r = Range(m.range(at: i), in: value) else { return nil }
+                return String(value[r])
+            }
+            guard let sizeNum = g(1).flatMap(Double.init), let sizeUnit = g(2), let famRaw = g(5) else { return nil }
+            let size = CGFloat(sizeNum) * (sizeUnit == "rem" || sizeUnit == "em" ? 16 : 1)
+            var lh: CGFloat = 1.3
+            var lhUnit: LineHeightUnit = .auto
+            if let lhNum = g(3).flatMap(Double.init) {
+                if g(4) == "px" { lh = CGFloat(lhNum); lhUnit = .px }
+                else if g(4) == "em" { lh = CGFloat(lhNum); lhUnit = .em }
+                else { lh = CGFloat(lhNum); lhUnit = .multiple }
+            }
+            return TypeStyle(name: name, provenance: "import: variables",
+                             fontName: firstFamily(famRaw), fontSize: size,
+                             lineHeight: lh, lineHeightUnit: lhUnit)
+        }
+        // Bare family list: quoted name, or comma list ending in a generic.
+        let lower = value.lowercased()
+        let looksLikeFamily = value.contains("\"") || value.contains("'")
+            || ["sans-serif", "serif", "monospace", "system-ui", "cursive"].contains(where: lower.contains)
+            || (name.lowercased().contains("font") && value.first?.isLetter == true)
+        guard looksLikeFamily, !lower.contains("gradient") else { return nil }
+        let family = firstFamily(value)
+        // A pure generic ("sans-serif") maps to the system font ("").
+        return TypeStyle(name: name, provenance: "import: variables", fontName: family)
+    }
+
+    /// First concrete family from a CSS family list, unquoted. Generic-only
+    /// lists return "" (= system font).
+    static func firstFamily(_ list: String) -> String {
+        for part in list.split(separator: ",") {
+            let fam = part.trimmingCharacters(in: CharacterSet(charactersIn: " \t\"'"))
+            guard !fam.isEmpty else { continue }
+            if ["sans-serif", "serif", "monospace", "system-ui", "cursive", "fantasy", "inherit", "initial"].contains(fam.lowercased()) { continue }
+            return fam
+        }
+        return ""
+    }
+
+    /// A `.type-x { … }` body → TypeStyle (round-trips `cssTypeStyles`).
+    static func typeStyle(fromCSSBody body: String, name: String) -> TypeStyle? {
+        var style = TypeStyle(name: name, provenance: "import: css")
+        var sawAnything = false
+        for line in body.split(whereSeparator: { $0 == ";" || $0 == "\n" }) {
+            let parts = line.split(separator: ":", maxSplits: 1)
+            guard parts.count == 2 else { continue }
+            let prop = parts[0].trimmingCharacters(in: .whitespaces).lowercased()
+            let value = parts[1].trimmingCharacters(in: .whitespaces)
+            switch prop {
+            case "font-family":
+                style.fontName = firstFamily(value); sawAnything = true
+            case "font-size":
+                if let n = leadingNumber(value) {
+                    style.fontSize = value.contains("rem") || value.contains("em") ? n * 16 : n
+                    sawAnything = true
+                }
+            case "line-height":
+                if value.lowercased() == "normal" { style.lineHeightUnit = .auto }
+                else if let n = leadingNumber(value) {
+                    style.lineHeight = n
+                    style.lineHeightUnit = value.contains("px") ? .px : (value.contains("em") ? .em : .multiple)
+                }
+                sawAnything = true
+            case "letter-spacing":
+                if let n = leadingNumber(value) { style.tracking = n; sawAnything = true }
+            case "text-align":
+                if let a = TextAlign(rawValue: value.lowercased()) { style.align = a; sawAnything = true }
+            case "text-decoration":
+                if value.lowercased().contains("underline") { style.underline = true; sawAnything = true }
+            case "text-transform":
+                switch value.lowercased() {
+                case "uppercase": style.textCase = .upper
+                case "lowercase": style.textCase = .lower
+                case "capitalize": style.textCase = .title
+                default: break
+                }
+                sawAnything = true
+            default: break
+            }
+        }
+        return sawAnything ? style : nil
+    }
+
+    private static func leadingNumber(_ s: String) -> CGFloat? {
+        var token = ""
+        for ch in s.trimmingCharacters(in: .whitespaces) {
+            if ch.isNumber || ch == "." || ch == "-" { token.append(ch) } else { break }
+        }
+        return Double(token).map { CGFloat($0) }
+    }
+
+    private static func removing(_ s: String, pattern: String) -> String {
+        guard let re = try? NSRegularExpression(pattern: pattern) else { return s }
+        return re.stringByReplacingMatches(in: s, range: NSRange(s.startIndex..., in: s), withTemplate: "")
+    }
+
+
+    // MARK: Additional export formats (v1.3 transfer sheet)
+
+    /// SCSS: `$slug: value;` variables plus one `@mixin type-slug { … }` per
+    /// type style (mixins are the idiomatic SCSS reuse for text treatments).
+    static func exportSCSS(_ dl: DesignLanguage) -> String {
+        var used = Set<String>()
+        func unique(_ base: String) -> String {
+            var name = base; var n = 2
+            while used.contains(name) { name = "\(base)-\(n)"; n += 1 }
+            used.insert(name); return name
+        }
+        var lines: [String] = []
+        for a in dl.assets {
+            let name = unique(slug(a.name, fallback: a.representativeColor))
+            lines.append("$\(name): \(css(for: a.value));")
+        }
+        var out = lines.joined(separator: "\n")
+        if !dl.typeStyles.isEmpty {
+            // Reuse the CSS class bodies, reshaped as mixins.
+            let cssBlocks = cssTypeStyles(dl)
+                .replacingOccurrences(of: ".type-", with: "@mixin type-")
+            out += (out.isEmpty ? "" : "\n\n") + cssBlocks
+        }
+        return out.isEmpty ? "// (empty design language)\n" : out + "\n"
+    }
+
+    /// W3C Design Tokens Community Group JSON (`$type`/`$value`) — the format
+    /// Style Dictionary and the token ecosystem read. Colors, typography, and
+    /// (draft-spec) gradients.
+    static func exportDesignTokensJSON(_ dl: DesignLanguage) throws -> Data {
+        var used = Set<String>()
+        func unique(_ base: String) -> String {
+            var name = base; var n = 2
+            while used.contains(name) { name = "\(base)-\(n)"; n += 1 }
+            used.insert(name); return name
+        }
+        var colors: [String: Any] = [:]
+        var gradients: [String: Any] = [:]
+        for a in dl.assets {
+            let name = unique(slug(a.name, fallback: a.representativeColor))
+            switch a.value {
+            case .solid(let c):
+                colors[name] = ["$type": "color", "$value": ColorMath.string(c, .hex)]
+            case .gradient(let g):
+                let stops: [[String: Any]] = g.sortedStops.map {
+                    ["color": ColorMath.string($0.color, .hex), "position": Double($0.position)]
+                }
+                gradients[name] = ["$type": "gradient", "$value": stops]
+            }
+        }
+        var typography: [String: Any] = [:]
+        used.removeAll()
+        for t in dl.typeStyles {
+            let name = unique(slug(t.name.isEmpty ? t.fallbackLabel : t.name, fallback: .black))
+            var value: [String: Any] = [
+                "fontFamily": t.fontName.isEmpty ? "system-ui" : t.fontName,
+                "fontSize": "\(Int(t.fontSize.rounded()))px",
+            ]
+            switch t.lineHeightUnit {
+            case .auto: break
+            case .multiple: value["lineHeight"] = Double(t.lineHeight)
+            case .px: value["lineHeight"] = "\(Int(t.lineHeight.rounded()))px"
+            case .em: value["lineHeight"] = "\(Double(t.lineHeight))em"
+            }
+            if t.tracking != 0 { value["letterSpacing"] = "\(Double(t.tracking))px" }
+            typography[name] = ["$type": "typography", "$value": value]
+        }
+        var root: [String: Any] = [:]
+        if !colors.isEmpty { root["color"] = colors }
+        if !gradients.isEmpty { root["gradient"] = gradients }
+        if !typography.isEmpty { root["typography"] = typography }
+        return try JSONSerialization.data(withJSONObject: root,
+                                          options: [.prettyPrinted, .sortedKeys])
+    }
+
+    /// Sketch `.sketchpalette` (solid colors only — the format has no
+    /// gradients or type).
+    static func exportSketchPalette(_ dl: DesignLanguage) throws -> Data {
+        let colors: [[String: Any]] = dl.solids.map { a in
+            let c = a.representativeColor
+            return ["red": c.r, "green": c.g, "blue": c.b, "alpha": c.a]
+        }
+        let root: [String: Any] = [
+            "compatibleVersion": "2.0",
+            "pluginVersion": "2.22",
+            "colors": colors,
+        ]
+        return try JSONSerialization.data(withJSONObject: root,
+                                          options: [.prettyPrinted, .sortedKeys])
+    }
+
+}
+
+/// The transfer sheet's export formats (v1.3). Text formats preview + copy;
+/// every format saves to file.
+enum DLExportFormat: String, CaseIterable, Identifiable {
+    case cssVars, scssVars, expJSON, designTokens, sketchPalette
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .cssVars:       return "CSS variables"
+        case .scssVars:      return "SCSS variables"
+        case .expJSON:       return "EXP JSON"
+        case .designTokens:  return "Design Tokens JSON"
+        case .sketchPalette: return "Sketch palette"
+        }
+    }
+    var fileExtension: String {
+        switch self {
+        case .cssVars:       return "css"
+        case .scssVars:      return "scss"
+        case .expJSON:       return "json"
+        case .designTokens:  return "tokens.json"
+        case .sketchPalette: return "sketchpalette"
+        }
+    }
+    /// One honest line about who reads this format.
+    var blurb: String {
+        switch self {
+        case .cssVars:       return "Custom properties in a :root block, plus .type-* classes. For the web, or pasting back into EXP."
+        case .scssVars:      return "$variables plus @mixin type-* blocks for Sass/SCSS codebases."
+        case .expJSON:       return "EXP's own format — everything round-trips losslessly between .design documents."
+        case .designTokens:  return "W3C Design Tokens ($type/$value) — read by Style Dictionary and most token pipelines."
+        case .sketchPalette: return "Sketch's palette format. Solid colors only — no gradients or type."
+        }
+    }
+
+    /// The generated document (text formats return UTF-8 text data).
+    func data(for dl: DesignLanguage) throws -> Data {
+        switch self {
+        case .cssVars:       return Data(DesignLanguageIO.exportCSS(dl).utf8)
+        case .scssVars:      return Data(DesignLanguageIO.exportSCSS(dl).utf8)
+        case .expJSON:       return try DesignLanguageIO.exportJSON(dl)
+        case .designTokens:  return try DesignLanguageIO.exportDesignTokensJSON(dl)
+        case .sketchPalette: return try DesignLanguageIO.exportSketchPalette(dl)
+        }
+    }
+    /// Preview text (all our formats are text-representable).
+    func previewText(for dl: DesignLanguage) -> String {
+        (try? data(for: dl)).flatMap { String(data: $0, encoding: .utf8) } ?? "(nothing to export)"
     }
 }
