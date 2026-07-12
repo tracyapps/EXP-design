@@ -60,7 +60,9 @@ final class ExpDocument: ReferenceFileDocument {
     // files still open from the in-app Open panel (they're the same JSON). We only
     // ever WRITE our own .expd type.
     static var readableContentTypes: [UTType] {
-        [.expDocument] + [UTType.legacyExp].compactMap { $0 }
+        // .pdf is READ-only here: opening a PDF builds a fresh design (each page →
+        // an artboard) that then saves as our own .design type.
+        [.expDocument, .pdf] + [UTType.legacyExp].compactMap { $0 }
     }
     static var writableContentTypes: [UTType] { [.expDocument] }
 
@@ -74,9 +76,59 @@ final class ExpDocument: ReferenceFileDocument {
         guard let data = configuration.file.regularFileContents else {
             throw CocoaError(.fileReadCorruptFile)
         }
+        // Opening a PDF: import each page as an artboard of editable layers instead
+        // of decoding our JSON. Untitled, so the first save writes a .design file.
+        if configuration.contentType.conforms(to: .pdf) || data.prefix(5).elementsEqual("%PDF-".utf8) {
+            guard let pages = PDFImporter.importPages(from: data), !pages.isEmpty else {
+                throw CocoaError(.fileReadCorruptFile)
+            }
+            let laid = PDFImporter.layout(pages)
+            var doc = Document()
+            doc.artboards = laid.artboards
+            doc.nodes = laid.nodes
+            model = doc
+            return
+        }
         var decoded = try JSONDecoder().decode(Document.self, from: data)
         Self.stripBackgroundBlurEffects(&decoded)
+        Self.sanitizePDFImages(&decoded)
         model = decoded
+    }
+
+    /// SAFETY MIGRATION (2026-07-11): a bad PDF import could (a) store raw PDF
+    /// bytes in an image node (NSImage accepts PDF data and passes the size
+    /// guard). Such a node makes CoreGraphics try to decode a PDF as a bitmap on
+    /// every redraw — it errors ("'PDF' initImage failed") and beach-balls the
+    /// canvas, bricking any document that saved it. On open, convert any image
+    /// node whose bytes are actually a PDF into a PNG raster of its first page
+    /// (content preserved); drop it only if even that fails.
+    private static func sanitizePDFImages(_ doc: inout Document) {
+        func isPDF(_ d: Data) -> Bool { d.prefix(5).elementsEqual("%PDF-".utf8) }
+        func frameSane(_ f: CGRect) -> Bool {
+            f.origin.x.isFinite && f.origin.y.isFinite && f.width.isFinite && f.height.isFinite
+                && abs(f.minX) < 2_000_000 && abs(f.minY) < 2_000_000
+                && f.width < 2_000_000 && f.height < 2_000_000
+        }
+        func fix(_ nodes: inout [Node]) {
+            var result: [Node] = []
+            for var n in nodes {
+                // Drop nodes with a corrupt frame (NaN/Inf/absurd) — a bad import
+                // could produce these and they beach-ball the canvas on redraw.
+                if !frameSane(n.frame) { continue }
+                if case .image(let img) = n.content, isPDF(img.data) {
+                    if let png = PDFImporter.rasterPNGForPage(from: img.data, page: 1) {
+                        n.content = .image(ImageContent(data: png, naturalSize: img.naturalSize))
+                    } else {
+                        continue   // un-rasterizable → drop (it was the thing hanging the app)
+                    }
+                }
+                if case .group(var k) = n.content { fix(&k); n.content = .group(children: k) }
+                result.append(n)
+            }
+            nodes = result
+        }
+        fix(&doc.nodes)
+        for i in doc.sources.indices { fix(&doc.sources[i].children) }
     }
 
     /// MIGRATION (2026-07-02): background blur was disabled for performance in
