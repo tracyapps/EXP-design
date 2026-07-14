@@ -197,6 +197,27 @@ component north star).
 
 ---
 
+## v2.0 — Interop & Handoff (PLANNED — anchor doc: docs/V2-INTEROP-PLAN.md)
+
+Owner-set focus (2026-07-14): make EXP the design tool that lets go — hand
+work to dev teams, LLM agents, IDEs, or CodePen, and read work back in.
+Export/handoff is the spine (decided 2026-07-14); notes + ARIA roles travel
+with the design. Full chunk breakdown, risks, and release mapping live in
+**docs/V2-INTEROP-PLAN.md**. Summary:
+
+- [ ] **Chunk A — Schema + Handoff Package** (documented/versioned design.json
+      schema, package writer, manifest, README.llm.md) — v1.4
+- [ ] **Chunk C — W3C DTCG design-tokens import/export** (Design Language ↔
+      tokens.json, standard stable 2025.10) — v1.4
+- [ ] **Chunk B — Semantic HTML/CSS export** (ARIA roles → real elements,
+      tokens → custom properties, notes → comments; the v2.0 headline demo)
+- [ ] **Chunk D — Figma import** (REST API path first; .fig best-effort later) — v2.1
+- [ ] **Chunk E — Code/Storybook/HTML-CSS import** — v2.2
+- [ ] Near-term prep (can ride any v1.3.x release): add `schemaVersion` to
+      saved .design files so v1.x files self-identify to future readers.
+
+---
+
 ## Architecture decisions
 
 - **Language/UI:** Swift + SwiftUI for app chrome (panels, inspectors,
@@ -1412,6 +1433,21 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+- **2026-07-14 — Perf deep-dive (discovery) + v2.0 interop plan [no code changes]:**
+  Owner reported returning slowness on image/complex-shape docs and hit-or-miss
+  vector point drags. Full code audit produced **docs/PERF-LOG.md** (findings
+  F1–F8; headline: the bitmap-sensitivity opt-out in `beginPanZoomInteraction`
+  and `drawDragBlit` disables BOTH Session-161 blit fast paths whenever any
+  visible node has a shadow/gradient — i.e. on most real docs — forcing live
+  full-scene renders per tick; plus per-tick @Published churn, uncached
+  sensitivity walk, full-view invalidation, per-frame path rebuilds). 5-minute
+  owner confirmation test written up in PERF-LOG. Mechanical follow-ups for a
+  smaller model in **docs/PERF-TODO.md** (T1–T5 + do-not-delegate list).
+  Separately: v2.0 direction set — interop/handoff anchored on export
+  (**docs/V2-INTEROP-PLAN.md**, chunks A–E, release mapping v1.4→v2.2,
+  DTCG-tokens + semantic-HTML spine). New v2.0 section added above
+  Architecture decisions. Next session: owner runs the PERF-LOG confirmation
+  test; then F1 root-cause experiment.
 - **2026-07-12 — Website release pill now follows appcast [site]:**
   The header version pill was still showing v1.2 after v1.3 because
   `website/scripts/sync-content.mjs` only parsed roadmap headings shaped like
