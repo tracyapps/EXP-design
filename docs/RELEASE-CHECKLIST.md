@@ -3,11 +3,15 @@
 The repeatable path from a green build on `dev` to a tagged GitHub Release.
 GitHub auth is off-box, so the owner runs every `git`/`gh` step.
 
-## v1.3 copy/paste path
+## v1.4 copy/paste path
+Use this section for the v1.4 release. The project is already set to
+`MARKETING_VERSION 1.4` / build `6`; rerun the prep commands anyway because
+they are cheap and catch drift.
+
 Assumption: Xcode exports the notarized/stapled app to:
 
 ```text
-../releases/v1.3/EXP [design].app
+../releases/v1.4/EXP [design].app
 ```
 
 The Sparkle archive folder lives next to this repo:
@@ -20,8 +24,8 @@ The Sparkle archive folder lives next to this repo:
 ```sh
 cd "/Users/tapps/Library/CloudStorage/Dropbox/work/custom-work-tools/apps/EXP [design]"
 
-VERSION="1.3"
-BUILD="5"
+VERSION="1.4"
+BUILD="6"
 RELEASE_DIR="../releases/v$VERSION"
 APP_PATH="$RELEASE_DIR/EXP [design].app"
 ZIP_PATH="$RELEASE_DIR/EXP-design-v$VERSION.zip"
@@ -31,12 +35,21 @@ scripts/verify_sparkle_setup.sh "$VERSION" "$BUILD"
 mkdir -p "$RELEASE_DIR" ../sparkle-releases
 ```
 
+Optional local compile sanity before archiving:
+
+```sh
+xcodebuild -project "EXP [design].xcodeproj" \
+  -scheme "EXP [design]" \
+  -configuration Debug \
+  build
+```
+
 Then in Xcode:
 
 ```text
 Product -> Archive
 Distribute App -> Direct Distribution
-Export the stapled app to ../releases/v1.3/
+Export the stapled app to ../releases/v1.4/
 ```
 
 Important: Sparkle runs inside the sandboxed app, so the exported app must have
@@ -49,8 +62,8 @@ Run this after Xcode has exported the app:
 ```sh
 cd "/Users/tapps/Library/CloudStorage/Dropbox/work/custom-work-tools/apps/EXP [design]"
 
-VERSION="1.3"
-BUILD="5"
+VERSION="1.4"
+BUILD="6"
 RELEASE_DIR="../releases/v$VERSION"
 APP_PATH="$RELEASE_DIR/EXP [design].app"
 ZIP_PATH="$RELEASE_DIR/EXP-design-v$VERSION.zip"
@@ -77,19 +90,23 @@ exact zip bytes.
 
 ### 2. Generate the Sparkle appcast
 This copies the zip into `../sparkle-releases/`, creates the matching
-`EXP-design-v1.3.html`, updates `website/public/appcast.xml`, disables delta
+`EXP-design-v1.4.html`, updates `website/public/appcast.xml`, disables delta
 updates, and verifies the URL/build/signature shape.
 
 ```sh
 cd "/Users/tapps/Library/CloudStorage/Dropbox/work/custom-work-tools/apps/EXP [design]"
 
-VERSION="1.3"
-BUILD="5"
+VERSION="1.4"
+BUILD="6"
 ZIP_PATH="../releases/v$VERSION/EXP-design-v$VERSION.zip"
 
 scripts/generate_sparkle_appcast.sh "$VERSION" "$BUILD" "$ZIP_PATH"
 scripts/verify_sparkle_setup.sh "$VERSION" "$BUILD"
 ```
+
+Important: generate the appcast **after** the final notarized zip exists and
+before creating/deploying the release. The appcast EdDSA signature is for the
+exact bytes of this archive.
 
 ### 3. Create the GitHub release
 If using GitHub CLI:
@@ -97,7 +114,7 @@ If using GitHub CLI:
 ```sh
 cd "/Users/tapps/Library/CloudStorage/Dropbox/work/custom-work-tools/apps/EXP [design]"
 
-VERSION="1.3"
+VERSION="1.4"
 ZIP_PATH="../releases/v$VERSION/EXP-design-v$VERSION.zip"
 
 gh release create "v$VERSION" \
@@ -109,7 +126,7 @@ gh release create "v$VERSION" \
 If using GitHub in the browser, upload this exact same file:
 
 ```text
-../releases/v1.3/EXP-design-v1.3.zip
+../releases/v1.4/EXP-design-v1.4.zip
 ```
 
 Do not re-zip. Sparkle's signature is for that exact archive.
@@ -123,15 +140,34 @@ npm run build
 After deploying the website:
 
 ```sh
-curl -s https://expdesign.app/appcast.xml | grep -E "1.3|sparkle:edSignature|releases/download/v1.3"
-curl -I https://expdesign.app/EXP-design-v1.3.html
+curl -s https://expdesign.app/appcast.xml | grep -E "1.4|sparkle:edSignature|releases/download/v1.4"
+curl -I https://expdesign.app/EXP-design-v1.4.html
 ```
 
-Final human test for v1.3: download/install v1.3 manually, relaunch, and confirm
-**About EXP [design]** shows `1.3` / build `5`. The previous public Sparkle
-build did not have outbound network entitlement, so it cannot be the real
-end-to-end updater test; do that from this network-enabled v1.3 build to the
-next release.
+Final human test for v1.4:
+
+```text
+1. Start from the already-installed public v1.3 build.
+2. Choose Check for Updates….
+3. Confirm Sparkle shows v1.4, installs it, and relaunches.
+4. Confirm About EXP [design] shows 1.4 / build 6.
+```
+
+This is the first real network-enabled updater proof: v1.3 can fetch the
+appcast, so v1.3 -> v1.4 should validate the full prompt -> install -> relaunch
+path.
+
+### 5. After v1.4 is live
+Back on `dev`, open the next cycle:
+
+```sh
+scripts/set_release_version.sh 1.5 7
+grep MARKETING_VERSION "EXP [design].xcodeproj/project.pbxproj" | sort -u
+grep CURRENT_PROJECT_VERSION "EXP [design].xcodeproj/project.pbxproj" | sort -u
+```
+
+Then update `docs/ROADMAP.md` if the v1.5 section needs adjustment, commit on
+`dev`, and keep release artifacts out of the repo.
 
 ## 1. Land the work on `dev`
 - [ ] Xcode build is clean and the release's changes are smoke-tested.

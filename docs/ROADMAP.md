@@ -88,11 +88,12 @@ was low-stakes. v1.3 is the first full Design Language + Sparkle-update release.
 
 ---
 
-## v1.3 scope (CURRENT — release prep started 2026-07-12)
+## v1.3 — shipped (2026-07-12)
 
-Build 5, target `MARKETING_VERSION 1.3`. Development on the **`dev`** branch,
-merges to `main` at release (see `docs/RELEASE-CHECKLIST.md`). Primary focus is the
-**Design Language** system (Phase 18):
+Build 5, `MARKETING_VERSION 1.3`. Public notes live in
+`RELEASE-NOTES-v1.3.md`. Primary focus: the **Design Language** system
+(Phase 18), component semantics prep (Phase 19a), and Sparkle release plumbing
+(Phase 20).
 
 - [x] **Type styles in the Design Language** (kickoff decision 2026-07-09): a
   saved type style captures **everything except color** — face, size, underline,
@@ -192,8 +193,58 @@ merges to `main` at release (see `docs/RELEASE-CHECKLIST.md`). Primary focus is 
       thumbnail renderer (the EXPThumbnail extension's render path may be
       reusable) + the same EXPSegmented grid/list toggle as the DL panel.
 
-Resume at the next unchecked box in Phase 18 (and Phase 19 for the a11y-native
-component north star).
+Follow-up patch release: v1.4 below.
+
+---
+
+## v1.4 — release-ready (2026-07-15)
+
+Build 6, `MARKETING_VERSION 1.4`. Small patch/minor release after v1.3,
+focused on the late-found performance culprit and the first real
+network-enabled Sparkle update proof.
+
+- [x] **PERF: Layers-panel recomputation storm fixed.** The multi-second
+      beachballs on click/nudge/point-move were `LayersPanel` computed
+      properties `groups` and `activeSectionID` being evaluated per row/header
+      during SwiftUI List rebuilds. Fixed by computing groups/active-section
+      once per body pass and single-pass bucketing nodes by owning artboard.
+- [x] **PERF: drag-overlay blit no longer disabled by unrelated gradients or
+      shadows.** Static gradient/shadow content stays in the 1:1 drag snapshot;
+      only true compositing cases force live rendering.
+- [x] **PERF-TODO T1: pan/zoom all-clear sensitivity memo.** Plain/flat docs no
+      longer repeat the full scene sensitivity walk on every pan/zoom tick;
+      docs with sensitive content still use the precise viewport check.
+- [x] **Explicit Reveal in Layers.** Normal canvas selection no longer
+      auto-scrolls the Layers panel; View -> Reveal Selection in Layers and
+      canvas right-click reveal deliberately expand/scroll on demand.
+- [x] **Near-term v2 prep:** top-level `Document.schemaVersion = 1` on new
+      `.design` saves, with tolerant decode for existing files.
+- [x] Release notes and checklist updated for v1.4/build 6.
+- [ ] Release and verify Sparkle update path from installed v1.3 -> v1.4 ->
+      relaunch; confirm About shows 1.4 / build 6.
+
+Resume after release at the v1.5 scope below.
+
+---
+
+## v1.5 scope (NEXT — opens after v1.4 ships)
+
+First interop/handoff release. Keep this smaller than v2.0: create the
+foundation that future exporters/importers can trust, while leaving the full
+semantic HTML and import work for later releases.
+
+- [ ] **Chunk A — Schema + Handoff Package:** documented/versioned
+      `design.json` schema, migration policy, package writer, manifest, and
+      `README.llm.md`.
+- [ ] **Chunk C — DTCG design-tokens import/export:** Design Language ↔
+      `tokens.json` using the stable W3C DTCG shape.
+- [ ] Candidate small UX carry-over if it fits: **Instance navigation** from
+      Components-panel rows. Design the interface first; do not bolt it on.
+- [ ] Candidate small UX carry-over if it fits: **Components panel grid view**
+      after thumbnail-renderer scope is understood.
+
+Not v1.5 unless it becomes urgent: full semantic HTML/CSS export, Figma import,
+code/storybook import, boolean ops, rich text root-cause work.
 
 ---
 
@@ -206,14 +257,14 @@ with the design. Full chunk breakdown, risks, and release mapping live in
 **docs/V2-INTEROP-PLAN.md**. Summary:
 
 - [ ] **Chunk A — Schema + Handoff Package** (documented/versioned design.json
-      schema, package writer, manifest, README.llm.md) — v1.4
+      schema, package writer, manifest, README.llm.md) — v1.5
 - [ ] **Chunk C — W3C DTCG design-tokens import/export** (Design Language ↔
-      tokens.json, standard stable 2025.10) — v1.4
+      tokens.json, standard stable 2025.10) — v1.5
 - [ ] **Chunk B — Semantic HTML/CSS export** (ARIA roles → real elements,
       tokens → custom properties, notes → comments; the v2.0 headline demo)
 - [ ] **Chunk D — Figma import** (REST API path first; .fig best-effort later) — v2.1
 - [ ] **Chunk E — Code/Storybook/HTML-CSS import** — v2.2
-- [x] Near-term prep (can ride any v1.3.x release): add `schemaVersion` to
+- [x] Near-term prep (shipped in v1.4): add `schemaVersion` to
       saved .design files so v1.x files self-identify to future readers.
       DONE 2026-07-15: top-level `Document.schemaVersion = 1`, tolerant decode
       for existing files, automatic write on save.
@@ -1323,7 +1374,7 @@ blocked by shipping 19a first. That's the whole point — the health food is
 already on the plate before anyone orders the vegetables.
 
 
-### Phase 20 — Sparkle auto-updates (v1.3, IN PROGRESS)
+### Phase 20 — Sparkle auto-updates (v1.4 update-path proof)
 
 Self-hosted updates for the direct-download build — no App Store required.
 Sparkle 2.x via SPM; appcast served from expdesign.app; EdDSA-signed archives
@@ -1360,11 +1411,13 @@ launch, and manual "Check for Updates…" always works.
       `scripts/generate_sparkle_appcast.sh` reduce the version/appcast/signature
       steps to repeatable commands and reject common mistakes (wrong GitHub URL,
       missing notes, wrong build number, non-identical replacement zip).
-- [ ] Verify v1.3 end-to-end: install the previous public build, publish the
-      appcast, confirm the update prompt appears, signature validates, and
-      install + relaunch works. Also verify the update dialog with VoiceOver
-      and increased-contrast mode (Sparkle's standard UI is accessible out of
-      the box, but confirm — a11y is a hard requirement here).
+- [x] v1.3 release build includes the network entitlement Sparkle needs to fetch
+      the appcast; release checklist has a post-export entitlement check.
+- [ ] Verify the first **network-enabled** end-to-end update path from v1.3 to
+      v1.4: publish appcast, Check for Updates..., prompt appears, signature
+      validates, install + relaunch works. Also verify the update dialog with
+      VoiceOver and increased-contrast mode (Sparkle's standard UI is
+      accessible out of the box, but confirm — a11y is a hard requirement here).
 
 ### Phase 4.5 — Shape styling + vector paths (pulled in before export)
 - [x] Stroke color + width on rectangle/ellipse (model + render + Inspector;
@@ -1435,6 +1488,14 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+- **2026-07-15 — Correction: this release is v1.4, not v1.3:**
+  Owner double-checked the public state: v1.3 is already out (appcast pubDate
+  2026-07-12, build 5). Pivoted the release docs to **v1.4 / build 6**:
+  restored v1.3 notes as historical, added `RELEASE-NOTES-v1.4.md` +
+  `website/public/EXP-design-v1.4.html`, updated
+  `docs/RELEASE-CHECKLIST.md` commands/paths, marked v1.4 release-ready, and
+  moved the first interop/handoff package scope to v1.5. v1.4 is the first
+  real network-enabled Sparkle update proof from installed v1.3 -> v1.4.
 - **2026-07-15 — Small checkoff night: pan/zoom sensitivity cache, explicit Reveal in Layers, and `.design` schema marker:**
   Picked up the two "tonight" follow-ups named by the 2026-07-14 perf log plus
   the smallest v2.0 prep checkbox. PERF-TODO T1 is done: `CanvasNSView` now
@@ -1447,8 +1508,8 @@ font import → Phase 9, shadows → Phase 10._
   call a document Layers-panel hook that expands ancestors/sections and scrolls
   only on demand (the auto-scroll perf fix remains intact). Added
   `Document.schemaVersion = 1` with tolerant decode so new `.design` saves
-  self-identify for v2 handoff readers while old files still open. Owner build
-  check still needed in Xcode.
+  self-identify for v2 handoff readers while old files still open. Owner
+  smoke-tested and agreed to release this as v1.4.
 - **2026-07-14 (later) — THE lag bug found and fixed: LayersPanel recomputation storm [perf, 4 code changes total this session]:**
   Ten-round instrumented hunt (full detail: docs/PERF-LOG.md). The
   multi-second beachballs on click/nudge/point-move were `LayersPanel`
