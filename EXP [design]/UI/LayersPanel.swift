@@ -98,6 +98,16 @@ struct LayersPanel: View {
             // free and crisp. Rename lives in the row's context menu so no
             // custom gesture competes with the drag.
             ScrollViewReader { proxy in
+            // PERF round 10 (docs/PERF-LOG.md): compute the section groups and
+            // the active-section id ONCE per body evaluation. They used to be
+            // computed properties re-evaluated by EVERY row and header — and
+            // `activeSectionID` recomputed `groups` internally — which the
+            // round-10 stack sample caught mid-layout as the ~6.2s main-thread
+            // hang: hundreds of full O(nodes x artboards) group builds per
+            // List rebuild. The locals shadow the old property names so the
+            // row/header code below is unchanged.
+            let groups = self.groups
+            let activeSectionID = self.activeSectionID(in: groups)
             List {
                 ForEach(groups) { group in
                     // Collapsible section per artboard / Wall (chevron in the header).
@@ -147,10 +157,17 @@ struct LayersPanel: View {
             .listStyle(.sidebar)
             .scrollContentBackground(.hidden)   // transparent list → panel surface shows
             // Selecting a nested layer (e.g. from the canvas) opens its ancestor
-            // groups + un-collapses its section AND scrolls it into view.
+            // groups + un-collapses its section. The AUTO-SCROLL that used to
+            // ride along here is disabled (PERF round 8, docs/PERF-LOG.md):
+            // `proxy.scrollTo` on this sectioned/expandable List is the prime
+            // suspect for the ~6.2s main-thread hangs the watchdog caught on
+            // every selection change — and owner UX verdict says the panel
+            // shouldn't yank on single click anyway. Follow-up (next session):
+            // an explicit "Reveal in Layers" action (canvas double-click and/or
+            // context menu, full command-coverage wiring) that calls
+            // `revealScroll` deliberately.
             .onChange(of: app.selectedNodeIDs) { _, sel in
                 revealSelectedLayers(sel)
-                revealScroll(sel, proxy: proxy)
             }
             // Delete key while the panel is focused removes the selected layers —
             // previously only worked when they were selected on the canvas.
@@ -159,6 +176,15 @@ struct LayersPanel: View {
             // events, so the canvas's keyDown never sees them — same focus gap the
             // onDeleteCommand above works around. ⇧ = 10pt step (via current event).
             .onMoveCommand { direction in nudgeSelectedLayers(direction) }
+            .onAppear {
+                if case .document = scope {
+                    app.layersRevealSelection = {
+                        let sel = app.selectedNodeIDs
+                        revealSelectedLayers(sel)
+                        revealScroll(sel, proxy: proxy)
+                    }
+                }
+            }
             }   // ScrollViewReader
         }
         .background(.clear)
@@ -210,6 +236,8 @@ struct LayersPanel: View {
     /// the panel around. Scrolls to the top-level ancestor row (always present in
     /// the List; nested rows live inside their parent row and aren't scroll targets)
     /// after expansion has had a tick to render.
+    /// PERF round 8: no longer called automatically on selection change (see
+    /// the .onChange above). Kept for the upcoming explicit Reveal action.
     private func revealScroll(_ sel: Set<UUID>, proxy: ScrollViewProxy) {
         guard sel.count == 1, let id = sel.first else { return }
         let top = ancestorGroupIDs(of: id).first ?? id
@@ -311,12 +339,26 @@ struct LayersPanel: View {
             guard let source = model.source(for: sid) else { return [] }
             return [LayerGroup(id: "source", title: source.name, nodes: source.children.reversed())]
         case .document:
+            // PERF round 10: ONE pass over the nodes, bucketing each by its
+            // owning artboard (nil = wall). The previous shape filtered ALL
+            // nodes once PER artboard, and owningArtboard itself scans the
+            // artboards — O(artboards x nodes x artboards) rect walks with
+            // Node array copies, per call. Ordering semantics unchanged:
+            // model order within each bucket, reversed so front is first.
+            var byBoard: [UUID: [Node]] = [:]
+            var wall: [Node] = []
+            for node in model.nodes {
+                if let owner = model.owningArtboard(of: node.frame) {
+                    byBoard[owner.id, default: []].append(node)
+                } else {
+                    wall.append(node)
+                }
+            }
             var result: [LayerGroup] = []
             for artboard in model.artboards {
-                let owned = model.nodes.filter { model.owningArtboard(of: $0.frame)?.id == artboard.id }
-                result.append(LayerGroup(id: artboard.id.uuidString, title: artboard.name, nodes: owned.reversed()))
+                result.append(LayerGroup(id: artboard.id.uuidString, title: artboard.name,
+                                         nodes: (byBoard[artboard.id] ?? []).reversed()))
             }
-            let wall = model.nodes.filter { model.owningArtboard(of: $0.frame) == nil }
             if !wall.isEmpty {
                 result.append(LayerGroup(id: "wall", title: "Wall", nodes: wall.reversed()))
             }
@@ -329,7 +371,10 @@ struct LayersPanel: View {
     /// The id of the section to emphasise: the board owning the current node
     /// selection if any, else a directly-selected artboard, else none. The source
     /// scope has no artboards, so it never highlights.
-    private var activeSectionID: String? {
+    /// PERF round 10: takes the groups already built for this body pass
+    /// instead of recomputing them (the old computed property rebuilt
+    /// `groups` on every access — and it was accessed per row AND header).
+    private func activeSectionID(in groups: [LayerGroup]) -> String? {
         guard case .document = scope else { return nil }
         if !app.selectedNodeIDs.isEmpty {
             if let g = groups.first(where: { grp in grp.nodes.contains { nodeSubtreeIsSelected($0) } }) {

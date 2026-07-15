@@ -33,6 +33,10 @@ import CoreGraphics
 /// system (native DocumentGroup) in the next cycle.
 struct Document: Codable, Sendable {
 
+    /// Public file-schema marker for future interop/handoff readers. This is
+    /// distinct from `formatVersion`, which tracks internal model migrations.
+    var schemaVersion: Int = 1
+
     /// Bumped when the on-disk shape changes. v2 moved shapes out of artboards
     /// into the document-level `nodes` list (the "wall" model).
     var formatVersion: Int = 2
@@ -71,9 +75,10 @@ struct Document: Codable, Sendable {
     }
 
     // Custom decode so files saved before `guides` existed still open.
-    enum CodingKeys: String, CodingKey { case formatVersion, artboards, nodes, sources, guides, designLanguage }
+    enum CodingKeys: String, CodingKey { case schemaVersion, formatVersion, artboards, nodes, sources, guides, designLanguage }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try c.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
         formatVersion = try c.decodeIfPresent(Int.self, forKey: .formatVersion) ?? 2
         artboards = try c.decode([Artboard].self, forKey: .artboards)
         nodes = try c.decode([Node].self, forKey: .nodes)

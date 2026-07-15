@@ -213,8 +213,10 @@ with the design. Full chunk breakdown, risks, and release mapping live in
       tokens → custom properties, notes → comments; the v2.0 headline demo)
 - [ ] **Chunk D — Figma import** (REST API path first; .fig best-effort later) — v2.1
 - [ ] **Chunk E — Code/Storybook/HTML-CSS import** — v2.2
-- [ ] Near-term prep (can ride any v1.3.x release): add `schemaVersion` to
+- [x] Near-term prep (can ride any v1.3.x release): add `schemaVersion` to
       saved .design files so v1.x files self-identify to future readers.
+      DONE 2026-07-15: top-level `Document.schemaVersion = 1`, tolerant decode
+      for existing files, automatic write on save.
 
 ---
 
@@ -1433,6 +1435,38 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+- **2026-07-15 — Small checkoff night: pan/zoom sensitivity cache, explicit Reveal in Layers, and `.design` schema marker:**
+  Picked up the two "tonight" follow-ups named by the 2026-07-14 perf log plus
+  the smallest v2.0 prep checkbox. PERF-TODO T1 is done: `CanvasNSView` now
+  memoizes the all-clear `visibleBitmapSensitiveContent` case per
+  `resolveGeneration` for pan/zoom, while falling back to the existing precise
+  viewport check whenever sensitive content exists. Drag helper region/exclusion
+  behavior is unchanged. Added explicit **Reveal
+  Selection in Layers** command coverage: View menu + canvas right-click route
+  through `revealSelectionInLayersAction`, show the Layers panel if needed, and
+  call a document Layers-panel hook that expands ancestors/sections and scrolls
+  only on demand (the auto-scroll perf fix remains intact). Added
+  `Document.schemaVersion = 1` with tolerant decode so new `.design` saves
+  self-identify for v2 handoff readers while old files still open. Owner build
+  check still needed in Xcode.
+- **2026-07-14 (later) — THE lag bug found and fixed: LayersPanel recomputation storm [perf, 4 code changes total this session]:**
+  Ten-round instrumented hunt (full detail: docs/PERF-LOG.md). The
+  multi-second beachballs on click/nudge/point-move were `LayersPanel`
+  computed properties `groups` (O(artboards x nodes x artboards) + Node copy
+  churn) and `activeSectionID` (which recomputed `groups`) being evaluated
+  PER ROW AND PER HEADER during every SwiftUI List rebuild — caught red-
+  handed by an lldb backtrace during a beachball. Fixed: both hoisted to
+  once-per-body locals; `groups` now single-pass-buckets nodes by owning
+  artboard. Also shipped en route: (1) drag-overlay blit no longer disabled
+  by visible shadows/gradients (anchor drags now blit at ~2ms; snapshots
+  render documentSRGB); (2) Layers panel no longer auto-scrolls on single-
+  click selection (owner UX decision; explicit "Reveal in Layers" action to
+  come, command-coverage rule applies); (3) permanent Testing-Mode
+  instrumentation: input-pre/input->frame latency buckets, MainThreadWatchdog,
+  timestamped save-encode print. Exonerated along the way: autosave/encode
+  (55-85ms off-main), Dropbox, saves, scrollTo. Owner to verify the round-10
+  fix; then resume PERF-TODO steady-state items + the .design package format
+  (kills base64 image re-encode per save AND is v2.0 Chunk A schema work).
 - **2026-07-14 — Perf deep-dive (discovery) + v2.0 interop plan [no code changes]:**
   Owner reported returning slowness on image/complex-shape docs and hit-or-miss
   vector point drags. Full code audit produced **docs/PERF-LOG.md** (findings

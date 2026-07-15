@@ -206,6 +206,7 @@ struct EXP__design_App: App {
                 Divider()
                 Button("Expand All Layers") { send("expandAllLayersAction:") }
                 Button("Collapse All Layers") { send("collapseAllLayersAction:") }
+                Button("Reveal Selection in Layers") { send("revealSelectionInLayersAction:") }
                 Divider()
                 Button("Show / Hide Rulers") { send("toggleRulersAction:") }
                     .keyboardShortcut("r", modifiers: .command)

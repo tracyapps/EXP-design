@@ -618,6 +618,10 @@ final class AppState {
     /// a closure hook, like `applyTextStyle`.
     @ObservationIgnored var layersExpandAll: ((Bool) -> Void)?
 
+    /// Explicit "Reveal in Layers" hook. Kept separate from selection changes so
+    /// single canvas clicks never auto-scroll the panel (see docs/PERF-LOG.md).
+    @ObservationIgnored var layersRevealSelection: (() -> Void)?
+
     /// The canvas publishes the current text selection's style here so the
     /// Inspector reflects it. nil component = "Multiple"/mixed across the selection.
     struct TextSelectionStyle: Equatable {

@@ -72,6 +72,42 @@ struct CanvasView: NSViewRepresentable {
 
 // MARK: - The drawing surface
 
+/// Testing-Mode main-thread watchdog (PERF round 6, see docs/PERF-LOG.md).
+/// A background thread pings the main queue every 100ms; if a ping takes
+/// >250ms to land, the main thread was held that long by SOMETHING outside
+/// the draw buckets (save machinery, event routing, SwiftUI, ...). Prints
+/// carry uptime stamps so they align with the [EXP save] and [EXP input]
+/// prints. Runs only after Testing Mode has been on at least once; polling
+/// cost is negligible (one empty main-queue block per 100ms).
+final class MainThreadWatchdog: @unchecked Sendable {
+    static let shared = MainThreadWatchdog()
+    private var started = false
+    private let lock = NSLock()
+
+    func startIfNeeded() {
+        lock.lock(); defer { lock.unlock() }
+        guard !started else { return }
+        started = true
+        let thread = Thread {
+            while true {
+                let t0 = ProcessInfo.processInfo.systemUptime
+                let sem = DispatchSemaphore(value: 0)
+                DispatchQueue.main.async { sem.signal() }
+                sem.wait()
+                let dt = ProcessInfo.processInfo.systemUptime - t0
+                if dt > 0.25 {
+                    print(String(format: "\u{1F415} [EXP watchdog] main thread held %.2fs  (t=%.1f)",
+                                 dt, ProcessInfo.processInfo.systemUptime))
+                }
+                Thread.sleep(forTimeInterval: 0.1)
+            }
+        }
+        thread.name = "exp.mainthread.watchdog"
+        thread.qualityOfService = .userInitiated
+        thread.start()
+    }
+}
+
 final class CanvasNSView: NSView {
 
     weak var app: AppState?
@@ -2430,12 +2466,18 @@ final class CanvasNSView: NSView {
     /// blit for the whole run. A capture under budget clears the strike; two
     /// consecutive slow ones mean the document really can't afford captures.
     private var panZoomCaptureStrikes = 0
+    /// PERF-TODO T1: the pan/zoom sensitivity check can walk the whole visible
+    /// scene and resolve component instances. Cache only the "no sensitive
+    /// content exists anywhere in this scope" result; when sensitive content does
+    /// exist, keep the existing precise viewport check so blit on/off decisions
+    /// stay identical as the camera pans.
+    private var panZoomAllClearCache: (generation: Int, isAllClear: Bool)?
 
     /// Call at every pan/zoom tick, BEFORE mutating `app.zoom`/`app.panOffset`,
     /// so a first-tick capture renders exactly what's already on screen.
     private func beginPanZoomInteraction() {
         guard let app, !panZoomBlitDisabled else { return }
-        if visibleBitmapSensitiveContent(in: bounds) {
+        if panZoomSensitivityCached() {
             // Gradients and shadows currently shift when flattened into the
             // temporary gesture bitmap, even though their live vector render is
             // stable. Favor fidelity for those documents and render live per tick.
@@ -2486,6 +2528,26 @@ final class CanvasNSView: NSView {
         }
         RunLoop.main.add(timer, forMode: .common)
         panZoomSettleTimer = timer
+    }
+
+    private func panZoomSensitivityCached() -> Bool {
+        guard let document else { return false }
+        let gen = document.resolveGeneration
+        if let cached = panZoomAllClearCache, cached.generation == gen {
+            if cached.isAllClear { return false }
+        } else {
+            let isAllClear = !scopeHasBitmapSensitiveContent(model: document.model)
+            panZoomAllClearCache = (gen, isAllClear)
+            if isAllClear { return false }
+        }
+        return visibleBitmapSensitiveContent(in: bounds)
+    }
+
+    private func scopeHasBitmapSensitiveContent(model: Document) -> Bool {
+        if !isSourceScope, model.artboards.contains(where: { $0.background.isGradient }) {
+            return true
+        }
+        return currentNodes.contains { $0.isVisible && nodeHasBitmapSensitiveContent($0, model: model) }
     }
 
     // Capture instrumentation (Testing Mode): the capture render has repeatedly
@@ -2696,7 +2758,11 @@ final class CanvasNSView: NSView {
     private func captureDragSnapshots() -> Bool {
         guard let app, let document, !isSourceScope,
               let ids = activeDragNodeIDs(), !ids.isEmpty,
-              let cg = offscreenBacking() else { return false }
+              // documentSRGB: same fidelity rule as the pan/zoom snapshot -- EXP
+              // fills/gradients are authored in sRGB, so the static layers render
+              // in document space and match the settled vector frame (minimizes
+              // any visible pop when tick 3 swaps from live render to blit).
+              let cg = offscreenBacking(colorSpace: .documentSRGB) else { return false }
         var skip: Set<UUID> = []
         for id in ids {
             guard let top = topLevelAncestorID(of: id) else { return false }
@@ -2784,8 +2850,17 @@ final class CanvasNSView: NSView {
         // fast snapshot path.
         if !dragFidelityChecked {
             dragFidelityChecked = true
+            // Blend modes still get TRUE compositing (budget-gated below); static
+            // gradients/shadows do NOT force live rendering here. Unlike the
+            // pan/zoom blit, the drag snapshots are drawn 1:1 with the view
+            // transform pinned for the whole gesture (any zoom/pan/resize change
+            // recaptures or bails), so flattened static pixels cannot shift the
+            // way a scaled pan/zoom bitmap can. 2026-07-14: this decision
+            // previously also OR'd visibleBitmapSensitiveContent(in: bounds, ...),
+            // which forced FULL LIVE renders every tick (17-33ms measured on a
+            // 233-node doc) for every node/anchor/handle drag whenever ANY
+            // shadow or gradient was visible -- the "hit or miss" point-drag lag.
             dragWantsTrueComposite = shouldTrueCompositeDrag(ids)
-                || visibleBitmapSensitiveContent(in: bounds, excludingTopLevelIDs: Set(ids.compactMap { topLevelAncestorID(of: $0) }))
         }
         if dragWantsTrueComposite { return false }   // full live render per tick
         // Warm-up: first two ticks render live (see dragBlitTicks).
@@ -2888,6 +2963,7 @@ final class CanvasNSView: NSView {
                 perf.record("frame(blit)", ms: (CFAbsoluteTimeGetCurrent() - perfFrameT0) * 1000)
                 perf.flushIfNeeded()
             }
+            recordInputToFrame()
             return
         }
         // Live node drag: composite static below/above snapshots around the
@@ -2897,6 +2973,7 @@ final class CanvasNSView: NSView {
                 perf.record("frame(drag)", ms: (CFAbsoluteTimeGetCurrent() - perfFrameT0) * 1000)
                 perf.flushIfNeeded()
             }
+            recordInputToFrame()
             return
         }
         // Background blur needs to sample what's behind it, which means the scene has
@@ -2938,6 +3015,7 @@ final class CanvasNSView: NSView {
         // doesn't flip the mode.
         let frameMs = (CFAbsoluteTimeGetCurrent() - perfFrameT0) * 1000
         fullFrameEMA = fullFrameEMA == 0 ? frameMs : fullFrameEMA * 0.8 + frameMs * 0.2
+        recordInputToFrame()
     }
 
     /// Exponential moving average of a full scene render, in ms (0 = no sample
@@ -5140,6 +5218,47 @@ final class CanvasNSView: NSView {
 
     // MARK: Keyboard
 
+    // MARK: Input latency instrumentation (Testing Mode)
+    //
+    // 2026-07-14: owner reports big FELT lag on arrow-key nudges while the
+    // frame buckets read a healthy 16-25ms. The draw buckets cannot see (a)
+    // how long the event sat in the queue / event routing before the handler
+    // ran, or (b) main-thread work after the handler (SwiftUI publish cycle,
+    // panels re-evaluating) that delays the repaint. These two buckets close
+    // that gap:
+    //   input-pre(...)  = handler start - event.timestamp (hardware-stamped)
+    //   input->frame    = completed repaint - event.timestamp
+    // If input-pre is big  -> the delay happens BEFORE our code (event routing
+    //   / menu key-equivalent scanning / a busy main thread).
+    // If input-pre is tiny but input->frame is big -> the delay is between our
+    //   commit and the repaint (SwiftUI publish / panel re-evaluation, F3).
+    // If both are small but it still FEELS slow -> the window server /
+    //   CVDisplayLink side, not the app (unlikely).
+    private var perfInputEventTime: TimeInterval?
+
+    private func notePerfInput(_ event: NSEvent, _ label: String) {
+        guard perf.enabled else { return }
+        MainThreadWatchdog.shared.startIfNeeded()
+        let now = ProcessInfo.processInfo.systemUptime
+        let preMs = (now - event.timestamp) * 1000
+        perf.record("input-pre(\(label))", ms: preMs)
+        // Round 6: big delays also print IMMEDIATELY with an uptime stamp, so
+        // they can be lined up against watchdog + save prints on one clock
+        // (the aggregated meter has no per-event timestamps).
+        if preMs > 500 {
+            print(String(format: "\u{26A0}\u{FE0F} [EXP input] %@ delayed %.2fs  (t=%.1f)", label, preMs / 1000, now))
+        }
+        perfInputEventTime = event.timestamp
+    }
+
+    /// Called at every completed `draw(_:)` exit; records once per noted event.
+    private func recordInputToFrame() {
+        guard let t0 = perfInputEventTime else { return }
+        perfInputEventTime = nil
+        guard perf.enabled else { return }
+        perf.record("input->frame", ms: (ProcessInfo.processInfo.systemUptime - t0) * 1000)
+    }
+
     override func keyDown(with event: NSEvent) {
         if event.keyCode == 49 {
             if !spaceHeld { spaceHeld = true; NSCursor.openHand.set() }
@@ -5196,7 +5315,9 @@ final class CanvasNSView: NSView {
         }
 
         switch event.keyCode {
-        case 123, 124, 125, 126: nudgeSelection(keyCode: event.keyCode, large: event.modifierFlags.contains(.shift)); return
+        case 123, 124, 125, 126:
+            notePerfInput(event, "key")
+            nudgeSelection(keyCode: event.keyCode, large: event.modifierFlags.contains(.shift)); return
         case 51, 117:            deleteSelection(); return
         case 48:                 cycleArtboardSelection(forward: !event.modifierFlags.contains(.shift)); return
         case 36:                 if penNodeID != nil { finishPen() }; return        // Return finishes a pen path
@@ -5238,6 +5359,7 @@ final class CanvasNSView: NSView {
     // MARK: Mouse
 
     override func mouseDown(with event: NSEvent) {
+        notePerfInput(event, "down")
         let p = convert(event.locationInWindow, from: nil)
         lastMouse = p
 
@@ -5537,6 +5659,7 @@ final class CanvasNSView: NSView {
     }
 
     override func mouseDragged(with event: NSEvent) {
+        notePerfInput(event, "drag")
         let p = convert(event.locationInWindow, from: nil)
         lastMouse = p
         let shift = event.modifierFlags.contains(.shift)
@@ -7630,6 +7753,12 @@ final class CanvasNSView: NSView {
     // Layers panel expand/collapse-all — the panel registers app.layersExpandAll.
     @objc func expandAllLayersAction(_ sender: Any?)   { app?.layersExpandAll?(true) }
     @objc func collapseAllLayersAction(_ sender: Any?) { app?.layersExpandAll?(false) }
+    @objc func revealSelectionInLayersAction(_ sender: Any?) {
+        guard let app, !app.selectedNodeIDs.isEmpty else { return }
+        if !app.isPanelShown(.layers) { app.togglePanel(.layers) }
+        app.layersRevealSelection?()
+        DispatchQueue.main.async { app.layersRevealSelection?() }
+    }
 
     // MARK: Panels menu (show/hide panels, reset layout)
 
@@ -8310,6 +8439,7 @@ final class CanvasNSView: NSView {
             add(menu, "Copy", #selector(copy(_:)))
             add(menu, "Duplicate", #selector(duplicateSelection(_:)))
             add(menu, "Delete", #selector(delete(_:)))
+            add(menu, "Reveal in Layers", #selector(revealSelectionInLayersAction(_:)))
             menu.addItem(.separator())
             // Copy / Paste Style (effects + blend mode + opacity). Both always
             // appear; validateMenuItem greys out Paste Style until a style is copied.
@@ -8493,6 +8623,8 @@ extension CanvasNSView: NSMenuItemValidation {
             return hasNodes
         case #selector(expandAllLayersAction(_:)), #selector(collapseAllLayersAction(_:)):
             return app?.layersExpandAll != nil
+        case #selector(revealSelectionInLayersAction(_:)):
+            return hasNodes
         case #selector(toggleAutoLayoutAction(_:)):
             // Title flips to reflect what the command will do to the selection.
             item.title = selectedGroupHasAutoLayout ? "Remove Auto Layout" : "Add Auto Layout"
