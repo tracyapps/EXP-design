@@ -54,7 +54,8 @@ Export the stapled app to ../releases/v1.4/
 
 Important: Sparkle runs inside the sandboxed app, so the exported app must have
 outbound network permission. The preflight script checks the Xcode build setting,
-and the post-export step below checks the signed app entitlement.
+and the post-export step below checks the signed app entitlement, strict nested
+code signatures, and Gatekeeper assessment.
 
 ### 1. Verify and zip the exported app
 Run this after Xcode has exported the app:
@@ -71,22 +72,35 @@ ZIP_PATH="$RELEASE_DIR/EXP-design-v$VERSION.zip"
 if [[ ! -d "$APP_PATH" ]]; then
   echo "Missing exported app: $APP_PATH"
 else
+  xattr -cr "$APP_PATH"
+
   ENTITLEMENTS_FILE="$(mktemp)"
   codesign -d --entitlements :- "$APP_PATH" > "$ENTITLEMENTS_FILE" 2>/dev/null
   if ! /usr/libexec/PlistBuddy -c "Print :com.apple.security.network.client" "$ENTITLEMENTS_FILE" 2>/dev/null | grep -qx true; then
     echo "Missing outgoing network entitlement; Sparkle cannot fetch appcast.xml"
+  elif ! codesign --verify --deep --strict --verbose=2 "$APP_PATH"; then
+    echo "Strict code-signing verification failed; do not ship this app"
+  elif ! spctl -a -vvv -t install "$APP_PATH"; then
+    echo "Gatekeeper assessment failed; do not ship this app"
   else
     rm -f "$ZIP_PATH"
-    ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$ZIP_PATH"
+    ditto -c -k --norsrc --noextattr --noqtn --noacl --keepParent "$APP_PATH" "$ZIP_PATH"
+
+    CHECK_DIR="$(mktemp -d)"
+    ditto -x -k "$ZIP_PATH" "$CHECK_DIR"
+    codesign --verify --deep --strict --verbose=2 "$CHECK_DIR/EXP [design].app"
+    spctl -a -vvv -t install "$CHECK_DIR/EXP [design].app"
+    rm -rf "$CHECK_DIR"
+
     ls -lh "$ZIP_PATH"
   fi
   rm -f "$ENTITLEMENTS_FILE"
 fi
 ```
 
-If this entitlement check was added after a zip was already generated, re-export
-from Xcode and re-run this zip/appcast flow. Sparkle signatures are tied to the
-exact zip bytes.
+If any post-export check changes the app or zip, regenerate the appcast and
+upload that exact new archive. Sparkle signatures are tied to the exact zip
+bytes.
 
 ### 2. Generate the Sparkle appcast
 This copies the zip into `../sparkle-releases/`, creates the matching
@@ -215,9 +229,18 @@ codesign -d --entitlements :- "EXP [design].app" 2>/dev/null | \
 ```
 - [ ] Zip with **ditto** — NOT `zip -r` (Sparkle.framework contains symlinks;
       flattening them breaks the code signature and Sparkle will refuse the
-      update). Zip AFTER stapling:
+      update). Strip export-location metadata, verify the signed app, then zip
+      AFTER stapling:
 ```sh
-ditto -c -k --sequesterRsrc --keepParent "EXP [design].app" EXP-design-vX.Y.zip
+xattr -cr "EXP [design].app"
+codesign --verify --deep --strict --verbose=2 "EXP [design].app"
+spctl -a -vvv -t install "EXP [design].app"
+ditto -c -k --norsrc --noextattr --noqtn --noacl --keepParent "EXP [design].app" EXP-design-vX.Y.zip
+CHECK_DIR="$(mktemp -d)"
+ditto -x -k EXP-design-vX.Y.zip "$CHECK_DIR"
+codesign --verify --deep --strict --verbose=2 "$CHECK_DIR/EXP [design].app"
+spctl -a -vvv -t install "$CHECK_DIR/EXP [design].app"
+rm -rf "$CHECK_DIR"
 ```
 - [ ] This ONE zip is used everywhere (GitHub asset + `sparkle-releases/` for
       the appcast). Byte-identical copies only — never re-zip.
@@ -252,7 +275,9 @@ scripts/generate_sparkle_appcast.sh X.Y BUILD path/to/EXP-design-vX.Y.zip
   matters because GitHub release asset URLs include the tag; old entries must
   keep their old `releases/download/vX.Y/` URL while the new entry gets the
   current prefix. Deltas are deliberately disabled until the release flow uploads
-  and verifies them too.
+  and verifies them too. The helper also unzips the exact archive and runs
+  strict deep code-signing plus Gatekeeper checks, so forbidden extended
+  attributes on nested Sparkle helpers are caught before upload.
 - [ ] Manual equivalent, if the helper ever needs bypassing: drop
       `EXP-design-vX.Y.zip` in the local release folder, make sure that same
       folder contains the previous `appcast.xml`, then run Sparkle's tool
@@ -276,7 +301,10 @@ generate_appcast \
 - [ ] Deploy the website; verify `curl -s https://expdesign.app/appcast.xml`
       shows the new version + `sparkle:edSignature`.
 - [ ] Signing sanity: the zip must be the SAME notarized archive uploaded to
-      GitHub (byte-identical), or the EdDSA signature won't match.
+      GitHub (byte-identical), or the EdDSA signature won't match. If replacing
+      a bad asset, move the stale local copy in `sparkle-releases/` aside first,
+      regenerate the appcast from the cleaned zip, then replace the GitHub
+      release asset with the same cleaned archive.
 - [ ] End-to-end sanity: install the previous network-enabled public build, choose
       **Check for Updates…**, confirm the update prompt appears, install,
       relaunch, and confirm **About EXP [design]** shows X.Y / BUILD.

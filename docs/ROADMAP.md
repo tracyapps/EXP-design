@@ -197,11 +197,19 @@ Follow-up patch release: v1.4 below.
 
 ---
 
-## v1.4 — release-ready (2026-07-15)
+## v1.4 — released; Sparkle asset repair pending (2026-07-15)
 
 Build 6, `MARKETING_VERSION 1.4`. Small patch/minor release after v1.3,
-focused on the late-found performance culprit and the first real
-network-enabled Sparkle update proof.
+focused on the late-found performance culprit. Public appcast/GitHub release
+went live and installed v1.3 can discover v1.4, but the first install attempt
+exposed a release-archive problem: the published zip preserved forbidden
+extended attributes on Sparkle's embedded XPC services, causing strict
+code-signing verification to fail after unzip and Sparkle to show "An error
+occurred while launching the installer." Fix: strip xattrs from the exported
+app, re-zip with `ditto -c -k --norsrc --noextattr --noqtn --noacl --keepParent`,
+regenerate the appcast signature from that exact archive, replace the GitHub
+asset, deploy the updated appcast, then rerun the v1.3 -> v1.4
+install/relaunch proof.
 
 - [x] **PERF: Layers-panel recomputation storm fixed.** The multi-second
       beachballs on click/nudge/point-move were `LayersPanel` computed
@@ -220,8 +228,12 @@ network-enabled Sparkle update proof.
 - [x] **Near-term v2 prep:** top-level `Document.schemaVersion = 1` on new
       `.design` saves, with tolerant decode for existing files.
 - [x] Release notes and checklist updated for v1.4/build 6.
-- [ ] Release and verify Sparkle update path from installed v1.3 -> v1.4 ->
-      relaunch; confirm About shows 1.4 / build 6.
+- [x] v1.4 appcast published and installed v1.3 sees the v1.4 update prompt.
+- [x] Clean local v1.4 archive regenerated with metadata-preserving `ditto`
+      defaults disabled; strict deep codesign + Gatekeeper pass after unzip, and
+      local appcast regenerated for the cleaned zip bytes.
+- [ ] Replace the v1.4 GitHub asset and deploy the regenerated appcast, then
+      verify Sparkle install -> relaunch; confirm About shows 1.4 / build 6.
 
 Resume after release at the v1.5 scope below.
 
@@ -1415,9 +1427,17 @@ launch, and manual "Check for Updates…" always works.
       the appcast; release checklist has a post-export entitlement check.
 - [ ] Verify the first **network-enabled** end-to-end update path from v1.3 to
       v1.4: publish appcast, Check for Updates..., prompt appears, signature
-      validates, install + relaunch works. Also verify the update dialog with
-      VoiceOver and increased-contrast mode (Sparkle's standard UI is
-      accessible out of the box, but confirm — a11y is a hard requirement here).
+      validates, install + relaunch works. 2026-07-15 first live attempt got as
+      far as the v1.4 prompt, then failed launching Sparkle's installer because
+      the uploaded zip preserved forbidden `com.apple.FinderInfo` metadata on
+      Sparkle's embedded XPC services. Release helper/checklist now run
+      strict deep code-signing and Gatekeeper checks on the unzipped archive;
+      local v1.4 asset repaired by stripping xattrs, re-zipping with metadata
+      preservation disabled, and regenerating the appcast signature. Next:
+      replace the GitHub asset, deploy the updated appcast, and verify install
+      + relaunch. Also verify the update dialog with VoiceOver and
+      increased-contrast mode (Sparkle's standard UI is accessible out of the
+      box, but confirm — a11y is a hard requirement here).
 
 ### Phase 4.5 — Shape styling + vector paths (pulled in before export)
 - [x] Stroke color + width on rectangle/ellipse (model + render + Inspector;
@@ -1488,6 +1508,25 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+- **2026-07-15 — v1.4 Sparkle installer error traced to archive metadata:**
+  Live update discovery worked from installed v1.3: Sparkle saw v1.4/build 6
+  and displayed the release notes. Install failed with Sparkle's generic
+  "error occurred while launching the installer" dialog. Downloaded the live
+  GitHub release zip, unpacked it locally, and found `spctl` accepted the app
+  as notarized Developer ID, but `codesign --verify --deep --strict` failed in
+  Sparkle's embedded XPC services due to a forbidden `com.apple.FinderInfo`
+  xattr (plus Dropbox/FileProvider metadata).
+  After `xattr -cr` on the unzipped app, strict codesign passed. Plain
+  `ditto -c -k --keepParent` still reintroduced the metadata on unzip because
+  `ditto` preserves resource data/xattrs by default; the working archive command
+  is `ditto -c -k --norsrc --noextattr --noqtn --noacl --keepParent`. Hardened
+  `scripts/generate_sparkle_appcast.sh` and `docs/RELEASE-CHECKLIST.md` so the
+  release flow strips xattrs before zipping and verifies the exact unzipped
+  archive before appcast/upload. Generated a cleaned local
+  `../releases/v1.4/EXP-design-v1.4.zip`, preserved the bad zips with
+  `.bad-xattrs` / `.bad-roundtrip` suffixes, and regenerated the local appcast
+  for the cleaned bytes. Next action: replace the v1.4 GitHub asset with the
+  cleaned zip and deploy the matching appcast.
 - **2026-07-15 — Correction: this release is v1.4, not v1.3:**
   Owner double-checked the public state: v1.3 is already out (appcast pubDate
   2026-07-12, build 5). Pivoted the release docs to **v1.4 / build 6**:

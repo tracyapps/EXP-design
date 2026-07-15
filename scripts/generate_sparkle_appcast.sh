@@ -76,7 +76,7 @@ normalize_github_release_urls() {
   ' "$feed"
 }
 
-verify_zip_entitlements() {
+verify_zip_for_sparkle_install() {
   local archive="$1"
   local app
   local entitlements
@@ -99,6 +99,24 @@ verify_zip_entitlements() {
     echo "       Re-export from Xcode after enabling Outgoing Connections, then re-zip." >&2
     exit 1
   fi
+
+  if ! codesign --verify --deep --strict --verbose=2 "$app"; then
+    echo "error: exported app failed strict deep code-signing verification after unzip" >&2
+    echo "       Sparkle launches embedded XPC services during install; forbidden" >&2
+    echo "       extended attributes such as com.apple.FinderInfo can break that launch." >&2
+    echo "       Strip metadata from the exported app, re-verify, and re-zip:" >&2
+    echo "         xattr -cr \"path/to/EXP [design].app\"" >&2
+    echo "         codesign --verify --deep --strict --verbose=2 \"path/to/EXP [design].app\"" >&2
+    echo "         ditto -c -k --norsrc --noextattr --noqtn --noacl --keepParent \"path/to/EXP [design].app\" \"path/to/EXP-design-v$version.zip\"" >&2
+    exit 1
+  fi
+
+  if ! spctl -a -vvv -t install "$app"; then
+    echo "error: exported app was not accepted by Gatekeeper after unzip" >&2
+    echo "       Re-export via Xcode Direct Distribution, confirm notarization/stapling," >&2
+    echo "       then re-run this helper against the final zip." >&2
+    exit 1
+  fi
 }
 
 if [[ ! -f "$zip_path" ]]; then
@@ -117,7 +135,7 @@ if [[ ! -f "$notes_md" ]]; then
 fi
 
 SPARKLE_SKIP_APPCAST_SHAPE=1 "$root/scripts/verify_sparkle_setup.sh" "$version" "$build"
-verify_zip_entitlements "$zip_path"
+verify_zip_for_sparkle_install "$zip_path"
 
 generate_appcast="$(find_generate_appcast || true)"
 if [[ -z "$generate_appcast" ]]; then
