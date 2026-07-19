@@ -8,10 +8,10 @@
 //  options get real estate — and a PREVIEW, so people are confident it worked
 //  before anything touches the document.
 //
-//  Import: a forgiving paste area (CSS/SCSS variables, mixed colors + type,
-//  .type-* class blocks, bare hex lists, Coolors URLs) with an automatic
-//  preview AND a dedicated Preview button (some people want the explicit
-//  press — and it guards against a stale preview mid-typing), category
+//  Import: a forgiving paste area (DTCG/EXP JSON, CSS/SCSS variables, mixed
+//  colors + type, .type-* class blocks, bare hex lists, Coolors URLs) with an
+//  automatic preview AND a dedicated Preview button (some people want the
+//  explicit press — and it guards against a stale preview mid-typing), category
 //  assign/create for the whole batch, merge behavior, then one undoable
 //  Import. EXP JSON comes in via a file picker on the same screen.
 //
@@ -102,7 +102,7 @@ struct DesignLanguageTransferSheet: View {
 
     @ViewBuilder private var importView: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Paste CSS or SCSS variables — colors and type together is fine. Extra characters, wrappers, and messy spacing are all tolerated.")
+            Text("Paste Design Tokens JSON, EXP JSON, or CSS/SCSS variables — colors and type together is fine. Extra characters, wrappers, and messy spacing are all tolerated.")
                 .font(.system(size: EXPType.mini))
                 .foregroundStyle(EXPColor.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -111,7 +111,7 @@ struct DesignLanguageTransferSheet: View {
                 .frame(minHeight: 90, idealHeight: 140)
                 .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(EXPColor.borderSoft))
                 .onChange(of: pasteText) { refreshPreview() }   // automatic preview
-                .accessibilityLabel("Paste area for CSS or SCSS variables")
+                .accessibilityLabel("Paste area for Design Tokens JSON, EXP JSON, or CSS and SCSS variables")
 
             HStack(spacing: 8) {
                 Text("Preview").expSectionLabel()
@@ -119,9 +119,9 @@ struct DesignLanguageTransferSheet: View {
                     .font(.system(size: EXPType.micro))
                     .foregroundStyle(EXPColor.textTertiary)
                 Spacer()
-                Button("Import EXP JSON File…") { importJSONFile() }
+                Button("Import JSON File…") { importJSONFile() }
                     .controlSize(.small)
-                    .help("Bring in a design language exported from another .design document")
+                    .help("Bring in EXP JSON or W3C Design Tokens JSON")
             }
             importPreview
                 .frame(maxHeight: .infinity)
@@ -265,10 +265,10 @@ struct DesignLanguageTransferSheet: View {
         panel.allowedContentTypes = [.json]
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
-        panel.message = "Import an EXP design-language JSON file."
+        panel.message = "Import an EXP design-language JSON file or W3C Design Tokens JSON."
         guard panel.runModal() == .OK, let url = panel.url,
               let data = try? Data(contentsOf: url),
-              let parsed = DesignLanguageIO.parseJSON(data),
+              let parsed = DesignLanguageIO.parseDesignTokensJSON(data) ?? DesignLanguageIO.parseJSON(data),
               !parsed.assets.isEmpty || !parsed.typeStyles.isEmpty else { return }
         var model = document.model
         model.designLanguage.merge(parsed.assets, categories: parsed.categories, mode: mergeMode)

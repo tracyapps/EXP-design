@@ -8,6 +8,15 @@
     <channel>
         <title>EXP [design]</title>
         <item>
+            <title>1.5</title>
+            <pubDate>Sun, 19 Jul 2026 13:06:06 -0500</pubDate>
+            <sparkle:version>7</sparkle:version>
+            <sparkle:shortVersionString>1.5</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>26.2</sparkle:minimumSystemVersion>
+            <sparkle:releaseNotesLink>https://expdesign.app/EXP-design-v1.5.html</sparkle:releaseNotesLink>
+            <enclosure url="https://github.com/tracyapps/EXP-design/releases/download/v1.5/EXP-design-v1.5.zip" length="26998126" type="application/octet-stream" sparkle:edSignature="MRt9r7CsKDZxFqqLB+BF0Opo1On4DxVQHjSeVXSLS4q/JBGUpvzpfdlqBdRu0uU6PYkQBuOfHtC520xMrkM0AQ=="/>
+        </item>
+        <item>
             <title>1.4</title>
             <pubDate>Tue, 14 Jul 2026 23:34:55 -0500</pubDate>
             <sparkle:version>6</sparkle:version>
@@ -24,15 +33,6 @@
             <sparkle:minimumSystemVersion>26.2</sparkle:minimumSystemVersion>
             <sparkle:releaseNotesLink>https://expdesign.app/EXP-design-v1.3.html</sparkle:releaseNotesLink>
             <enclosure url="https://github.com/tracyapps/EXP-design/releases/download/v1.3/EXP-design-v1.3.zip" length="26916106" type="application/octet-stream" sparkle:edSignature="Y1/rO5mCBVkdoAyRjpG4kaPiKZFOMEn+BDE4rLCzEMMHYctLa8j29FKFxfCy7CeZAlzxqRE9jHvlx7TgZNXnBg=="/>
-        </item>
-        <item>
-            <title>1.2.1</title>
-            <pubDate>Thu, 09 Jul 2026 21:10:46 -0500</pubDate>
-            <sparkle:version>4</sparkle:version>
-            <sparkle:shortVersionString>1.2.1</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>26.2</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://expdesign.app/EXP-design-v1.2.1.html</sparkle:releaseNotesLink>
-            <enclosure url="https://github.com/tracyapps/EXP-design/releases/download/v1.2.1/EXP-design-v1.2.1.zip" length="26385736" type="application/octet-stream" sparkle:edSignature="O5SqUbrCVvADYzilG+9Tm0PT2FMFBby3K73agOuvwvppkoWaIdPbeW/Ow3VJtBjrockZA4OvFUgYxBrcpE1xCA=="/>
         </item>
     </channel>
 </rss>

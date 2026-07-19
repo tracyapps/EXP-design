@@ -232,7 +232,7 @@ install/relaunch proof.
 - [x] Clean local v1.4 archive regenerated with metadata-preserving `ditto`
       defaults disabled; strict deep codesign + Gatekeeper pass after unzip, and
       local appcast regenerated for the cleaned zip bytes.
-- [ ] Replace the v1.4 GitHub asset and deploy the regenerated appcast, then
+- [x] Replace the v1.4 GitHub asset and deploy the regenerated appcast, then
       verify Sparkle install -> relaunch; confirm About shows 1.4 / build 6.
 
 Resume after release at the v1.5 scope below.
@@ -245,18 +245,50 @@ First interop/handoff release. Keep this smaller than v2.0: create the
 foundation that future exporters/importers can trust, while leaving the full
 semantic HTML and import work for later releases.
 
-- [ ] **Chunk A — Schema + Handoff Package:** documented/versioned
+- [x] **Chunk A — Schema + Handoff Package:** documented/versioned
       `design.json` schema, migration policy, package writer, manifest, and
-      `README.llm.md`.
-- [ ] **Chunk C — DTCG design-tokens import/export:** Design Language ↔
-      `tokens.json` using the stable W3C DTCG shape.
-- [ ] Candidate small UX carry-over if it fits: **Instance navigation** from
-      Components-panel rows. Design the interface first; do not bolt it on.
-- [ ] Candidate small UX carry-over if it fits: **Components panel grid view**
-      after thumbnail-renderer scope is understood.
+      `README.llm.md`. DONE 2026-07-17: `docs/HANDOFF-SCHEMA.md`;
+      `Export/HandoffPackageWriter.swift`; File ▸ Export Handoff Package…
+      writes an inspectable `.exph` folder containing `manifest.json`,
+      `design.json`, `tokens.json`, and `README.llm.md`.
+- [x] **Chunk C — DTCG design-tokens import/export:** Design Language ↔
+      `tokens.json` using the stable W3C DTCG shape. DONE 2026-07-17:
+      existing export kept; import now accepts pasted/file Design Tokens JSON
+      (nested groups, inherited `$type`, color/gradient/typography tokens).
+- [x] Candidate small UX carry-over if it fits: **Instance navigation** from
+      Components-panel rows. DONE 2026-07-17: compact prev/next chevrons flank
+      the existing instance badge; paging selects one instance and centers the
+      canvas, while the badge still selects all instances.
+- [x] Candidate small UX carry-over decision: **Components panel grid view**
+      deferred/absorbed into v1.6 Chunk H. Scope check 2026-07-17: Quick Look
+      currently renders artboards only; a real component grid needs a reusable
+      component-source thumbnail renderer and belongs with the v1.6 component
+      panel redesign/state-preview work.
 
 Not v1.5 unless it becomes urgent: full semantic HTML/CSS export, Figma import,
 code/storybook import, boolean ops, rich text root-cause work.
+
+---
+
+## v1.6 scope (PLANNED — component contract; detail in docs/V2-INTEROP-PLAN.md Chunk H)
+
+How interaction data round-trips to code without storing implementations:
+components carry a three-part CONTRACT — named **states** (override-diffs,
+same machinery as instance overrides → CSS pseudo-classes/`data-state`),
+**behavior** implied by ARIA role + typed node **relationships**
+(controls/labelledby/describedby → real ARIA attributes; WAI-APG pattern
+defines the rest), and **motion** as DTCG duration/cubicBezier/transition
+tokens (rides Chunk C). JS is never stored — it regenerates from the contract.
+
+- [ ] Model: `states` on component definitions (override-diff per state) +
+      schema bump/migration
+- [ ] Model: typed `relationships` on nodes + "public prop" flag on
+      overridable fields
+- [ ] Components panel redesign: grid view w/ thumbnails (absorbs the
+      earlier v1.5 candidate item; EXPThumbnail membership gotcha applies),
+      state-preview switcher, room reserved for v2.2 library-sync status
+- [ ] Inspector: state picker + relationship picker (command-coverage rule)
+- [ ] Contrast checks run per-state, not just default
 
 ---
 
@@ -268,14 +300,25 @@ Export/handoff is the spine (decided 2026-07-14); notes + ARIA roles travel
 with the design. Full chunk breakdown, risks, and release mapping live in
 **docs/V2-INTEROP-PLAN.md**. Summary:
 
-- [ ] **Chunk A — Schema + Handoff Package** (documented/versioned design.json
+- [x] **Chunk A — Schema + Handoff Package** (documented/versioned design.json
       schema, package writer, manifest, README.llm.md) — v1.5
-- [ ] **Chunk C — W3C DTCG design-tokens import/export** (Design Language ↔
+- [x] **Chunk C — W3C DTCG design-tokens import/export** (Design Language ↔
       tokens.json, standard stable 2025.10) — v1.5
 - [ ] **Chunk B — Semantic HTML/CSS export** (ARIA roles → real elements,
       tokens → custom properties, notes → comments; the v2.0 headline demo)
 - [ ] **Chunk D — Figma import** (REST API path first; .fig best-effort later) — v2.1
 - [ ] **Chunk E — Code/Storybook/HTML-CSS import** — v2.2
+- [ ] **Chunk F — Agent Bridge** (EXP as a LOCAL MCP server the designer's own
+      agent connects to; opt-in, OFF by default; stdio helper + Unix socket;
+      no vendor API keys, no fake usage bars) — F1 spine dark in v2.0 →
+      F2 **Handoff panel** in v2.1 (named 2026-07-17: one panel for exports,
+      packages, AND the agent section; PNG/PDF/SVG surface there too, with
+      File ▸ Export menus kept per command-coverage rule) → F3 write-back v2.3+
+- [ ] **Chunk G — XD import** (.xd = frozen ZIP-of-JSON; rides the same
+      InteropCodec pipeline; proves importers before Figma) — v2.1
+- [ ] **Chunk H — Component states & behavior contract** (states as
+      override-diffs, ARIA relationships, motion tokens; interaction data as
+      contract, never JS; components-panel grid redesign) — v1.6
 - [x] Near-term prep (shipped in v1.4): add `schemaVersion` to
       saved .design files so v1.x files self-identify to future readers.
       DONE 2026-07-15: top-level `Document.schemaVersion = 1`, tolerant decode
@@ -1508,6 +1551,97 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-07-19 — v1.5 release-prep pass:**
+  Double-checked the release path for v1.5/build 7. Bumped the Xcode project
+  from v1.4/build 6 to `MARKETING_VERSION 1.5` /
+  `CURRENT_PROJECT_VERSION 7`, added `RELEASE-NOTES-v1.5.md`, and updated the
+  release checklist's copy/paste path for v1.5. `scripts/verify_sparkle_setup.sh
+  1.5 7` passes; it correctly notes that the checked-in appcast does not contain
+  v1.5 yet because appcast generation must happen after the final notarized zip
+  exists. Release-configuration `xcodebuild` succeeds, and `website` build
+  succeeds while still reporting public release 1.4 from the current appcast.
+- **2026-07-17 — v1.5 package manifest integrity wiring:**
+  Added SHA-256 checksums to each `manifest.json.entries[]` item in exported
+  Handoff Packages, alongside the existing byte counts. This gives downstream
+  tools, dev teams, and local agents a simple way to verify that `design.json`,
+  `tokens.json`, and `README.llm.md` match the manifest. Updated
+  `docs/HANDOFF-SCHEMA.md` to document manifest entry fields. Build verified
+  with `xcodebuild -project 'EXP [design].xcodeproj' -scheme 'EXP [design]'
+  -configuration Debug -destination 'platform=macOS' build` (succeeds; existing
+  warning backlog still present).
+- **2026-07-17 — v1.5 component pager avoids jarring jumps:**
+  Adjusted Components-panel instance paging so it only recenters the canvas when
+  the target instance is outside the current visible document rect. If the
+  instance is already visible, paging now updates selection and the `n/N` badge
+  without moving the camera. Added an `AppState.visibleDocumentRect` helper from
+  zoom, pan offset, and viewport size. Build verified with `xcodebuild -project
+  'EXP [design].xcodeproj' -scheme 'EXP [design]' -configuration Debug
+  -destination 'platform=macOS' build` (succeeds; existing warning backlog still
+  present).
+- **2026-07-17 — v1.5 component pager hit-target fix:**
+  Tightened the Components-panel instance pager after first testing feedback.
+  The prev/next chevrons now use explicit 24 x 24 shaped hit targets instead
+  of tiny glyph-sized plain-button regions, and paging now derives the active
+  index from the currently selected canvas instance when possible. This makes
+  the right arrow advance from the visible/selected instance instead of doing a
+  first click that can appear inert by selecting instance 1 again. Build
+  verified with `xcodebuild -project 'EXP [design].xcodeproj' -scheme
+  'EXP [design]' -configuration Debug -destination 'platform=macOS' build`
+  (succeeds; existing warning backlog still present).
+- **2026-07-17 — v1.5 complete for testing: DTCG import + instance navigation:**
+  Finished Chunk C by adding tolerant W3C Design Tokens import to
+  `DesignLanguageIO`: nested groups, inherited `$type`, colors (strings or
+  component objects), gradients (array/object stops), and typography tokens map
+  into Design Language colors/gradients/type styles. The transfer sheet now
+  accepts pasted Design Tokens JSON and imports `.json` files as either EXP JSON
+  or DTCG tokens; `tokens.json` export remains the same writer used by handoff
+  packages. Added instance navigation to Components-panel rows: prev/next
+  chevrons page through instances, select the active one, and center the canvas;
+  the existing badge remains select-all and changes to `n/N` while paging.
+  Grid view was scoped and intentionally deferred to v1.6 Chunk H: the only
+  reusable thumbnail renderer today is artboard-based Quick Look, so a real
+  component-source thumbnail renderer belongs with the component panel redesign.
+  Build verified with `xcodebuild -project 'EXP [design].xcodeproj' -scheme
+  'EXP [design]' -configuration Debug -destination 'platform=macOS' build`
+  (succeeds; existing Swift 6 warning backlog still present).
+- **2026-07-17 — v1.5 Chunk A: Handoff Package spine shipped:**
+  Added `docs/HANDOFF-SCHEMA.md` as the first public schema/package contract:
+  `.exph` folder layout, `design.json` top-level keys, versioning, migration
+  policy, id rules, and honest fidelity notes. Added
+  `Export/HandoffPackageWriter.swift`, a whole-document package writer that
+  emits `manifest.json`, `design.json`, `tokens.json` (using the existing W3C
+  Design Tokens exporter), and `README.llm.md` with artboard-note and ARIA-role
+  orientation. Wired File ▸ Export Handoff Package… through the canvas responder
+  chain with menu validation and a save panel. Build verified with
+  `xcodebuild -project 'EXP [design].xcodeproj' -scheme 'EXP [design]'
+  -configuration Debug -destination 'platform=macOS' build` (succeeds; existing
+  Swift 6 warning backlog still present, no new errors).
+- **2026-07-17 — v2 plan: Agent Bridge (Chunk F) + XD import (Chunk G) drafted:**
+  Owner approved the MCP-server inversion — EXP never calls AI vendors; the
+  designer's agent (any MCP client, any plan incl. free) connects TO EXP, so
+  usage limits live in the agent's own UI and the whole feature is a single
+  opt-in toggle, OFF by default. Stability decisions written into
+  V2-INTEROP-PLAN.md: stdio helper (`exp-mcp`) + local Unix socket (most
+  compatible transport), ≤6 flat read-only tools designed so older/smaller
+  agent models succeed (summaries-first payloads, example calls in every tool
+  description, node ids as the only reference currency), back wiring (F1,
+  dark, v2.0) before any user-facing UI (F2 Settings ▸ Agents, v2.1),
+  write-back deferred to F3 (v2.3+, separate consent, one undo group). Also
+  added Chunk G — XD import (v2.1): .xd is a frozen ZIP of JSON since Adobe
+  discontinued XD; no network/auth, so it proves the InteropCodec pipeline
+  before Figma. Release mapping + open decisions updated in both docs.
+  LATER SAME SESSION — panel named: F2 is the **Handoff panel** — one surface
+  for everything leaving EXP (PNG/PDF/SVG export, Handoff Package, HTML,
+  tokens, agent section). With no agent connected it's just the export hub;
+  the agent section is a collapsed opt-in. Export menu items/shortcuts stay
+  (command-coverage rule).
+  ALSO — interaction-data question resolved + Chunk H drafted (v1.6):
+  interactions = contract, not implementation — states (override-diffs, same
+  structure as instance overrides), behavior via ARIA role + typed
+  relationships (WAI-APG supplies the pattern; no prototyping arrows), motion
+  via DTCG transition tokens. Components-panel grid redesign rides Chunk H.
+  New v1.6 section added to this file. No code changes this session.
 - **2026-07-15 — v1.4 Sparkle installer error traced to archive metadata:**
   Live update discovery worked from installed v1.3: Sparkle saw v1.4/build 6
   and displayed the release notes. Install failed with Sparkle's generic

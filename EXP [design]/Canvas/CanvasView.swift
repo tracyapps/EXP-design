@@ -7814,6 +7814,39 @@ final class CanvasNSView: NSView {
         panels.exportAll(document.model.artboards, in: window)
     }
 
+    @objc func exportHandoffPackage(_ sender: Any?) {
+        guard let document else { NSSound.beep(); return }
+        let panel = NSSavePanel()
+        panel.canCreateDirectories = true
+        panel.allowedContentTypes = [UTType(filenameExtension: HandoffPackageWriter.packageExtension) ?? .folder]
+        let baseName = window?.representedURL?.deletingPathExtension().lastPathComponent
+            ?? window?.title
+            ?? "EXP Handoff"
+        panel.nameFieldStringValue = "\(baseName).\(HandoffPackageWriter.packageExtension)"
+        panel.message = "Export a folder package with design.json, tokens.json, a manifest, and an LLM-readable README."
+
+        let complete: (NSApplication.ModalResponse) -> Void = { [weak self] response in
+            guard let self, response == .OK, let url = panel.url else { return }
+            do {
+                try HandoffPackageWriter(document: document.model,
+                                         sourceURL: self.window?.representedURL).write(to: url)
+            } catch {
+                let alert = NSAlert(error: error)
+                alert.messageText = "Handoff package export failed"
+                if let window = self.window {
+                    alert.beginSheetModal(for: window)
+                } else {
+                    alert.runModal()
+                }
+            }
+        }
+        if let window {
+            panel.beginSheetModal(for: window, completionHandler: complete)
+        } else {
+            panel.begin(completionHandler: complete)
+        }
+    }
+
     // MARK: Point corner/curve toggle
 
     @objc func togglePointCurveAction(_ sender: Any?) {
@@ -8672,7 +8705,8 @@ extension CanvasNSView: NSMenuItemValidation {
         case #selector(toggleTestingModeAction(_:)):
             item.state = (app?.testingMode ?? false) ? .on : .off
             return true
-        case #selector(runGeometryAuditAction(_:)), #selector(saveDiagnosticReportAction(_:)):
+        case #selector(runGeometryAuditAction(_:)), #selector(saveDiagnosticReportAction(_:)),
+             #selector(exportHandoffPackage(_:)):
             return document != nil
         case #selector(roundToPixelAction(_:)):
             return hasNodes || hasArtboards

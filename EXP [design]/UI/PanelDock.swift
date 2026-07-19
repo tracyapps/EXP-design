@@ -581,6 +581,7 @@ private struct ComponentRow: View {
     @State private var hovering = false
     @State private var isRenaming = false
     @State private var draft = ""
+    @State private var pagedInstanceID: UUID?
     @FocusState private var nameFocused: Bool
     @Environment(AppState.self) private var app
 
@@ -607,21 +608,37 @@ private struct ComponentRow: View {
                     .font(.system(size: EXPType.micro)).foregroundStyle(EXPColor.textSecondary)
             }
             Spacer(minLength: 0)
-            // v1.3: live instance count — click to select every instance on the
-            // canvas (highlighting them). Hidden at zero to keep rows quiet.
+            // v1.5: instance navigation. The middle badge keeps the v1.3
+            // select-all behavior; chevrons page through instances one at a time
+            // and center the canvas on the active one.
             if instanceCount > 0 {
-                Button(action: selectInstances) {
-                    Text("×\(instanceCount)")
-                        .font(.system(size: EXPType.micro, weight: .semibold))
-                        .monospacedDigit()
-                        .foregroundStyle(EXPColor.textSecondary)
-                        .padding(.horizontal, 5).padding(.vertical, 2)
-                        .background(Capsule().fill(EXPColor.rowHover))
+                HStack(spacing: 2) {
+                    instancePagerButton("chevron.left",
+                                        help: "Previous instance",
+                                        accessibilityLabel: "Previous instance",
+                                        delta: -1)
+
+                    Button(action: selectInstances) {
+                        Text(instancePagerLabel)
+                            .font(.system(size: EXPType.micro, weight: .semibold))
+                            .monospacedDigit()
+                            .foregroundStyle(EXPColor.textSecondary)
+                            .frame(minWidth: 34, minHeight: EXPMetric.iconBtn)
+                            .background(Capsule().fill(EXPColor.rowHover))
+                            .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .help(instanceCount == 1 ? "1 instance on the canvas — click to select it"
+                                             : "\(instanceCount) instances on the canvas — click to select them all")
+                    .accessibilityLabel("\(instanceCount) instance\(instanceCount == 1 ? "" : "s") on canvas. Select all.")
+
+                    instancePagerButton("chevron.right",
+                                        help: "Next instance",
+                                        accessibilityLabel: "Next instance",
+                                        delta: 1)
                 }
-                .buttonStyle(.plain)
-                .help(instanceCount == 1 ? "1 instance on the canvas — click to select it"
-                                         : "\(instanceCount) instances on the canvas — click to select them all")
-                .accessibilityLabel("\(instanceCount) instance\(instanceCount == 1 ? "" : "s") on canvas. Select all.")
+                .fixedSize(horizontal: true, vertical: true)
+                .contentShape(Rectangle())
             }
             // Phase 19a: the category tag — a TEXT label (never color-only), read
             // by VoiceOver as part of the row.
@@ -707,26 +724,92 @@ private struct ComponentRow: View {
         nameFocused = true
     }
 
-    /// IDs of every instance of this component in the document (nested included).
-    private var instanceIDs: [UUID] {
-        var ids: [UUID] = []
-        func walk(_ nodes: [Node]) {
+    private struct InstanceRef {
+        var id: UUID
+        var frame: CGRect
+    }
+
+    /// Every instance of this component in document-ish coordinates. Nested
+    /// groups are offset through their ancestors so centering lands near the
+    /// visible instance; transformed ancestors remain an approximation until the
+    /// v1.6 component-grid thumbnail pass shares a fuller transform helper.
+    private var instanceRefs: [InstanceRef] {
+        var refs: [InstanceRef] = []
+        func walk(_ nodes: [Node], origin: CGPoint) {
             for n in nodes {
-                if case .instance(let i) = n.content, i.sourceID == source.id { ids.append(n.id) }
-                if case .group(let kids) = n.content { walk(kids) }
+                let frame = n.frame.offsetBy(dx: origin.x, dy: origin.y)
+                if case .instance(let i) = n.content, i.sourceID == source.id {
+                    refs.append(InstanceRef(id: n.id, frame: frame))
+                }
+                if case .group(let kids) = n.content {
+                    walk(kids, origin: CGPoint(x: frame.minX, y: frame.minY))
+                }
             }
         }
-        walk(document.model.nodes)
-        return ids
+        walk(document.model.nodes, origin: .zero)
+        return refs
     }
+    private var instanceIDs: [UUID] { instanceRefs.map(\.id) }
     private var instanceCount: Int { instanceIDs.count }
+    private var selectedInstanceID: UUID? {
+        guard app.selectedNodeIDs.count == 1,
+              let id = app.selectedNodeIDs.first,
+              instanceIDs.contains(id) else { return nil }
+        return id
+    }
+    private var activeInstanceID: UUID? {
+        if let selectedInstanceID { return selectedInstanceID }
+        if let pagedInstanceID, instanceIDs.contains(pagedInstanceID) { return pagedInstanceID }
+        return nil
+    }
+    private var activeInstanceIndex: Int? {
+        guard let activeInstanceID else { return nil }
+        return instanceRefs.firstIndex { $0.id == activeInstanceID }
+    }
+    private var instancePagerLabel: String {
+        if let activeInstanceIndex { return "\(activeInstanceIndex + 1)/\(instanceCount)" }
+        return "×\(instanceCount)"
+    }
+
+    private func instancePagerButton(_ systemName: String,
+                                     help: String,
+                                     accessibilityLabel: String,
+                                     delta: Int) -> some View {
+        Button { pageInstance(delta) } label: {
+            Image(systemName: systemName)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(instanceCount <= 1 ? EXPColor.textTertiary : EXPColor.textSecondary)
+                .frame(width: EXPMetric.iconBtn, height: EXPMetric.iconBtn)
+                .contentShape(RoundedRectangle(cornerRadius: EXPMetric.radiusField, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .disabled(instanceCount <= 1)
+        .help(help)
+        .accessibilityLabel(accessibilityLabel)
+    }
 
     /// Select (highlight) every canvas instance of this component.
     private func selectInstances() {
         let ids = instanceIDs
         guard !ids.isEmpty else { return }
+        pagedInstanceID = nil
         app.selectedNodeIDs = Set(ids)
         app.selectedArtboardIDs = []
+    }
+
+    /// Select one instance and center the canvas on it, wrapping at either end.
+    private func pageInstance(_ delta: Int) {
+        let refs = instanceRefs
+        guard !refs.isEmpty else { return }
+        let current = activeInstanceIndex ?? (delta < 0 ? 0 : -1)
+        let next = (current + delta + refs.count) % refs.count
+        let ref = refs[next]
+        pagedInstanceID = ref.id
+        app.selectedNodeIDs = [ref.id]
+        app.selectedArtboardIDs = []
+        if app.visibleDocumentRect?.intersects(ref.frame) != true {
+            app.centerOn(ref.frame)
+        }
     }
 
     /// Phase 19a: assign the category (ARIA token stored, friendly label shown).

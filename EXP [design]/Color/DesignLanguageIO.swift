@@ -10,7 +10,8 @@
 //   • Canonical EXP JSON — a small, versioned envelope for document-to-document
 //     sharing. Decoding is tolerant (envelope, bare array, or a whole
 //     DesignLanguage all work) so hand-edited or older files still import.
-//   • CSS custom properties — a developer/design hand-off format.
+//   • CSS custom properties + W3C Design Tokens — developer/design hand-off
+//     formats.
 //   • Palette paste — best-effort import from HEX lists, CSS variables, and
 //     Coolors share URLs. This only PARSES text the user pastes or a file they
 //     pick; it never fetches a URL or scrapes a private endpoint.
@@ -72,6 +73,18 @@ enum DesignLanguageIO {
         if let a = try? dec.decode([DesignAsset].self, from: data) { return (a, [], []) }
         if let dl = try? dec.decode(DesignLanguage.self, from: data) { return (dl.assets, dl.categories, dl.typeStyles) }
         return nil
+    }
+
+    /// Tolerant import for W3C Design Tokens JSON (`$type` / `$value`). Accepts
+    /// nested groups, group-level `$type`, and the common color/gradient/
+    /// typography shapes used by Style Dictionary, Tokens Studio, and our own
+    /// exporter. Unknown token types are skipped, not treated as corruption.
+    static func parseDesignTokensJSON(_ data: Data) -> (assets: [DesignAsset], categories: [DLCategory], typeStyles: [TypeStyle])? {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        var out = DTCGParseState()
+        walkDesignTokens(root, path: [], inheritedType: nil, state: &out)
+        guard !out.assets.isEmpty || !out.typeStyles.isEmpty else { return nil }
+        return (out.assets, out.categories, out.typeStyles)
     }
 
     // MARK: CSS custom properties
@@ -255,6 +268,12 @@ enum DesignLanguageIO {
     ///     export losslessly.
     /// Falls back to the loose hex-list/Coolors scan when nothing declared.
     static func parseVariables(_ text: String) -> ParsedVariables {
+        if let data = text.data(using: .utf8),
+           let parsed = parseDesignTokensJSON(data) ?? parseJSON(data),
+           !parsed.assets.isEmpty || !parsed.typeStyles.isEmpty {
+            return ParsedVariables(assets: parsed.assets, typeStyles: parsed.typeStyles)
+        }
+
         var out = ParsedVariables()
         // Normalize smart quotes; strip /* */ and // comments.
         var clean = text
@@ -501,6 +520,280 @@ enum DesignLanguageIO {
         if !typography.isEmpty { root["typography"] = typography }
         return try JSONSerialization.data(withJSONObject: root,
                                           options: [.prettyPrinted, .sortedKeys])
+    }
+
+    // MARK: W3C Design Tokens import
+
+    private struct DTCGParseState {
+        var categories: [DLCategory] = []
+        var categoryIDs: [String: UUID] = [:]
+        var assets: [DesignAsset] = []
+        var typeStyles: [TypeStyle] = []
+
+        mutating func categoryID(for name: String?) -> UUID? {
+            guard let name, !name.isEmpty else { return nil }
+            if let id = categoryIDs[name.lowercased()] { return id }
+            let cat = DLCategory(name: name)
+            categories.append(cat)
+            categoryIDs[name.lowercased()] = cat.id
+            return cat.id
+        }
+    }
+
+    private static func walkDesignTokens(_ object: [String: Any], path: [String],
+                                         inheritedType: String?, state: inout DTCGParseState) {
+        let nextType = (object["$type"] as? String) ?? inheritedType
+        if object.keys.contains("$value") {
+            consumeDesignToken(object, path: path, inheritedType: nextType, state: &state)
+            return
+        }
+        for key in object.keys.sorted() where !key.hasPrefix("$") {
+            guard let child = object[key] as? [String: Any] else { continue }
+            walkDesignTokens(child, path: path + [key], inheritedType: nextType, state: &state)
+        }
+    }
+
+    private static func consumeDesignToken(_ token: [String: Any], path: [String],
+                                           inheritedType: String?, state: inout DTCGParseState) {
+        guard let value = token["$value"] else { return }
+        let kind = ((token["$type"] as? String) ?? inheritedType ?? "").lowercased()
+        let name = readableTokenName(path.last ?? "")
+        let category = path.dropLast().last.map { readableTokenName($0) }
+        let categoryID = state.categoryID(for: category)
+        switch kind {
+        case "color", "colour":
+            guard let color = dtcgColor(value) else { return }
+            state.assets.append(DesignAsset(name: name, categoryID: categoryID,
+                                            value: .solid(color),
+                                            provenance: "import: design tokens"))
+        case "gradient":
+            guard let gradient = dtcgGradient(value) else { return }
+            state.assets.append(DesignAsset(name: name, categoryID: categoryID,
+                                            value: .gradient(gradient),
+                                            provenance: "import: design tokens"))
+        case "typography", "font":
+            guard let style = dtcgTypography(value, name: name, categoryID: categoryID) else { return }
+            state.typeStyles.append(style)
+        default:
+            // Some files omit `$type`; infer only when the value is unambiguous.
+            if let color = dtcgColor(value), looksColorish(path: path) {
+                state.assets.append(DesignAsset(name: name, categoryID: categoryID,
+                                                value: .solid(color),
+                                                provenance: "import: design tokens"))
+            } else if let gradient = dtcgGradient(value) {
+                state.assets.append(DesignAsset(name: name, categoryID: categoryID,
+                                                value: .gradient(gradient),
+                                                provenance: "import: design tokens"))
+            } else if let style = dtcgTypography(value, name: name, categoryID: categoryID),
+                      looksTypeish(path: path) {
+                state.typeStyles.append(style)
+            }
+        }
+    }
+
+    private static func dtcgColor(_ value: Any) -> RGBAColor? {
+        if let s = value as? String { return parseColorToken(s) }
+        guard let dict = value as? [String: Any] else { return nil }
+        if let hex = dict["hex"] as? String { return parseColorToken(hex) }
+        if let color = dict["color"] as? String { return parseColorToken(color) }
+        if let components = dict["components"] as? [String: Any] {
+            return colorFromComponents(components, alpha: number(dict["alpha"]))
+        }
+        if let r = number(dict["r"] ?? dict["red"]),
+           let g = number(dict["g"] ?? dict["green"]),
+           let b = number(dict["b"] ?? dict["blue"]) {
+            let scale: Double = max(r, g, b) > 1 ? 255 : 1
+            return RGBAColor(r: ColorMath.clamp01(r / scale),
+                             g: ColorMath.clamp01(g / scale),
+                             b: ColorMath.clamp01(b / scale),
+                             a: ColorMath.clamp01(number(dict["a"] ?? dict["alpha"]) ?? 1))
+        }
+        if let space = (dict["colorSpace"] ?? dict["space"]) as? String {
+            var comps: [String: Any] = [:]
+            for (k, v) in dict where !k.hasPrefix("$") { comps[k] = v }
+            comps["colorSpace"] = space
+            return colorFromComponents(comps, alpha: number(dict["alpha"]))
+        }
+        return nil
+    }
+
+    private static func colorFromComponents(_ components: [String: Any], alpha: Double?) -> RGBAColor? {
+        let space = ((components["colorSpace"] ?? components["space"]) as? String)?.lowercased() ?? "srgb"
+        let a = ColorMath.clamp01(alpha ?? number(components["a"] ?? components["alpha"]) ?? 1)
+        switch space {
+        case "srgb", "rgb":
+            guard let r = number(components["r"] ?? components["red"]),
+                  let g = number(components["g"] ?? components["green"]),
+                  let b = number(components["b"] ?? components["blue"]) else { return nil }
+            let scale: Double = max(r, g, b) > 1 ? 255 : 1
+            return RGBAColor(r: ColorMath.clamp01(r / scale),
+                             g: ColorMath.clamp01(g / scale),
+                             b: ColorMath.clamp01(b / scale),
+                             a: a)
+        case "hsl":
+            guard let h = number(components["h"] ?? components["hue"]),
+                  let s = number(components["s"] ?? components["saturation"]),
+                  let l = number(components["l"] ?? components["lightness"]) else { return nil }
+            let (r, g, b) = ColorMath.hslToRGB(h, s > 1 ? s / 100 : s, l > 1 ? l / 100 : l)
+            return RGBAColor(r: r, g: g, b: b, a: a)
+        case "oklch":
+            guard let l = number(components["l"] ?? components["lightness"]),
+                  let c = number(components["c"] ?? components["chroma"]),
+                  let h = number(components["h"] ?? components["hue"]) else { return nil }
+            let (r, g, b) = ColorMath.oklchToRGB(l > 1 ? l / 100 : l, c, h)
+            return RGBAColor(r: r, g: g, b: b, a: a)
+        case "lch":
+            guard let l = number(components["l"] ?? components["lightness"]),
+                  let c = number(components["c"] ?? components["chroma"]),
+                  let h = number(components["h"] ?? components["hue"]) else { return nil }
+            let (r, g, b) = ColorMath.lchToRGB(l, c, h)
+            return RGBAColor(r: r, g: g, b: b, a: a)
+        default:
+            return nil
+        }
+    }
+
+    private static func dtcgGradient(_ value: Any) -> GradientFill? {
+        let rawStops: [Any]
+        if let arr = value as? [Any] {
+            rawStops = arr
+        } else if let dict = value as? [String: Any],
+                  let stops = (dict["stops"] ?? dict["colorStops"]) as? [Any] {
+            rawStops = stops
+        } else {
+            return nil
+        }
+        let stops = rawStops.enumerated().compactMap { index, raw -> GradientStop? in
+            if let dict = raw as? [String: Any] {
+                let colorValue = dict["color"] ?? dict["value"] ?? dict["$value"]
+                guard let colorValue, let color = dtcgColor(colorValue) else { return nil }
+                let pos = number(dict["position"] ?? dict["stopPosition"] ?? dict["offset"])
+                    ?? (rawStops.count <= 1 ? 0 : Double(index) / Double(rawStops.count - 1))
+                return GradientStop(color: color, position: pos > 1 ? pos / 100 : pos)
+            }
+            guard let color = dtcgColor(raw) else { return nil }
+            let pos = rawStops.count <= 1 ? 0 : Double(index) / Double(rawStops.count - 1)
+            return GradientStop(color: color, position: pos)
+        }
+        guard stops.count >= 2 else { return nil }
+        var gradient = GradientFill()
+        gradient.stops = stops
+        if let dict = value as? [String: Any] {
+            let type = ((dict["gradientType"] ?? dict["type"]) as? String)?.lowercased()
+            gradient.kind = type == "radial" ? .radial : .linear
+            if let angle = number(dict["angle"]) { gradient.angle = angle }
+        }
+        return gradient
+    }
+
+    private static func dtcgTypography(_ value: Any, name: String, categoryID: UUID?) -> TypeStyle? {
+        guard let dict = value as? [String: Any] else { return nil }
+        var style = TypeStyle(name: name, categoryID: categoryID, provenance: "import: design tokens")
+        var saw = false
+        if let family = string(dict["fontFamily"] ?? dict["font-family"] ?? dict["font"]) {
+            style.fontName = firstFamily(family)
+            saw = true
+        }
+        if let size = dimension(dict["fontSize"] ?? dict["font-size"] ?? dict["size"]) {
+            style.fontSize = size
+            saw = true
+        }
+        if let lineHeight = dict["lineHeight"] ?? dict["line-height"] {
+            if let parsed = lineHeightValue(lineHeight) {
+                style.lineHeight = parsed.value
+                style.lineHeightUnit = parsed.unit
+                saw = true
+            }
+        }
+        if let tracking = dimension(dict["letterSpacing"] ?? dict["letter-spacing"] ?? dict["tracking"]) {
+            style.tracking = tracking
+            saw = true
+        }
+        if let align = string(dict["textAlign"] ?? dict["text-align"]),
+           let value = TextAlign(rawValue: align.lowercased()) {
+            style.align = value
+            saw = true
+        }
+        if let underline = bool(dict["underline"]) {
+            style.underline = underline
+            saw = true
+        } else if let decoration = string(dict["textDecoration"] ?? dict["text-decoration"]),
+                  decoration.lowercased().contains("underline") {
+            style.underline = true
+            saw = true
+        }
+        if let transform = string(dict["textTransform"] ?? dict["text-transform"] ?? dict["textCase"]) {
+            switch transform.lowercased() {
+            case "uppercase", "upper": style.textCase = .upper
+            case "lowercase", "lower": style.textCase = .lower
+            case "capitalize", "title": style.textCase = .title
+            case "sentence": style.textCase = .sentence
+            default: break
+            }
+            saw = true
+        }
+        return saw ? style : nil
+    }
+
+    private static func readableTokenName(_ raw: String) -> String {
+        let spaced = raw.replacingOccurrences(of: "-", with: " ")
+            .replacingOccurrences(of: "_", with: " ")
+        return spaced.split(separator: " ")
+            .map { word in word.prefix(1).uppercased() + word.dropFirst() }
+            .joined(separator: " ")
+    }
+
+    private static func looksColorish(path: [String]) -> Bool {
+        path.contains { ["color", "colors", "colour", "colours"].contains($0.lowercased()) }
+    }
+
+    private static func looksTypeish(path: [String]) -> Bool {
+        path.contains { ["type", "typography", "font", "fonts"].contains($0.lowercased()) }
+    }
+
+    private static func string(_ value: Any?) -> String? {
+        if let s = value as? String { return s }
+        if let n = value as? NSNumber { return n.stringValue }
+        return nil
+    }
+
+    private static func number(_ value: Any?) -> Double? {
+        if let n = value as? NSNumber { return n.doubleValue }
+        if let s = value as? String { return leadingNumber(s).map(Double.init) }
+        return nil
+    }
+
+    private static func bool(_ value: Any?) -> Bool? {
+        if let b = value as? Bool { return b }
+        if let n = value as? NSNumber { return n.boolValue }
+        if let s = value as? String {
+            switch s.lowercased() {
+            case "true", "yes", "1": return true
+            case "false", "no", "0": return false
+            default: return nil
+            }
+        }
+        return nil
+    }
+
+    private static func dimension(_ value: Any?) -> CGFloat? {
+        guard let n = number(value) else { return nil }
+        if let s = value as? String, s.lowercased().contains("rem") { return CGFloat(n * 16) }
+        return CGFloat(n)
+    }
+
+    private static func lineHeightValue(_ value: Any) -> (value: CGFloat, unit: LineHeightUnit)? {
+        if let n = number(value) {
+            if let s = value as? String {
+                let lower = s.lowercased()
+                if lower.contains("px") { return (CGFloat(n), .px) }
+                if lower.contains("em") { return (CGFloat(n), .em) }
+                if lower.contains("%") { return (CGFloat(n / 100), .multiple) }
+            }
+            return (CGFloat(n), .multiple)
+        }
+        if let s = value as? String, s.lowercased() == "normal" { return (1.3, .auto) }
+        return nil
     }
 
     /// Sketch `.sketchpalette` (solid colors only — the format has no

@@ -5,5 +5,6 @@ DerivedData/
 docs/*
 !docs/ARCHITECTURE.md
 !docs/BACKLOG.md
+!docs/HANDOFF-SCHEMA.md
 !docs/RELEASE-CHECKLIST.md
 !docs/ROADMAP.md

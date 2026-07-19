@@ -400,6 +400,15 @@ final class AppState {
     /// commands from the Inspector can keep the viewport CENTER fixed.
     var viewportSize: CGSize = .zero
 
+    /// The current visible canvas area expressed in document coordinates.
+    var visibleDocumentRect: CGRect? {
+        guard viewportSize.width > 0, viewportSize.height > 0, zoom > 0 else { return nil }
+        return CGRect(x: -panOffset.x / zoom,
+                      y: -panOffset.y / zoom,
+                      width: viewportSize.width / zoom,
+                      height: viewportSize.height / zoom)
+    }
+
     /// Zoom to an absolute factor, keeping the doc point under the viewport
     /// center fixed (so the content doesn't jump when you type a %).
     func zoomTo(_ newZoom: CGFloat) {

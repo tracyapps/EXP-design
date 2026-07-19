@@ -70,6 +70,7 @@ struct EXP__design_App: App {
                 Button("Export Selected Artboard(s)…") { send("exportSelectedArtboard:") }
                     .keyboardShortcut("e", modifiers: [.command, .shift])
                 Button("Export All Artboards…") { send("exportAllArtboards:") }
+                Button("Export Handoff Package…") { send("exportHandoffPackage:") }
             }
 
             // EDIT ▸ selection + duplicate (after the standard Cut/Copy/Paste).
