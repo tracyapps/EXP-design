@@ -164,23 +164,9 @@ final class ExpDocument: ReferenceFileDocument {
     }
 
     nonisolated func fileWrapper(snapshot: Document, configuration: WriteConfiguration) throws -> FileWrapper {
-        // PERF F11 instrumentation (2026-07-14, see docs/PERF-LOG.md round 5):
-        // every save re-encodes the ENTIRE document -- including every image's
-        // raw bytes as base64 -- into pretty-printed sorted-keys JSON. On an
-        // image-heavy doc that is a multi-second CPU burn, and autosave runs it
-        // after edits; it is the prime suspect for the 5-6s input stalls the
-        // latency buckets exposed. The print proves cost + thread per save.
-        // (Plain print on purpose: this file is shared with EXPThumbnail, and
-        // DiagnosticLog is app-target-only -- see CLAUDE.md gotchas.)
-        let t0 = CFAbsoluteTimeGetCurrent()
-        let onMain = Thread.isMainThread
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(snapshot)
-        let ms = (CFAbsoluteTimeGetCurrent() - t0) * 1000
-        print(String(format: "\u{1F4BE} [EXP save] encode %.0f ms  |  %.2f MB  |  mainThread=%@  (t=%.1f)",
-                     ms, Double(data.count) / 1_048_576, onMain ? "YES" : "no",
-                     ProcessInfo.processInfo.systemUptime))
         return FileWrapper(regularFileWithContents: data)
     }
 

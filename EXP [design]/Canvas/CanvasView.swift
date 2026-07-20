@@ -75,11 +75,9 @@ struct CanvasView: NSViewRepresentable {
 
 /// Testing-Mode main-thread watchdog (PERF round 6, see docs/PERF-LOG.md).
 /// A background thread pings the main queue every 100ms; if a ping takes
-/// >250ms to land, the main thread was held that long by SOMETHING outside
-/// the draw buckets (save machinery, event routing, SwiftUI, ...). Prints
-/// carry uptime stamps so they align with the [EXP save] and [EXP input]
-/// prints. Runs only after Testing Mode has been on at least once; polling
-/// cost is negligible (one empty main-queue block per 100ms).
+/// >250ms to land, the main thread was held that long by something outside
+/// the draw buckets (save machinery, event routing, SwiftUI, ...). Lines go
+/// to the diagnostic file, not the Xcode console.
 final class MainThreadWatchdog: @unchecked Sendable {
     static let shared = MainThreadWatchdog()
     private var started = false
@@ -97,8 +95,8 @@ final class MainThreadWatchdog: @unchecked Sendable {
                 sem.wait()
                 let dt = ProcessInfo.processInfo.systemUptime - t0
                 if dt > 0.25 {
-                    print(String(format: "\u{1F415} [EXP watchdog] main thread held %.2fs  (t=%.1f)",
-                                 dt, ProcessInfo.processInfo.systemUptime))
+                    DiagnosticLog.shared.log(String(format: "[EXP watchdog] main thread held %.2fs  (t=%.1f)",
+                                                    dt, ProcessInfo.processInfo.systemUptime))
                 }
                 Thread.sleep(forTimeInterval: 0.1)
             }
@@ -1725,6 +1723,24 @@ final class CanvasNSView: NSView {
         }
     }
 
+    /// Visual-only source nodes. State text overrides can resize managed frames
+    /// for preview, while edit/commit paths keep using `currentNodes` so the base
+    /// geometry doesn't accidentally absorb preview-only reflow.
+    private var displayedCurrentNodes: [Node] {
+        guard let document else { return [] }
+        switch scope {
+        case .document:
+            return document.model.nodes
+        case .source:
+            guard let si = sourceIndex else { return [] }
+            let children = document.model.sources[si].children
+            if let state = activeEditingState {
+                return ComponentStateEditing.applied(children, state: state, reflow: true)
+            }
+            return children
+        }
+    }
+
     /// Mutate the current scope's node array in place (for live drag feedback).
     private func withNodes(_ body: (inout [Node]) -> Void) {
         guard let document else { return }
@@ -3086,7 +3102,7 @@ final class CanvasNSView: NSView {
                     drawSourceBounds(rect, in: ctx)
                     drawArtboardHandles(docToView(rect), in: ctx)
                 }
-                for node in currentNodes where node.isVisible && node.id != editingNodeID {
+                for node in displayedCurrentNodes where node.isVisible && node.id != editingNodeID {
                     drawNode(node, offset: .zero, in: ctx)
                 }
             }
@@ -5440,11 +5456,12 @@ final class CanvasNSView: NSView {
         let now = ProcessInfo.processInfo.systemUptime
         let preMs = (now - event.timestamp) * 1000
         perf.record("input-pre(\(label))", ms: preMs)
-        // Round 6: big delays also print IMMEDIATELY with an uptime stamp, so
-        // they can be lined up against watchdog + save prints on one clock
-        // (the aggregated meter has no per-event timestamps).
+        // Round 6: big delays also log IMMEDIATELY with an uptime stamp, so
+        // they can be lined up against watchdog entries on one clock (the
+        // aggregated meter has no per-event timestamps).
         if preMs > 500 {
-            print(String(format: "\u{26A0}\u{FE0F} [EXP input] %@ delayed %.2fs  (t=%.1f)", label, preMs / 1000, now))
+            DiagnosticLog.shared.log(String(format: "[EXP input] %@ delayed %.2fs  (t=%.1f)",
+                                            label, preMs / 1000, now))
         }
         perfInputEventTime = event.timestamp
     }
@@ -7773,15 +7790,14 @@ final class CanvasNSView: NSView {
         app?.smartGuidesEnabled.toggle()
     }
 
-    /// Developer Testing Mode — toggles lightweight perf logging to the console.
-    /// Off by default and never persisted, so normal use is unaffected.
+    /// Developer Testing Mode — hidden from the public menus. When enabled
+    /// internally, lightweight perf stats stream to the diagnostic file only.
     @objc func toggleTestingModeAction(_ sender: Any?) {
         app?.testingMode.toggle()
         let on = app?.testingMode == true
         perf.enabled = on
         perf.reset()
-        let msg = "⏱ [EXP perf] Testing Mode \(on ? "ON — logging frame / snap / cull stats ~2×/sec" : "off")"
-        print(msg)
+        let msg = "[EXP perf] Testing Mode \(on ? "ON — logging frame / snap / cull stats ~2x/sec" : "off")"
         DiagnosticLog.shared.log(msg)
     }
 
@@ -7896,26 +7912,25 @@ final class CanvasNSView: NSView {
         return lines
     }
 
-    /// VIEW ▸ Log Geometry Audit. Prints to console, streams to the diagnostic
-    /// log, and confirms with a small alert (testers don't watch consoles).
+    /// Hidden developer action. Writes the geometry audit to the diagnostic log
+    /// and confirms with a small alert.
     @objc func runGeometryAuditAction(_ sender: Any?) {
         let lines = geometryAuditLines()
-        for l in lines { print(l) }
         DiagnosticLog.shared.log(lines: lines)
 
         let mismatches = lines.filter { $0.hasPrefix("✗") }.count
         let alert = NSAlert()
         alert.messageText = "Geometry Audit Complete"
         alert.informativeText = mismatches == 0
-            ? "Size math checks out for every audited object. Details were written to the diagnostic log (Help ▸ Reveal Diagnostic Log in Finder)."
+            ? "Size math checks out for every audited object."
             : "\(mismatches) size mismatch(es) found — details are in the diagnostic log. Please send them via Help ▸ Save Diagnostic Report."
         alert.alertStyle = mismatches == 0 ? .informational : .warning
         alert.runModal()
     }
 
     /// HELP ▸ Save Diagnostic Report… — one shareable file: machine/app header,
-    /// document stats, geometry audit, and the tail of today's perf stream.
-    /// NSSavePanel keeps it sandbox-safe and lets the tester choose where.
+    /// document stats, and a geometry audit. NSSavePanel keeps it sandbox-safe
+    /// and lets the tester choose where.
     @objc func saveDiagnosticReportAction(_ sender: Any?) {
         guard let window else { return }
         let panel = NSSavePanel()
@@ -7937,11 +7952,6 @@ final class CanvasNSView: NSView {
             }
             lines.append("")
             lines.append(contentsOf: self.geometryAuditLines())
-            lines.append("")
-            lines.append("— Recent perf stream (today's log tail) —")
-            let tail = DiagnosticLog.tailOfCurrentLog()
-            lines.append(contentsOf: tail.isEmpty
-                ? ["(empty — turn on Testing Mode (⌃⌘T) to stream perf lines here)"] : tail)
             try? lines.joined(separator: "\n").write(to: url, atomically: true, encoding: .utf8)
         }
     }
@@ -8597,6 +8607,51 @@ final class CanvasNSView: NSView {
 
     @objc func detachComponentAction(_ sender: Any?) { detachSelectedInstances() }
 
+    /// Add the next likely component state from the Object menu / shortcut.
+    /// Source-editor only: state editing belongs to the source, not placed
+    /// instances in the document canvas.
+    @objc func addComponentStateAction(_ sender: Any?) {
+        guard let app, let document, case .source(let sid) = scope,
+              let si = document.model.sources.firstIndex(where: { $0.id == sid }) else { return }
+        let name = Self.nextComponentStateName(existing: document.model.sources[si].states.map(\.name))
+        let state = ComponentState(name: name)
+        var model = document.model
+        model.sources[si].states.append(state)
+        document.setModel(model, undoManager: undoManager, actionName: "Add Component State")
+        app.activeComponentStateID = state.id
+        needsDisplay = true
+    }
+
+    @objc func nextComponentStateAction(_ sender: Any?) {
+        cycleComponentState(forward: true)
+    }
+
+    @objc func previousComponentStateAction(_ sender: Any?) {
+        cycleComponentState(forward: false)
+    }
+
+    private static func nextComponentStateName(existing: [String]) -> String {
+        let lowered = Set(existing.map { $0.lowercased() })
+        if let conventional = ComponentState.conventionalNames.first(where: { !lowered.contains($0.lowercased()) }) {
+            return conventional
+        }
+        var index = existing.count + 1
+        while lowered.contains("state \(index)") { index += 1 }
+        return "state \(index)"
+    }
+
+    private func cycleComponentState(forward: Bool) {
+        guard let app, let document, case .source(let sid) = scope,
+              let source = document.model.source(for: sid),
+              !source.states.isEmpty else { return }
+        let ids: [UUID?] = [nil] + source.states.map { Optional($0.id) }
+        let current = ids.firstIndex { $0 == app.activeComponentStateID } ?? 0
+        let delta = forward ? 1 : -1
+        let next = (current + delta + ids.count) % ids.count
+        app.activeComponentStateID = ids[next]
+        needsDisplay = true
+    }
+
     /// True if any selected node is an instance (for menu validation).
     private var selectionHasInstance: Bool {
         guard let app else { return false }
@@ -8842,10 +8897,12 @@ extension CanvasNSView: NSMenuItemValidation {
             return anySelected { $0.isLocked }
         case #selector(duplicateSelection(_:)), #selector(bringToFront(_:)),
              #selector(sendToBack(_:)), #selector(bringForward(_:)), #selector(sendBackward(_:)),
-             #selector(groupSelection(_:)), #selector(createComponentAction(_:)),
+             #selector(createComponentAction(_:)),
              #selector(flipHorizontalAction(_:)), #selector(flipVerticalAction(_:)),
              #selector(copyLayerStyle(_:)):
             return hasNodes
+        case #selector(groupSelection(_:)):
+            return (app?.selectedNodeIDs.count ?? 0) >= 2
         case #selector(pasteLayerStyle(_:)):
             return hasNodes && (app?.copiedLayerStyle != nil)
         case #selector(duplicateArtboardsAction(_:)), #selector(renameArtboardAction(_:)):
@@ -8875,8 +8932,28 @@ extension CanvasNSView: NSMenuItemValidation {
             return selectionHasInstance
         case #selector(setComponentCategoryAction(_:)):
             return categoryTargetSourceID != nil
+        case #selector(addComponentStateAction(_:)):
+            if case .source(let sid) = scope, let document,
+               let source = document.model.source(for: sid) {
+                let nextName = Self.nextComponentStateName(existing: source.states.map(\.name))
+                let conventional = ComponentState.conventionalNames.contains {
+                    $0.caseInsensitiveCompare(nextName) == .orderedSame
+                }
+                item.title = conventional ? "Add \(nextName.capitalized) State" : "Add Component State"
+                return true
+            }
+            item.title = "Add Component State"
+            return false
+        case #selector(nextComponentStateAction(_:)), #selector(previousComponentStateAction(_:)):
+            if case .source(let sid) = scope, let document,
+               let source = document.model.source(for: sid) {
+                return !source.states.isEmpty
+            }
+            return false
         case #selector(convertToPathAction(_:)):
             return selectionConvertibleToPath
+        case #selector(toggleBoldText(_:)), #selector(toggleItalicText(_:)), #selector(toggleUnderlineText(_:)):
+            return selectionIsText || textEditor != nil
         case #selector(convertTextToShapesAction(_:)), #selector(saveTypeStyleAction(_:)):
             return selectionIsText
         case #selector(alignLeftAction(_:)), #selector(alignHCenterAction(_:)), #selector(alignRightAction(_:)),
@@ -8909,9 +8986,14 @@ extension CanvasNSView: NSMenuItemValidation {
         case #selector(toggleTestingModeAction(_:)):
             item.state = (app?.testingMode ?? false) ? .on : .off
             return true
-        case #selector(runGeometryAuditAction(_:)), #selector(saveDiagnosticReportAction(_:)),
+        case #selector(placeImageAction(_:)), #selector(importPDFAction(_:)),
+             #selector(runGeometryAuditAction(_:)), #selector(saveDiagnosticReportAction(_:)),
              #selector(exportHandoffPackage(_:)):
             return document != nil
+        case #selector(exportSelectedArtboard(_:)):
+            return hasArtboards
+        case #selector(exportAllArtboards(_:)):
+            return !(document?.model.artboards.isEmpty ?? true)
         case #selector(roundToPixelAction(_:)):
             return hasNodes || hasArtboards
         case #selector(paste(_:)):
@@ -9009,10 +9091,7 @@ final class PerfMeter {
             parts.append("\(k) \(g.last) (max \(g.mx))")
         }
         if !parts.isEmpty {
-            let summary = "⏱ [EXP perf] " + parts.joined(separator: "  |  ")
-            print(summary)
-            // Testers can't see Xcode's console — stream the same line to the
-            // diagnostic log file (Help ▸ Reveal Diagnostic Log in Finder).
+            let summary = "[EXP perf] " + parts.joined(separator: "  |  ")
             DiagnosticLog.shared.log(summary)
         }
         timers.removeAll(keepingCapacity: true)

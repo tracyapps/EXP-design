@@ -452,11 +452,10 @@ final class AppState {
     enum AlignTarget: String, CaseIterable { case selection, artboard }
     var alignTarget: AlignTarget = .selection
 
-    /// Developer "Testing Mode" — when on, the canvas logs lightweight perf stats
-    /// (frame time, nodes drawn vs culled, instance-cache hit rate, snap cost) to
-    /// the Xcode console ~twice a second. Session state, OFF by default and never
-    /// persisted, so it adds zero overhead to normal use until explicitly enabled
-    /// (View ▸ Testing Mode, ⌃⌘T).
+    /// Hidden developer "Testing Mode" — when on, the canvas records lightweight
+    /// perf stats (frame time, nodes drawn vs culled, instance-cache hit rate,
+    /// snap cost) to the diagnostic file. Session state, OFF by default and
+    /// never persisted, so it adds zero overhead to normal use.
     var testingMode = false
 
     /// Rulers + guides display (session state — not saved; the guides themselves

@@ -1541,15 +1541,21 @@ struct ComponentState: Identifiable, Codable, Sendable {
 ///    effects) belongs to the BASE shared by all states.
 enum ComponentStateEditing {
 
-    /// Source children with `state`'s text/fill overrides applied for editing.
-    /// Overridden text is re-measured (like instance rendering) so the label
-    /// shows at its overridden size; layers are never dropped.
-    static func applied(_ children: [Node], state: ComponentState) -> [Node] {
-        children.map { apply($0, state: state) }
+    /// Source children with `state`'s text/fill/visibility overrides applied for
+    /// editing. Overridden text is re-measured (like instance rendering) so the
+    /// label shows at its overridden size; layers are never filtered out, so the
+    /// Layers panel can still show and re-toggle hidden state layers.
+    static func applied(_ children: [Node], state: ComponentState,
+                        reflow: Bool = false) -> [Node] {
+        let applied = children.map { apply($0, state: state) }
+        return reflow ? AutoLayoutEngine.reflowed(applied) : applied
     }
 
     private static func apply(_ node: Node, state: ComponentState) -> Node {
         var node = node
+        if let visibility = state.layerVisibility.first(where: { $0.layerID == node.id }) {
+            node.isVisible = visibility.isVisible
+        }
         for override in state.overrides where override.targetNodeID == node.id {
             switch override.value {
             case .text(let string):
@@ -1573,6 +1579,7 @@ enum ComponentStateEditing {
     ///  - text differing from base → state text override; the base keeps its
     ///    own text AND frame size (override size is re-measured on application).
     ///  - fill differing from base → state fill override; base keeps its paint.
+    ///  - visibility differing from base → state layerVisibility override.
     ///  - everything else passes through to the base. New nodes join the base;
     ///    overrides for deleted nodes are pruned.
     /// Overrides are rebuilt from the diff each commit, so reverting a value
@@ -1589,6 +1596,7 @@ enum ComponentStateEditing {
         index(base)
 
         var overrides: [InstanceOverride] = []
+        var visibility: [LayerVisibilityOverride] = []
         func walk(_ nodes: [Node]) -> [Node] {
             nodes.map { n in
                 var n = n
@@ -1610,6 +1618,11 @@ enum ComponentStateEditing {
                                                       value: .fill(editedFill)))
                     setFill(baseFill, on: &n)
                 }
+                if n.isVisible != b.isVisible {
+                    visibility.append(LayerVisibilityOverride(layerID: n.id,
+                                                              isVisible: n.isVisible))
+                    n.isVisible = b.isVisible
+                }
                 return n
             }
         }
@@ -1617,6 +1630,7 @@ enum ComponentStateEditing {
 
         var newState = state
         newState.overrides = overrides
+        newState.layerVisibility = visibility
         var liveIDs = Set<UUID>()
         func collect(_ nodes: [Node]) {
             for n in nodes {

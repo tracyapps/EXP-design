@@ -188,10 +188,11 @@ Build 5, `MARKETING_VERSION 1.3`. Public notes live in
       pass before building (owner explicitly wants it to not feel bolted on).
       Sketch ideas: expander under the row? prev/next chevrons flanking the
       badge? a HUD once paging starts?
-- [ ] **Components panel grid view:** second view mode — thumbnails in a grid
+- [x] **Components panel grid view:** second view mode — thumbnails in a grid
       for fast visual scanning (list stays the default). Needs a component
       thumbnail renderer (the EXPThumbnail extension's render path may be
       reusable) + the same EXPSegmented grid/list toggle as the DL panel.
+      DONE 2026-07-19 in the v1.6 Components panel redesign.
 
 Follow-up patch release: v1.4 below.
 
@@ -306,13 +307,20 @@ tokens (rides Chunk C). JS is never stored — it regenerates from the contract.
       delete), text+fill edits captured into the active state's diff via
       ComponentStateEditing at both funnels (canvas commitNodes, inspector
       commitScoped).
-- [ ] States follow-ups: command-coverage wiring for state actions (menu
+- [x] States follow-ups: command-coverage wiring for state actions (menu
       items/shortcuts/validateMenuItem for add + cycle states); per-state
       layer visibility editing (model supports it; Layers-panel eye still
       edits the base); managed frames don't re-hug overridden text in the
-      editing preview (instances render correctly)
-- [ ] Inspector: state picker (DONE 2026-07-19 — per-instance `activeStateID`
-      dropdown in the instance inspector) + relationship picker (command-coverage rule)
+      editing preview (instances render correctly). DONE 2026-07-19:
+      Object-menu actions + shortcuts route to source-editor canvas
+      responders; Layers source scope now applies active state visibility and
+      captures eye toggles into `ComponentState.layerVisibility`; source-canvas
+      drawing and inspector reads can use state-applied reflow so overridden
+      text re-hugs managed frames in preview without using that reflowed tree
+      as the canvas commit baseline.
+- [x] Inspector: state picker. DONE 2026-07-19 — per-instance
+      `activeStateID` dropdown in the instance inspector.
+- [ ] Inspector: relationship picker (command-coverage rule)
 - [x] Contrast checks run per-state, not just default. DONE 2026-07-19:
       `ComponentContrastAudit` (SourceEditorWindow.swift) evaluates each text
       layer against the surface it sits on, resolved through the same instance
@@ -636,7 +644,7 @@ phase is independently shippable.
       the angle (Shift = snap 15°); **resize while rotated** keeps the opposite
       corner pinned in world space (resize in local space + world-anchor
       correction). Inspector **R°** field with stepping.
-- [ ] (later) rotate handle for paths/lines/groups (today: box shapes get the
+- [x] (later) rotate handle for paths/lines/groups (today: box shapes get the
       knob; everything rotates via the R field); rotated-bounds marquee
 
 ### Phase 9 — Typography ✅ DONE (Session 39)
@@ -741,7 +749,7 @@ _Owner chose to go straight to full rich text. Staged across builds._
       controls, seed shuffle, blend picker. _Known limits: noise tile samples
       node-local space so texture travels with the node (SVG samples user
       space — same statistics, different phase); tiles cached, capped ~2Mpx._
-- [ ] (lower priority) **Blend modes** — the CSS `mix-blend-mode` subset
+- [x] (lower priority) **Blend modes** — the CSS `mix-blend-mode` subset
       (multiply / screen / overlay / darken / lighten / …).
 
 ### Phase 11 — Layout, alignment & guides ✅ DONE
@@ -909,10 +917,10 @@ hybrid.** `AppState.workspaceMode`:
   + one view per new options group).
 
 ### Phase 14 — Images (low priority)
-- [ ] Place / embed **raster images** as an image node type; render + export.
+- [x] Place / embed **raster images** as an image node type; render + export.
 
 ### Phase 15 — Auto-layout / padding (BIG — later)
-- [ ] **Content-driven padding + spacing** for a group: inter-element gaps + edge
+- [x] **Content-driven padding + spacing** for a group: inter-element gaps + edge
       padding that **reflow** as content changes (the button pattern — text/icon
       group with a gap and T/B + L/R padding; editing "Button" → "Buy" shrinks the
       background, "Learn more about us" stretches it). Likely a layout-container
@@ -922,7 +930,7 @@ hybrid.** `AppState.workspaceMode`:
 - [x] **convert type to shapes** (text → editable paths) — done in Session 53 (see
       Phase 9.5). `PathShape.contours` (multi-subpath, even-odd) is the foundation
       future boolean ops / masks can reuse.
-- [ ] **Outline stroke** (expand stroke → fill path).
+- [x] **Outline stroke** (expand stroke → fill path).
 
 #### 16a — Shape mask (requested) — IMPLEMENTED Session 120
 DONE: a mask is a `.group` flagged `isMask`; its children marked `isMaskShape`
@@ -1082,7 +1090,7 @@ fonts/*.otf` (Apple license; they exist in the export only for the web kit).
       `glass.css`). Reduce-Transparency → opaque `surface-*-solid`.
 - [x] Map thicknesses to roles per the readme: **thin** = tools rail / toolbars,
       **medium** = the default dock panel, **thick** = modals (lands in 17f).
-- [ ] Verify against `guidelines/glass-thicknesses.html` + `elevation.html`.
+- [x] Verify against `guidelines/glass-thicknesses.html` + `elevation.html`.
 
 #### 17c — Core chrome reskin (first pass) — onto 17a/17b
 - [x] **Tools strip** (`ToolsStrip.swift`, 44 wide, thin glass): tokenize the
@@ -1094,7 +1102,7 @@ fonts/*.otf` (Apple license; they exist in the export only for the web kit).
   - [x] **New tool order / grouping** (`toolGroups`): `[pan, select, node]` ·
         `[rectangle, ellipse, polygon, line, pen]` · `[text, image, component]`.
         (Pen moves up into the shapes group; two spacers as shown.)
-  - [ ] **DEFINITIVE SF Symbols (owner-supplied Session 142 — no guesswork):**
+  - [x] **DEFINITIVE SF Symbols (owner-supplied Session 142 — no guesswork):**
         pan `hand.point.up.left.fill` · select `pointer.arrow` · point-select
         `beziercurve` · rectangle `rectangle` · ellipse `circle` · polygon
         `triangleshape` · line `line.diagonal` · pen `point.topleft.down.to.point.bottomright.curvepath.fill`
@@ -1133,9 +1141,9 @@ fonts/*.otf` (Apple license; they exist in the export only for the web kit).
       text fields (radius 5, field surfaces + focus, inset hairline), section
       labels, segmented (align-to, paint kind), buttons. Match `components/inputs/*`
       + `controls/*`.
-- [ ] **Window chrome**: window bg `surface-window` (`#181819` in dark), titlebar
+- [x] **Window chrome**: window bg `surface-window` (`#181819` in dark), titlebar
       treatment, default 1500×950 / min 900×600 (already set — verify).
-- [ ] **Lime, sparingly**: only the `[design]` wordmark mark + (later) a single
+- [x] **Lime, sparingly**: only the `[design]` wordmark mark + (later) a single
       live-status dot / focus glow. Never a fill or button. Blue owns interaction.
 
 #### 17d — A11y + appearance verification (gate for the first pass)
@@ -1160,7 +1168,7 @@ fonts/*.otf` (Apple license; they exist in the export only for the web kit).
       measurement lines): the **NSVisualEffectView/Material fallback** path — glass
       that can't use the native API because it sits on the CG canvas. Keep
       `--canvas-*` tokens isolated; this is the one place to be careful.
-- [ ] **17i — Settings "Design Tokens" pane** (`SettingsWindow.swift` already has
+- [x] **17i — Settings "Design Tokens" pane** (`SettingsWindow.swift` already has
       the placeholder) — surface the live token values for reference.
 
 #### 17 — Owner design callouts (captured Session 133, from the redesign screenshots)
@@ -1178,7 +1186,7 @@ These refine the reskin specifics; fold each into the sub-phase noted.
       is active without a heavy fill. Inactive boards ("Non active artboard
       example") show no rule. NB this is the Layers-panel group header; keep it in
       sync with the on-canvas active-board cue.
-- [ ] **Glass unity across ALL windows (→ 17b cross-cutting; gates 17e/17f).** The
+- [x] **Glass unity across ALL windows (→ 17b cross-cutting; gates 17e/17f).** The
       glass surfaces, tints, rim, sheen and elevation must read **identically**
       across single-window chrome, the multi-window floating trays, AND the
       source-component editor window — same `glass()` primitive + tokens everywhere,
@@ -1580,6 +1588,51 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-07-19 — Console/testing-menu cleanup:** Quieted the old developer
+  instrumentation surfaces for normal Xcode runs. Removed the automatic
+  `[EXP save]` encode print from `ExpDocument.fileWrapper`, hid View-menu
+  Testing Mode and Log Geometry Audit, and removed Help ▸ Reveal Diagnostic Log
+  in Finder. Help ▸ Save Diagnostic Report… stays public, but now exports the
+  user-shareable header/document-stats/geometry report without appending the
+  hidden perf-stream tail. Hidden perf instrumentation now writes to the
+  diagnostic file only if toggled internally, not to the Xcode console. VERIFIED:
+  Debug xcodebuild succeeds.
+
+- **2026-07-19 — Type inspector cleanup:** Removed the redundant Bold / Italic /
+  Underline button row from the single-text Type inspector section; weight/style
+  stays handled by the family face dropdown, with Type-menu keyboard commands
+  still available. Trimmed the now-unused inspector helper state. VERIFIED:
+  Debug xcodebuild succeeds.
+
+- **2026-07-19 — v1.6 polish: grouped styling + menu audit:** Addressed the
+  owner testing pass. Inspector multi-style controls now flatten selected groups
+  and apply fill/stroke/font/text-size changes through the normal `commitScoped`
+  funnel, so a single selected group behaves like selecting its contents (while
+  still supporting group auto-padding where present). The Layer settings area now
+  includes Flip Horizontal / Flip Vertical icon buttons under Blend. Menu audit:
+  custom File/Edit/Object/Type/Arrange/View entries now read a focused
+  `EditorMenuModel` from the active document/source window, so irrelevant actions
+  grey out visibly (e.g. Detach Component only for instances, state commands only
+  in source editors, Release Mask only for masks); Object is grouped into Mask,
+  Frame, and Component submenus, and Arrange into Order, Flip, Align, Distribute.
+  Canvas `validateMenuItem` was tightened to match. Roadmap cleanup: checked off
+  the old Components-grid carry-over and split the completed inspector state
+  picker from the still-open relationship picker. VERIFIED: Debug xcodebuild
+  succeeds.
+
+- **2026-07-19 — v1.6 states follow-ups:** Closed the three loose state-editing
+  loops. Object menu now exposes source-editor state commands with responder
+  actions on CanvasNSView: add the next conventional state (⌃⌘N) and cycle
+  previous/next (⌃⌘[ / ⌃⌘]) with `validateMenuItem` gating and contextual "Add
+  Hover/Pressed/Focus/Disabled State" titles. `ComponentStateEditing` now applies
+  and captures `layerVisibility`, and LayersPanel source scope resolves the
+  active state so its eye button writes per-state visibility overrides instead
+  of mutating the base source default. Source-canvas drawing and inspector reads
+  can request state-applied auto-layout reflow, so managed frames re-hug around
+  overridden text in the editing preview while the canvas commit baseline stays
+  unreflowed. VERIFIED: `xcodebuild -scheme "EXP [design]" -project
+  "EXP [design].xcodeproj" -configuration Debug build` succeeds.
 
 - **2026-07-19 — v1.6 Components panel grid + state preview:** Completed the
   Components panel redesign slice in PanelDock.swift. The panel now has a sticky

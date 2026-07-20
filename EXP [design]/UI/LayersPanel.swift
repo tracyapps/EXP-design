@@ -52,10 +52,21 @@ struct LayersPanel: View {
 
     // MARK: Scoped node access (document's nodes, or a source's children)
 
+    private var activeEditingState: ComponentState? {
+        guard case .source(let sid) = scope,
+              let stateID = app.activeComponentStateID else { return nil }
+        return document.model.source(for: sid)?.states.first { $0.id == stateID }
+    }
+
     private var scopeNodes: [Node] {
         switch scope {
         case .document: return document.model.nodes
-        case .source(let sid): return document.model.source(for: sid)?.children ?? []
+        case .source(let sid):
+            let children = document.model.source(for: sid)?.children ?? []
+            if let state = activeEditingState {
+                return ComponentStateEditing.applied(children, state: state)
+            }
+            return children
         }
     }
 
@@ -66,7 +77,28 @@ struct LayersPanel: View {
             model.nodes = nodes
         case .source(let sid):
             guard let si = model.sources.firstIndex(where: { $0.id == sid }) else { return }
-            model.sources[si].children = nodes
+            let fitSourceBounds = model.sourceUsesManagedBounds(model.sources[si])
+            if let state = activeEditingState,
+               let sti = model.sources[si].states.firstIndex(where: { $0.id == state.id }) {
+                let (newBase, newState) = ComponentStateEditing.capture(
+                    base: model.sources[si].children, edited: nodes, state: state)
+                let reflowed = AutoLayoutEngine.reflowed(newBase)
+                model.sources[si].children = reflowed
+                model.sources[si].states[sti] = newState
+                if fitSourceBounds,
+                   let bounds = model.managedRootBounds(in: reflowed) {
+                    model.sources[si].origin = bounds.origin
+                    model.sources[si].size = bounds.size
+                }
+            } else {
+                let reflowed = AutoLayoutEngine.reflowed(nodes)
+                model.sources[si].children = reflowed
+                if fitSourceBounds,
+                   let bounds = model.managedRootBounds(in: reflowed) {
+                    model.sources[si].origin = bounds.origin
+                    model.sources[si].size = bounds.size
+                }
+            }
         }
         document.setModel(model, undoManager: undoManager, actionName: actionName)
     }
@@ -337,7 +369,7 @@ struct LayersPanel: View {
         case .source(let sid):
             // A component source: one flat group of its children.
             guard let source = model.source(for: sid) else { return [] }
-            return [LayerGroup(id: "source", title: source.name, nodes: source.children.reversed())]
+            return [LayerGroup(id: "source", title: source.name, nodes: scopeNodes.reversed())]
         case .document:
             // PERF round 10: ONE pass over the nodes, bucketing each by its
             // owning artboard (nil = wall). The previous shape filtered ALL

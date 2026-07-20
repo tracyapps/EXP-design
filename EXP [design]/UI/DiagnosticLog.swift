@@ -1,19 +1,17 @@
 import AppKit
 
-/// File-backed diagnostic logging for testers (v1.3).
+/// File-backed diagnostic logging for tester reports (v1.3).
 ///
-/// Two delivery paths, both anchored to Testing Mode (`AppState.testingMode`):
+/// Public path:
 ///
-/// 1. **STREAM** — while Testing Mode is on, every perf summary line that goes
-///    to the console is ALSO appended to a per-day log file in
-///    `~/Library/Logs/EXP [design]/` (which resolves inside the app-sandbox
-///    container). Each app session writes a self-describing header (app
-///    version, macOS, hardware, display scale) so a log file stands on its own.
+/// **REPORT** — Help ▸ Save Diagnostic Report… snapshots the header, front
+/// document stats, and a geometry audit into one file at a location the tester
+/// picks (NSSavePanel = sandbox-safe), ready to attach to a bug report or Send
+/// Feedback message.
 ///
-/// 2. **REPORT** — Help ▸ Save Diagnostic Report… snapshots the header, the
-///    front document's geometry audit, and the tail of today's stream log into
-///    one file at a location the tester picks (NSSavePanel = sandbox-safe),
-///    ready to attach to a bug report or Send Feedback message.
+/// Hidden developer perf instrumentation can still append lines to the rotating
+/// per-day file in `~/Library/Logs/EXP [design]/`, but those controls are not in
+/// the public View menu and they do not write to the Xcode console.
 ///
 /// Design rules:
 /// - Logging must never block the canvas: `log()` is fire-and-forget onto a

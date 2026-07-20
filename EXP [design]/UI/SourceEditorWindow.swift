@@ -247,7 +247,8 @@ struct SourceEditorView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .environment(app)
-		.frame(minWidth: 760, maxWidth: .infinity, minHeight: 340, maxHeight: .infinity)
+        .focusedSceneValue(\.editorMenu, makeEditorMenuModel(document: document, app: app, scope: .source(sourceID)))
+        .frame(minWidth: 760, maxWidth: .infinity, minHeight: 340, maxHeight: .infinity)
     }
 }
 

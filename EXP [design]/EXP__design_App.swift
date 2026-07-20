@@ -50,181 +50,41 @@ struct EXP__design_App: App {
                 Button("Send Feedback\u{2026}") { send("sendFeedbackAction:") }
                     .keyboardShortcut("/", modifiers: [.command, .shift])
                 Divider()
-                // Tester diagnostics (v1.3): the report bundles machine info +
-                // geometry audit + the perf stream tail into one attachable file;
-                // the reveal item opens the always-on daily stream log. Reveal is
-                // app-chrome (no canvas needed), so it calls DiagnosticLog directly.
+                // Tester diagnostics (v1.3): the report bundles machine info,
+                // document stats, and a geometry audit into one attachable file.
                 Button("Save Diagnostic Report\u{2026}") { send("saveDiagnosticReportAction:") }
-                Button("Reveal Diagnostic Log in Finder") { DiagnosticLog.revealInFinder() }
             }
 
             // FILE ▸ Export (alongside the DocumentGroup's New/Open/Save/Close).
             CommandGroup(replacing: .importExport) {
-                Button("Place Image…") { send("placeImageAction:") }
-                    .keyboardShortcut("p", modifiers: [.command, .shift])
-                // Import a PDF's pages as artboards into the current document (the
-                // page picker lives in the canvas action). Opening a .pdf via
-                // File ▸ Open instead makes a NEW document.
-                Button("Import PDF…") { send("importPDFAction:") }
-                Divider()
-                Button("Export Selected Artboard(s)…") { send("exportSelectedArtboard:") }
-                    .keyboardShortcut("e", modifiers: [.command, .shift])
-                Button("Export All Artboards…") { send("exportAllArtboards:") }
-                Button("Export Handoff Package…") { send("exportHandoffPackage:") }
+                FileCommandItems()
             }
 
             // EDIT ▸ selection + duplicate (after the standard Cut/Copy/Paste).
             // Cut/Copy/Paste/Delete + Undo/Redo come from the system Edit menu and
             // route to the canvas's standard action methods.
             CommandGroup(after: .pasteboard) {
-                Button("Duplicate") { send("duplicateSelection:") }
-                    .keyboardShortcut("d", modifiers: .command)
-                // (Select All ⌘A comes from the system Edit menu → canvas selectAll:.)
-                Button("Deselect All") { send("deselectAllAction:") }
-                    .keyboardShortcut("a", modifiers: [.command, .shift])
-                Divider()
-                // Copy/paste a layer's appearance (effects + blend mode + opacity)
-                // onto other layers. ⇧⌘C / ⇧⌘V are free (⌘C/⌘V are the system
-                // Cut/Copy/Paste that route to the canvas's copy:/paste:).
-                Button("Copy Style") { send("copyLayerStyle:") }
-                    .keyboardShortcut("c", modifiers: [.command, .shift])
-                Button("Paste Style") { send("pasteLayerStyle:") }
-                    .keyboardShortcut("v", modifiers: [.command, .shift])
+                EditCommandItems()
             }
 
             // OBJECT ▸ structure + components + conversion.
             CommandMenu("Object") {
-                Button("Group") { send("groupSelection:") }
-                    .keyboardShortcut("g", modifiers: .command)
-                Button("Ungroup") { send("ungroupSelection:") }
-                    .keyboardShortcut("g", modifiers: [.command, .shift])
-                Divider()
-                // Lock / Unlock the selection (also on the layer rows + right-click).
-                Button("Lock") { send("lockSelection:") }
-                    .keyboardShortcut("l", modifiers: .command)
-                Button("Unlock") { send("unlockSelection:") }
-                    .keyboardShortcut("l", modifiers: [.command, .shift])
-                // Mask: top selected shape clips the rest (non-destructive). ⌃⌘M
-                // avoids ⌘M (minimize) and ⇧⌘M.
-                Button("Mask with Top Shape") { send("maskWithTopShapeAction:") }
-                    .keyboardShortcut("m", modifiers: [.command, .control])
-                Button("Release Mask") { send("releaseMaskAction:") }
-                // Frame traits. ⌥⌘A / ⌥⌘P avoid stealing capital letters while typing
-                // (a bare ⇧-letter equivalent would). Titles are fixed here; the
-                // canvas's validateMenuItem swaps them to Add/Remove contextually.
-                Button("Auto Layout") { send("toggleAutoLayoutAction:") }
-                    .keyboardShortcut("a", modifiers: [.command, .option])
-                Button("Auto Padding") { send("toggleAutoPaddingAction:") }
-                    .keyboardShortcut("p", modifiers: [.command, .option])
-                Button("Move Item Forward") { send("nudgeItemForwardAction:") }
-                    .keyboardShortcut("]", modifiers: [.command, .option])
-                Button("Move Item Backward") { send("nudgeItemBackwardAction:") }
-                    .keyboardShortcut("[", modifiers: [.command, .option])
-                Divider()
-                Button("Create Component") { send("createComponentAction:") }
-                    .keyboardShortcut("k", modifiers: .command)
-                Button("New Empty Component") { send("newEmptyComponentAction:") }
-                Button("Edit Component") { send("editComponentAction:") }
-                Button("Detach Component") { send("detachComponentAction:") }
-                // Phase 19a: component categories, vocabulary = curated ARIA roles.
-                // Friendly labels shown; the ARIA token rides in representedObject
-                // (send() is parameterless, so each choice ships its token on a
-                // stand-in NSMenuItem sender the canvas action reads back).
-                Menu("Set Component Category") {
-                    Button("Uncategorized") { sendComponentCategory(nil) }
-                    ForEach(AriaRole.grouped(), id: \.category) { group in
-                        Section(group.category.label) {
-                            ForEach(group.roles, id: \.self) { role in
-                                Button(role.friendlyLabel) { sendComponentCategory(role) }
-                            }
-                        }
-                    }
-                }
-                    .keyboardShortcut("k", modifiers: [.command, .shift])
-                Divider()
-                Button("Convert to Path") { send("convertToPathAction:") }
-                Button("Round to Pixel") { send("roundToPixelAction:") }
-                Divider()
-                // No key-equivalent: `i` is a canvas key (like the V/A/R/… tool
-                // letters), handled in the canvas's keyDown so it never hijacks a
-                // focused text field. The menu item is for discoverability.
-                Button("Eyedropper (Pick Fill) — i") { send("eyedropperAction:") }
+                ObjectCommandItems()
             }
 
             // TYPE ▸ text styling + outlines.
             CommandMenu("Type") {
-                Button("Bold") { send("toggleBoldText:") }
-                    .keyboardShortcut("b", modifiers: .command)
-                Button("Italic") { send("toggleItalicText:") }
-                    .keyboardShortcut("i", modifiers: .command)
-                Button("Underline") { send("toggleUnderlineText:") }
-                    .keyboardShortcut("u", modifiers: .command)
-                Divider()
-                Button("Convert to Outlines") { send("convertTextToShapesAction:") }
-                Divider()
-                Button("Save as Type Style") { send("saveTypeStyleAction:") }
-                    .keyboardShortcut("o", modifiers: [.command, .shift])
+                TypeCommandItems()
             }
 
             // ARRANGE ▸ z-order + align + distribute.
             CommandMenu("Arrange") {
-                Button("Bring to Front") { send("bringToFront:") }
-                    .keyboardShortcut("]", modifiers: [.command, .shift])
-                Button("Bring Forward") { send("bringForward:") }
-                    .keyboardShortcut("]", modifiers: .command)
-                Button("Send Backward") { send("sendBackward:") }
-                    .keyboardShortcut("[", modifiers: .command)
-                Button("Send to Back") { send("sendToBack:") }
-                    .keyboardShortcut("[", modifiers: [.command, .shift])
-                Divider()
-                Button("Flip Horizontal") { send("flipHorizontalAction:") }
-                Button("Flip Vertical") { send("flipVerticalAction:") }
-                Divider()
-                Button("Align Left") { send("alignLeftAction:") }
-                Button("Align Horizontal Centers") { send("alignHCenterAction:") }
-                Button("Align Right") { send("alignRightAction:") }
-                Button("Align Top") { send("alignTopAction:") }
-                Button("Align Vertical Centers") { send("alignVCenterAction:") }
-                Button("Align Bottom") { send("alignBottomAction:") }
-                Divider()
-                Button("Distribute Horizontally") { send("distributeHorizontallyAction:") }
-                Button("Distribute Vertically") { send("distributeVerticallyAction:") }
+                ArrangeCommandItems()
             }
 
             // VIEW ▸ zoom + overlays (added to the system View menu via .toolbar slot).
             CommandGroup(after: .toolbar) {
-                Button("Zoom In") { send("zoomInAction:") }
-                    .keyboardShortcut("+", modifiers: .command)
-                Button("Zoom Out") { send("zoomOutAction:") }
-                    .keyboardShortcut("-", modifiers: .command)
-                Button("Actual Size (100%)") { send("zoomActualAction:") }
-                    .keyboardShortcut("0", modifiers: .command)
-                Button("Zoom to Fit") { send("fitToScreen:") }
-                    .keyboardShortcut("1", modifiers: .command)
-                Divider()
-                Button("Toggle Selection Bounds") { send("toggleSelectionBounds:") }
-                    .keyboardShortcut("b", modifiers: [.command, .shift])
-                Divider()
-                Button("Expand All Layers") { send("expandAllLayersAction:") }
-                Button("Collapse All Layers") { send("collapseAllLayersAction:") }
-                Button("Reveal Selection in Layers") { send("revealSelectionInLayersAction:") }
-                Divider()
-                Button("Show / Hide Rulers") { send("toggleRulersAction:") }
-                    .keyboardShortcut("r", modifiers: .command)
-                Button("Show / Hide Guides") { send("toggleGuidesAction:") }
-                    .keyboardShortcut(";", modifiers: .command)
-                Button("Lock Guides") { send("toggleLockGuidesAction:") }
-                    .keyboardShortcut(";", modifiers: [.command, .option])
-                Button("Clear Guides") { send("clearGuidesAction:") }
-                Divider()
-                Button("Show / Hide Grid") { send("toggleGridAction:") }
-                    .keyboardShortcut("'", modifiers: .command)
-                Button("Snap to Grid") { send("toggleSnapToGridAction:") }
-                    .keyboardShortcut("'", modifiers: [.command, .shift])
-                Divider()
-                Button("Testing Mode (Perf Logging)") { send("toggleTestingModeAction:") }
-                    .keyboardShortcut("t", modifiers: [.command, .control])
-                Button("Log Geometry Audit") { send("runGeometryAuditAction:") }
+                ViewCommandItems()
             }
 
             // WINDOW ▸ appended after the system window list (which shows the
@@ -249,13 +109,257 @@ struct EXP__design_App: App {
         NSApp.sendAction(NSSelectorFromString(selectorName), to: nil, from: nil)
     }
 
-    /// Phase 19a helper: category choices need a payload, and `send` can't carry
-    /// one — so wrap the ARIA token in a stand-in NSMenuItem and pass it as the
-    /// action's sender (nil token = uncategorized).
-    private func sendComponentCategory(_ role: AriaRole?) {
-        let item = NSMenuItem(title: role?.friendlyLabel ?? "Uncategorized",
-                              action: nil, keyEquivalent: "")
-        item.representedObject = role?.rawValue
-        NSApp.sendAction(NSSelectorFromString("setComponentCategoryAction:"), to: nil, from: item)
+}
+
+private func sendEditorAction(_ selectorName: String) {
+    NSApp.sendAction(NSSelectorFromString(selectorName), to: nil, from: nil)
+}
+
+private func sendEditorComponentCategory(_ role: AriaRole?) {
+    let item = NSMenuItem(title: role?.friendlyLabel ?? "Uncategorized",
+                          action: nil, keyEquivalent: "")
+    item.representedObject = role?.rawValue
+    NSApp.sendAction(NSSelectorFromString("setComponentCategoryAction:"), to: nil, from: item)
+}
+
+private struct FileCommandItems: View {
+    @FocusedValue(\.editorMenu) private var menu
+
+    var body: some View {
+        Button("Place Image…") { sendEditorAction("placeImageAction:") }
+            .keyboardShortcut("p", modifiers: [.command, .shift])
+            .disabled(menu == nil)
+        Button("Import PDF…") { sendEditorAction("importPDFAction:") }
+            .disabled(menu == nil)
+        Divider()
+        Button("Export Selected Artboard(s)…") { sendEditorAction("exportSelectedArtboard:") }
+            .keyboardShortcut("e", modifiers: [.command, .shift])
+            .disabled(menu?.canExportSelectedArtboards != true)
+        Button("Export All Artboards…") { sendEditorAction("exportAllArtboards:") }
+            .disabled(menu?.canExportAllArtboards != true)
+        Button("Export Handoff Package…") { sendEditorAction("exportHandoffPackage:") }
+            .disabled(menu == nil)
+    }
+}
+
+private struct EditCommandItems: View {
+    @FocusedValue(\.editorMenu) private var menu
+
+    var body: some View {
+        Button("Duplicate") { sendEditorAction("duplicateSelection:") }
+            .keyboardShortcut("d", modifiers: .command)
+            .disabled(menu?.canDuplicate != true)
+        Button("Deselect All") { sendEditorAction("deselectAllAction:") }
+            .keyboardShortcut("a", modifiers: [.command, .shift])
+            .disabled(menu?.hasAnySelection != true)
+        Divider()
+        Button("Copy Style") { sendEditorAction("copyLayerStyle:") }
+            .keyboardShortcut("c", modifiers: [.command, .shift])
+            .disabled(menu?.canCopyStyle != true)
+        Button("Paste Style") { sendEditorAction("pasteLayerStyle:") }
+            .keyboardShortcut("v", modifiers: [.command, .shift])
+            .disabled(menu?.canPasteStyle != true)
+    }
+}
+
+private struct ObjectCommandItems: View {
+    @FocusedValue(\.editorMenu) private var menu
+
+    var body: some View {
+        Button("Group") { sendEditorAction("groupSelection:") }
+            .keyboardShortcut("g", modifiers: .command)
+            .disabled(menu?.canGroup != true)
+        Button("Ungroup") { sendEditorAction("ungroupSelection:") }
+            .keyboardShortcut("g", modifiers: [.command, .shift])
+            .disabled(menu?.canUngroup != true)
+        Divider()
+        Button("Lock") { sendEditorAction("lockSelection:") }
+            .keyboardShortcut("l", modifiers: .command)
+            .disabled(menu?.hasNodes != true)
+        Button("Unlock") { sendEditorAction("unlockSelection:") }
+            .keyboardShortcut("l", modifiers: [.command, .shift])
+            .disabled(menu?.hasNodes != true)
+        Divider()
+        Menu("Mask") {
+            Button("Mask with Top Shape") { sendEditorAction("maskWithTopShapeAction:") }
+                .keyboardShortcut("m", modifiers: [.command, .control])
+                .disabled(menu?.canMask != true)
+            Button("Release Mask") { sendEditorAction("releaseMaskAction:") }
+                .disabled(menu?.canReleaseMask != true)
+        }
+        Menu("Frame") {
+            Button(menu?.autoLayoutTitle ?? "Add Auto Layout") { sendEditorAction("toggleAutoLayoutAction:") }
+                .keyboardShortcut("a", modifiers: [.command, .option])
+                .disabled(menu?.canAutoLayout != true)
+            Button(menu?.autoPaddingTitle ?? "Add Auto Padding") { sendEditorAction("toggleAutoPaddingAction:") }
+                .keyboardShortcut("p", modifiers: [.command, .option])
+                .disabled(menu?.canAutoPadding != true)
+            Divider()
+            Button("Move Item Forward") { sendEditorAction("nudgeItemForwardAction:") }
+                .keyboardShortcut("]", modifiers: [.command, .option])
+                .disabled(menu?.canMoveAutoLayoutItem != true)
+            Button("Move Item Backward") { sendEditorAction("nudgeItemBackwardAction:") }
+                .keyboardShortcut("[", modifiers: [.command, .option])
+                .disabled(menu?.canMoveAutoLayoutItem != true)
+        }
+        Divider()
+        Menu("Component") {
+            Button("Create Component") { sendEditorAction("createComponentAction:") }
+                .keyboardShortcut("k", modifiers: .command)
+                .disabled(menu?.canCreateComponent != true)
+            Button("New Empty Component") { sendEditorAction("newEmptyComponentAction:") }
+                .disabled(menu?.canNewEmptyComponent != true)
+            Button("Edit Component") { sendEditorAction("editComponentAction:") }
+                .disabled(menu?.canEditComponent != true)
+            Button("Detach Component") { sendEditorAction("detachComponentAction:") }
+                .disabled(menu?.canDetachComponent != true)
+            Divider()
+            Button(menu?.addComponentStateTitle ?? "Add Component State") {
+                sendEditorAction("addComponentStateAction:")
+            }
+            .keyboardShortcut("n", modifiers: [.command, .control])
+            .disabled(menu?.canAddComponentState != true)
+            Button("Previous Component State") { sendEditorAction("previousComponentStateAction:") }
+                .keyboardShortcut("[", modifiers: [.command, .control])
+                .disabled(menu?.canCycleComponentState != true)
+            Button("Next Component State") { sendEditorAction("nextComponentStateAction:") }
+                .keyboardShortcut("]", modifiers: [.command, .control])
+                .disabled(menu?.canCycleComponentState != true)
+            Divider()
+            Menu("Set Category") {
+                Button("Uncategorized") { sendEditorComponentCategory(nil) }
+                ForEach(AriaRole.grouped(), id: \.category) { group in
+                    Section(group.category.label) {
+                        ForEach(group.roles, id: \.self) { role in
+                            Button(role.friendlyLabel) { sendEditorComponentCategory(role) }
+                        }
+                    }
+                }
+            }
+            .keyboardShortcut("k", modifiers: [.command, .shift])
+            .disabled(menu?.canSetComponentCategory != true)
+        }
+        Divider()
+        Button("Convert to Path") { sendEditorAction("convertToPathAction:") }
+            .disabled(menu?.canConvertToPath != true)
+        Button("Round to Pixel") { sendEditorAction("roundToPixelAction:") }
+            .disabled(menu?.canRoundToPixel != true)
+        Divider()
+        Button("Eyedropper (Pick Fill) — i") { sendEditorAction("eyedropperAction:") }
+            .disabled(menu?.canEyedropper != true)
+    }
+}
+
+private struct TypeCommandItems: View {
+    @FocusedValue(\.editorMenu) private var menu
+
+    var body: some View {
+        Button("Bold") { sendEditorAction("toggleBoldText:") }
+            .keyboardShortcut("b", modifiers: .command)
+            .disabled(menu?.canTypeActions != true)
+        Button("Italic") { sendEditorAction("toggleItalicText:") }
+            .keyboardShortcut("i", modifiers: .command)
+            .disabled(menu?.canTypeActions != true)
+        Button("Underline") { sendEditorAction("toggleUnderlineText:") }
+            .keyboardShortcut("u", modifiers: .command)
+            .disabled(menu?.canTypeActions != true)
+        Divider()
+        Button("Convert to Outlines") { sendEditorAction("convertTextToShapesAction:") }
+            .disabled(menu?.canTypeActions != true)
+        Divider()
+        Button("Save as Type Style") { sendEditorAction("saveTypeStyleAction:") }
+            .keyboardShortcut("o", modifiers: [.command, .shift])
+            .disabled(menu?.canTypeActions != true)
+    }
+}
+
+private struct ArrangeCommandItems: View {
+    @FocusedValue(\.editorMenu) private var menu
+
+    var body: some View {
+        Menu("Order") {
+            Button("Bring to Front") { sendEditorAction("bringToFront:") }
+                .keyboardShortcut("]", modifiers: [.command, .shift])
+                .disabled(menu?.hasNodes != true)
+            Button("Bring Forward") { sendEditorAction("bringForward:") }
+                .keyboardShortcut("]", modifiers: .command)
+                .disabled(menu?.hasNodes != true)
+            Button("Send Backward") { sendEditorAction("sendBackward:") }
+                .keyboardShortcut("[", modifiers: .command)
+                .disabled(menu?.hasNodes != true)
+            Button("Send to Back") { sendEditorAction("sendToBack:") }
+                .keyboardShortcut("[", modifiers: [.command, .shift])
+                .disabled(menu?.hasNodes != true)
+        }
+        Menu("Flip") {
+            Button("Flip Horizontal") { sendEditorAction("flipHorizontalAction:") }
+                .disabled(menu?.hasNodes != true)
+            Button("Flip Vertical") { sendEditorAction("flipVerticalAction:") }
+                .disabled(menu?.hasNodes != true)
+        }
+        Divider()
+        Menu("Align") {
+            Button("Left") { sendEditorAction("alignLeftAction:") }
+            Button("Horizontal Centers") { sendEditorAction("alignHCenterAction:") }
+            Button("Right") { sendEditorAction("alignRightAction:") }
+            Button("Top") { sendEditorAction("alignTopAction:") }
+            Button("Vertical Centers") { sendEditorAction("alignVCenterAction:") }
+            Button("Bottom") { sendEditorAction("alignBottomAction:") }
+        }
+        .disabled(menu?.canAlign != true)
+        Menu("Distribute") {
+            Button("Horizontally") { sendEditorAction("distributeHorizontallyAction:") }
+            Button("Vertically") { sendEditorAction("distributeVerticallyAction:") }
+        }
+        .disabled(menu?.canDistribute != true)
+    }
+}
+
+private struct ViewCommandItems: View {
+    @FocusedValue(\.editorMenu) private var menu
+
+    var body: some View {
+        Button("Zoom In") { sendEditorAction("zoomInAction:") }
+            .keyboardShortcut("+", modifiers: .command)
+            .disabled(menu == nil)
+        Button("Zoom Out") { sendEditorAction("zoomOutAction:") }
+            .keyboardShortcut("-", modifiers: .command)
+            .disabled(menu == nil)
+        Button("Actual Size (100%)") { sendEditorAction("zoomActualAction:") }
+            .keyboardShortcut("0", modifiers: .command)
+            .disabled(menu == nil)
+        Button("Zoom to Fit") { sendEditorAction("fitToScreen:") }
+            .keyboardShortcut("1", modifiers: .command)
+            .disabled(menu == nil)
+        Divider()
+        Button("Toggle Selection Bounds") { sendEditorAction("toggleSelectionBounds:") }
+            .keyboardShortcut("b", modifiers: [.command, .shift])
+            .disabled(menu == nil)
+        Divider()
+        Button("Expand All Layers") { sendEditorAction("expandAllLayersAction:") }
+            .disabled(menu == nil)
+        Button("Collapse All Layers") { sendEditorAction("collapseAllLayersAction:") }
+            .disabled(menu == nil)
+        Button("Reveal Selection in Layers") { sendEditorAction("revealSelectionInLayersAction:") }
+            .disabled(menu?.canRevealSelectionInLayers != true)
+        Divider()
+        Button("Show / Hide Rulers") { sendEditorAction("toggleRulersAction:") }
+            .keyboardShortcut("r", modifiers: .command)
+            .disabled(menu == nil)
+        Button("Show / Hide Guides") { sendEditorAction("toggleGuidesAction:") }
+            .keyboardShortcut(";", modifiers: .command)
+            .disabled(menu == nil)
+        Button("Lock Guides") { sendEditorAction("toggleLockGuidesAction:") }
+            .keyboardShortcut(";", modifiers: [.command, .option])
+            .disabled(menu == nil)
+        Button("Clear Guides") { sendEditorAction("clearGuidesAction:") }
+            .disabled(menu == nil)
+        Divider()
+        Button("Show / Hide Grid") { sendEditorAction("toggleGridAction:") }
+            .keyboardShortcut("'", modifiers: .command)
+            .disabled(menu == nil)
+        Button("Snap to Grid") { sendEditorAction("toggleSnapToGridAction:") }
+            .keyboardShortcut("'", modifiers: [.command, .shift])
+            .disabled(menu == nil)
     }
 }

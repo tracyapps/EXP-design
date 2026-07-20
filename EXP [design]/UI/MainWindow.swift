@@ -72,6 +72,7 @@ struct MainWindow: View {
         // value = active whenever this window is frontmost (no focused control
         // required), so the menu items enable correctly.
         .focusedSceneValue(\.windowMenu, makeWindowMenuModel(app))
+        .focusedSceneValue(\.editorMenu, makeEditorMenuModel(document: document, app: app, scope: .document))
         // Multi-window mode: float panels into their own windows (and tear them
         // down when returning to single-window or closing this document window).
         // Shared floating panels point at the frontmost document. Claim them when
@@ -486,6 +487,161 @@ struct TopSystemControls: View {
     }
 }
 
+// MARK: - Editor command menu state
+
+/// Focused state used by SwiftUI command menus to grey out actions that do not
+/// apply to the active selection. The canvas responder remains the source of
+/// behavior; this is just the visible menu contract.
+struct EditorMenuModel {
+    var hasNodes: Bool
+    var hasArtboards: Bool
+    var hasAnySelection: Bool { hasNodes || hasArtboards }
+
+    var canDuplicate: Bool
+    var canCopyStyle: Bool
+    var canPasteStyle: Bool
+
+    var canGroup: Bool
+    var canUngroup: Bool
+    var canMask: Bool
+    var canReleaseMask: Bool
+    var canAutoLayout: Bool
+    var canAutoPadding: Bool
+    var autoLayoutTitle: String
+    var autoPaddingTitle: String
+    var canMoveAutoLayoutItem: Bool
+
+    var canCreateComponent: Bool
+    var canNewEmptyComponent: Bool
+    var canEditComponent: Bool
+    var canDetachComponent: Bool
+    var canSetComponentCategory: Bool
+    var canAddComponentState: Bool
+    var addComponentStateTitle: String
+    var canCycleComponentState: Bool
+
+    var canConvertToPath: Bool
+    var canRoundToPixel: Bool
+    var canEyedropper: Bool
+
+    var canTypeActions: Bool
+    var canAlign: Bool
+    var canDistribute: Bool
+    var canExportSelectedArtboards: Bool
+    var canExportAllArtboards: Bool
+    var canRevealSelectionInLayers: Bool
+}
+
+private struct EditorMenuKey: FocusedValueKey { typealias Value = EditorMenuModel }
+extension FocusedValues {
+    var editorMenu: EditorMenuModel? {
+        get { self[EditorMenuKey.self] }
+        set { self[EditorMenuKey.self] = newValue }
+    }
+}
+
+@MainActor
+func makeEditorMenuModel(document: ExpDocument, app: AppState, scope: CanvasScope) -> EditorMenuModel {
+    let model = document.model
+    let nodes: [Node]
+    let source: ComponentSource?
+    switch scope {
+    case .document:
+        nodes = model.nodes
+        source = nil
+    case .source(let sid):
+        source = model.source(for: sid)
+        nodes = source?.children ?? []
+    }
+
+    func find(_ id: UUID, in nodes: [Node]) -> Node? {
+        for node in nodes {
+            if node.id == id { return node }
+            if case .group(let children) = node.content, let found = find(id, in: children) { return found }
+        }
+        return nil
+    }
+    func parentID(of id: UUID, in nodes: [Node], parent: UUID? = nil) -> UUID? {
+        for node in nodes {
+            if node.id == id { return parent }
+            if case .group(let children) = node.content,
+               let found = parentID(of: id, in: children, parent: node.id) { return found }
+        }
+        return nil
+    }
+    let selectedIDs = app.selectedNodeIDs
+    let selectedNodes = selectedIDs.compactMap { find($0, in: nodes) }
+    let singleNode = selectedIDs.count == 1 ? selectedNodes.first : nil
+    let hasNodes = !selectedIDs.isEmpty
+    let hasArtboards = !app.selectedArtboardIDs.isEmpty
+    let hasGroup = selectedNodes.contains { if case .group = $0.content { return true }; return false }
+    let singleGroup = singleNode.flatMap { node -> Node? in
+        if case .group = node.content { return node }
+        return nil
+    }
+    let hasInstance = selectedNodes.contains { if case .instance = $0.content { return true }; return false }
+    let hasMask = selectedNodes.contains { $0.isMask }
+    let hasConvertible = selectedNodes.contains {
+        switch $0.content {
+        case .rectangle, .ellipse, .polygon, .line: return true
+        default: return false
+        }
+    }
+    let isSingleText: Bool = {
+        guard let singleNode else { return false }
+        if case .text = singleNode.content { return true }
+        return false
+    }()
+    let selectedItemInAutoLayout: Bool = {
+        guard selectedIDs.count == 1, let id = selectedIDs.first,
+              let pid = parentID(of: id, in: nodes),
+              let parent = find(pid, in: nodes) else { return false }
+        return parent.autoLayout != nil
+    }()
+    let stateName: String = {
+        guard let source else { return "Add Component State" }
+        let lowered = Set(source.states.map { $0.name.lowercased() })
+        guard let next = ComponentState.conventionalNames.first(where: { !lowered.contains($0.lowercased()) })
+        else { return "Add Component State" }
+        return "Add \(next.capitalized) State"
+    }()
+    let canAlign = selectedIDs.count >= 2 || (selectedIDs.count >= 1 && app.alignTarget == .artboard)
+
+    return EditorMenuModel(
+        hasNodes: hasNodes,
+        hasArtboards: hasArtboards,
+        canDuplicate: hasNodes,
+        canCopyStyle: hasNodes,
+        canPasteStyle: hasNodes && app.copiedLayerStyle != nil,
+        canGroup: selectedIDs.count >= 2,
+        canUngroup: hasGroup,
+        canMask: selectedIDs.count >= 2,
+        canReleaseMask: hasMask,
+        canAutoLayout: hasNodes,
+        canAutoPadding: hasNodes,
+        autoLayoutTitle: (singleGroup?.autoLayout != nil) ? "Remove Auto Layout" : "Add Auto Layout",
+        autoPaddingTitle: (singleGroup?.autoPadding != nil) ? "Remove Auto Padding" : "Add Auto Padding",
+        canMoveAutoLayoutItem: selectedItemInAutoLayout,
+        canCreateComponent: hasNodes,
+        canNewEmptyComponent: true,
+        canEditComponent: hasInstance,
+        canDetachComponent: hasInstance,
+        canSetComponentCategory: source != nil || hasInstance,
+        canAddComponentState: source != nil,
+        addComponentStateTitle: stateName,
+        canCycleComponentState: !(source?.states.isEmpty ?? true),
+        canConvertToPath: hasConvertible,
+        canRoundToPixel: hasNodes || hasArtboards,
+        canEyedropper: hasNodes,
+        canTypeActions: isSingleText,
+        canAlign: canAlign,
+        canDistribute: selectedIDs.count >= 3,
+        canExportSelectedArtboards: !app.selectedArtboardIDs.isEmpty,
+        canExportAllArtboards: !model.artboards.isEmpty,
+        canRevealSelectionInLayers: hasNodes
+    )
+}
+
 /// Right panel — the Inspector. X/Y/W/H are two-way: editing a field writes
 /// back through the document's undo-aware funnel, so the shape/artboard moves
 /// or resizes and the change is a single undo step. The canvas, reading the
@@ -548,7 +704,7 @@ struct RightPanel: View {
         case .source(let sid):
             let children = document.model.source(for: sid)?.children ?? []
             if let state = activeEditingState {
-                return ComponentStateEditing.applied(children, state: state)
+                return ComponentStateEditing.applied(children, state: state, reflow: true)
             }
             return children
         }
@@ -749,11 +905,31 @@ struct RightPanel: View {
                 .font(.callout)
                 .padding(.horizontal, 12)
                 .padding(.bottom, 8)
+                HStack(spacing: 6) {
+                    Text("Flip").foregroundStyle(EXPColor.textSecondary)
+                    Button { flipSelectedLayer(horizontal: true) } label: {
+                        Image(systemName: "arrow.left.and.right")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Flip layer horizontally")
+                    .accessibilityLabel("Flip layer horizontally")
+                    Button { flipSelectedLayer(horizontal: false) } label: {
+                        Image(systemName: "arrow.up.and.down")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Flip layer vertically")
+                    .accessibilityLabel("Flip layer vertically")
+                    Spacer(minLength: 0)
+                }
+                .font(.callout)
+                .padding(.horizontal, 12)
+                .padding(.bottom, 8)
                 if case .group = node.content {
                     Divider()
                     autoLayoutControls()
                     Divider()
                     autoPaddingControls()
+                    multiStyleControls()
                 }
                 if case .text = node.content {
                     textControls()
@@ -1012,6 +1188,13 @@ struct RightPanel: View {
                 mutateScopedNode(id, action: "Blend Mode") { $0.blendMode = v }
             }
         )
+    }
+
+    private func flipSelectedLayer(horizontal: Bool) {
+        guard let id = app.singleSelectedNodeID else { return }
+        mutateScopedNode(id, action: horizontal ? "Flip Horizontal" : "Flip Vertical") { node in
+            if horizontal { node.flipH.toggle() } else { node.flipV.toggle() }
+        }
     }
 
     // MARK: Auto Layout (stacking) bindings + controls
@@ -1386,13 +1569,40 @@ struct RightPanel: View {
 
     // MARK: Multi-selection style editing (font / fill / stroke applied to ALL)
 
-    private var selectedResolvedNodes: [Node] { app.selectedNodeIDs.compactMap { findScopedNode($0) } }
+    private var selectedResolvedNodes: [Node] {
+        let roots = app.selectedNodeIDs
+            .filter { !hasSelectedAncestorScoped($0) }
+            .compactMap { findScopedNode($0) }
+        return roots.flatMap(Self.flattenStyleTargets)
+    }
+
+    nonisolated private static func flattenStyleTargets(_ node: Node) -> [Node] {
+        var result = [node]
+        if case .group(let children) = node.content {
+            result.append(contentsOf: children.flatMap(flattenStyleTargets))
+        }
+        return result
+    }
+
+    nonisolated private static func mutateStyleTargets(_ node: inout Node, _ change: (inout Node) -> Void) {
+        change(&node)
+        if case .group(var children) = node.content {
+            for i in children.indices {
+                mutateStyleTargets(&children[i], change)
+            }
+            node.content = .group(children: children)
+        }
+    }
 
     /// Apply a change to EVERY selected node (recursing into groups), one undo step.
     private func mutateAllSelected(_ action: String, _ change: @escaping (inout Node) -> Void) {
-        let ids = app.selectedNodeIDs
+        let ids = app.selectedNodeIDs.filter { !hasSelectedAncestorScoped($0) }
         commitScoped(action) { nodes in
-            for id in ids { _ = Self.mutateNestedNode(id, in: &nodes, change) }
+            for id in ids {
+                _ = Self.mutateNestedNode(id, in: &nodes) { node in
+                    Self.mutateStyleTargets(&node, change)
+                }
+            }
         }
     }
     private func applyToAllText(_ action: String, _ change: @escaping (inout TextContent) -> Void) {
@@ -2207,14 +2417,6 @@ struct RightPanel: View {
                 .help("Weight / style")
             }
 
-            // Bold / Italic / Underline — selection while editing, else whole text.
-            HStack(spacing: 6) {
-                styleButton("bold", "Bold", "toggleBoldText:", active: boldActive)
-                styleButton("italic", "Italic", "toggleItalicText:", active: italicActive)
-                styleButton("underline", "Underline", "toggleUnderlineText:", active: underlineActive)
-                Spacer()
-            }
-
             HStack(spacing: 8) {
                 Text("Size").foregroundStyle(EXPColor.textSecondary).font(.callout)
                 TextField("", value: fontSizeBinding, format: .number.precision(.fractionLength(0)))
@@ -2311,28 +2513,6 @@ struct RightPanel: View {
     private var textCaseBinding: Binding<TextCase> {
         Binding(get: { selectedTextContent?.textCase ?? .none },
                 set: { c in updateTextContent(action: "Text Case", remeasure: true) { $0.textCase = c } })
-    }
-
-    private var boldActive: Bool {
-        if let s = app.textSelection { return s.bold == true }
-        if let tc = selectedTextContent { return NSFontManager.shared.traits(of: tc.firstRun.nsFont()).contains(.boldFontMask) }
-        return false
-    }
-    private var italicActive: Bool {
-        if let s = app.textSelection { return s.italic == true }
-        if let tc = selectedTextContent { return NSFontManager.shared.traits(of: tc.firstRun.nsFont()).contains(.italicFontMask) }
-        return false
-    }
-    private var underlineActive: Bool {
-        if let s = app.textSelection { return s.underline == true }
-        return selectedTextContent?.firstRun.underline ?? false
-    }
-
-    private func styleButton(_ symbol: String, _ help: String, _ selector: String, active: Bool) -> some View {
-        InspectorIconButton(symbol: symbol, active: active) {
-            sendCanvasAction(selector)
-        }
-        .help(help)
     }
 
     private var selectedTextContent: TextContent? {
