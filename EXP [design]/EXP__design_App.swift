@@ -238,6 +238,8 @@ private struct ObjectCommandItems: View {
             }
             .keyboardShortcut("k", modifiers: [.command, .shift])
             .disabled(menu?.canSetComponentCategory != true)
+            Button("Relationships…") { sendEditorAction("showRelationshipsAction:") }
+                .disabled(menu?.canEditRelationships != true)
         }
         Divider()
         Button("Convert to Path") { sendEditorAction("convertToPathAction:") }

@@ -29,7 +29,7 @@ final class SourceEditorWindowManager {
     // One window per source id; reused if already open. Delegates retained here
     // (NSWindow.delegate is weak).
     private var controllers: [UUID: NSWindowController] = [:]
-    private var delegates: [UUID: SharedUndoWindowDelegate] = [:]
+    private var delegates: [UUID: SourceEditorWindowDelegate] = [:]
 
     func open(sourceID: UUID, document: ExpDocument, undoManager: UndoManager?) {
         if let existing = controllers[sourceID] {
@@ -45,11 +45,15 @@ final class SourceEditorWindowManager {
         let rootView = SourceEditorView(app: app, document: document, sourceID: sourceID)
         let hosting = NSHostingController(rootView: rootView)
         let window = NSWindow(contentViewController: hosting)
-        window.setContentSize(NSSize(width: 880, height: 520))
         window.styleMask = [NSWindow.StyleMask.titled, .closable, .miniaturizable, .resizable]
         window.title = "Edit Component"
         window.isReleasedWhenClosed = false
-        window.center()
+        if let frame = SourceEditorWindowPreferences.windowFrame {
+            window.setFrame(frame, display: false)
+        } else {
+            window.setContentSize(SourceEditorWindowPreferences.defaultContentSize)
+            window.center()
+        }
 
         // The View-only backdrop picker rides in the titlebar (trailing), on one
         // row with the traffic lights + title — sharing this window's AppState.
@@ -60,7 +64,14 @@ final class SourceEditorWindowManager {
         backdropAccessory.view = backdropHost
         window.addTitlebarAccessoryViewController(backdropAccessory)
 
-        let delegate = SharedUndoWindowDelegate(undoManager: undoManager)
+        let delegate = SourceEditorWindowDelegate(
+            sourceID: sourceID,
+            document: document,
+            undoManager: undoManager,
+            onClose: { [weak self] id in
+                self?.controllers[id] = nil
+                self?.delegates[id] = nil
+            })
         window.delegate = delegate
         delegates[sourceID] = delegate
 
@@ -69,14 +80,94 @@ final class SourceEditorWindowManager {
         controller.showWindow(nil as Any?)
         window.makeKeyAndOrderFront(nil as Any?)
     }
+
+    func closeAll(for document: ExpDocument) {
+        let ids = delegates.compactMap { sourceID, delegate in
+            delegate.document === document ? sourceID : nil
+        }
+        for id in ids {
+            controllers[id]?.close()
+        }
+    }
 }
 
-/// Makes the source-editor window vend the document's undo manager, so the
-/// Edit menu's Undo/Redo (and ⌘Z) act on the same stack the canvas edits use.
-private final class SharedUndoWindowDelegate: NSObject, NSWindowDelegate {
+private enum SourceEditorWindowPreferences {
+    static let defaultContentSize = NSSize(width: 1120, height: 680)
+    static let defaultLeftPanelWidth: CGFloat = 220
+    static let defaultRightPanelWidth: CGFloat = 340
+
+    private static let windowFrameKey = "exp.sourceEditor.windowFrame.v1"
+    private static let leftPanelWidthKey = "exp.sourceEditor.leftPanelWidth.v1"
+    private static let rightPanelWidthKey = "exp.sourceEditor.rightPanelWidth.v1"
+
+    static var windowFrame: NSRect? {
+        get {
+            guard let string = UserDefaults.standard.string(forKey: windowFrameKey) else { return nil }
+            let rect = NSRectFromString(string)
+            return rect.width >= 760 && rect.height >= 340 ? rect : nil
+        }
+        set {
+            if let newValue {
+                UserDefaults.standard.set(NSStringFromRect(newValue), forKey: windowFrameKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: windowFrameKey)
+            }
+        }
+    }
+
+    static var leftPanelWidth: CGFloat {
+        get { storedWidth(leftPanelWidthKey, defaultValue: defaultLeftPanelWidth, range: 180...320) }
+        set { storeWidth(newValue, key: leftPanelWidthKey, range: 180...320) }
+    }
+
+    static var rightPanelWidth: CGFloat {
+        get { storedWidth(rightPanelWidthKey, defaultValue: defaultRightPanelWidth, range: 300...460) }
+        set { storeWidth(newValue, key: rightPanelWidthKey, range: 300...460) }
+    }
+
+    private static func storedWidth(_ key: String, defaultValue: CGFloat,
+                                    range: ClosedRange<CGFloat>) -> CGFloat {
+        let value = UserDefaults.standard.double(forKey: key)
+        guard value > 0 else { return defaultValue }
+        return min(max(CGFloat(value), range.lowerBound), range.upperBound)
+    }
+
+    private static func storeWidth(_ value: CGFloat, key: String,
+                                   range: ClosedRange<CGFloat>) {
+        guard value.isFinite, value > 0 else { return }
+        UserDefaults.standard.set(Double(min(max(value, range.lowerBound), range.upperBound)),
+                                  forKey: key)
+    }
+}
+
+/// Makes the source-editor window vend the document's undo manager, persists
+/// the last editor frame, and tells the manager when a user closes the window.
+private final class SourceEditorWindowDelegate: NSObject, NSWindowDelegate {
+    let sourceID: UUID
+    weak var document: ExpDocument?
     let undoManager: UndoManager?
-    init(undoManager: UndoManager?) { self.undoManager = undoManager }
+    let onClose: (UUID) -> Void
+
+    init(sourceID: UUID, document: ExpDocument, undoManager: UndoManager?,
+         onClose: @escaping (UUID) -> Void) {
+        self.sourceID = sourceID
+        self.document = document
+        self.undoManager = undoManager
+        self.onClose = onClose
+    }
+
     func windowWillReturnUndoManager(_ window: NSWindow) -> UndoManager? { undoManager }
+    func windowDidMove(_ notification: Notification) { saveFrame(notification) }
+    func windowDidResize(_ notification: Notification) { saveFrame(notification) }
+    func windowWillClose(_ notification: Notification) {
+        saveFrame(notification)
+        onClose(sourceID)
+    }
+
+    private func saveFrame(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow else { return }
+        SourceEditorWindowPreferences.windowFrame = window.frame
+    }
 }
 
 struct SourceEditorView: View {
@@ -236,12 +327,22 @@ struct SourceEditorView: View {
                 Divider()
                 HSplitView {
                     LayersPanel(document: document, scope: .source(sourceID))
-                        .frame(minWidth: 180, idealWidth: 200, maxWidth: 280)
+                        .frame(minWidth: 180,
+                               idealWidth: SourceEditorWindowPreferences.leftPanelWidth,
+                               maxWidth: 320)
+                        .background(SourceEditorWidthReporter { width in
+                            SourceEditorWindowPreferences.leftPanelWidth = width
+                        })
                     CanvasView(app: app, document: document, scope: .source(sourceID))
                         .frame(minWidth: 320, maxWidth: .infinity, maxHeight: .infinity)
                         .layoutPriority(1)
                     RightPanel(document: document, scope: .source(sourceID))
-                        .frame(minWidth: 240, idealWidth: 260, maxWidth: 340)
+                        .frame(minWidth: 300,
+                               idealWidth: SourceEditorWindowPreferences.rightPanelWidth,
+                               maxWidth: 460)
+                        .background(SourceEditorWidthReporter { width in
+                            SourceEditorWindowPreferences.rightPanelWidth = width
+                        })
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -249,6 +350,23 @@ struct SourceEditorView: View {
         .environment(app)
         .focusedSceneValue(\.editorMenu, makeEditorMenuModel(document: document, app: app, scope: .source(sourceID)))
         .frame(minWidth: 760, maxWidth: .infinity, minHeight: 340, maxHeight: .infinity)
+    }
+}
+
+private struct SourceEditorWidthReporter: View {
+    var onChange: (CGFloat) -> Void
+
+    var body: some View {
+        GeometryReader { proxy in
+            Color.clear
+                .onAppear { report(proxy.size.width) }
+                .onChange(of: proxy.size.width) { _, width in report(width) }
+        }
+    }
+
+    private func report(_ width: CGFloat) {
+        guard width.isFinite, width > 40 else { return }
+        onChange(width)
     }
 }
 

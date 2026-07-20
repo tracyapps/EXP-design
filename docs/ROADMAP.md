@@ -283,6 +283,20 @@ same machinery as instance overrides → CSS pseudo-classes/`data-state`),
 defines the rest), and **motion** as DTCG duration/cubicBezier/transition
 tokens (rides Chunk C). JS is never stored — it regenerates from the contract.
 
+Tester-facing v1.6 highlights for `expdesign.app/download#tester-features`:
+
+- [x] Component states: conventional + custom states, source-editor chips,
+      active-state editing, per-instance state picker, on-canvas state display,
+      and state-aware text/fill/visibility overrides.
+- [x] Accessibility surface: component role/category assignment stays visible in
+      the source editor, Components panel, and Object menu; per-state contrast
+      checks report WCAG ratio + AA/AAA status as the active state changes.
+- [x] Components panel improvements: list/grid display, generated thumbnails,
+      per-source state previews, category/role filtering, and matching actions
+      for open, rename, categorize, instantiate, select instances, and delete.
+- [x] Import/media tester notes: PDF import and embedded raster image support are
+      ready to include in the next public tester-feature list.
+
 - [x] Model: `states` on component definitions (override-diff per state) +
       schema bump/migration. DONE 2026-07-19: `ComponentState` in
       Document.swift (shared file, no new EXPThumbnail membership needed),
@@ -320,7 +334,14 @@ tokens (rides Chunk C). JS is never stored — it regenerates from the contract.
       as the canvas commit baseline.
 - [x] Inspector: state picker. DONE 2026-07-19 — per-instance
       `activeStateID` dropdown in the instance inspector.
-- [ ] Inspector: relationship picker (command-coverage rule)
+- [x] Inspector: relationship picker. DONE 2026-07-20 — source-editor
+      Properties inspector shows `Controls`, `Labelled By`, and `Described By`
+      target pickers for a selected source layer, offering only layers from the
+      same component source and excluding the selected layer itself. Writes go to
+      the base source even while a visual state is active, so relationships stay
+      semantic rather than state-specific. Command coverage: Object ▸ Component ▸
+      Relationships… plus source-canvas context menu, both validated/greyed out
+      unless a single source layer is selected.
 - [x] Contrast checks run per-state, not just default. DONE 2026-07-19:
       `ComponentContrastAudit` (SourceEditorWindow.swift) evaluates each text
       layer against the surface it sits on, resolved through the same instance
@@ -353,9 +374,14 @@ with the design. Full chunk breakdown, risks, and release mapping live in
       File ▸ Export menus kept per command-coverage rule) → F3 write-back v2.3+
 - [ ] **Chunk G — XD import** (.xd = frozen ZIP-of-JSON; rides the same
       InteropCodec pipeline; proves importers before Figma) — v2.1
-- [ ] **Chunk H — Component states & behavior contract** (states as
+- [x] **Chunk H — Component states & behavior contract** (states as
       override-diffs, ARIA relationships, motion tokens; interaction data as
-      contract, never JS; components-panel grid redesign) — v1.6
+      contract, never JS; components-panel grid redesign) — v1.6 shipped:
+      component states, per-instance state selection, per-state contrast checks,
+      component role/category assignment surfaces, and Components-panel grid/state
+      previews are done. Inspector relationship authoring is now wired. Motion
+      token UI remains intentionally deferred to the later Design Tokens /
+      transitions authoring pass; the model hook is present.
 - [x] Near-term prep (shipped in v1.4): add `schemaVersion` to
       saved .design files so v1.x files self-identify to future readers.
       DONE 2026-07-15: top-level `Document.schemaVersion = 1`, tolerant decode
@@ -1588,6 +1614,38 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-07-20 — v1.6 source-editor polish + lifecycle cleanup:** Added icon
+  markers to the Properties inspector section titles and a Relationships help
+  tooltip that explains when to use `controls`, `labelledby`, and `describedby`
+  in designer-facing language. Made component source-editor windows larger by
+  default, widened the source Properties panel, and persisted the last component
+  editor window frame plus left/right split widths for the next source window.
+  Manual source-window closes now clean up their manager entry, and closing the
+  owning document closes its component source windows with it.
+
+- **2026-07-20 — v1.6 scope closed: relationship authoring:** Finished the last
+  concrete v1.6 Chunk H checklist item. The source-editor Properties inspector
+  now has a Relationships section for selected source layers with `Controls`,
+  `Labelled By`, and `Described By` pickers; targets are scoped to the same
+  component source and skip the selected layer. Relationship writes bypass
+  state-diff capture and update the base source even while viewing/editing a
+  visual state, keeping ARIA semantics stable across hover/focus/etc. Command
+  coverage added Object ▸ Component ▸ Relationships… and a source-canvas
+  context-menu item, both greyed out unless a single source layer is selected.
+  Marked Chunk H complete for v1.6; motion-token authoring stays deferred to the
+  later Design Tokens/transitions UI while the model hook remains in place.
+  VERIFIED: Debug xcodebuild succeeds with existing warnings only.
+
+- **2026-07-20 — v1.6 tester-feature roadmap/site sync:** Added an explicit
+  tester-facing v1.6 highlight block so `expdesign.app/download#tester-features`
+  can list component states, per-state accessibility contrast checks, ARIA
+  role/category assignment, Components-panel list/grid previews, PDF import, and
+  embedded raster images in the next release push. Marked v2 Chunk H as partially
+  shipped rather than fully closed: component states and panel previews are done;
+  relationship-picker UI and motion-token authoring remain. Marked the resolved
+  SwiftUI view-update warning done in BACKLOG after owner verification, which
+  removes it from generated public known issues.
 
 - **2026-07-19 — Console/testing-menu cleanup:** Quieted the old developer
   instrumentation surfaces for normal Xcode runs. Removed the automatic

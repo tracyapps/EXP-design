@@ -80,6 +80,7 @@ struct MainWindow: View {
         // changes. (The tray set is global — PanelHub — so a 2nd document doesn't
         // open a 2nd set of panels.)
         .onAppear { activate() }
+        .onDisappear { SourceEditorWindowManager.shared.closeAll(for: document) }
         .onChange(of: controlActiveState) { _, state in if state == .key { activate() } }
         .onChange(of: app.workspaceMode) { _, _ in activate() }
         .onChange(of: PanelHub.shared.trays) { _, _ in PanelWindowManager.shared.reconcile() }
@@ -516,6 +517,7 @@ struct EditorMenuModel {
     var canEditComponent: Bool
     var canDetachComponent: Bool
     var canSetComponentCategory: Bool
+    var canEditRelationships: Bool
     var canAddComponentState: Bool
     var addComponentStateTitle: String
     var canCycleComponentState: Bool
@@ -568,6 +570,14 @@ func makeEditorMenuModel(document: ExpDocument, app: AppState, scope: CanvasScop
                let found = parentID(of: id, in: children, parent: node.id) { return found }
         }
         return nil
+    }
+    func flatten(_ nodes: [Node]) -> [Node] {
+        nodes.flatMap { node -> [Node] in
+            if case .group(let children) = node.content {
+                return [node] + flatten(children)
+            }
+            return [node]
+        }
     }
     let selectedIDs = app.selectedNodeIDs
     let selectedNodes = selectedIDs.compactMap { find($0, in: nodes) }
@@ -627,6 +637,7 @@ func makeEditorMenuModel(document: ExpDocument, app: AppState, scope: CanvasScop
         canEditComponent: hasInstance,
         canDetachComponent: hasInstance,
         canSetComponentCategory: source != nil || hasInstance,
+        canEditRelationships: source != nil && singleNode != nil && flatten(nodes).count > 1,
         canAddComponentState: source != nil,
         addComponentStateTitle: stateName,
         canCycleComponentState: !(source?.states.isEmpty ?? true),
@@ -664,6 +675,31 @@ func sendCanvasAction(_ selectorName: String) {
             return
         }
         responder = r.nextResponder
+    }
+}
+
+private struct InspectorSectionTitle: View {
+    let title: String
+    let icon: String
+    var helpTitle: String? = nil
+    var helpBody: String? = nil
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(systemName: icon)
+                .font(.system(size: EXPType.small))
+                .foregroundStyle(EXPColor.textTertiary)
+                .accessibilityHidden(true)
+            Text(title).expSectionLabel()
+            if let helpBody {
+                Image(systemName: "questionmark.circle")
+                    .font(.system(size: EXPType.small))
+                    .foregroundStyle(EXPColor.textTertiary)
+                    .expFieldTip(helpTitle ?? title, helpBody)
+                    .accessibilityLabel("\(title) help")
+            }
+        }
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -795,6 +831,64 @@ struct RightPanel: View {
         return findScopedNode(id)   // resolves nested children too
     }
 
+    private struct RelationshipTarget: Identifiable {
+        let id: UUID
+        let title: String
+        let icon: String
+    }
+
+    /// Relationship authoring is part of the component behavior contract, so the
+    /// target list comes from the BASE source tree even when a visual state is
+    /// active. State overrides can change how a layer looks; ARIA links stay on
+    /// the source structure.
+    private var relationshipSourceNodes: [Node] {
+        guard case .source(let sid) = scope else { return [] }
+        return document.model.source(for: sid)?.children ?? []
+    }
+
+    private var relationshipTargets: [RelationshipTarget] {
+        guard let selectedID = app.singleSelectedNodeID else { return [] }
+        func collect(_ nodes: [Node], depth: Int = 0) -> [RelationshipTarget] {
+            nodes.flatMap { node -> [RelationshipTarget] in
+                let prefix = depth == 0 ? "" : String(repeating: "  ", count: depth)
+                let target = node.id == selectedID ? [] : [
+                    RelationshipTarget(id: node.id,
+                                       title: "\(prefix)\(node.name)",
+                                       icon: nodeTypeIcon(node))
+                ]
+                if case .group(let children) = node.content {
+                    return target + collect(children, depth: depth + 1)
+                }
+                return target
+            }
+        }
+        return collect(relationshipSourceNodes)
+    }
+
+    private func currentRelationshipTargetID(_ kind: NodeRelationship.Kind) -> UUID? {
+        selectedNode?.relationships.first { $0.kind == kind }?.targetID
+    }
+
+    private func relationshipBinding(_ kind: NodeRelationship.Kind) -> Binding<UUID?> {
+        Binding(
+            get: { currentRelationshipTargetID(kind) },
+            set: { targetID in
+                guard let selectedID = app.singleSelectedNodeID,
+                      case .source(let sid) = scope,
+                      let si = document.model.sources.firstIndex(where: { $0.id == sid }) else { return }
+                var model = document.model
+                _ = Self.mutateNestedNode(selectedID, in: &model.sources[si].children) { node in
+                    node.relationships.removeAll { $0.kind == kind }
+                    if let targetID {
+                        node.relationships.append(NodeRelationship(kind: kind, targetID: targetID))
+                    }
+                }
+                document.setModel(model, undoManager: undoManager,
+                                  actionName: "Set \(kind.label) Relationship")
+            }
+        )
+    }
+
     /// Document-space offset to subtract for display so a shape's X/Y read
     /// relative to its owning artboard (0 on the wall, and 0 in source scope).
     private func ownerOffset(_ keyPath: WritableKeyPath<CGRect, CGFloat>) -> CGFloat {
@@ -827,7 +921,7 @@ struct RightPanel: View {
             if let node = selectedNode {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 6) {
-                        Text("Layer").expSectionLabel()
+                        InspectorSectionTitle(title: "Layer", icon: nodeTypeIcon(node))
                         Spacer(minLength: 0)
                         // Lock toggle (also ⌘L / ⌘⇧L, the layer row, and right-click).
                         Button { toggleLockSelected(node) } label: {
@@ -924,6 +1018,7 @@ struct RightPanel: View {
                 .font(.callout)
                 .padding(.horizontal, 12)
                 .padding(.bottom, 8)
+                relationshipControls()
                 if case .group = node.content {
                     Divider()
                     autoLayoutControls()
@@ -975,7 +1070,7 @@ struct RightPanel: View {
                     .padding(12)
             } else if selectedArtboard != nil {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Artboard").expSectionLabel()
+                    InspectorSectionTitle(title: "Artboard", icon: "rectangle.dashed")
                     TextField("Name", text: artboardNameBinding)
                         .textFieldStyle(.exp)
                         .font(.callout.weight(.semibold))
@@ -1197,6 +1292,43 @@ struct RightPanel: View {
         }
     }
 
+    @ViewBuilder
+    private func relationshipControls() -> some View {
+        if case .source = scope, selectedNode != nil {
+            let targets = relationshipTargets
+            Divider()
+            VStack(alignment: .leading, spacing: 8) {
+                InspectorSectionTitle(
+                    title: "Relationships",
+                    icon: "point.3.connected.trianglepath.dotted",
+                    helpBody: "Use Controls when this layer operates another layer, like a tab controlling a panel. Use Labelled By when a visible text layer gives this layer its accessible name. Use Described By for helper, hint, or error text that explains this layer.")
+                ForEach(NodeRelationship.Kind.allCases, id: \.self) { kind in
+                    HStack(spacing: 6) {
+                        Text(kind.label)
+                            .foregroundStyle(EXPColor.textSecondary)
+                            .frame(width: 86, alignment: .leading)
+                        Picker(kind.label, selection: relationshipBinding(kind)) {
+                            Text("None").tag(UUID?.none)
+                            if let missing = currentRelationshipTargetID(kind),
+                               !targets.contains(where: { $0.id == missing }) {
+                                Text("Missing layer").tag(UUID?.some(missing))
+                            }
+                            ForEach(targets) { target in
+                                Label(target.title, systemImage: target.icon)
+                                    .tag(UUID?.some(target.id))
+                            }
+                        }
+                        .labelsHidden()
+                        .help(kind.ariaAttribute)
+                    }
+                }
+            }
+            .font(.callout)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+        }
+    }
+
     // MARK: Auto Layout (stacking) bindings + controls
 
     private var selectedAutoLayout: AutoLayout? { selectedNode?.autoLayout }
@@ -1243,7 +1375,7 @@ struct RightPanel: View {
     private func autoLayoutControls() -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("Auto Layout").expSectionLabel()
+                InspectorSectionTitle(title: "Auto Layout", icon: "lines.measurement.horizontal")
                 Spacer()
                 Toggle("", isOn: alEnabledBinding)
                     .labelsHidden().toggleStyle(.switch).controlSize(.mini)
@@ -1336,7 +1468,7 @@ struct RightPanel: View {
     private func autoPaddingControls() -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("Auto Padding").expSectionLabel()
+                InspectorSectionTitle(title: "Auto Padding", icon: "rectangle.inset.filled")
                 Spacer()
                 Toggle("", isOn: apEnabledBinding)
                     .labelsHidden().toggleStyle(.switch).controlSize(.mini)
@@ -1779,7 +1911,7 @@ struct RightPanel: View {
         VStack(alignment: .leading, spacing: 8) {
             if multiAnyText {
                 Divider()
-                Text("Type").expSectionLabel().padding(.top, 4)
+                InspectorSectionTitle(title: "Type", icon: "textformat").padding(.top, 4)
                 Menu {
                     Button("System") { applyFontFamilyAll("") }
                     Divider()
@@ -1804,12 +1936,12 @@ struct RightPanel: View {
             }
             if multiAnyFill {
                 Divider()
-                Text("Fill").expSectionLabel().padding(.top, 4)
+                InspectorSectionTitle(title: "Fill", icon: "paintpalette").padding(.top, 4)
                 PaintWell(label: "Fill", paint: multiFillBinding)
             }
             if multiAnyStroke {
                 Divider()
-                Text("Stroke").expSectionLabel().padding(.top, 4)
+                InspectorSectionTitle(title: "Stroke", icon: "pencil.line").padding(.top, 4)
                 ColorWell(label: "Color", color: multiStrokeBinding)
                 HStack(spacing: 8) {
                     Text("Width").foregroundStyle(EXPColor.textSecondary)
@@ -1841,7 +1973,7 @@ struct RightPanel: View {
         let count = app.selectedNodeIDs.count
         let alignOK = count >= 2 || app.alignTarget == .artboard
         VStack(alignment: .leading, spacing: 8) {
-            Text("Align").expSectionLabel().padding(.top, 4)
+            InspectorSectionTitle(title: "Align", icon: "align.horizontal.left").padding(.top, 4)
 
             // "Relative to" scope on its own labeled row — a segmented control, so
             // it reads as a mode toggle and can't be confused with the icon buttons.
@@ -1895,7 +2027,7 @@ struct RightPanel: View {
 
     @ViewBuilder private func uniformGridControls() -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Grid").expSectionLabel()
+            InspectorSectionTitle(title: "Grid", icon: "grid")
             Toggle("Show grid", isOn: Binding(get: { app.showGrid }, set: { app.showGrid = $0 }))
             HStack(spacing: 8) {
                 Text("Size").foregroundStyle(EXPColor.textSecondary)
@@ -1924,7 +2056,7 @@ struct RightPanel: View {
         let grids = selectedArtboard?.layoutGrids ?? []
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-				Text("Layout Grids").expSectionLabel().padding(.top, 4)
+                InspectorSectionTitle(title: "Layout Grids", icon: "square.grid.3x3").padding(.top, 4)
 
                 Spacer()
                 Menu {
@@ -2035,7 +2167,7 @@ struct RightPanel: View {
         let effects = selectedNode?.effects ?? []
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("Effects").expSectionLabel()
+                InspectorSectionTitle(title: "Effects", icon: "sparkles")
                 Spacer()
                 Menu {
                     Button("Drop Shadow") { addEffect(.dropShadow) }
@@ -2379,7 +2511,7 @@ struct RightPanel: View {
     private func textControls() -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Divider()
-            Text("Type").expSectionLabel().padding(.top, 2)
+            InspectorSectionTitle(title: "Type", icon: "textformat").padding(.top, 2)
 
             // Typeface — families rendered in their own face.
             Menu {
@@ -2616,7 +2748,7 @@ struct RightPanel: View {
     private func lineControls() -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Divider()
-            Text("Stroke").expSectionLabel()
+            InspectorSectionTitle(title: "Stroke", icon: "pencil.line")
             HStack(spacing: 8) {
                 Text("Width").foregroundStyle(EXPColor.textSecondary).font(.callout)
                 TextField("", value: strokeWidthBinding, format: .number.precision(.fractionLength(0)))
@@ -2698,7 +2830,7 @@ struct RightPanel: View {
                 // Phase 19a: component CATEGORY (curated ARIA roles as organizing
                 // vocabulary). Friendly labels shown; token stored on the SOURCE,
                 // so every instance and the Components panel update together.
-                Text("Category").expSectionLabel()
+                InspectorSectionTitle(title: "Category", icon: "tag")
                 Picker("Component category", selection: componentCategoryBinding(ctx.source.id)) {
                     Text("Uncategorized").tag(AriaRole?.none)
                     ForEach(AriaRole.grouped(), id: \.category) { group in
@@ -2718,7 +2850,7 @@ struct RightPanel: View {
                 // Only shown when the source actually defines states.
                 if !ctx.source.states.isEmpty {
                     Divider()
-                    Text("State").expSectionLabel()
+                    InspectorSectionTitle(title: "State", icon: "square.filled.and.line.vertical.and.square")
                     Picker("Component state", selection: instanceStateBinding()) {
                         Text("default").tag(UUID?.none)
                         ForEach(ctx.source.states) { st in
@@ -2730,7 +2862,7 @@ struct RightPanel: View {
                 }
 
                 Divider()
-                Text("Overrides").expSectionLabel()
+                InspectorSectionTitle(title: "Overrides", icon: "arrow.left.arrow.right")
 
                 ForEach(overridableChildren(ctx.source.children)) { child in
                     switch child.content {
@@ -2889,7 +3021,7 @@ struct RightPanel: View {
                 }
             }
             Divider()
-            Text("Stroke").expSectionLabel()
+            InspectorSectionTitle(title: "Stroke", icon: "pencil.line")
             ColorWell(label: "Color", color: shapeStrokeBinding)
             HStack(spacing: 8) {
                 Text("Width").foregroundStyle(EXPColor.textSecondary).font(.callout)
@@ -3117,8 +3249,9 @@ extension RightPanel {
                 if app.tool == .node, app.selectedPointCount > 0 {
                     Divider()
                     HStack(spacing: 4) {
-                        Text(app.selectedPointCount == 1 ? "1 point selected" : "\(app.selectedPointCount) points selected")
-                            .expSectionLabel()
+                        InspectorSectionTitle(
+                            title: app.selectedPointCount == 1 ? "1 point selected" : "\(app.selectedPointCount) points selected",
+                            icon: "point.3.connected.trianglepath.dotted")
                         Spacer()
                         Text("R").foregroundStyle(EXPColor.textSecondary)
                         TextField("", value: pointRotationBinding, format: .number.precision(.fractionLength(0)))
@@ -3137,7 +3270,7 @@ extension RightPanel {
                     PaintWell(label: "Fill", paint: pathFillBinding)
                 }
                 Divider()
-                Text("Stroke").expSectionLabel()
+                InspectorSectionTitle(title: "Stroke", icon: "pencil.line")
                 ColorWell(label: "Color", color: pathStrokeBinding)
                 HStack(spacing: 8) {
                     Text("Width").foregroundStyle(EXPColor.textSecondary).font(.callout)
@@ -3265,7 +3398,7 @@ private struct InstanceTextRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text(name).expSectionLabel()
+                InspectorSectionTitle(title: name, icon: "textformat")
                 Spacer()
                 if hasOverride {
                     Button(action: onReset) { Image(systemName: "arrow.uturn.backward") }

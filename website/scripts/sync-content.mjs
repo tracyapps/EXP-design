@@ -124,7 +124,7 @@ function parseBacklog(markdown, limit = 6) {
     .split(/\n(?=### [A-Z]+-\d+ — )/g)
     .filter((entry) => entry.trim().startsWith("### "));
 
-  return entries.slice(0, limit).map((entry) => {
+  return entries.map((entry) => {
     const match = entry.match(/^### ([A-Z]+-\d+) — ([^\n]+)\n([\s\S]*)$/);
     const body = match?.[3] ?? "";
     const field = (name) => {
@@ -152,7 +152,9 @@ function parseBacklog(markdown, limit = 6) {
       status: field("Status"),
       detail: excerpt(field("Repro/Detail"), 180),
     };
-  });
+  })
+    .filter((item) => !/^done/i.test(item.status))
+    .slice(0, limit);
 }
 
 function buildRoadmapCards(phases, progressLog) {
@@ -246,8 +248,29 @@ const testerPhaseCopy = [
   },
 ];
 
+const testerNextBuildCopy = [
+  {
+    phase: "v1.6 scope — Component states & accessibility",
+    title: "Component states",
+    status: "next build",
+    body: "Create hover, pressed, focus, disabled, and custom source states; edit text, fill, and visibility per state; assign ARIA role categories; and check contrast for each active state.",
+  },
+  {
+    phase: "v1.6 scope — Components panel",
+    title: "Component previews",
+    status: "next build",
+    body: "Switch the Components panel between list and grid, scan generated thumbnails, preview each source state, and use the fuller component actions from either display.",
+  },
+  {
+    phase: "Phase 14 + import pipeline",
+    title: "PDF and image import",
+    status: "ready",
+    body: "Place embedded raster images as document nodes, render and export them with the canvas, and bring PDF pages into EXP for editing through the import path.",
+  },
+];
+
 function buildTesterFeatures(phases) {
-  return testerPhaseCopy
+  const phaseFeatures = testerPhaseCopy
     .map((copy) => {
       const phase = phases.find((item) => item.title.includes(copy.match));
       if (!phase) {
@@ -262,6 +285,8 @@ function buildTesterFeatures(phases) {
       };
     })
     .filter(Boolean);
+
+  return [...phaseFeatures, ...testerNextBuildCopy];
 }
 
 function buildTesterKnownIssues(backlog, limit = 4) {

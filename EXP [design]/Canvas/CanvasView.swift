@@ -1756,6 +1756,22 @@ final class CanvasNSView: NSView {
     /// True when this canvas edits a component source rather than the document.
     private var isSourceScope: Bool { if case .source = scope { return true }; return false }
 
+    private func flattenedNodes(_ nodes: [Node]) -> [Node] {
+        nodes.flatMap { node -> [Node] in
+            if case .group(let children) = node.content {
+                return [node] + flattenedNodes(children)
+            }
+            return [node]
+        }
+    }
+
+    private var canEditRelationships: Bool {
+        guard isSourceScope, let app, app.selectedNodeIDs.count == 1,
+              let selectedID = app.selectedNodeIDs.first else { return false }
+        let allNodes = flattenedNodes(currentNodes)
+        return allNodes.count > 1 && allNodes.contains { $0.id == selectedID }
+    }
+
     /// Replace the current scope's node list and register one undo step.
     private func commitNodes(_ newNodes: [Node], actionName: String) {
         guard let document else { return }
@@ -7971,6 +7987,11 @@ final class CanvasNSView: NSView {
         app.layersRevealSelection?()
         DispatchQueue.main.async { app.layersRevealSelection?() }
     }
+    @objc func showRelationshipsAction(_ sender: Any?) {
+        guard let app, canEditRelationships else { return }
+        if !app.isPanelShown(.properties) { app.togglePanel(.properties) }
+        app.showRightPanel = true
+    }
 
     // MARK: Panels menu (show/hide panels, reset layout)
 
@@ -8755,6 +8776,9 @@ final class CanvasNSView: NSView {
                 add(menu, "Move Item Forward", #selector(nudgeItemForwardAction(_:)))
                 add(menu, "Move Item Backward", #selector(nudgeItemBackwardAction(_:)))
             }
+            if canEditRelationships {
+                add(menu, "Relationships…", #selector(showRelationshipsAction(_:)))
+            }
             add(menu, "Create Component", #selector(createComponentAction(_:)))
             if case .instance(let inst) = hit.content {
                 add(menu, "Edit Component", #selector(editComponentAction(_:)))
@@ -8919,6 +8943,8 @@ extension CanvasNSView: NSMenuItemValidation {
             return app?.layersExpandAll != nil
         case #selector(revealSelectionInLayersAction(_:)):
             return hasNodes
+        case #selector(showRelationshipsAction(_:)):
+            return canEditRelationships
         case #selector(toggleAutoLayoutAction(_:)):
             // Title flips to reflect what the command will do to the selection.
             item.title = selectedGroupHasAutoLayout ? "Remove Auto Layout" : "Add Auto Layout"

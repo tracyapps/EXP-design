@@ -114,13 +114,9 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: bug
 - Priority: P1
 - Area: inspector · chrome
-- Status: needs-verify (Session 162f — `NumericStepping.onKeyPress` now defers
-  the binding write one runloop tick via `DispatchQueue.main.async`, moving the
-  model mutation outside SwiftUI's update pass. Step sizes, ⇧/⌥ modifiers,
-  key-repeat acceleration, and undo unchanged. IF a warning flood still appears
-  at LAUNCH (without touching the inspector), that's a second site — hunt it
-  with a symbolic breakpoint on the warning; window restoration writing to
-  AppState during body evaluation is the suspect.)
+- Status: done (2026-07-20 — owner reports the warning has not reappeared after
+  the Session 162f deferred stepper writes and later inspector/menu cleanup; keep
+  watching normal tester runs, but remove it from public known issues.)
 - Repro/Detail: Owner isolated it (2026-07-02): using the KEYBOARD arrows to
   increase/decrease values in inspector fields fires the warning; it also
   floods ~40× at app launch. Session 124-era mystery, now reproducible.
