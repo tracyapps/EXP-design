@@ -35,6 +35,7 @@ enum AppPreferences {
     static let sourceBackdrop      = "exp.pref.sourceBackdrop"       // String (CanvasBackdrop raw), default "light"
     static let accentOverride      = "exp.pref.accentOverride"      // String "#RRGGBB"; ABSENT = follow macOS system accent (default)
     static let performanceMode     = "exp.pref.performanceMode"     // String (CanvasPerformanceMode raw), default "balanced"
+    static let statesBarCompact    = "exp.pref.statesBarCompact"    // Bool, default false (extended chip row)
     static let requestedSettingsPane = "exp.settings.requestedPane" // String (SettingsPane raw); "" = none. Lets a window jump Settings to a pane.
 
     // Defaults (kept next to the keys so AppState and Settings agree).

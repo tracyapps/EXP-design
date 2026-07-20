@@ -59,7 +59,8 @@ struct CanvasView: NSViewRepresentable {
         _ = (app.zoom, app.panOffset, app.tool,
              app.selectedArtboardIDs, app.selectedNodeIDs,
              document.model.nodes.count, document.model.artboards.count,
-             document.model.sources.count, app.sourceBackdrop)
+             document.model.sources.count, app.sourceBackdrop,
+             app.activeComponentStateID)   // state switch redraws the preview
         // Inspector text-style changes are applied synchronously via
         // `app.applyTextStyle` (installed in beginEditingText), not through this
         // update cycle — see AppState.applyTextStyle.
@@ -1697,12 +1698,30 @@ final class CanvasNSView: NSView {
         return document.model.sources[si].bounds
     }
 
-    /// The editable node list for the current scope.
+    /// The component STATE being edited in this window (source scope only;
+    /// nil = default/base). Display resolves through it and `commitNodes`
+    /// splits edits into base + diff while it's set (v1.6 Chunk H).
+    private var activeEditingState: ComponentState? {
+        guard case .source = scope, let sid = app?.activeComponentStateID,
+              let si = sourceIndex, let document else { return nil }
+        return document.model.sources[si].states.first { $0.id == sid }
+    }
+
+    /// The editable node list for the current scope. With a component state
+    /// active, this is the base children WITH the state's text/fill overrides
+    /// applied — display, hit-testing, and editing all see the state's look,
+    /// while the underlying model keeps base + diff separate.
     private var currentNodes: [Node] {
         guard let document else { return [] }
         switch scope {
         case .document: return document.model.nodes
-        case .source: return sourceIndex.map { document.model.sources[$0].children } ?? []
+        case .source:
+            guard let si = sourceIndex else { return [] }
+            let children = document.model.sources[si].children
+            if let state = activeEditingState {
+                return ComponentStateEditing.applied(children, state: state)
+            }
+            return children
         }
     }
 
@@ -1724,6 +1743,27 @@ final class CanvasNSView: NSView {
     /// Replace the current scope's node list and register one undo step.
     private func commitNodes(_ newNodes: [Node], actionName: String) {
         guard let document else { return }
+        // Editing a component STATE: split the edited tree into base + diff.
+        // Text and fill changes become the state's override-diff; geometry and
+        // structural edits pass through to the base shared by every state.
+        if case .source(let sid) = scope, let state = activeEditingState {
+            var model = document.model
+            guard let si = model.sources.firstIndex(where: { $0.id == sid }) else { return }
+            let (newBase, newState) = ComponentStateEditing.capture(
+                base: model.sources[si].children, edited: newNodes, state: state)
+            let reflowed = AutoLayoutEngine.reflowed(newBase)
+            let fitSourceBounds = model.sourceUsesManagedBounds(model.sources[si])
+            model.sources[si].children = reflowed
+            if let sti = model.sources[si].states.firstIndex(where: { $0.id == state.id }) {
+                model.sources[si].states[sti] = newState
+            }
+            if fitSourceBounds, let bounds = model.managedRootBounds(in: reflowed) {
+                model.sources[si].origin = bounds.origin
+                model.sources[si].size = bounds.size
+            }
+            document.setModel(model, undoManager: undoManager, actionName: actionName)
+            return
+        }
         // Reflow auto-layout frames before committing, so any change (text growing,
         // a child resized/added/removed, a layout setting tweaked) ripples through
         // managed frames in the same undo step.
@@ -4953,14 +4993,23 @@ final class CanvasNSView: NSView {
             }
         }
 
-        // The bounding-box outline is optional (View ▸ Show Selection Bounds).
+        // Bounding-box outline (optional — View ▸ Show Selection Bounds). Component
+        // instances get PURPLE double-outline chrome + a top label bar (icon ·
+        // Name — State · state dropdown) instead of the plain accent box, so a
+        // component reads unmistakably as a component and its state is switchable
+        // right on the canvas.
         if app?.showSelectionBounds ?? true {
             perf.measure("sel-bounds") {
-                ctx.saveGState()
-                NSColor.controlAccentColor.setStroke()
-                ctx.setLineWidth(1.5)
-                ctx.stroke(rect)
-                ctx.restoreGState()
+                if case .instance(let inst) = node.content,
+                   let source = document?.model.source(for: inst.sourceID) {
+                    drawInstanceChrome(rect: rect, inst: inst, source: source, in: ctx)
+                } else {
+                    ctx.saveGState()
+                    NSColor.controlAccentColor.setStroke()
+                    ctx.setLineWidth(1.5)
+                    ctx.stroke(rect)
+                    ctx.restoreGState()
+                }
             }
         }
 
@@ -4972,6 +5021,155 @@ final class CanvasNSView: NSView {
             }
             drawRotateKnob(topMid: handlePoint(.top, in: rect), in: ctx)
         }
+    }
+
+    // MARK: Component instance chrome (purple double outline + state dropdown)
+
+    /// Represented object for the component-state menu items (which instance node,
+    /// which source state — nil = base/default).
+    private final class InstanceStateChoice: NSObject {
+        let nodeID: UUID
+        let stateID: UUID?
+        init(nodeID: UUID, stateID: UUID?) { self.nodeID = nodeID; self.stateID = stateID }
+    }
+
+    /// "Name — State" shown on the instance's label bar.
+    private func instanceLabelText(_ inst: ComponentInstance, _ source: ComponentSource) -> String {
+        let state = inst.activeStateID.flatMap { id in source.states.first { $0.id == id } }?.name ?? "default"
+        return "\(source.name) \u{2014} \(state)"
+    }
+
+    /// The label bar's view-space rect (sits just above the selection box). Sized
+    /// to its content and allowed to overhang a narrow instance, Figma-style.
+    private func instanceChromeBarRect(for rect: CGRect, text: String) -> CGRect {
+        let h: CGFloat = 17
+        let textW = (text as NSString).size(withAttributes:
+            [.font: NSFont.systemFont(ofSize: 10, weight: .medium)]).width
+        // padL 6 + icon 14 + gap 4 + text + gap 4 + chevron 14 + padR 6 = text + 48
+        return CGRect(x: rect.minX, y: rect.minY - h - 3, width: ceil(textW) + 48, height: h)
+    }
+
+    /// The dropdown chevron's rect within the label bar (right end).
+    private func instanceChevronRect(inBar bar: CGRect) -> CGRect {
+        CGRect(x: bar.maxX - 6 - 14, y: bar.minY, width: 14, height: bar.height)
+    }
+
+    /// Draw an SF Symbol tinted white, centered (natural size) in `box`.
+    private func drawWhiteSymbol(_ name: String, pointSize: CGFloat, centeredIn box: CGRect) {
+        let cfg = NSImage.SymbolConfiguration(pointSize: pointSize, weight: .semibold)
+            .applying(NSImage.SymbolConfiguration(paletteColors: [.white]))
+        guard let img = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+            .withSymbolConfiguration(cfg) else { return }
+        let s = img.size
+        img.draw(in: CGRect(x: box.midX - s.width / 2, y: box.midY - s.height / 2,
+                            width: s.width, height: s.height))
+    }
+
+    /// Purple double-outline + top label bar for a selected component instance.
+    private func drawInstanceChrome(rect: CGRect, inst: ComponentInstance,
+                                    source: ComponentSource, in ctx: CGContext) {
+        let purple = NSColor.systemPurple
+        ctx.saveGState()
+        purple.setStroke()
+        ctx.setLineWidth(1.5); ctx.stroke(rect)
+        ctx.setLineWidth(1);   ctx.stroke(rect.insetBy(dx: 2.5, dy: 2.5))
+        ctx.restoreGState()
+
+        let text = instanceLabelText(inst, source)
+        let bar = instanceChromeBarRect(for: rect, text: text)
+        ctx.saveGState()
+        purple.setFill()
+        NSBezierPath(roundedRect: bar, xRadius: 3, yRadius: 3).fill()
+        drawWhiteSymbol("rectangle.3.group", pointSize: 10,
+                        centeredIn: CGRect(x: bar.minX + 6, y: bar.minY, width: 14, height: bar.height))
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 10, weight: .medium),
+            .foregroundColor: NSColor.white
+        ]
+        (text as NSString).draw(at: CGPoint(x: bar.minX + 24, y: bar.midY - 6), withAttributes: attrs)
+        drawWhiteSymbol("chevron.down", pointSize: 8, centeredIn: instanceChevronRect(inBar: bar))
+        ctx.restoreGState()
+    }
+
+    /// The single selected component instance + its view-space box, or nil.
+    private func selectedInstanceForChrome()
+        -> (node: Node, inst: ComponentInstance, source: ComponentSource, rect: CGRect)? {
+        guard let app, let document, let id = app.singleSelectedNodeID, let n = node(id),
+              n.rotation == 0, case .instance(let inst) = n.content,
+              let source = document.model.source(for: inst.sourceID) else { return nil }
+        var boxFrame = n.frame
+        let size = document.model.resolvedSize(of: inst)
+        if size.width > 0 { boxFrame = CGRect(origin: n.frame.origin, size: size) }
+        return (n, inst, source, docToView(boxFrame))
+    }
+
+    /// If the click landed on the selected instance's dropdown chevron, open the
+    /// state menu and report handled.
+    private func presentInstanceStateMenuIfHit(at p: CGPoint) -> Bool {
+        guard app?.showSelectionBounds ?? true, let sel = selectedInstanceForChrome() else { return false }
+        let bar = instanceChromeBarRect(for: sel.rect, text: instanceLabelText(sel.inst, sel.source))
+        guard instanceChevronRect(inBar: bar).insetBy(dx: -5, dy: -3).contains(p) else { return false }
+        presentInstanceStateMenu(forNode: sel.node.id, source: sel.source,
+                                 current: sel.inst.activeStateID, at: bar)
+        return true
+    }
+
+    private func presentInstanceStateMenu(forNode nodeID: UUID, source: ComponentSource,
+                                          current: UUID?, at bar: CGRect) {
+        let menu = NSMenu()
+        let def = NSMenuItem(title: "default", action: #selector(setInstanceStateMenuAction(_:)), keyEquivalent: "")
+        def.target = self
+        def.representedObject = InstanceStateChoice(nodeID: nodeID, stateID: nil)
+        def.state = current == nil ? .on : .off
+        menu.addItem(def)
+        if !source.states.isEmpty { menu.addItem(.separator()) }
+        for st in source.states {
+            let it = NSMenuItem(title: st.name, action: #selector(setInstanceStateMenuAction(_:)), keyEquivalent: "")
+            it.target = self
+            it.representedObject = InstanceStateChoice(nodeID: nodeID, stateID: st.id)
+            it.state = current == st.id ? .on : .off
+            menu.addItem(it)
+        }
+        menu.popUp(positioning: nil, at: NSPoint(x: bar.minX, y: bar.maxY + 2), in: self)
+    }
+
+    /// Right-click "State ▸" submenu (command-coverage: same action, menu path).
+    private func instanceStateMenuItem(forNode nodeID: UUID, sourceID: UUID, current: UUID?) -> NSMenuItem {
+        let item = NSMenuItem(title: "State", action: nil, keyEquivalent: "")
+        let sub = NSMenu()
+        let def = NSMenuItem(title: "default", action: #selector(setInstanceStateMenuAction(_:)), keyEquivalent: "")
+        def.target = self
+        def.representedObject = InstanceStateChoice(nodeID: nodeID, stateID: nil)
+        def.state = current == nil ? .on : .off
+        sub.addItem(def)
+        if let source = document?.model.source(for: sourceID), !source.states.isEmpty {
+            sub.addItem(.separator())
+            for st in source.states {
+                let it = NSMenuItem(title: st.name, action: #selector(setInstanceStateMenuAction(_:)), keyEquivalent: "")
+                it.target = self
+                it.representedObject = InstanceStateChoice(nodeID: nodeID, stateID: st.id)
+                it.state = current == st.id ? .on : .off
+                sub.addItem(it)
+            }
+        }
+        item.submenu = sub
+        return item
+    }
+
+    @objc private func setInstanceStateMenuAction(_ sender: NSMenuItem) {
+        guard let choice = sender.representedObject as? InstanceStateChoice else { return }
+        setInstanceState(nodeID: choice.nodeID, stateID: choice.stateID)
+    }
+
+    /// Undoably set which source state an instance displays.
+    private func setInstanceState(nodeID: UUID, stateID: UUID?) {
+        var nodes = currentNodes
+        guard let i = nodes.firstIndex(where: { $0.id == nodeID }),
+              case .instance(var inst) = nodes[i].content, inst.activeStateID != stateID else { return }
+        inst.activeStateID = stateID
+        nodes[i].content = .instance(inst)
+        commitNodes(nodes, actionName: "Change Component State")
+        needsDisplay = true
     }
 
     /// The unified selection box for a multi-selection or a single group: an
@@ -5430,6 +5628,10 @@ final class CanvasNSView: NSView {
             needsDisplay = true
             return
         }
+
+        // Component state dropdown: a click on a selected instance's label-bar
+        // chevron opens the state menu instead of starting a selection/drag.
+        if presentInstanceStateMenuIfHit(at: p) { return }
 
         // Line endpoint handle (single line selected) — edit before box handles.
         if let movingStart = hitTestLineEndpoint(atViewPoint: p), let id = app.singleSelectedNodeID,
@@ -8503,6 +8705,8 @@ final class CanvasNSView: NSView {
                 add(menu, "Edit Component", #selector(editComponentAction(_:)))
                 add(menu, "Detach Component", #selector(detachComponentAction(_:)))
                 menu.addItem(categoryMenuItem(for: inst.sourceID))
+                menu.addItem(instanceStateMenuItem(forNode: hit.id, sourceID: inst.sourceID,
+                                                   current: inst.activeStateID))
             }
             switch hit.content {
             case .rectangle, .ellipse, .polygon, .line:

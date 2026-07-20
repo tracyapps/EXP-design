@@ -531,11 +531,26 @@ struct RightPanel: View {
     var showsTitle: Bool = true
     var showsZoom: Bool = true
 
-    /// The node list for the current scope.
+    /// The component STATE being edited in this window's source scope, if any
+    /// (v1.6 Chunk H). The inspector shows state-applied values and routes
+    /// text/fill edits into the state's diff while it's set.
+    private var activeEditingState: ComponentState? {
+        guard case .source(let sid) = scope,
+              let stateID = app.activeComponentStateID else { return nil }
+        return document.model.source(for: sid)?.states.first { $0.id == stateID }
+    }
+
+    /// The node list for the current scope — with the active component state's
+    /// overrides applied, so the inspector reads what the canvas shows.
     private var scopedNodes: [Node] {
         switch scope {
         case .document: return document.model.nodes
-        case .source(let sid): return document.model.source(for: sid)?.children ?? []
+        case .source(let sid):
+            let children = document.model.source(for: sid)?.children ?? []
+            if let state = activeEditingState {
+                return ComponentStateEditing.applied(children, state: state)
+            }
+            return children
         }
     }
 
@@ -550,13 +565,34 @@ struct RightPanel: View {
         case .source(let sid):
             guard let si = model.sources.firstIndex(where: { $0.id == sid }) else { return }
             let fitSourceBounds = model.sourceUsesManagedBounds(model.sources[si])
-            change(&model.sources[si].children)
-            let reflowed = AutoLayoutEngine.reflowed(model.sources[si].children)
-            model.sources[si].children = reflowed
-            if fitSourceBounds,
-               let bounds = model.managedRootBounds(in: reflowed) {
-                model.sources[si].origin = bounds.origin
-                model.sources[si].size = bounds.size
+            if let state = activeEditingState,
+               let sti = model.sources[si].states.firstIndex(where: { $0.id == state.id }) {
+                // Editing a STATE: run the change against the state-applied
+                // tree (what the user sees), then split text/fill differences
+                // into the state's diff and keep the rest in the base
+                // (see ComponentStateEditing).
+                var resolved = ComponentStateEditing.applied(model.sources[si].children,
+                                                             state: state)
+                change(&resolved)
+                let (newBase, newState) = ComponentStateEditing.capture(
+                    base: model.sources[si].children, edited: resolved, state: state)
+                let reflowed = AutoLayoutEngine.reflowed(newBase)
+                model.sources[si].children = reflowed
+                model.sources[si].states[sti] = newState
+                if fitSourceBounds,
+                   let bounds = model.managedRootBounds(in: reflowed) {
+                    model.sources[si].origin = bounds.origin
+                    model.sources[si].size = bounds.size
+                }
+            } else {
+                change(&model.sources[si].children)
+                let reflowed = AutoLayoutEngine.reflowed(model.sources[si].children)
+                model.sources[si].children = reflowed
+                if fitSourceBounds,
+                   let bounds = model.managedRootBounds(in: reflowed) {
+                    model.sources[si].origin = bounds.origin
+                    model.sources[si].size = bounds.size
+                }
             }
         }
         document.setModel(model, undoManager: undoManager, actionName: action)
@@ -2462,6 +2498,18 @@ struct RightPanel: View {
         )
     }
 
+    /// Two-way binding to the SELECTED instance's active state (nil = base). The
+    /// setter routes through `updateSelectedInstance`, so the change is undoable
+    /// and the stored frame re-hugs to the new state's resolved size.
+    private func instanceStateBinding() -> Binding<UUID?> {
+        Binding(
+            get: { selectedInstanceContext?.instance.activeStateID },
+            set: { newID in
+                updateSelectedInstance("Change Component State") { $0.activeStateID = newID }
+            }
+        )
+    }
+
     @ViewBuilder
     private func instanceControls() -> some View {
         if let ctx = selectedInstanceContext {
@@ -2483,6 +2531,23 @@ struct RightPanel: View {
                 }
                 .labelsHidden()
                 .help("Organize components by what they are — the same choice powers accessible export later")
+
+                // State picker (v1.6): which of the source's states THIS instance
+                // shows on the canvas. Same undoable write as the canvas label-bar
+                // chevron + right-click ▸ State (command-coverage: inspector path).
+                // Only shown when the source actually defines states.
+                if !ctx.source.states.isEmpty {
+                    Divider()
+                    Text("State").expSectionLabel()
+                    Picker("Component state", selection: instanceStateBinding()) {
+                        Text("default").tag(UUID?.none)
+                        ForEach(ctx.source.states) { st in
+                            Text(st.name).tag(UUID?.some(st.id))
+                        }
+                    }
+                    .labelsHidden()
+                    .help("Which of this component's states this instance shows on the canvas")
+                }
 
                 Divider()
                 Text("Overrides").expSectionLabel()

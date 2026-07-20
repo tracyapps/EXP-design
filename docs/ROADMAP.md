@@ -197,7 +197,7 @@ Follow-up patch release: v1.4 below.
 
 ---
 
-## v1.4 — released; Sparkle asset repair pending (2026-07-15)
+## v1.4 — released (2026-07-15)
 
 Build 6, `MARKETING_VERSION 1.4`. Small patch/minor release after v1.3,
 focused on the late-found performance culprit. Public appcast/GitHub release
@@ -235,15 +235,17 @@ install/relaunch proof.
 - [x] Replace the v1.4 GitHub asset and deploy the regenerated appcast, then
       verify Sparkle install -> relaunch; confirm About shows 1.4 / build 6.
 
-Resume after release at the v1.5 scope below.
+v1.5 is now live; local installer-launch failures after that point were traced
+to metadata on the already-installed baseline app, not to the public archives.
 
 ---
 
-## v1.5 scope (NEXT — opens after v1.4 ships)
+## v1.5 — released (2026-07-19)
 
-First interop/handoff release. Keep this smaller than v2.0: create the
-foundation that future exporters/importers can trust, while leaving the full
-semantic HTML and import work for later releases.
+Build 7, `MARKETING_VERSION 1.5`. First interop/handoff release. Public
+appcast/GitHub release went live 2026-07-19; the live v1.5 zip is
+byte-identical to local release/archive copies and passes strict deep
+codesign plus Gatekeeper after unzip.
 
 - [x] **Chunk A — Schema + Handoff Package:** documented/versioned
       `design.json` schema, migration policy, package writer, manifest, and
@@ -270,7 +272,7 @@ code/storybook import, boolean ops, rich text root-cause work.
 
 ---
 
-## v1.6 scope (PLANNED — component contract; detail in docs/V2-INTEROP-PLAN.md Chunk H)
+## v1.6 scope (NEXT — component contract; detail in docs/V2-INTEROP-PLAN.md Chunk H)
 
 How interaction data round-trips to code without storing implementations:
 components carry a three-part CONTRACT — named **states** (override-diffs,
@@ -280,15 +282,42 @@ same machinery as instance overrides → CSS pseudo-classes/`data-state`),
 defines the rest), and **motion** as DTCG duration/cubicBezier/transition
 tokens (rides Chunk C). JS is never stored — it regenerates from the contract.
 
-- [ ] Model: `states` on component definitions (override-diff per state) +
-      schema bump/migration
-- [ ] Model: typed `relationships` on nodes + "public prop" flag on
-      overridable fields
-- [ ] Components panel redesign: grid view w/ thumbnails (absorbs the
+- [x] Model: `states` on component definitions (override-diff per state) +
+      schema bump/migration. DONE 2026-07-19: `ComponentState` in
+      Document.swift (shared file, no new EXPThumbnail membership needed),
+      `schemaVersion` 2 with save-migrates-forward encode, state resolution
+      reuses instance machinery.
+- [x] Model: typed `relationships` on nodes + "public prop" flag on
+      overridable fields. DONE 2026-07-19: `Node.relationships`
+      (`controls`/`labelledby`/`describedby`) and `Node.publicProps`
+      (`text`/`fill`) added in Document.swift with tolerant decode; schema v2
+      docs now describe the behavior-contract spine.
+- [x] Components panel redesign: grid view w/ thumbnails (absorbs the
       earlier v1.5 candidate item; EXPThumbnail membership gotcha applies),
-      state-preview switcher, room reserved for v2.2 library-sync status
-- [ ] Inspector: state picker + relationship picker (command-coverage rule)
-- [ ] Contrast checks run per-state, not just default
+      state-preview switcher, room reserved for v2.2 library-sync status.
+      DONE 2026-07-19: list/grid toggle (same EXPSegmented pattern as Design
+      Language), generated component-source thumbnails in grid cards, per-source
+      state preview menus, and matching card actions for open/rename/category/
+      create instance/select instances/delete.
+- [x] Source editor: states bar + state EDITING (owner mock, 2026-07-19).
+      Header cleanup (editable name, banner text removed, category moved
+      right), extended ":h" chip row / compact dropdown (persisted), add
+      via conventional-names menu + custom, manage mode (rename/reorder/
+      delete), text+fill edits captured into the active state's diff via
+      ComponentStateEditing at both funnels (canvas commitNodes, inspector
+      commitScoped).
+- [ ] States follow-ups: command-coverage wiring for state actions (menu
+      items/shortcuts/validateMenuItem for add + cycle states); per-state
+      layer visibility editing (model supports it; Layers-panel eye still
+      edits the base); managed frames don't re-hug overridden text in the
+      editing preview (instances render correctly)
+- [ ] Inspector: state picker (DONE 2026-07-19 — per-instance `activeStateID`
+      dropdown in the instance inspector) + relationship picker (command-coverage rule)
+- [x] Contrast checks run per-state, not just default. DONE 2026-07-19:
+      `ComponentContrastAudit` (SourceEditorWindow.swift) evaluates each text
+      layer against the surface it sits on, resolved through the same instance
+      machinery states use; a live "Contrast N.NN:1 · AA / below AA" strip under
+      the source-editor states bar re-checks as you switch states. Advisory only.
 
 ---
 
@@ -1552,6 +1581,168 @@ font import → Phase 9, shadows → Phase 10._
 
 ## Progress Log
 
+- **2026-07-19 — v1.6 Components panel grid + state preview:** Completed the
+  Components panel redesign slice in PanelDock.swift. The panel now has a sticky
+  list/grid toggle using the same EXPSegmented control as Design Language
+  (`exp.components.viewMode`, list default). Grid mode renders adaptive component
+  cards with lightweight generated thumbnails from the resolved component-source
+  children; the preview resolves the chosen source state through
+  `Document.resolvedChildren(of:in:)`, so hover/pressed/focus/default visual
+  diffs show without placing an instance. Each component gets a local preview
+  state menu; grid cards keep the important list actions (open, double-click
+  rename, category, create instance, select instances, delete, drag to canvas).
+  List rows also expose the preview-state menu for consistency. This does not
+  pull canvas internals into the panel; the thumbnail renderer intentionally
+  simplifies effects/rotation for scanning, and the layout leaves space for the
+  later v2.2 library-sync/import-report status.
+
+- **2026-07-19 — v1.6 Chunk H behavior-contract model spine:** Added the next
+  model-only leg of the component contract in Document.swift (shared with
+  EXPThumbnail, no new target-membership risk): every `Node` now carries
+  `relationships: [NodeRelationship]` for typed ARIA-style links
+  (`controls`, `labelledby`, `describedby`, with `ariaAttribute` mapping) plus
+  `publicProps: PublicOverrideProps` flags for the current bounded override
+  vocabulary (`text` and `fill`). Decode is tolerant/defaulted, so old files open
+  as empty/private and future malformed relationship arrays drop instead of
+  blocking the whole document. HANDOFF-SCHEMA.md now documents these as part of
+  schemaVersion 2 alongside component states. This is plumbing only — relationship
+  picker UI, command coverage, and semantic HTML emission still remain.
+
+- **2026-07-19 — per-state contrast checks:** New `ComponentContrastAudit`
+  (SourceEditorWindow.swift) walks a component source resolved in a given state
+  (reusing `resolvedChildren(of:in:)` + `ContrastMath`) and reports each text
+  layer's WCAG ratio + AA/AAA level against the background it actually sits on
+  (heuristic: enclosing frame fill → sibling shape behind → white). A compact
+  contrast strip now sits under the source-editor states bar and reflects the
+  ACTIVE state, so switching states re-checks — contrast is evaluated per state,
+  not just default. Green check when all text clears AA; amber warning naming the
+  offending layer(s) otherwise. Large-text threshold at 24px. Advisory only — it
+  flags, never edits. NEEDS BUILD in Xcode 26.3.
+
+- **2026-07-19 — inspector state picker:** Added a "State" dropdown to the
+  instance inspector (RightPanel.instanceControls in MainWindow.swift), shown
+  between Category and Overrides whenever the source defines states. It binds the
+  selected instance's `activeStateID` through `updateSelectedInstance`, so the
+  write is undoable ("Change Component State") and the stored frame re-hugs to the
+  new state's resolved size. This is the inspector surface for the on-canvas
+  instance-state switch shipped earlier today (canvas chevron + right-click ▸
+  State), completing command-coverage for changing an instance's state. NEEDS
+  BUILD in Xcode 26.3.
+
+- **2026-07-19 — on-canvas component instances + per-instance state:** A component
+  instance placed on the wall/artboard now carries a selectable STATE and reads
+  unmistakably as a component. MODEL (Document.swift, shared w/ EXPThumbnail):
+  `ComponentInstance.activeStateID: UUID?` (nil = base; decode-safe for old files)
+  plus `applyingState(_:)`, folded into `resolvedLayout(of:)` so an instance
+  renders in its chosen state (state diff sits UNDER the instance's own overrides —
+  instance wins). CANVAS (CanvasView.swift): a selected instance draws PURPLE
+  double-outline chrome (replacing the blue box) with a top label bar — component
+  icon (`rectangle.3.group`) · "Name — State" · a dropdown chevron. Clicking the
+  chevron (or right-click ▸ State) opens a menu of the source's states and sets the
+  instance's `activeStateID` undoably ("Change Component State"). Command-coverage:
+  canvas chevron + context-menu path both wired; a dedicated inspector state picker
+  (ROADMAP line ~307) is still the fuller home. Earlier this session: reverted the
+  states marker from the source-window Layers header (it belongs only on the top
+  States bar); the Components panel (tab, empty state, row) now uses
+  `rectangle.3.group`. NEEDS BUILD in Xcode 26.3 — eyeball the label-bar symbol
+  orientation in the flipped canvas and the purple/handle color mix.
+
+- **2026-07-19 — v1.6 layer/component iconography:** (1) Components (instances)
+  now read clearly apart from ordinary layers on the wall/artboard: the layer-row
+  type glyph tints **accent** for instances (new `isComponentInstance` in the
+  outline row) and the glyph itself changed to `rectangle.3.group`
+  (`nodeTypeIcon(.instance)`, LayersPanel.swift). (2) The Layers panel tab icon
+  changed to `square.2.layers.3d.top.filled` (PanelDock.swift). (3) In the
+  source-component window, both component sections gained a leading
+  `square.filled.and.line.vertical.and.square` marker: on the "States" label
+  (ComponentStatesBar) and on the Layers header — where, since there's no dock
+  tab to carry an icon, the Layers glyph (`square.2.layers.3d.top.filled`) is
+  also shown, so marker + layers icon sit together (gated to `.source` scope, so
+  the main-window Layers panel is unchanged). NEEDS BUILD in Xcode 26.3.
+
+- **2026-07-19 — v1.6 states UI polish (owner tweak pass):** Five refinements
+  to the source-editor states/header UI (SourceEditorWindow.swift). (1) State
+  chips only prefix a colon for the conventional pseudo-class states
+  (hover/pressed/focus/disabled) or names literally starting with ":"; arbitrary
+  custom names now show just their initial(s), no misleading ":". (2) The states
+  bar sits in its own slightly-recessed strip (`surfaceToolbar` fill + hairlines
+  above and below) so it reads as separate from the category area. (3) The
+  View-only backdrop picker moved OUT of the header into the window TITLEBAR as a
+  trailing `NSTitlebarAccessoryViewController` (new top-level `SourceBackdropPicker`
+  view sharing the window's AppState — the manager now creates the AppState and
+  passes it into `SourceEditorView`), so it's one row with the traffic lights +
+  "Edit Component" title. (4) The always-on category blurb (variable height →
+  reflow) became a "?" icon using the field-tip hover pattern (`.expFieldTip`),
+  so the row below no longer jumps as the description length changes. (5) The
+  component-name field now hugs its content (`minWidth 90 / maxWidth 260` +
+  `fixedSize`) so the active-state pill stays a constant gap from the name
+  regardless of name length. NEEDS BUILD in Xcode 26.3 to confirm.
+
+- **2026-07-19 — v1.6 states UI: source-editor states bar + state editing (owner mock):**
+  Reworked the source editor header per the owner's markup: the component name
+  is now an editable field (drafts locally, commits ONE undoable rename on
+  submit/focus loss), the "changes apply to every instance" banner is gone,
+  and the category picker + blurb moved to the right side. New
+  `ComponentStatesBar` spans below the name row: extended chip row — "default"
+  spelled out, other states as ":h" two-character chips (widened to ":xx" only
+  on first-letter clashes), full state name shown in a pill next to the
+  component name — plus a compact dropdown layout (toggle persisted via
+  `exp.pref.statesBarCompact`), an add menu (unused conventional names +
+  Custom…), and a manage mode with rename/reorder/delete (single-undo-step
+  renames). STATE EDITING works end-to-end for the InstanceOverride
+  vocabulary: `ComponentStateEditing` (Document.swift, pure model) applies a
+  state's diff for editing WITHOUT filtering hidden layers, and `capture`
+  splits an edited tree back into base + diff — text/fill changes become state
+  overrides; geometry/structure passes through to the shared base. Wired at
+  both write funnels: `CanvasNSView.commitNodes` and the inspector's
+  `commitScoped` (which now also SHOWS state-applied values via
+  `scopedNodes`). Active state is per-window (`AppState.activeComponentStateID`);
+  canvas redraws on state switch via the updateNSView observation tuple.
+  Honest scope cuts logged as an unchecked follow-up box: no command-coverage
+  wiring yet for state actions, per-state visibility UI pending, and the
+  editing preview doesn't re-hug managed frames around overridden text
+  (instance rendering does). NEEDS OWNER BUILD + a real poke-around: create
+  hover/pressed states on a button component, recolor + retype in each, check
+  undo granularity, chip contrast in light/dark, and VoiceOver labels on the
+  chips ("State hover", selected trait).
+- **2026-07-19 — v1.6 Chunk H model spine: component `states` shipped:**
+  Added `ComponentState` to Document.swift — a named override-diff against the
+  base (same `InstanceOverride`/`LayerVisibilityOverride` shapes instances
+  use), with an `enterTransitionToken` hook reserved for motion tokens and
+  `conventionalNames` (hover/pressed/focus/disabled) for the future picker.
+  `ComponentSource.states` decodes tolerantly (empty for old files).
+  `Document.schemaVersion` bumped to 2 via `currentSchemaVersion`; a custom
+  `encode(to:)` always writes the current version, so re-saving any v1 file
+  migrates it, while decode keeps the file's declared version for diagnostics.
+  Added `Document.resolvedChildren(of:in:)` which resolves a SOURCE in a named
+  state through an ephemeral instance — re-hug and nested overrides behave
+  identically, ready for the state-preview switcher and per-state contrast
+  checks. HandoffPackageWriter's manifest now reports
+  `Document.currentSchemaVersion` (what the encoder actually writes) and
+  HANDOFF-SCHEMA.md documents schema v2 + a Component States section. All
+  model changes live in Document.swift on purpose — no new shared file, so the
+  EXPThumbnail target-membership gotcha is not triggered. NEEDS OWNER BUILD:
+  verify with the usual Debug xcodebuild, then open+resave an existing
+  `.design` file to confirm migration and that instances render unchanged.
+- **2026-07-19 — v1.6 dev lane opened:**
+  Public v1.5/build 7 is live in the appcast. Moved local development to
+  `MARKETING_VERSION 1.6` / `CURRENT_PROJECT_VERSION 8` and promoted the
+  v1.6 component-contract scope to NEXT. The first unchecked box is the model
+  spine: `states` on component definitions, using override-diffs with a schema
+  bump/migration. Keep local Sparkle installer cleanup separate from v1.6
+  feature work; the live v1.5 archive itself verified clean.
+- **2026-07-19 — Sparkle installer-launch failure root-caused again, this time to installed baseline:**
+  Owner hit "An error occurred while launching the installer" during the v1.4 ->
+  v1.5 update after the progress/download phase began. The live v1.5 GitHub zip
+  is byte-identical to the local release and Sparkle archive copies, and the
+  app extracted from that zip passes strict deep codesign plus Gatekeeper. The
+  installed `/Applications/EXP [design].app` baseline is the failing piece:
+  it is v1.4/build 6 and its embedded `Sparkle.framework/.../Installer.xpc`
+  still has forbidden `com.apple.FinderInfo` metadata, so the current app cannot
+  launch Sparkle's installer service even though the downloaded update is clean.
+  Added `scripts/verify_installed_update_baseline.sh` and documented it in the
+  release checklist so future end-to-end update tests verify the app initiating
+  the update, not only the newly downloaded zip.
 - **2026-07-19 — v1.5 release-prep pass:**
   Double-checked the release path for v1.5/build 7. Bumped the Xcode project
   from v1.4/build 6 to `MARKETING_VERSION 1.5` /

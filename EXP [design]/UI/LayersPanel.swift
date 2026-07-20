@@ -956,10 +956,12 @@ private struct LayerRow: View {
 
             Color.clear.frame(width: EXPMetric.xs)
 
-            // layer type glyph (a touch smaller than the eye/lock)
+            // layer type glyph (a touch smaller than the eye/lock). Components
+            // (instances) tint accent so they read clearly apart from ordinary
+            // layers on the wall/artboard.
             Image(systemName: typeIcon)
                 .font(.system(size: 10))
-                .foregroundStyle(EXPColor.textTertiary)
+                .foregroundStyle(isComponentInstance ? EXPColor.accent : EXPColor.textTertiary)
                 .frame(width: 14)
 
             Color.clear.frame(width: EXPMetric.xs)
@@ -1051,6 +1053,12 @@ private struct LayerRow: View {
     /// medium weight + the thick left accent bar drawn by the outline row).
     private var isActive: Bool { app.selectedNodeIDs.contains(node.id) }
     private var typeIcon: String { nodeTypeIcon(node) }
+    /// True when this row is a placed component (instance) — drives the accent
+    /// tint that sets components apart from ordinary layers.
+    private var isComponentInstance: Bool {
+        if case .instance = node.content { return true }
+        return false
+    }
 }
 
 /// SF Symbol for a node's content type (shared by layer rows).
@@ -1063,7 +1071,7 @@ func nodeTypeIcon(_ node: Node) -> String {
     case .path:      return "scribble"
     case .text:      return "textformat"
     case .group:     return "folder"
-    case .instance:  return "square.on.square"
+    case .instance:  return "rectangle.3.group"
     case .image:     return "photo"
     }
 }

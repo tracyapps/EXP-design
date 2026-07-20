@@ -3,15 +3,15 @@
 The repeatable path from a green build on `dev` to a tagged GitHub Release.
 GitHub auth is off-box, so the owner runs every `git`/`gh` step.
 
-## v1.5 copy/paste path
-Use this section for the v1.5 release. The project is already set to
-`MARKETING_VERSION 1.5` / build `7`; rerun the prep commands anyway because
+## v1.6 copy/paste path
+Use this section for the v1.6 release. The project is already set to
+`MARKETING_VERSION 1.6` / build `8`; rerun the prep commands anyway because
 they are cheap and catch drift.
 
 Assumption: Xcode exports the notarized/stapled app to:
 
 ```text
-../releases/v1.5/EXP [design].app
+../releases/v1.6/EXP [design].app
 ```
 
 The Sparkle archive folder lives next to this repo:
@@ -24,8 +24,8 @@ The Sparkle archive folder lives next to this repo:
 ```sh
 cd "/Users/tapps/Library/CloudStorage/Dropbox/work/custom-work-tools/apps/EXP [design]"
 
-VERSION="1.5"
-BUILD="7"
+VERSION="1.6"
+BUILD="8"
 RELEASE_DIR="../releases/v$VERSION"
 APP_PATH="$RELEASE_DIR/EXP [design].app"
 ZIP_PATH="$RELEASE_DIR/EXP-design-v$VERSION.zip"
@@ -49,7 +49,7 @@ Then in Xcode:
 ```text
 Product -> Archive
 Distribute App -> Direct Distribution
-Export the stapled app to ../releases/v1.5/
+Export the stapled app to ../releases/v1.6/
 ```
 
 Important: Sparkle runs inside the sandboxed app, so the exported app must have
@@ -63,8 +63,8 @@ Run this after Xcode has exported the app:
 ```sh
 cd "/Users/tapps/Library/CloudStorage/Dropbox/work/custom-work-tools/apps/EXP [design]"
 
-VERSION="1.5"
-BUILD="7"
+VERSION="1.6"
+BUILD="8"
 RELEASE_DIR="../releases/v$VERSION"
 APP_PATH="$RELEASE_DIR/EXP [design].app"
 ZIP_PATH="$RELEASE_DIR/EXP-design-v$VERSION.zip"
@@ -104,14 +104,14 @@ bytes.
 
 ### 2. Generate the Sparkle appcast
 This copies the zip into `../sparkle-releases/`, creates the matching
-`EXP-design-v1.5.html`, updates `website/public/appcast.xml`, disables delta
+`EXP-design-v1.6.html`, updates `website/public/appcast.xml`, disables delta
 updates, and verifies the URL/build/signature shape.
 
 ```sh
 cd "/Users/tapps/Library/CloudStorage/Dropbox/work/custom-work-tools/apps/EXP [design]"
 
-VERSION="1.5"
-BUILD="7"
+VERSION="1.6"
+BUILD="8"
 ZIP_PATH="../releases/v$VERSION/EXP-design-v$VERSION.zip"
 
 scripts/generate_sparkle_appcast.sh "$VERSION" "$BUILD" "$ZIP_PATH"
@@ -128,7 +128,7 @@ If using GitHub CLI:
 ```sh
 cd "/Users/tapps/Library/CloudStorage/Dropbox/work/custom-work-tools/apps/EXP [design]"
 
-VERSION="1.5"
+VERSION="1.6"
 ZIP_PATH="../releases/v$VERSION/EXP-design-v$VERSION.zip"
 
 gh release create "v$VERSION" \
@@ -140,7 +140,7 @@ gh release create "v$VERSION" \
 If using GitHub in the browser, upload this exact same file:
 
 ```text
-../releases/v1.5/EXP-design-v1.5.zip
+../releases/v1.6/EXP-design-v1.6.zip
 ```
 
 Do not re-zip. Sparkle's signature is for that exact archive.
@@ -154,32 +154,32 @@ npm run build
 After deploying the website:
 
 ```sh
-curl -s https://expdesign.app/appcast.xml | grep -E "1.5|sparkle:edSignature|releases/download/v1.5"
-curl -I https://expdesign.app/EXP-design-v1.5.html
+curl -s https://expdesign.app/appcast.xml | grep -E "1.6|sparkle:edSignature|releases/download/v1.6"
+curl -I https://expdesign.app/EXP-design-v1.6.html
 ```
 
-Final human test for v1.5:
+Final human test for v1.6:
 
 ```text
-1. Start from the already-installed public v1.4 build.
+1. Start from the already-installed public v1.5 build.
 2. Choose Check for Updates….
-3. Confirm Sparkle shows v1.5, installs it, and relaunches.
-4. Confirm About EXP [design] shows 1.5 / build 7.
+3. Confirm Sparkle shows v1.6, installs it, and relaunches.
+4. Confirm About EXP [design] shows 1.6 / build 8.
 ```
 
-v1.4 already proved the network-enabled updater path, so v1.5 should validate
-the normal prompt -> install -> relaunch path from an installed v1.4 baseline.
+v1.5 is the current public baseline, so v1.6 should validate
+the normal prompt -> install -> relaunch path from an installed v1.5 baseline.
 
-### 5. After v1.5 is live
+### 5. After v1.6 is live
 Back on `dev`, open the next cycle:
 
 ```sh
-scripts/set_release_version.sh 1.6 8
+scripts/set_release_version.sh 1.7 9
 grep MARKETING_VERSION "EXP [design].xcodeproj/project.pbxproj" | sort -u
 grep CURRENT_PROJECT_VERSION "EXP [design].xcodeproj/project.pbxproj" | sort -u
 ```
 
-Then update `docs/ROADMAP.md` if the v1.6 section needs adjustment, commit on
+Then update `docs/ROADMAP.md` if the v1.7 section needs adjustment, commit on
 `dev`, and keep release artifacts out of the repo.
 
 ## 1. Land the work on `dev`
@@ -307,6 +307,16 @@ generate_appcast \
 - [ ] End-to-end sanity: install the previous network-enabled public build, choose
       **Check for Updates…**, confirm the update prompt appears, install,
       relaunch, and confirm **About EXP [design]** shows X.Y / BUILD.
+      Before testing, verify the installed baseline app itself can launch
+      Sparkle's installer service:
+```sh
+scripts/verify_installed_update_baseline.sh "/Applications/EXP [design].app"
+```
+      This matters because Sparkle's `Installer.xpc` launches from the CURRENT
+      app. A new release zip can be perfectly clean while the already-installed
+      app still has forbidden `com.apple.FinderInfo` metadata from a bad manual
+      install/copy, causing "An error occurred while launching the installer"
+      after the update download begins.
 
 ## 5. Open the next cycle
 - [ ] Back on `dev`, bump to the next `MARKETING_VERSION` / build.

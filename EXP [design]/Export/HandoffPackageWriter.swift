@@ -61,7 +61,9 @@ struct HandoffPackageWriter {
                 .init(path: "design.json",
                       role: "document",
                       mediaType: "application/json",
-                      schemaVersion: document.schemaVersion,
+                      // What the encoder actually writes (an opened v1 file
+                      // still reports its decoded version in memory).
+                      schemaVersion: Document.currentSchemaVersion,
                       bytes: designData.count,
                       sha256: sha256(designData)),
                 .init(path: "tokens.json",

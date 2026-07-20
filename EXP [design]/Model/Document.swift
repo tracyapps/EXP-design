@@ -35,7 +35,14 @@ struct Document: Codable, Sendable {
 
     /// Public file-schema marker for future interop/handoff readers. This is
     /// distinct from `formatVersion`, which tracks internal model migrations.
-    var schemaVersion: Int = 1
+    /// History: 1 = v1.4 baseline; 2 = v1.6 component contract (states,
+    /// relationships, public override props).
+    static let currentSchemaVersion = 2
+
+    /// The schema version this in-memory document was DECODED from (kept for
+    /// diagnostics), or the current version for new documents. Encoding always
+    /// writes `currentSchemaVersion` — saving migrates a file forward.
+    var schemaVersion: Int = Document.currentSchemaVersion
 
     /// Bumped when the on-disk shape changes. v2 moved shapes out of artboards
     /// into the document-level `nodes` list (the "wall" model).
@@ -87,6 +94,19 @@ struct Document: Codable, Sendable {
         designLanguage = try c.decodeIfPresent(DesignLanguage.self, forKey: .designLanguage) ?? DesignLanguage()
     }
 
+    // Custom encode so a re-saved older file upgrades its declared schema
+    // version to the shape this app actually writes (schemaVersion migration).
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(Document.currentSchemaVersion, forKey: .schemaVersion)
+        try c.encode(formatVersion, forKey: .formatVersion)
+        try c.encode(artboards, forKey: .artboards)
+        try c.encode(nodes, forKey: .nodes)
+        try c.encode(sources, forKey: .sources)
+        try c.encode(guides, forKey: .guides)
+        try c.encode(designLanguage, forKey: .designLanguage)
+    }
+
     /// Bounding box enclosing every artboard, in document coordinates. Used to
     /// center / fit the view.
     var contentBounds: CGRect {
@@ -116,9 +136,14 @@ struct Document: Codable, Sendable {
 
     private func resolvedLayout(of inst: ComponentInstance) -> (children: [Node], bounds: CGRect)? {
         guard let source = source(for: inst.sourceID) else { return nil }
+        // Fold in the instance's selected state (nil = base) before resolving, so
+        // an instance placed on the wall can display any of the source's states.
+        let eff = inst.applyingState(inst.activeStateID.flatMap { sid in
+            source.states.first { $0.id == sid }
+        })
         let resolved = source.children
-            .filter { inst.isLayerVisible($0.id, sourceDefault: $0.isVisible) }
-            .map { inst.applyingOverrides(to: $0) }
+            .filter { eff.isLayerVisible($0.id, sourceDefault: $0.isVisible) }
+            .map { eff.applyingOverrides(to: $0) }
         // Re-hug auto-layout / auto-padding frames for THIS instance's overrides.
         // (AutoLayoutEngine.swift must be a member of BOTH the app AND the
         // EXPThumbnail targets, or this won't compile — do not stub this out.)
@@ -151,6 +176,19 @@ struct Document: Codable, Sendable {
     /// root frame for dynamic single-frame components.
     func resolvedSize(of inst: ComponentInstance) -> CGSize {
         resolvedLayout(of: inst)?.bounds.size ?? .zero
+    }
+
+    /// The fully-resolved children of a component SOURCE in a named state —
+    /// the state's override-diff applied through the exact machinery instances
+    /// use (an ephemeral instance), so re-hug and nested overrides behave
+    /// identically. `nil` = base state. Feeds the v1.6 state-preview switcher
+    /// and per-state contrast checks.
+    func resolvedChildren(of source: ComponentSource, in state: ComponentState?) -> [Node] {
+        let ephemeral = ComponentInstance(
+            sourceID: source.id,
+            overrides: state?.overrides ?? [],
+            layerVisibility: state?.layerVisibility ?? [])
+        return resolvedChildren(of: ephemeral)
     }
 
     /// The artboard that owns a shape with the given document-space frame, or
@@ -314,6 +352,14 @@ struct Node: Identifiable, Codable, Sendable {
     /// When true, this node is part of its mask container's clip shape (not drawn as
     /// fill; only its silhouette clips). Only meaningful inside an `isMask` group.
     var isMaskShape: Bool = false
+    /// Typed ARIA-style relationships to other nodes (Chunk H behavior contract).
+    /// Export maps these to attributes like `aria-controls` / `aria-labelledby`;
+    /// the app stores ids only, never interaction implementation code.
+    var relationships: [NodeRelationship] = []
+    /// Which overridable fields on this node are public component props for
+    /// downstream codegen / Storybook args. A false value keeps the override local
+    /// to EXP; a true value advertises it as part of the source's public contract.
+    var publicProps: PublicOverrideProps = PublicOverrideProps()
     var content: NodeContent
 
     init(id: UUID = UUID(), name: String, frame: CGRect, isVisible: Bool = true,
@@ -321,14 +367,19 @@ struct Node: Identifiable, Codable, Sendable {
          effects: [Effect] = [], blendMode: BlendMode = .normal,
          autoLayout: AutoLayout? = nil, autoPadding: AutoPadding? = nil,
          flipH: Bool = false, flipV: Bool = false,
-         isMask: Bool = false, isMaskShape: Bool = false, content: NodeContent) {
+         isMask: Bool = false, isMaskShape: Bool = false,
+         relationships: [NodeRelationship] = [],
+         publicProps: PublicOverrideProps = PublicOverrideProps(),
+         content: NodeContent) {
         self.id = id; self.name = name; self.frame = frame
         self.isVisible = isVisible; self.isLocked = isLocked
         self.rotation = rotation; self.opacity = opacity
         self.effects = effects; self.blendMode = blendMode
         self.autoLayout = autoLayout; self.autoPadding = autoPadding
         self.flipH = flipH; self.flipV = flipV
-        self.isMask = isMask; self.isMaskShape = isMaskShape; self.content = content
+        self.isMask = isMask; self.isMaskShape = isMaskShape
+        self.relationships = relationships; self.publicProps = publicProps
+        self.content = content
     }
 
     // Custom decode so the newer fields (rotation/opacity/effects/blendMode/
@@ -336,7 +387,8 @@ struct Node: Identifiable, Codable, Sendable {
     // Codable would throw on a missing key.
     enum CodingKeys: String, CodingKey {
         case id, name, frame, isVisible, isLocked, rotation, opacity, effects, blendMode
-        case autoLayout, autoPadding, flipH, flipV, isMask, isMaskShape, content
+        case autoLayout, autoPadding, flipH, flipV, isMask, isMaskShape
+        case relationships, publicProps, content
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -355,8 +407,79 @@ struct Node: Identifiable, Codable, Sendable {
         flipV = try c.decodeIfPresent(Bool.self, forKey: .flipV) ?? false
         isMask = try c.decodeIfPresent(Bool.self, forKey: .isMask) ?? false
         isMaskShape = try c.decodeIfPresent(Bool.self, forKey: .isMaskShape) ?? false
+        relationships = (try? c.decodeIfPresent([NodeRelationship].self, forKey: .relationships)) ?? []
+        publicProps = try c.decodeIfPresent(PublicOverrideProps.self, forKey: .publicProps) ?? PublicOverrideProps()
         content = try c.decode(NodeContent.self, forKey: .content)
     }
+}
+
+// MARK: - Component behavior contract
+
+/// A typed id-to-id relationship from one node to another. These are the behavior
+/// leg of the component contract: ARIA role + relationships imply the WAI-APG
+/// interaction pattern on export, without storing brittle JS in the design file.
+struct NodeRelationship: Identifiable, Codable, Equatable, Sendable {
+    enum Kind: String, Codable, Sendable, CaseIterable {
+        case controls
+        case labelledby
+        case describedby
+
+        var label: String {
+            switch self {
+            case .controls:    return "Controls"
+            case .labelledby:  return "Labelled By"
+            case .describedby: return "Described By"
+            }
+        }
+
+        var ariaAttribute: String {
+            switch self {
+            case .controls:    return "aria-controls"
+            case .labelledby:  return "aria-labelledby"
+            case .describedby: return "aria-describedby"
+            }
+        }
+    }
+
+    var id = UUID()
+    var kind: Kind
+    var targetID: UUID
+
+    init(id: UUID = UUID(), kind: Kind, targetID: UUID) {
+        self.id = id
+        self.kind = kind
+        self.targetID = targetID
+    }
+
+    enum CodingKeys: String, CodingKey { case id, kind, targetID }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        kind = try c.decode(Kind.self, forKey: .kind)
+        targetID = try c.decode(UUID.self, forKey: .targetID)
+    }
+}
+
+/// Per-field public prop flags for the bounded override vocabulary. Today the
+/// overrideable fields are text and fill; adding stroke or other override kinds
+/// later extends this struct without changing existing files.
+struct PublicOverrideProps: Codable, Equatable, Sendable {
+    var text: Bool = false
+    var fill: Bool = false
+
+    init(text: Bool = false, fill: Bool = false) {
+        self.text = text
+        self.fill = fill
+    }
+
+    enum CodingKeys: String, CodingKey { case text, fill }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        text = try c.decodeIfPresent(Bool.self, forKey: .text) ?? false
+        fill = try c.decodeIfPresent(Bool.self, forKey: .fill) ?? false
+    }
+
+    var isEmpty: Bool { !text && !fill }
 }
 
 /// Stacking settings for a `.group` node (Figma-style "auto layout" — the
@@ -1148,13 +1271,22 @@ struct ComponentSource: Identifiable, Codable, Sendable {
     /// every legacy `.design`/`.exp` file opens unchanged.
     var a11y: A11ySemantics = A11ySemantics()
 
+    /// Named states (v1.6 Chunk H): hover, pressed, focus, disabled, plus
+    /// custom (open/selected/error…). Each is an override-diff against the
+    /// base — the SAME diff structure instances use — so states can export as
+    /// CSS pseudo-classes / `data-state` without ever storing implementations.
+    /// Defaults empty so every schemaVersion-1 file opens unchanged.
+    var states: [ComponentState] = []
+
     /// The component's viewBox — what an instance renders, like an SVG viewBox.
     var bounds: CGRect { CGRect(origin: origin, size: size) }
 
     init(id: UUID = UUID(), name: String, origin: CGPoint = .zero,
-         size: CGSize, children: [Node], a11y: A11ySemantics = A11ySemantics()) {
+         size: CGSize, children: [Node], a11y: A11ySemantics = A11ySemantics(),
+         states: [ComponentState] = []) {
         self.id = id; self.name = name; self.origin = origin
         self.size = size; self.children = children; self.a11y = a11y
+        self.states = states
     }
 
     init(from decoder: Decoder) throws {
@@ -1165,6 +1297,7 @@ struct ComponentSource: Identifiable, Codable, Sendable {
         size = try c.decode(CGSize.self, forKey: .size)
         children = try c.decode([Node].self, forKey: .children)
         a11y = try c.decodeIfPresent(A11ySemantics.self, forKey: .a11y) ?? A11ySemantics()
+        states = try c.decodeIfPresent([ComponentState].self, forKey: .states) ?? []
     }
 }
 
@@ -1350,12 +1483,193 @@ enum AriaRole: String, Codable, Sendable, CaseIterable {
     }
 }
 
+/// A named component state (v1.6 Chunk H) — hover, pressed, focus, disabled,
+/// or custom (open/selected/error…). Modeled as an override-diff against the
+/// base using the SAME machinery as instance overrides, so one mental model
+/// covers both and the re-hug engine is untouched. On export (Chunk B) a
+/// conventional name maps to a CSS pseudo-class; anything else becomes
+/// `data-state="name"`. JS is never stored — behavior regenerates from the
+/// contract (ARIA role + relationships), so it can't rot inside the file.
+struct ComponentState: Identifiable, Codable, Sendable {
+    var id = UUID()
+    /// Display/export name ("hover", "pressed", "focus", "disabled", or custom).
+    var name: String
+    /// The visual diff against the base state (same shape as instance overrides).
+    var overrides: [InstanceOverride] = []
+    /// Per-state layer visibility (e.g. a focus ring shown only in `focus`).
+    var layerVisibility: [LayerVisibilityOverride] = []
+    /// Hook for Chunk H motion: name of the DTCG transition token used to
+    /// ENTER this state. Modeled now (like `accessibleNameLayerID` was); no
+    /// UI sets it yet.
+    var enterTransitionToken: String?
+
+    /// Conventional names offered first in the UI, in picker order.
+    static let conventionalNames = ["hover", "pressed", "focus", "disabled"]
+
+    init(id: UUID = UUID(), name: String,
+         overrides: [InstanceOverride] = [],
+         layerVisibility: [LayerVisibilityOverride] = [],
+         enterTransitionToken: String? = nil) {
+        self.id = id; self.name = name; self.overrides = overrides
+        self.layerVisibility = layerVisibility
+        self.enterTransitionToken = enterTransitionToken
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, overrides, layerVisibility, enterTransitionToken
+    }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        name = try c.decode(String.self, forKey: .name)
+        overrides = try c.decodeIfPresent([InstanceOverride].self, forKey: .overrides) ?? []
+        layerVisibility = try c.decodeIfPresent([LayerVisibilityOverride].self, forKey: .layerVisibility) ?? []
+        enterTransitionToken = try c.decodeIfPresent(String.self, forKey: .enterTransitionToken)
+    }
+}
+
+// MARK: - Component state EDITING (v1.6 Chunk H)
+
+/// Pure helpers for editing a component STATE in the source editor. Instance
+/// and preview rendering keep using the `ComponentInstance` machinery; these
+/// exist because editing has different needs:
+///  - `applied` never FILTERS hidden layers (the Layers panel and node
+///    structure must stay intact while a state is shown), and
+///  - `capture` splits an edited tree back into (base, state diff): text and
+///    fill changes become the state's overrides — the InstanceOverride
+///    vocabulary — while everything else (geometry, structure, adds, deletes,
+///    effects) belongs to the BASE shared by all states.
+enum ComponentStateEditing {
+
+    /// Source children with `state`'s text/fill overrides applied for editing.
+    /// Overridden text is re-measured (like instance rendering) so the label
+    /// shows at its overridden size; layers are never dropped.
+    static func applied(_ children: [Node], state: ComponentState) -> [Node] {
+        children.map { apply($0, state: state) }
+    }
+
+    private static func apply(_ node: Node, state: ComponentState) -> Node {
+        var node = node
+        for override in state.overrides where override.targetNodeID == node.id {
+            switch override.value {
+            case .text(let string):
+                if case .text(var tc) = node.content {
+                    tc.setPlainString(string)
+                    node.content = .text(tc)
+                    node.frame.size = tc.measuredSize()
+                }
+            case .fill(let paint):
+                setFill(paint, on: &node)
+            }
+        }
+        if case .group(let kids) = node.content {
+            node.content = .group(children: kids.map { apply($0, state: state) })
+        }
+        return node
+    }
+
+    /// Split an edited tree (changed while `state` was active) into the new
+    /// base children and the updated state. Rules:
+    ///  - text differing from base → state text override; the base keeps its
+    ///    own text AND frame size (override size is re-measured on application).
+    ///  - fill differing from base → state fill override; base keeps its paint.
+    ///  - everything else passes through to the base. New nodes join the base;
+    ///    overrides for deleted nodes are pruned.
+    /// Overrides are rebuilt from the diff each commit, so reverting a value
+    /// back to the base's removes its override — no stale entries.
+    static func capture(base: [Node], edited: [Node],
+                        state: ComponentState) -> (base: [Node], state: ComponentState) {
+        var baseByID: [UUID: Node] = [:]
+        func index(_ nodes: [Node]) {
+            for n in nodes {
+                baseByID[n.id] = n
+                if case .group(let k) = n.content { index(k) }
+            }
+        }
+        index(base)
+
+        var overrides: [InstanceOverride] = []
+        func walk(_ nodes: [Node]) -> [Node] {
+            nodes.map { n in
+                var n = n
+                if case .group(let kids) = n.content {
+                    n.content = .group(children: walk(kids))
+                }
+                guard let b = baseByID[n.id] else { return n }   // new node → base as-is
+                if case .text(let editedTC) = n.content,
+                   case .text = b.content,
+                   editedTC.plainString != textPlainString(of: b) {
+                    overrides.append(InstanceOverride(targetNodeID: n.id,
+                                                      value: .text(editedTC.plainString)))
+                    n.content = b.content
+                    n.frame.size = b.frame.size
+                }
+                if let editedFill = fill(of: n), let baseFill = fill(of: b),
+                   editedFill != baseFill {
+                    overrides.append(InstanceOverride(targetNodeID: n.id,
+                                                      value: .fill(editedFill)))
+                    setFill(baseFill, on: &n)
+                }
+                return n
+            }
+        }
+        let newBase = walk(edited)
+
+        var newState = state
+        newState.overrides = overrides
+        var liveIDs = Set<UUID>()
+        func collect(_ nodes: [Node]) {
+            for n in nodes {
+                liveIDs.insert(n.id)
+                if case .group(let k) = n.content { collect(k) }
+            }
+        }
+        collect(newBase)
+        newState.layerVisibility.removeAll { !liveIDs.contains($0.layerID) }
+        return (newBase, newState)
+    }
+
+    private static func textPlainString(of node: Node) -> String? {
+        if case .text(let tc) = node.content { return tc.plainString }
+        return nil
+    }
+
+    private static func fill(of node: Node) -> Paint? {
+        switch node.content {
+        case .rectangle(let s): return s.fill
+        case .ellipse(let s):   return s.fill
+        case .polygon(let s):   return s.fill
+        case .path(let s):      return s.fill
+        case .group:            return node.autoPadding?.fill
+        default:                return nil
+        }
+    }
+
+    private static func setFill(_ paint: Paint, on node: inout Node) {
+        switch node.content {
+        case .rectangle(var s): s.fill = paint; node.content = .rectangle(s)
+        case .ellipse(var s):   s.fill = paint; node.content = .ellipse(s)
+        case .polygon(var s):   s.fill = paint; node.content = .polygon(s)
+        case .path(var s):      s.fill = paint; node.content = .path(s)
+        case .group:
+            if node.autoPadding != nil { node.autoPadding?.fill = paint }
+        default: break
+        }
+    }
+}
+
 /// A placed reference to a `ComponentSource`. Carries only what differs from the
 /// source: a bounded set of overrides plus per-layer visibility overrides (the
 /// InDesign-style behavior). It holds `sourceID`, never a copy of the source.
 struct ComponentInstance: Codable, Sendable {
     var sourceID: UUID
     var overrides: [InstanceOverride] = []
+
+    /// The source STATE this instance displays (nil = base/default). The state's
+    /// override-diff is folded in UNDER this instance's own overrides, so instance
+    /// tweaks still win. Old files without the key decode as nil (synthesized
+    /// Codable uses decodeIfPresent for optionals).
+    var activeStateID: UUID? = nil
 
     /// Per-layer visibility overrides for THIS instance. A true override can both
     /// show a source-hidden layer and hide a source-visible one. Layers with no
@@ -1366,6 +1680,19 @@ struct ComponentInstance: Codable, Sendable {
     /// one exists, otherwise the source layer's own `isVisible`.
     func isLayerVisible(_ layerID: UUID, sourceDefault: Bool) -> Bool {
         layerVisibility.first { $0.layerID == layerID }?.isVisible ?? sourceDefault
+    }
+
+    /// This instance with a source STATE folded in: the state's diff sits UNDER
+    /// the instance's own overrides so instance tweaks still win. `nil` returns
+    /// self unchanged. Precedence mirrors the lookups: text/fill overrides apply
+    /// in order (later wins → instance last); visibility takes the first match
+    /// (→ instance first).
+    func applyingState(_ state: ComponentState?) -> ComponentInstance {
+        guard let state else { return self }
+        var merged = self
+        merged.overrides = state.overrides + overrides
+        merged.layerVisibility = layerVisibility + state.layerVisibility
+        return merged
     }
 }
 

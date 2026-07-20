@@ -114,6 +114,9 @@ final class AppState {
            let bd = CanvasBackdrop(rawValue: raw) {
             sourceBackdrop = bd
         }
+        if d.object(forKey: AppPreferences.statesBarCompact) != nil {
+            statesBarCompact = d.bool(forKey: AppPreferences.statesBarCompact)
+        }
         if let raw = d.string(forKey: AppPreferences.performanceMode),
            let m = CanvasPerformanceMode(rawValue: raw) {
             performanceMode = m
@@ -506,6 +509,21 @@ final class AppState {
     }
     var sourceBackdrop: CanvasBackdrop = .light {
         didSet { persistPref(AppPreferences.sourceBackdrop, sourceBackdrop.rawValue) }
+    }
+
+    // MARK: Component states (v1.6 Chunk H — source editor windows only)
+
+    /// Which component STATE this window is viewing/editing. nil = the default
+    /// (base) state. Per-window on purpose: each source editor owns its
+    /// AppState, so two editors can show different states of different
+    /// components. The canvas + inspector route text/fill edits into this
+    /// state's override-diff while it's set (see ComponentStateEditing).
+    var activeComponentStateID: UUID?
+
+    /// States bar layout: false = extended chip row (the default), true =
+    /// compact dropdown. App-wide preference, persisted like the backdrop.
+    var statesBarCompact: Bool = false {
+        didSet { persistPref(AppPreferences.statesBarCompact, statesBarCompact) }
     }
 
     /// The user's canvas performance stance (Settings ▸ Canvas ▸ Performance) —

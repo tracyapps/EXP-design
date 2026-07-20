@@ -53,10 +53,10 @@ enum PanelID: String, CaseIterable, Identifiable, Codable, Sendable {
     /// SF Symbol shown on the tab (swap freely during the icon polish pass).
     var icon: String {
         switch self {
-        case .layers:     return "square.3.layers.3d.down.right"
+        case .layers:     return "square.2.layers.3d.top.filled"
         case .properties: return "slider.horizontal.3"
         case .designLanguage: return "swatchpalette"
-        case .components: return "square.on.square.dashed"
+        case .components: return "rectangle.3.group"
         }
     }
 
@@ -470,6 +470,10 @@ func panelContent(_ id: PanelID, document: ExpDocument) -> some View {
 
 // MARK: - Components panel
 
+/// Components panel view mode. List stays the default; grid is the v1.6 visual
+/// scanning mode with generated source previews and per-component state preview.
+enum ComponentPanelViewMode: String, CaseIterable { case list, grid }
+
 /// Lists the document's component sources. New components appear here
 /// automatically (it reads `document.model.sources`). Clicking one opens its
 /// source editor — the same window the canvas opens on double-click.
@@ -481,6 +485,10 @@ struct ComponentsPanel: View {
     /// nothing is chosen; "Uncategorized" is a real bucket, not an absence.
     enum CategoryFilter: Hashable { case all, uncategorized, role(AriaRole) }
     @State private var filter: CategoryFilter = .all
+    @State private var previewStateBySource: [UUID: UUID?] = [:]
+    @AppStorage("exp.components.viewMode") private var viewMode: ComponentPanelViewMode = .list
+
+    private let grid = [GridItem(.adaptive(minimum: 118, maximum: 180), spacing: 8)]
 
     /// Roles actually present in this document (the filter menu stays short).
     private var presentRoles: [AriaRole] {
@@ -506,6 +514,17 @@ struct ComponentsPanel: View {
         case .uncategorized:  return "Uncategorized"
         case .role(let r):    return r.friendlyLabel
         }
+    }
+
+    private func previewStateBinding(for source: ComponentSource) -> Binding<UUID?> {
+        Binding(
+            get: {
+                guard let stored = previewStateBySource[source.id] ?? nil,
+                      source.states.contains(where: { $0.id == stored }) else { return nil }
+                return stored
+            },
+            set: { previewStateBySource[source.id] = $0 }
+        )
     }
 
     @ViewBuilder private var filterBar: some View {
@@ -536,7 +555,7 @@ struct ComponentsPanel: View {
         Group {
             if document.model.sources.isEmpty {
                 VStack(spacing: 8) {
-                    Image(systemName: "square.on.square.dashed")
+                    Image(systemName: "rectangle.3.group")
                         .font(.system(size: 26)).foregroundStyle(EXPColor.textTertiary)
                     Text("No components yet").font(.expLabel).foregroundStyle(EXPColor.textSecondary)
                     Text("Select layers, then Create Component — the source appears here.")
@@ -546,34 +565,565 @@ struct ComponentsPanel: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding(16)
             } else {
-                VStack(spacing: 0) {
-                    filterBar
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 2) {
-                            ForEach(sources) { src in
-                                ComponentRow(source: src, document: document, undoManager: undoManager) {
-                                    SourceEditorWindowManager.shared.open(
-                                        sourceID: src.id, document: document, undoManager: undoManager)
-                                }
-                            }
-                            if sources.isEmpty {
-                                Text("No components in “\(filterLabel)”.")
-                                    .font(.system(size: EXPType.mini))
-                                    .foregroundStyle(EXPColor.textTertiary)
-                                    .padding(8)
-                            }
+                VStack(spacing: 0) { filterBar; Divider(); content(sources) }
+            }
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if !document.model.sources.isEmpty { viewOptionsBar }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    @ViewBuilder private func content(_ sources: [ComponentSource]) -> some View {
+        ScrollView {
+            switch viewMode {
+            case .list:
+                LazyVStack(alignment: .leading, spacing: 2) {
+                    ForEach(sources) { src in
+                        ComponentRow(source: src,
+                                     previewStateID: previewStateBinding(for: src),
+                                     document: document,
+                                     undoManager: undoManager) {
+                            SourceEditorWindowManager.shared.open(
+                                sourceID: src.id, document: document, undoManager: undoManager)
                         }
-                        .padding(6)
+                    }
+                    emptyFilterMessage(sources)
+                }
+                .padding(6)
+                .padding(.bottom, 38)
+            case .grid:
+                LazyVGrid(columns: grid, alignment: .leading, spacing: 8) {
+                    ForEach(sources) { src in
+                        ComponentCard(source: src,
+                                      previewStateID: previewStateBinding(for: src),
+                                      document: document,
+                                      undoManager: undoManager) {
+                            SourceEditorWindowManager.shared.open(
+                                sourceID: src.id, document: document, undoManager: undoManager)
+                        }
+                    }
+                    emptyFilterMessage(sources)
+                }
+                .padding(8)
+                .padding(.bottom, 38)
+            }
+        }
+    }
+
+    @ViewBuilder private func emptyFilterMessage(_ sources: [ComponentSource]) -> some View {
+        if sources.isEmpty {
+            Text("No components in “\(filterLabel)”.")
+                .font(.system(size: EXPType.mini))
+                .foregroundStyle(EXPColor.textTertiary)
+                .padding(8)
+        }
+    }
+
+    /// Sticky bottom bar for list/grid mode. Mirrors the Design Language panel's
+    /// view control so the two library panels share a learned interaction.
+    private var viewOptionsBar: some View {
+        HStack(spacing: 8) {
+            EXPSegmented(selection: $viewMode, segments: [
+                .init(value: ComponentPanelViewMode.list, icon: "list.bullet",
+                      accessibilityLabel: "View components as list"),
+                .init(value: ComponentPanelViewMode.grid, icon: "square.grid.2x2",
+                      accessibilityLabel: "View components as grid"),
+            ])
+            .fixedSize()
+            .help("View components as list or grid")
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 8).padding(.vertical, 5)
+        .background(EXPColor.surfaceToolbar)
+        .overlay(Divider(), alignment: .top)
+    }
+}
+
+// MARK: - Component panel shared controls
+
+private struct ComponentStatePreviewMenu: View {
+    let source: ComponentSource
+    @Binding var previewStateID: UUID?
+
+    private var currentName: String {
+        guard let id = previewStateID,
+              let state = source.states.first(where: { $0.id == id }) else { return "default" }
+        return state.name
+    }
+
+    var body: some View {
+        if !source.states.isEmpty {
+            Menu {
+                Button {
+                    previewStateID = nil
+                } label: {
+                    if previewStateID == nil { Label("default", systemImage: "checkmark") }
+                    else { Text("default") }
+                }
+                ForEach(source.states) { state in
+                    Button {
+                        previewStateID = state.id
+                    } label: {
+                        if previewStateID == state.id { Label(state.name, systemImage: "checkmark") }
+                        else { Text(state.name) }
+                    }
+                }
+            } label: {
+                Label(currentName, systemImage: "eye")
+                    .font(.system(size: EXPType.micro, weight: .medium))
+                    .lineLimit(1)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help("Preview a component state")
+            .accessibilityLabel("Preview state, currently \(currentName)")
+        }
+    }
+}
+
+private struct ComponentSourcePreview: View {
+    let source: ComponentSource
+    let stateID: UUID?
+    let model: Document
+
+    private var state: ComponentState? {
+        stateID.flatMap { id in source.states.first { $0.id == id } }
+    }
+
+    private var previewSize: CGSize {
+        var inst = ComponentInstance(sourceID: source.id)
+        inst.activeStateID = stateID
+        let s = model.resolvedSize(of: inst)
+        return s.width > 0 && s.height > 0 ? s : source.size
+    }
+
+    private var previewChildren: [Node] {
+        model.resolvedChildren(of: source, in: state)
+    }
+
+    var body: some View {
+        GeometryReader { geo in
+            SwiftUI.Canvas { context, size in
+                let viewBox = CGRect(origin: .zero, size: previewSize)
+                let pad: CGFloat = 10
+                guard viewBox.width > 0, viewBox.height > 0,
+                      size.width > pad * 2, size.height > pad * 2 else { return }
+                let scale = min((size.width - pad * 2) / viewBox.width,
+                                (size.height - pad * 2) / viewBox.height)
+                let offset = CGPoint(
+                    x: (size.width - viewBox.width * scale) / 2,
+                    y: (size.height - viewBox.height * scale) / 2)
+                draw(previewChildren, origin: .zero, scale: scale, offset: offset, in: &context)
+            }
+            .frame(width: geo.size.width, height: geo.size.height)
+        }
+        .background(
+            RoundedRectangle(cornerRadius: EXPMetric.radiusRow, style: .continuous)
+                .fill(EXPColor.surfaceField)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: EXPMetric.radiusRow, style: .continuous)
+                .strokeBorder(EXPColor.borderSoft, lineWidth: EXPMetric.strokeHairline)
+        )
+        .accessibilityHidden(true)
+    }
+
+    private func draw(_ nodes: [Node], origin: CGPoint, scale: CGFloat,
+                      offset: CGPoint, in context: inout GraphicsContext) {
+        for node in nodes where node.isVisible {
+            draw(node, origin: origin, scale: scale, offset: offset, in: &context)
+        }
+    }
+
+    private func draw(_ node: Node, origin: CGPoint, scale: CGFloat,
+                      offset: CGPoint, in context: inout GraphicsContext) {
+        let rect = mapped(node.frame.offsetBy(dx: origin.x, dy: origin.y),
+                          scale: scale, offset: offset)
+        var localContext = context
+        localContext.opacity *= max(0, min(1, node.opacity))
+
+        switch node.content {
+        case .rectangle(let shape):
+            let p = Path(shape.effectiveRadii.path(in: rect, scale: scale))
+            fill(p, with: shape.fill, in: &localContext)
+            if shape.strokeWidth > 0 {
+                localContext.stroke(p, with: .color(shape.stroke.swiftUI),
+                                    lineWidth: max(0.75, shape.strokeWidth * scale))
+            }
+        case .ellipse(let shape):
+            let p = Path(ellipseIn: rect)
+            fill(p, with: shape.fill, in: &localContext)
+            if shape.strokeWidth > 0 {
+                localContext.stroke(p, with: .color(shape.stroke.swiftUI),
+                                    lineWidth: max(0.75, shape.strokeWidth * scale))
+            }
+        case .polygon(let shape):
+            let p = polygonPath(shape.vertices(in: rect))
+            fill(p, with: shape.fill, in: &localContext)
+            if shape.strokeWidth > 0 {
+                localContext.stroke(p, with: .color(shape.stroke.swiftUI),
+                                    lineWidth: max(0.75, shape.strokeWidth * scale))
+            }
+        case .path(let shape):
+            let p = pathShape(shape, rect: rect, scale: scale)
+            if shape.closed || shape.isMultiContour { fill(p, with: shape.fill, in: &localContext) }
+            localContext.stroke(p, with: .color(shape.stroke.swiftUI),
+                                lineWidth: max(0.75, shape.strokeWidth * scale))
+        case .line(let shape):
+            var p = Path()
+            p.move(to: CGPoint(x: rect.minX + shape.start.x * scale,
+                               y: rect.minY + shape.start.y * scale))
+            p.addLine(to: CGPoint(x: rect.minX + shape.end.x * scale,
+                                  y: rect.minY + shape.end.y * scale))
+            localContext.stroke(p, with: .color(shape.stroke.swiftUI),
+                                lineWidth: max(0.75, shape.strokeWidth * scale))
+        case .text(let text):
+            drawText(text, in: rect, context: &localContext, scale: scale)
+        case .group(let kids):
+            if let fill = node.autoPadding?.fill {
+                let radius = max(0, (node.autoPadding?.cornerRadius ?? 0) * scale)
+                let p = RoundedRectangle(cornerRadius: radius, style: .continuous).path(in: rect)
+                self.fill(p, with: fill, in: &localContext)
+            }
+            draw(kids, origin: CGPoint(x: origin.x + node.frame.minX,
+                                       y: origin.y + node.frame.minY),
+                 scale: scale, offset: offset, in: &localContext)
+        case .instance(let inst):
+            let kids = model.resolvedChildren(of: inst)
+            draw(kids, origin: CGPoint(x: origin.x + node.frame.minX,
+                                       y: origin.y + node.frame.minY),
+                 scale: scale, offset: offset, in: &localContext)
+        case .image:
+            let p = RoundedRectangle(cornerRadius: 4, style: .continuous).path(in: rect)
+            localContext.fill(p, with: .color(EXPColor.rowHover))
+            localContext.stroke(p, with: .color(EXPColor.borderStrong),
+                                lineWidth: EXPMetric.strokeHairline)
+        }
+    }
+
+    private func drawText(_ text: TextContent, in rect: CGRect,
+                          context: inout GraphicsContext, scale: CGFloat) {
+        let label = text.plainString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !label.isEmpty else {
+            let p = RoundedRectangle(cornerRadius: 3, style: .continuous).path(in: rect)
+            context.fill(p, with: .color(EXPColor.textTertiary.opacity(0.35)))
+            return
+        }
+        let fontSize = min(max(7, text.firstRun.fontSize * scale), max(8, rect.height * 0.72))
+        var resolved = context.resolve(Text(label).font(.system(size: fontSize, weight: .medium)))
+        resolved.shading = .color(text.firstRun.color.swiftUI)
+        context.draw(resolved, at: CGPoint(x: rect.minX, y: rect.midY), anchor: .leading)
+    }
+
+    private func fill(_ path: Path, with paint: Paint, in context: inout GraphicsContext) {
+        switch paint {
+        case .solid(let color):
+            context.fill(path, with: .color(color.swiftUI))
+        case .gradient(let gradient):
+            let colors = gradient.sortedStops.map { $0.color.swiftUI }
+            context.fill(path, with: .linearGradient(
+                Gradient(colors: colors.isEmpty ? [.white, .black] : colors),
+                startPoint: .zero,
+                endPoint: CGPoint(x: 90, y: 90)))
+        }
+    }
+
+    private func polygonPath(_ points: [CGPoint]) -> Path {
+        var p = Path()
+        guard let first = points.first else { return p }
+        p.move(to: first)
+        for point in points.dropFirst() { p.addLine(to: point) }
+        p.closeSubpath()
+        return p
+    }
+
+    private func pathShape(_ shape: PathShape, rect: CGRect, scale: CGFloat) -> Path {
+        var p = Path()
+        for contour in shape.renderContours {
+            guard let first = contour.first else { continue }
+            p.move(to: pathPoint(first.point, rect: rect, scale: scale))
+            for point in contour.dropFirst() {
+                let end = pathPoint(point.point, rect: rect, scale: scale)
+                if let c1 = point.controlIn {
+                    p.addQuadCurve(to: end, control: pathPoint(c1, rect: rect, scale: scale))
+                } else {
+                    p.addLine(to: end)
+                }
+            }
+            if shape.closed || shape.isMultiContour { p.closeSubpath() }
+        }
+        return p
+    }
+
+    private func pathPoint(_ point: CGPoint, rect: CGRect, scale: CGFloat) -> CGPoint {
+        CGPoint(x: rect.minX + point.x * scale, y: rect.minY + point.y * scale)
+    }
+
+    private func mapped(_ rect: CGRect, scale: CGFloat, offset: CGPoint) -> CGRect {
+        CGRect(x: offset.x + rect.minX * scale,
+               y: offset.y + rect.minY * scale,
+               width: max(0.5, rect.width * scale),
+               height: max(0.5, rect.height * scale))
+    }
+}
+
+private struct ComponentCard: View {
+    let source: ComponentSource
+    @Binding var previewStateID: UUID?
+    @ObservedObject var document: ExpDocument
+    let undoManager: UndoManager?
+    let open: () -> Void
+
+    @State private var hovering = false
+    @State private var isRenaming = false
+    @State private var draft = ""
+    @FocusState private var nameFocused: Bool
+    @Environment(AppState.self) private var app
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            preview
+            titleRow
+            metadata
+            footer
+        }
+        .padding(8)
+        .background(
+            RoundedRectangle(cornerRadius: EXPMetric.radiusRow, style: .continuous)
+                .fill(hovering ? EXPColor.rowHover : Color.clear)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: EXPMetric.radiusRow, style: .continuous)
+                .strokeBorder(EXPColor.borderSoft, lineWidth: EXPMetric.strokeHairline)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: EXPMetric.radiusRow, style: .continuous))
+        .onHover { hovering = $0 }
+        .onTapGesture(count: 2) { beginRename() }
+        .onTapGesture { if !isRenaming { open() } }
+        .contextMenu { contextMenu }
+        .onDrag { NSItemProvider(object: source.id.uuidString as NSString) }
+        .help("Double-click to rename · click to open “\(source.name)”")
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(source.name), component")
+    }
+
+    private var preview: some View {
+        ComponentSourcePreview(source: source,
+                               stateID: previewStateID,
+                               model: document.model)
+            .frame(height: 88)
+            .overlay(alignment: .topTrailing) {
+                if instanceCount > 0 { instanceBadge.padding(6) }
+            }
+    }
+
+    private var instanceBadge: some View {
+        Button(action: selectInstances) {
+            Text("×\(instanceCount)")
+                .font(.system(size: EXPType.micro, weight: .semibold))
+                .monospacedDigit()
+                .foregroundStyle(EXPColor.textSecondary)
+                .padding(.horizontal, 6)
+                .frame(height: 18)
+                .background(Capsule().fill(EXPColor.surfaceRaised))
+        }
+        .buttonStyle(.plain)
+        .help(instanceBadgeHelp)
+    }
+
+    private var titleRow: some View {
+        HStack(spacing: 5) {
+            Image(systemName: "rectangle.3.group")
+                .font(.system(size: 11))
+                .foregroundStyle(EXPColor.accent)
+                .accessibilityHidden(true)
+            if isRenaming {
+                TextField("Name", text: $draft)
+                    .textFieldStyle(.exp)
+                    .font(.system(size: 12, weight: .medium))
+                    .focused($nameFocused)
+                    .onSubmit(commitRename)
+                    .onExitCommand { isRenaming = false }
+                    .onChange(of: nameFocused) { if !$1 { commitRename() } }
+            } else {
+                Text(source.name)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(EXPColor.textPrimary)
+                    .lineLimit(1)
+            }
+        }
+    }
+
+    private var metadata: some View {
+        Text("\(Int(source.size.width)) × \(Int(source.size.height)) · \(source.children.count) layer\(source.children.count == 1 ? "" : "s")")
+            .font(.system(size: EXPType.micro))
+            .foregroundStyle(EXPColor.textSecondary)
+            .lineLimit(1)
+    }
+
+    private var footer: some View {
+        HStack(spacing: 4) {
+            ComponentStatePreviewMenu(source: source, previewStateID: $previewStateID)
+            Spacer(minLength: 0)
+            if let role = source.a11y.role {
+                Text(role.friendlyLabel)
+                    .font(.system(size: EXPType.micro, weight: .medium))
+                    .foregroundStyle(EXPColor.textSecondary)
+                    .lineLimit(1)
+            }
+        }
+        .frame(minHeight: 20)
+    }
+
+    @ViewBuilder private var contextMenu: some View {
+        Button("Create Instance", action: createInstance)
+        Button(instanceCount == 1 ? "Select Instance on Canvas"
+                                  : "Select Instances on Canvas (\(instanceCount))",
+               action: selectInstances)
+            .disabled(instanceCount == 0)
+        Divider()
+        Button("Open in Editor", action: open)
+        Button("Rename", action: beginRename)
+        Menu("Preview State") {
+            Button {
+                previewStateID = nil
+            } label: {
+                if previewStateID == nil { Label("default", systemImage: "checkmark") }
+                else { Text("default") }
+            }
+            ForEach(source.states) { state in
+                Button {
+                    previewStateID = state.id
+                } label: {
+                    if previewStateID == state.id { Label(state.name, systemImage: "checkmark") }
+                    else { Text(state.name) }
+                }
+            }
+        }
+        .disabled(source.states.isEmpty)
+        categoryMenu
+        Divider()
+        Button("Delete Component", role: .destructive, action: deleteComponent)
+    }
+
+    private var categoryMenu: some View {
+        Menu("Set Category") {
+            Button {
+                setCategory(nil)
+            } label: {
+                if source.a11y.role == nil { Label("Uncategorized", systemImage: "checkmark") }
+                else { Text("Uncategorized") }
+            }
+            ForEach(AriaRole.grouped(), id: \.category) { group in
+                Section(group.category.label) {
+                    ForEach(group.roles, id: \.self) { role in
+                        Button {
+                            setCategory(role)
+                        } label: {
+                            if source.a11y.role == role { Label(role.friendlyLabel, systemImage: "checkmark") }
+                            else { Text(role.friendlyLabel) }
+                        }
                     }
                 }
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    private var instanceIDs: [UUID] {
+        var ids: [UUID] = []
+        func walk(_ nodes: [Node]) {
+            for node in nodes {
+                if case .instance(let inst) = node.content, inst.sourceID == source.id {
+                    ids.append(node.id)
+                }
+                if case .group(let kids) = node.content { walk(kids) }
+            }
+        }
+        walk(document.model.nodes)
+        return ids
+    }
+    private var instanceCount: Int { instanceIDs.count }
+    private var instanceBadgeHelp: String {
+        "\(instanceCount) instance\(instanceCount == 1 ? "" : "s") on the canvas — click to select"
+    }
+
+    private func beginRename() {
+        draft = source.name
+        isRenaming = true
+        nameFocused = true
+    }
+
+    private func commitRename() {
+        let name = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        isRenaming = false
+        guard !name.isEmpty, name != source.name,
+              let i = document.model.sources.firstIndex(where: { $0.id == source.id }) else { return }
+        var model = document.model
+        model.sources[i].name = name
+        document.setModel(model, undoManager: undoManager, actionName: "Rename Component")
+    }
+
+    private func selectInstances() {
+        let ids = instanceIDs
+        guard !ids.isEmpty else { return }
+        app.selectedNodeIDs = Set(ids)
+        app.selectedArtboardIDs = []
+    }
+
+    private func setCategory(_ role: AriaRole?) {
+        guard let i = document.model.sources.firstIndex(where: { $0.id == source.id }),
+              document.model.sources[i].a11y.role != role else { return }
+        var model = document.model
+        model.sources[i].a11y.role = role
+        document.setModel(model, undoManager: undoManager, actionName: "Set Component Category")
+    }
+
+    private func deleteComponent() {
+        let sid = source.id
+        var model = document.model
+        model.sources.removeAll { $0.id == sid }
+        func strip(_ nodes: inout [Node]) {
+            nodes.removeAll { if case .instance(let i) = $0.content { return i.sourceID == sid }; return false }
+            for idx in nodes.indices {
+                if case .group(var kids) = nodes[idx].content {
+                    strip(&kids); nodes[idx].content = .group(children: kids)
+                }
+            }
+        }
+        strip(&model.nodes)
+        for i in model.sources.indices { strip(&model.sources[i].children) }
+        document.setModel(model, undoManager: undoManager, actionName: "Delete Component")
+    }
+
+    private func createInstance() {
+        var model = document.model
+        let center: CGPoint
+        if app.viewportSize.width > 0, app.viewportSize.height > 0 {
+            let viewCenter = CGPoint(x: app.viewportSize.width / 2, y: app.viewportSize.height / 2)
+            center = CGPoint(x: (viewCenter.x - app.panOffset.x) / app.zoom,
+                             y: (viewCenter.y - app.panOffset.y) / app.zoom)
+        } else if let firstBoard = model.artboards.first {
+            center = CGPoint(x: firstBoard.frame.midX, y: firstBoard.frame.midY)
+        } else {
+            center = .zero
+        }
+        let frame = CGRect(x: center.x - source.size.width / 2,
+                           y: center.y - source.size.height / 2,
+                           width: source.size.width,
+                           height: source.size.height)
+        let node = Node(name: source.name, frame: frame,
+                        content: .instance(ComponentInstance(sourceID: source.id)))
+        model.nodes.append(node)
+        document.setModel(model, undoManager: undoManager, actionName: "Create Instance")
+        app.selectedNodeIDs = [node.id]
+        app.selectedArtboardIDs = []
     }
 }
 
 private struct ComponentRow: View {
     let source: ComponentSource
+    @Binding var previewStateID: UUID?
     @ObservedObject var document: ExpDocument
     let undoManager: UndoManager?
     let open: () -> Void
@@ -587,7 +1137,7 @@ private struct ComponentRow: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: "square.on.square.dashed")
+            Image(systemName: "rectangle.3.group")
                 .foregroundStyle(EXPColor.accent)
                 .frame(width: 18)
             VStack(alignment: .leading, spacing: 1) {
@@ -606,6 +1156,7 @@ private struct ComponentRow: View {
                 }
                 Text("\(Int(source.size.width)) × \(Int(source.size.height)) · \(source.children.count) layer\(source.children.count == 1 ? "" : "s")")
                     .font(.system(size: EXPType.micro)).foregroundStyle(EXPColor.textSecondary)
+                ComponentStatePreviewMenu(source: source, previewStateID: $previewStateID)
             }
             Spacer(minLength: 0)
             // v1.5: instance navigation. The middle badge keeps the v1.3
