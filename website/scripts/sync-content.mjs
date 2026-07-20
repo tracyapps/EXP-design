@@ -252,19 +252,19 @@ const testerNextBuildCopy = [
   {
     phase: "v1.6 scope — Component states & accessibility",
     title: "Component states",
-    status: "next build",
+    status: "v1.6",
     body: "Create hover, pressed, focus, disabled, and custom source states; edit text, fill, and visibility per state; assign ARIA role categories; and check contrast for each active state.",
   },
   {
     phase: "v1.6 scope — Components panel",
     title: "Component previews",
-    status: "next build",
+    status: "v1.6",
     body: "Switch the Components panel between list and grid, scan generated thumbnails, preview each source state, and use the fuller component actions from either display.",
   },
   {
     phase: "Phase 14 + import pipeline",
     title: "PDF and image import",
-    status: "ready",
+    status: "v1.6",
     body: "Place embedded raster images as document nodes, render and export them with the canvas, and bring PDF pages into EXP for editing through the import path.",
   },
 ];

@@ -8,6 +8,15 @@
     <channel>
         <title>EXP [design]</title>
         <item>
+            <title>1.6</title>
+            <pubDate>Mon, 20 Jul 2026 01:25:54 -0500</pubDate>
+            <sparkle:version>8</sparkle:version>
+            <sparkle:shortVersionString>1.6</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>26.2</sparkle:minimumSystemVersion>
+            <sparkle:releaseNotesLink>https://expdesign.app/EXP-design-v1.6.html</sparkle:releaseNotesLink>
+            <enclosure url="https://github.com/tracyapps/EXP-design/releases/download/v1.6/EXP-design-v1.6.zip" length="27358593" type="application/octet-stream" sparkle:edSignature="l0z4pKjj2NZugLyxA5JZVAzwpc0kV8IYQ4XBqTWKKnKo3v1czmMbf2C4x3RZIphcLy+c0RbXW6aK/WpE3LZdBw=="/>
+        </item>
+        <item>
             <title>1.5</title>
             <pubDate>Sun, 19 Jul 2026 13:06:06 -0500</pubDate>
             <sparkle:version>7</sparkle:version>
@@ -24,15 +33,6 @@
             <sparkle:minimumSystemVersion>26.2</sparkle:minimumSystemVersion>
             <sparkle:releaseNotesLink>https://expdesign.app/EXP-design-v1.4.html</sparkle:releaseNotesLink>
             <enclosure url="https://github.com/tracyapps/EXP-design/releases/download/v1.4/EXP-design-v1.4.zip" length="26915746" type="application/octet-stream" sparkle:edSignature="xDa2YqSCTgiPH1w82mhSrJlxJUKckbKEOGWkaSA+Ccyz8iJxtaqoqBgq7yXXuRM5DvCTmIaSYl3ITSgaw2HwAQ=="/>
-        </item>
-        <item>
-            <title>1.3</title>
-            <pubDate>Sun, 12 Jul 2026 11:16:53 -0500</pubDate>
-            <sparkle:version>5</sparkle:version>
-            <sparkle:shortVersionString>1.3</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>26.2</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://expdesign.app/EXP-design-v1.3.html</sparkle:releaseNotesLink>
-            <enclosure url="https://github.com/tracyapps/EXP-design/releases/download/v1.3/EXP-design-v1.3.zip" length="26916106" type="application/octet-stream" sparkle:edSignature="Y1/rO5mCBVkdoAyRjpG4kaPiKZFOMEn+BDE4rLCzEMMHYctLa8j29FKFxfCy7CeZAlzxqRE9jHvlx7TgZNXnBg=="/>
         </item>
     </channel>
 </rss>

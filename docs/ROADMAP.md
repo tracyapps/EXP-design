@@ -273,7 +273,10 @@ code/storybook import, boolean ops, rich text root-cause work.
 
 ---
 
-## v1.6 scope (NEXT — component contract; detail in docs/V2-INTEROP-PLAN.md Chunk H)
+## v1.6 — release candidate (2026-07-20)
+
+Build 8, `MARKETING_VERSION 1.6`. Component contract release; detail in
+docs/V2-INTEROP-PLAN.md Chunk H.
 
 How interaction data round-trips to code without storing implementations:
 components carry a three-part CONTRACT — named **states** (override-diffs,
@@ -1614,6 +1617,19 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-07-20 — v1.6 release prep:** Confirmed the v1.6 checklist is closed and
+  moved the roadmap section from NEXT to release-candidate. Added
+  `RELEASE-NOTES-v1.6.md` for build 8, covering component states, per-instance
+  state selection, per-state contrast checks, ARIA role/category metadata,
+  relationship authoring, Components-panel previews, source-editor lifecycle
+  polish, PDF import, embedded images, menu validation, grouped styling, flip
+  controls, and console/testing-menu cleanup. Updated the generated website
+  tester-feature copy so the component/PDF-image cards read as v1.6 release
+  features. Remaining release blockers are external packaging steps only:
+  archive/notarize/staple in Xcode, zip the exported app, generate the Sparkle
+  appcast from that exact zip, create the GitHub release, deploy the website, and
+  test Sparkle update from installed v1.5.
 
 - **2026-07-20 — v1.6 source-editor polish + lifecycle cleanup:** Added icon
   markers to the Properties inspector section titles and a Relationships help

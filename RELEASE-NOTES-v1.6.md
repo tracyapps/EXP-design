@@ -1,0 +1,60 @@
+# EXP [design] v1.6
+
+Build 8. This release makes components feel more like real interface pieces:
+they can carry visual states, semantic relationships, accessibility-centered
+role/category metadata, and richer previews without storing brittle prototype
+code in the file.
+
+## Highlights
+
+- **Component states.** Source components can define default, hover, pressed,
+  focus, disabled, and custom states. Text, fill, and layer visibility edits can
+  be captured per state, while the base source remains the stable default.
+- **Per-instance state selection.** Placed component instances can choose which
+  source state they display from the canvas, context menu, or Properties panel.
+- **Per-state contrast checks.** The source editor now evaluates text contrast
+  against the active state, reporting WCAG ratio plus AA/AAA status as states
+  change.
+- **Component behavior contract.** Nodes now store typed ARIA-style
+  relationships: `controls`, `labelledby`, and `describedby`. The source-editor
+  Properties panel offers scoped relationship pickers, with help text explaining
+  when to use each one.
+- **Component roles/categories.** Component ARIA role assignment remains visible
+  in the source editor, Components panel, and Object menu, so accessible export
+  metadata travels with the source.
+- **Components panel previews.** The Components panel now supports list/grid
+  display, generated thumbnails, per-source state previews, category filtering,
+  and matching actions for opening, renaming, categorizing, instantiating,
+  selecting instances, and deleting.
+- **Source editor polish.** Component editing windows are larger by default,
+  remember their last window size and split widths, clean up after manual close,
+  and close automatically with the owning document.
+- **PDF and image workflows.** PDF import and embedded raster image support are
+  ready for tester-facing release notes alongside the newer component work.
+
+## Fixes
+
+- Inspector style controls now work on selected groups the same way they work on
+  multi-selection, applying fill, stroke, font, and text size through the normal
+  scoped edit path.
+- The Object, Type, Arrange, File, and View menus now grey out actions that do
+  not apply to the current selection or source/document context.
+- Added Flip Horizontal and Flip Vertical controls under Blend in the Properties
+  panel.
+- Removed the redundant Bold / Italic / Underline row from the Type inspector.
+  Font weight/style stays handled by the typeface face menu and Type menu.
+- Quieted release builds and normal Xcode runs by removing old save/test
+  console logging and hiding developer-only View testing menu items.
+- Marked the old SwiftUI "Publishing changes from within view updates" warning
+  resolved after the owner could no longer reproduce it.
+
+## Update Notes
+
+- v1.6 writes `.design` schema version 2. Older files open with tolerant
+  defaults; saving in v1.6+ migrates the file to the component-contract schema.
+- This release models the component contract for later semantic HTML/CSS export;
+  it still does not emit production HTML/CSS.
+- Motion-token authoring is intentionally deferred to a later Design
+  Tokens/transitions UI. The state model already has the hook.
+- After publishing, test from installed v1.5 with Check for Updates -> install
+  -> relaunch, then confirm About EXP [design] shows 1.6 / build 8.
