@@ -273,7 +273,7 @@ code/storybook import, boolean ops, rich text root-cause work.
 
 ---
 
-## v1.6 — release candidate (2026-07-20)
+## v1.6 — shipped (2026-07-20)
 
 Build 8, `MARKETING_VERSION 1.6`. Component contract release; detail in
 docs/V2-INTEROP-PLAN.md Chunk H.
@@ -351,6 +351,64 @@ Tester-facing v1.6 highlights for `expdesign.app/download#tester-features`:
       machinery states use; a live "Contrast N.NN:1 · AA / below AA" strip under
       the source-editor states bar re-checks as you switch states. Advisory only.
 
+## v1.6.1 — bug-fix stabilization (NEXT)
+
+Build 9, `MARKETING_VERSION 1.6.1`. Intentionally narrow: close confirmed
+defects after v1.6, led by the long-standing rich-text commit bug.
+
+- [x] **Rich text: preserve selected-run styling on direct click-out.** The
+      inline editor now keeps a stable attributed-text snapshot refreshed by
+      every typing/style mutation and commits that snapshot without making the
+      `NSTextView` first responder again. This removes the AppKit
+      focus/selection lifecycle from the final run reconstruction. Selection
+      changes originating outside the canvas now also commit the editor on the
+      next runloop tick without stealing the user's new selection. Verified in
+      the Debug app with the exact regression: select one word, change 16 → 32
+      pt, click directly onto the artboard, reopen, reselect — 32 pt survives.
+- [ ] **OWNER VERIFY:** Repeat the direct-click-out repro in the real document,
+      covering word/line/character-level size, color, weight, and underline.
+- [x] **Sparkle installer launch for sandboxed builds.** Fresh system logs from
+      the installed v1.4 baseline exposed the actual app-wide failure:
+      authorization error `-60005`, followed by Sparkle's “Failed to submit
+      installer job” and sandbox-integration warning. The app had outbound
+      network access (so discovery/download worked) but was missing both
+      `SUEnableInstallerLauncherService = YES` and the required
+      `$(PRODUCT_BUNDLE_IDENTIFIER)-spks` / `-spki` Mach lookup exceptions.
+      Added the installer-launcher key, a checked-in app entitlements file, and
+      preflight checks for the complete sandboxed Sparkle contract. v1.6 and
+      earlier cannot repair their own missing entitlement, so v1.6.1 requires
+      one manual install; automatic-update proof resumes from that baseline.
+- [ ] **OWNER VERIFY:** Archive/export v1.6.1 and confirm the signed app carries
+      the `-spks` / `-spki` exceptions plus network/file/sandbox entitlements.
+      After manually installing v1.6.1, preserve it as the baseline for the next
+      live Sparkle update proof.
+- [x] **Named/batched media import.** Finder SVG and raster filenames (without
+      extensions) now become their default layer names. Dragging/pasting multiple
+      SVG files imports every file as a side-by-side batch, selects the batch,
+      and records one undo step instead of stopping after the first pasteboard URL.
+      Native pasteboard verification passed with two named SVG files.
+- [x] **Layer names in SVG export.** Every exported node is wrapped in a
+      CSS-safe `layer-<slug>` class derived from its layer name. Classes may
+      intentionally repeat, avoiding invalid duplicate IDs while remaining easy
+      to target or extend by hand. Verified in a real exported SVG.
+- [x] **Adobe-style corner rotation.** Removed the top-center rotate notch.
+      Hover/drag just outside any of the four bounds corners now uses a rotate
+      cursor and delta-based rotation (including existing Shift 15° snapping),
+      so starting from a diagonal never jumps the object to an absolute angle.
+- [x] **Inspector geometry coherence.** Single-layer X/Y/W/H now use the painted
+      outside edge of Inside/Center/Outside outlines (shadows excluded). Group
+      dimensions use the live painted descendant union instead of a potentially
+      stale imported viewBox frame; numeric SVG-path resizing now scales its
+      actual points/controls as well as its frame. Geometry Audit logs both stored
+      and Inspector-outer bounds with the correct stroke-position description.
+- [ ] **OWNER VERIFY:** In a real document, drag several SVGs and named raster
+      images; inspect an exported SVG's layer classes; rotate narrow/wide objects
+      from all corners with and without Shift; compare group/child dimensions at
+      several zoom levels and across Inside/Center/Outside strokes.
+- [ ] Bug sweep: collect and reproduce any other v1.6 defects; keep this release
+      scoped to fixes rather than new features.
+- [ ] Release notes, archive/notarize/staple, Sparkle appcast, and update proof.
+
 ---
 
 ## v2.0 — Interop & Handoff (PLANNED — anchor doc: docs/V2-INTEROP-PLAN.md)
@@ -366,7 +424,11 @@ with the design. Full chunk breakdown, risks, and release mapping live in
 - [x] **Chunk C — W3C DTCG design-tokens import/export** (Design Language ↔
       tokens.json, standard stable 2025.10) — v1.5
 - [ ] **Chunk B — Semantic HTML/CSS export** (ARIA roles → real elements,
-      tokens → custom properties, notes → comments; the v2.0 headline demo)
+      tokens → custom properties, notes → comments; the v2.0 headline demo).
+      Include the same bridge in standalone SVG export: when a fill/stroke exactly
+      matches a Design Language color, emit/use its CSS custom property while
+      retaining a standalone-safe fallback. Do not lose token identity during the
+      broader import/export codec work.
 - [ ] **Chunk D — Figma import** (REST API path first; .fig best-effort later) — v2.1
 - [ ] **Chunk E — Code/Storybook/HTML-CSS import** — v2.2
 - [ ] **Chunk F — Agent Bridge** (EXP as a LOCAL MCP server the designer's own
@@ -731,20 +793,11 @@ _Owner chose to go straight to full rich text. Staged across builds._
       shows and drags anchors/handles on **every** contour of a glyph (inner counter
       of an 'o', all pieces of a complex face). _Underline strokes aren't outlined._
 
-> **⚠️ KNOWN BUG (unsolved across multiple AI agents, incl. this one) —
-> "selection style lost on direct click-out."** When you change a text run's
-> size/color/weight from the Inspector and then click straight off the text box
-> **without first collapsing the selection**, the change is dropped on commit.
-> Workaround: click once in the text to deselect (collapse the selection) while the
-> box is still active, *then* click out — the change sticks. Attempted fixes
-> (Sessions 46–50): deferred apply, `editorSelectedRange` to survive focus loss,
-> and a fully synchronous `app.applyTextStyle` hook replacing the async channel.
-> None fully resolved it; the commit still reads an editor state that doesn't
-> reflect the change in the click-out-while-selected path. **Needs a fresh root-cause
-> pass** (suspect: the `NSTextView` first-responder/selection lifecycle vs. when
-> `commitTextEditing` snapshots `attributedString()`; possibly instrument with logging
-> of `editorSelectedRange`, `firstResponder`, and the committed runs to see exactly
-> what's read).
+> **v1.6.1 FIX — owner verification pending.** Selected-run styling is now
+> committed from a stable attributed-text snapshot, independent of the
+> `NSTextView` first-responder/selection teardown. The exact direct-click-out
+> size regression passes in the Debug app; verify size/color/weight/underline in
+> the owner's real document before closing this phase.
 
 ### Phase 10 — Effects ✅ DONE — refinements planned
 - [x] **Layer opacity** (Session 51) — `Node.opacity` (0…1, default 1, hardened
@@ -1534,19 +1587,16 @@ launch, and manual "Check for Updates…" always works.
       missing notes, wrong build number, non-identical replacement zip).
 - [x] v1.3 release build includes the network entitlement Sparkle needs to fetch
       the appcast; release checklist has a post-export entitlement check.
-- [ ] Verify the first **network-enabled** end-to-end update path from v1.3 to
-      v1.4: publish appcast, Check for Updates..., prompt appears, signature
-      validates, install + relaunch works. 2026-07-15 first live attempt got as
-      far as the v1.4 prompt, then failed launching Sparkle's installer because
-      the uploaded zip preserved forbidden `com.apple.FinderInfo` metadata on
-      Sparkle's embedded XPC services. Release helper/checklist now run
-      strict deep code-signing and Gatekeeper checks on the unzipped archive;
-      local v1.4 asset repaired by stripping xattrs, re-zipping with metadata
-      preservation disabled, and regenerating the appcast signature. Next:
-      replace the GitHub asset, deploy the updated appcast, and verify install
-      + relaunch. Also verify the update dialog with VoiceOver and
-      increased-contrast mode (Sparkle's standard UI is accessible out of the
-      box, but confirm — a11y is a hard requirement here).
+- [x] Live v1.4 → v1.6 proof confirmed appcast discovery, download, and archive
+      signature/notarization. Immediate updater logs exposed the remaining
+      app-wide failure: sandboxed builds through v1.6 omitted Sparkle's installer
+      launcher key and `-spks` / `-spki` Mach lookup exceptions.
+- [x] v1.6.1 adds the complete sandboxed Sparkle contract and release preflights
+      for it. Because an older build cannot add its own missing entitlement,
+      v1.6.1 is a one-time manual install.
+- [ ] Verify the first install + relaunch proof from manually installed v1.6.1
+      to the next published build. Also verify the update dialog with VoiceOver
+      and increased-contrast mode (a11y is a hard requirement here).
 
 ### Phase 4.5 — Shape styling + vector paths (pulled in before export)
 - [x] Stroke color + width on rectangle/ellipse (model + render + Inspector;
@@ -1617,6 +1667,43 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-07-20 — v1.6.1 media/SVG/rotation/geometry quality pass:** Finder file
+  basenames now survive SVG/raster import as layer names; pasteboard SVG reads
+  every file and places the batch side by side in one undo step. SVG export now
+  emits readable `layer-<slug>` classes for every node (repeat names stay valid
+  classes, never duplicate IDs). Replaced the top rotate notch with four
+  outside-corner rotate regions + a dedicated cursor and delta math, preserving
+  Shift snapping without diagonal-start jumps. Inspector geometry now measures
+  the painted outline exterior, group dimensions use live painted descendant
+  bounds, numeric path W/H scales vector points, and Geometry Audit reports both
+  structural and painted bounds. Debug build passed; native checks confirmed a
+  two-SVG named batch, outside-corner multi-rotation, and exported layer classes.
+  Recorded the Design Language color → CSS custom-property bridge in the v2
+  interop plan; owner real-document/zoom/stroke-position verification remains.
+
+- **2026-07-20 — Sparkle installer failure is app-wide; sandbox integration fixed:**
+  Reproduced v1.4 → v1.6 from the cleaned, strictly valid installed baseline;
+  discovery and download succeeded, but installer launch still failed. The
+  immediate unified log named the missing integration: authorization `-60005`,
+  “Failed to submit installer job,” and Sparkle's sandbox warning. Added
+  `SUEnableInstallerLauncherService`, the required `-spks` / `-spki` Mach lookup
+  exceptions in a checked-in app entitlements file, and preflight enforcement.
+  The public v1.6 archive itself remains byte-identical to local release copies,
+  notarized/strict-signature clean, and free of forbidden Finder metadata. Since
+  old builds lack the entitlement needed to launch their own updater, v1.6.1 is
+  a one-time manual install; validate automatic updates from v1.6.1 forward.
+
+- **2026-07-20 — v1.6.1 stabilization opened; rich-text click-out fix:** Marked
+  v1.6 shipped and opened the intentionally narrow v1.6.1/build-9 bug-fix lane.
+  Reworked inline-text commit around a stable attributed-text snapshot so
+  selected word/line/character styling no longer depends on AppKit preserving
+  attributes while first responder and selection tear down. Also wired deferred
+  commit for selection changes originating outside the canvas without stealing
+  the new selection. Debug build succeeded in Xcode 26.6; the exact word-size
+  regression passed end-to-end (16 → 32 pt, direct artboard click-out, reopen and
+  reselect still reports 32). Owner verification remains for the real document
+  and size/color/weight/underline coverage.
 
 - **2026-07-20 — v1.6 release prep:** Confirmed the v1.6 checklist is closed and
   moved the roadmap section from NEXT to release-candidate. Added

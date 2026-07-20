@@ -29,6 +29,7 @@ build="$2"
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 pbxproj="$root/EXP [design].xcodeproj/project.pbxproj"
 info_plist="$root/Info.plist"
+entitlements="$root/EXP [design]/EXP [design].entitlements"
 package_resolved="$root/EXP [design].xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
 appcast="$root/website/public/appcast.xml"
 notes="$root/RELEASE-NOTES-v$version.md"
@@ -58,6 +59,10 @@ plist_value() {
   /usr/libexec/PlistBuddy -c "Print :$1" "$info_plist" 2>/dev/null
 }
 
+entitlement_value() {
+  /usr/libexec/PlistBuddy -c "Print :$1" "$entitlements" 2>/dev/null
+}
+
 find_generate_appcast() {
   if [[ -n "${SPARKLE_GENERATE_APPCAST:-}" && -x "${SPARKLE_GENERATE_APPCAST:-}" ]]; then
     printf '%s\n' "$SPARKLE_GENERATE_APPCAST"
@@ -71,8 +76,15 @@ check "CURRENT_PROJECT_VERSION is $build in every build config" unique_setting C
 check "app target allows outgoing network connections for Sparkle" unique_setting ENABLE_OUTGOING_NETWORK_CONNECTIONS YES
 check "Sparkle package is resolved" grep -q '"identity" : "sparkle"' "$package_resolved"
 check "Info.plist SUFeedURL points to expdesign.app appcast" test "$(plist_value SUFeedURL)" = "https://expdesign.app/appcast.xml"
+check "Info.plist enables Sparkle installer launcher service" test "$(plist_value SUEnableInstallerLauncherService)" = "true"
 public_key="$(plist_value SUPublicEDKey || true)"
 check "Info.plist SUPublicEDKey is present" test -n "$public_key"
+check "app Debug and Release use the checked-in entitlements file" test "$(grep -c 'CODE_SIGN_ENTITLEMENTS = "EXP \[design\]/EXP \[design\]\.entitlements";' "$pbxproj")" -eq 2
+check "entitlements keep the app sandbox enabled" test "$(entitlement_value com.apple.security.app-sandbox)" = "true"
+check "entitlements keep user-selected files read/write" test "$(entitlement_value com.apple.security.files.user-selected.read-write)" = "true"
+check "entitlements keep outgoing network access" test "$(entitlement_value com.apple.security.network.client)" = "true"
+check "entitlements allow Sparkle installer status service" test "$(entitlement_value com.apple.security.temporary-exception.mach-lookup.global-name:0)" = '$(PRODUCT_BUNDLE_IDENTIFIER)-spks'
+check "entitlements allow Sparkle installer connection service" test "$(entitlement_value com.apple.security.temporary-exception.mach-lookup.global-name:1)" = '$(PRODUCT_BUNDLE_IDENTIFIER)-spki'
 check "release notes exist for v$version" test -f "$notes"
 generate_appcast="$(find_generate_appcast || true)"
 check "Sparkle generate_appcast tool is available" test -n "$generate_appcast"

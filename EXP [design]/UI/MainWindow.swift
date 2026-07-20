@@ -941,11 +941,12 @@ struct RightPanel: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
                 if case .group = node.content {
-                    // Group W/H scales the group AND its children (move keeps origin).
+                    // Read the same live descendant/outline bounds the designer sees,
+                    // rather than a stale structural group frame.
                     dimensions(
                         title: "",
-                        x: nodeBinding(\.origin.x, action: "Move Group"),
-                        y: nodeBinding(\.origin.y, action: "Move Group"),
+                        x: groupMoveBinding(node, horizontal: true),
+                        y: groupMoveBinding(node, horizontal: false),
                         w: groupSizeBinding(node, width: true),
                         h: groupSizeBinding(node, width: false)
                     )
@@ -961,10 +962,10 @@ struct RightPanel: View {
                 } else {
                     dimensions(
                         title: "",
-                        x: nodeBinding(\.origin.x, action: "Move Shape"),
-                        y: nodeBinding(\.origin.y, action: "Move Shape"),
-                        w: nodeBinding(\.size.width, action: "Resize Shape"),
-                        h: nodeBinding(\.size.height, action: "Resize Shape")
+                        x: outlinedNodeBinding(\.origin.x, action: "Move Shape"),
+                        y: outlinedNodeBinding(\.origin.y, action: "Move Shape"),
+                        w: outlinedNodeBinding(\.size.width, action: "Resize Shape"),
+                        h: outlinedNodeBinding(\.size.height, action: "Resize Shape")
                     )
                 }
                 HStack(spacing: 4) {
@@ -1207,6 +1208,43 @@ struct RightPanel: View {
                 guard let id = app.singleSelectedNodeID else { return }
                 mutateScopedNode(id, action: action) { node in
                     node.frame[keyPath: keyPath] = clamp(keyPath, CGFloat(newValue) + ownerOffset(keyPath))
+                }
+            }
+        )
+    }
+
+    /// Inspector geometry for a single layer uses the painted OUTSIDE edge of
+    /// its outline. Inside strokes leave the frame unchanged; centered/outside
+    /// strokes expand X/Y/W/H by their actual reach. Shadows remain effects and
+    /// are intentionally excluded from object dimensions.
+    private func outlinedNodeBinding(_ keyPath: WritableKeyPath<CGRect, CGFloat>,
+                                     action: String) -> Binding<Double> {
+        Binding(
+            get: {
+                guard let node = selectedNode else { return 0 }
+                let outset = SelectionTransform.strokeOutset(for: node.content)
+                let outer = node.frame.insetBy(dx: -outset, dy: -outset)
+                return Double(outer[keyPath: keyPath] - ownerOffset(keyPath))
+            },
+            set: { newValue in
+                guard let id = app.singleSelectedNodeID else { return }
+                let owner = ownerOffset(keyPath)
+                mutateScopedNode(id, action: action) { node in
+                    let outset = SelectionTransform.strokeOutset(for: node.content)
+                    let value = CGFloat(newValue) + owner
+                    switch keyPath {
+                    case \CGRect.origin.x:    node.frame.origin.x = value + outset
+                    case \CGRect.origin.y:    node.frame.origin.y = value + outset
+                    case \CGRect.size.width:
+                        let desired = max(1, CGFloat(newValue) - 2 * outset)
+                        node = SelectionTransform.scaled(node, about: node.frame.origin,
+                                                         sx: desired / max(1, node.frame.width), sy: 1)
+                    case \CGRect.size.height:
+                        let desired = max(1, CGFloat(newValue) - 2 * outset)
+                        node = SelectionTransform.scaled(node, about: node.frame.origin,
+                                                         sx: 1, sy: desired / max(1, node.frame.height))
+                    default: break
+                    }
                 }
             }
         )
@@ -1610,17 +1648,60 @@ struct RightPanel: View {
         return nil
     }
 
-    /// W/H for a single GROUP: scales the group AND its children (keeping the
-    /// group's top-left fixed), via the shared transform. Works at any nesting.
+    /// X/Y for a group follows its live painted descendant union, matching the
+    /// selection bounds even when an imported SVG's declared viewBox differs
+    /// slightly from its actual paths.
+    private func groupMoveBinding(_ node: Node, horizontal: Bool) -> Binding<Double> {
+        Binding(
+            get: {
+                let bounds = SelectionTransform.paintedBounds(node)
+                let keyPath: WritableKeyPath<CGRect, CGFloat> = horizontal ? \.origin.x : \.origin.y
+                return Double(bounds[keyPath: keyPath] - ownerOffset(keyPath))
+            },
+            set: { value in
+                let keyPath: WritableKeyPath<CGRect, CGFloat> = horizontal ? \.origin.x : \.origin.y
+                let target = CGFloat(value) + ownerOffset(keyPath)
+                mutateScopedNode(node.id, action: "Move Group") { current in
+                    let bounds = SelectionTransform.paintedBounds(current)
+                    if horizontal { current.frame.origin.x += target - bounds.minX }
+                    else { current.frame.origin.y += target - bounds.minY }
+                }
+            }
+        )
+    }
+
+    /// W/H for a single GROUP scales the group AND descendants while measuring
+    /// against the painted outer bounds. A small binary solve accounts for fixed-
+    /// width outlines, which do not themselves scale with the object geometry.
     private func groupSizeBinding(_ node: Node, width: Bool) -> Binding<Double> {
         Binding(
-            get: { Double(width ? node.frame.width : node.frame.height) },
+            get: {
+                let bounds = SelectionTransform.paintedBounds(node)
+                return Double(width ? bounds.width : bounds.height)
+            },
             set: { v in
                 mutateScopedNode(node.id, action: "Resize Group") { n in
-                    let nv = max(1, CGFloat(v))
-                    let sx = width ? nv / max(1, n.frame.width) : 1
-                    let sy = width ? 1 : nv / max(1, n.frame.height)
-                    n = SelectionTransform.scaled(n, about: n.frame.origin, sx: sx, sy: sy)
+                    let desired = max(1, CGFloat(v))
+                    let original = n
+                    let bounds = SelectionTransform.paintedBounds(original)
+                    let anchor = bounds.origin
+                    func scaled(_ factor: CGFloat) -> Node {
+                        SelectionTransform.scaled(original, about: anchor,
+                                                  sx: width ? factor : 1,
+                                                  sy: width ? 1 : factor)
+                    }
+                    func measured(_ factor: CGFloat) -> CGFloat {
+                        let b = SelectionTransform.paintedBounds(scaled(factor))
+                        return width ? b.width : b.height
+                    }
+                    var low: CGFloat = 0.0001
+                    var high = max(1, desired / max(1, width ? bounds.width : bounds.height) * 2)
+                    while measured(high) < desired, high < 10_000 { high *= 2 }
+                    for _ in 0..<32 {
+                        let mid = (low + high) / 2
+                        if measured(mid) < desired { low = mid } else { high = mid }
+                    }
+                    n = scaled((low + high) / 2)
                 }
             })
     }

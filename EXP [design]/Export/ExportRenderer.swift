@@ -315,8 +315,11 @@ struct ExportRenderer {
         let opacity = node.opacity < 0.999 ? " opacity=\"\(num(CGFloat(node.opacity)))\"" : ""
         let blend = node.blendMode != .normal ? " style=\"mix-blend-mode:\(node.blendMode.cssName)\"" : ""
         let filter = svgEffectsFilter(node.effects, &defs)
-        guard !transform.isEmpty || !opacity.isEmpty || !blend.isEmpty || !filter.isEmpty else { return inner }
-        return "<g\(transform)\(opacity)\(blend)\(filter)>\n\(inner)</g>\n"
+        // Every EXP layer gets a CSS-safe class derived from its layer name.
+        // Classes intentionally may repeat: unlike IDs, duplicate layer names are
+        // valid and useful selectors in hand-edited SVG/CSS.
+        let layerClass = svgLayerClass(node.name)
+        return "<g class=\"\(layerClass)\"\(transform)\(opacity)\(blend)\(filter)>\n\(inner)</g>\n"
     }
 
     /// Build an SVG `<filter>` for a node's effects and return the
@@ -542,6 +545,17 @@ struct ExportRenderer {
         return s.replacingOccurrences(of: "&", with: "&amp;")
             .replacingOccurrences(of: "<", with: "&lt;")
             .replacingOccurrences(of: ">", with: "&gt;")
+    }
+
+    /// A stable, readable CSS class. The `layer-` prefix keeps filenames that
+    /// begin with digits valid without CSS escaping; punctuation/whitespace fold
+    /// into one hyphen while Unicode letters and numbers remain meaningful.
+    private func svgLayerClass(_ name: String) -> String {
+        let parts = name.lowercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+        let slug = parts.joined(separator: "-")
+        return slug.isEmpty ? "layer" : "layer-\(slug)"
     }
 }
 

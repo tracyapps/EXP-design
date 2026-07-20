@@ -57,7 +57,12 @@
 	  validation — build & run are unaffected. SUEnableAutomaticChecks is
 	  deliberately NOT set: Sparkle asks the user for permission on the second
 	  launch (consent first); manual checks always work.
+	  SUEnableInstallerLauncherService + the matching -spks/-spki exceptions in
+	  EXP [design].entitlements are both required because the app is sandboxed.
+	  Without them, Sparkle downloads successfully but fails to launch its installer.
 	-->
+	<key>SUEnableInstallerLauncherService</key>
+	<true/>
 	<key>SUFeedURL</key>
 	<string>https://expdesign.app/appcast.xml</string>
 	<key>SUPublicEDKey</key>

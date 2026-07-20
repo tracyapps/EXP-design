@@ -68,6 +68,52 @@ enum SelectionTransform {
         return u
     }
 
+    /// How far a node's outline paints beyond its geometry frame. Inside strokes
+    /// add nothing; centered and outside strokes expand by their true outer reach.
+    static func strokeOutset(for content: NodeContent) -> CGFloat {
+        switch content {
+        case .rectangle(let s): return s.strokeAlignment.reach(for: s.strokeWidth)
+        case .ellipse(let s):   return s.strokeAlignment.reach(for: s.strokeWidth)
+        case .polygon(let s):   return s.strokeAlignment.reach(for: s.strokeWidth)
+        case .line(let s):      return s.strokeWidth / 2
+        case .path(let s):      return s.effectiveStrokeAlignment.reach(for: s.strokeWidth)
+        default:                return 0
+        }
+    }
+
+    /// Inspector-facing outer bounds: the descendant union for groups, expanded
+    /// to the painted outside edge of every outline. This deliberately excludes
+    /// shadows/effects—the dimension is the object + outline, not a soft effect.
+    static func paintedBounds(_ node: Node) -> CGRect {
+        func bounds(_ n: Node, _ parentOrigin: CGPoint) -> CGRect {
+            let absFrame = n.frame.offsetBy(dx: parentOrigin.x, dy: parentOrigin.y)
+            var inner = absFrame.insetBy(dx: -strokeOutset(for: n.content),
+                                         dy: -strokeOutset(for: n.content))
+            if case .group(let kids) = n.content, !kids.isEmpty {
+                if n.autoLayout != nil || n.autoPadding != nil {
+                    inner = absFrame
+                } else {
+                    var union: CGRect?
+                    for child in kids {
+                        let b = bounds(child, absFrame.origin)
+                        union = union?.union(b) ?? b
+                    }
+                    inner = union ?? absFrame
+                }
+            }
+            guard n.rotation != 0 else { return inner }
+            let center = CGPoint(x: absFrame.midX, y: absFrame.midY)
+            let corners = [
+                CGPoint(x: inner.minX, y: inner.minY), CGPoint(x: inner.maxX, y: inner.minY),
+                CGPoint(x: inner.maxX, y: inner.maxY), CGPoint(x: inner.minX, y: inner.maxY)
+            ].map { rotate($0, around: center, deg: n.rotation) }
+            let xs = corners.map(\.x), ys = corners.map(\.y)
+            return CGRect(x: xs.min()!, y: ys.min()!,
+                          width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!)
+        }
+        return bounds(node, .zero)
+    }
+
     // MARK: Scale
 
     /// A copy of `base` scaled by (sx, sy) about document-space anchor `A`

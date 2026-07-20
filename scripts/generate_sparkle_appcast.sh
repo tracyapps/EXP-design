@@ -80,6 +80,7 @@ verify_zip_for_sparkle_install() {
   local archive="$1"
   local app
   local entitlements
+  local mach_names
 
   tmpdir="$(mktemp -d)"
   ditto -x -k "$archive" "$tmpdir"
@@ -97,6 +98,21 @@ verify_zip_for_sparkle_install() {
     echo "error: exported app is missing com.apple.security.network.client" >&2
     echo "       Sparkle runs inside the app sandbox and cannot fetch appcast.xml without it." >&2
     echo "       Re-export from Xcode after enabling Outgoing Connections, then re-zip." >&2
+    exit 1
+  fi
+
+  if ! /usr/libexec/PlistBuddy -c "Print :SUEnableInstallerLauncherService" "$app/Contents/Info.plist" 2>/dev/null \
+    | grep -qx true; then
+    echo "error: exported app does not enable SUEnableInstallerLauncherService" >&2
+    echo "       A sandboxed app can download an update but cannot launch Sparkle's installer without it." >&2
+    exit 1
+  fi
+
+  mach_names="$(/usr/libexec/PlistBuddy -c "Print :com.apple.security.temporary-exception.mach-lookup.global-name" "$entitlements" 2>/dev/null || true)"
+  if ! printf '%s\n' "$mach_names" | grep -q -- '-spks$' \
+    || ! printf '%s\n' "$mach_names" | grep -q -- '-spki$'; then
+    echo "error: exported app is missing Sparkle's -spks/-spki Mach lookup exceptions" >&2
+    echo "       Add the sandbox integration entitlements, then archive/export and re-zip." >&2
     exit 1
   fi
 

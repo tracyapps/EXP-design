@@ -66,6 +66,13 @@ struct CanvasView: NSViewRepresentable {
         // update cycle — see AppState.applyTextStyle.
         nsView.endPenIfNeeded()   // tool switched away (e.g. via the tools strip)
         nsView.syncPointSelectionIfNeeded()   // edited path/tool changed elsewhere (Layers panel, etc.)
+        // A Layers-panel or other SwiftUI selection change can move selection
+        // away from an active inline editor without sending the canvas a mouse
+        // event. Commit on the next tick so the document mutation stays outside
+        // SwiftUI's view-update pass.
+        DispatchQueue.main.async { [weak nsView] in
+            nsView?.commitTextEditingIfSelectionChanged()
+        }
         nsView.refreshCursor()
         nsView.needsDisplay = true
     }
@@ -146,7 +153,7 @@ final class CanvasNSView: NSView {
         case resizeSource(handle: Handle, original: CGRect)   // component viewBox resize
         case nodes(startDoc: CGPoint, origins: [UUID: CGPoint])
         case resize(id: UUID, handle: Handle, original: CGRect)
-        case rotate(id: UUID, centerView: CGPoint)
+        case rotate(id: UUID, centerView: CGPoint, lastAngle: Double, rawRotation: Double)
         // Resize/rotate a whole selection as a unit: multiple top-level nodes, or a
         // single group (scaling its children). `original` is the selection's doc
         // bounds at drag start; the transform reads from `selectionDragBaseline`.
@@ -242,6 +249,12 @@ final class CanvasNSView: NSView {
     // type; the model is updated on commit.
     private var editingNodeID: UUID?
     private var textEditor: NSTextView?
+
+    // Stable working copy of the editor's attributed text. NSTextView can adjust
+    // selection/typing state while first responder moves between the canvas and
+    // Inspector. Committing this snapshot keeps per-run attributes independent of
+    // that focus lifecycle; every actual text/style mutation refreshes it.
+    private var textEditSnapshot: NSAttributedString?
 
     // The editor's last *user-driven* selection. Clicking an Inspector control
     // resigns the text view's first responder, which collapses its live
@@ -2217,29 +2230,42 @@ final class CanvasNSView: NSView {
         return nil
     }
 
-    /// View-space position of the rotation knob (above the top-center handle,
-    /// rotated with the node). nil unless a single box-resizable node is selected.
-    private func rotateKnobPoint() -> (point: CGPoint, center: CGPoint, node: Node)? {
-        guard let app, let id = app.singleSelectedNodeID,
-              let node = node(id), isBoxResizable(node) else { return nil }
-        // 22px beyond the box's top-center, along the MAPPED center→top-center
-        // direction — lands where the knob visually belongs for any combination
-        // of own rotation + ancestor rotation/flips.
-        let chain = ancestorGroups(of: id)
-        let f = node.frame
-        let center = boxPointToView(CGPoint(x: f.midX, y: f.midY), node, chain: chain)
-        let top = boxPointToView(CGPoint(x: f.midX, y: f.minY), node, chain: chain)
-        let len = hypot(top.x - center.x, top.y - center.y)
-        guard len > 0.001 else { return nil }
-        let knob = CGPoint(x: top.x + (top.x - center.x) / len * 22,
-                           y: top.y + (top.y - center.y) / len * 22)
-        return (knob, center, node)
+    /// Adobe-style rotate region: just outside each corner, leaving the square
+    /// resize handle itself untouched. `corners` are clockwise in view space, so
+    /// the two adjacent edge vectors define the outward corner quadrant even for
+    /// rotated/flipped nodes.
+    private func isInCornerRotateRegion(_ point: CGPoint, corners: [CGPoint]) -> Bool {
+        guard corners.count == 4 else { return false }
+        let minDistance = handleGrab * 0.75
+        let maxDistance: CGFloat = 30
+        for i in corners.indices {
+            let corner = corners[i]
+            let delta = CGPoint(x: point.x - corner.x, y: point.y - corner.y)
+            let distance = hypot(delta.x, delta.y)
+            guard distance >= minDistance, distance <= maxDistance else { continue }
+            let adjacent = [corners[(i + 3) % 4], corners[(i + 1) % 4]]
+            let outsideBothEdges = adjacent.allSatisfy { neighbor in
+                let edge = CGPoint(x: neighbor.x - corner.x, y: neighbor.y - corner.y)
+                let length = hypot(edge.x, edge.y)
+                guard length > 0.001 else { return false }
+                return (delta.x * edge.x + delta.y * edge.y) / length < -2
+            }
+            if outsideBothEdges { return true }
+        }
+        return false
     }
 
     private func hitTestRotateHandle(atViewPoint point: CGPoint) -> (id: UUID, center: CGPoint)? {
-        guard let k = rotateKnobPoint() else { return nil }
-        if hypot(point.x - k.point.x, point.y - k.point.y) <= handleGrab { return (k.node.id, k.center) }
-        return nil
+        guard let app, let id = app.singleSelectedNodeID,
+              let node = node(id), isBoxResizable(node) else { return nil }
+        let chain = ancestorGroups(of: id)
+        let f = node.frame
+        let corners = [CGPoint(x: f.minX, y: f.minY), CGPoint(x: f.maxX, y: f.minY),
+                       CGPoint(x: f.maxX, y: f.maxY), CGPoint(x: f.minX, y: f.maxY)]
+            .map { boxPointToView($0, node, chain: chain) }
+        guard isInCornerRotateRegion(point, corners: corners) else { return nil }
+        let center = boxPointToView(CGPoint(x: f.midX, y: f.midY), node, chain: chain)
+        return (id, center)
     }
 
     // MARK: Selection transform (multi-select + group resize / rotate)
@@ -2333,12 +2359,13 @@ final class CanvasNSView: NSView {
         return nil
     }
 
-    /// Doc-space pivot (selection centre) if the pointer is on the rotate knob.
+    /// Doc-space pivot if the pointer is just outside any selection-box corner.
     private func hitTestSelectionRotate(atViewPoint point: CGPoint) -> CGPoint? {
         guard usesSelectionTransform(), let bounds = selectionDocBounds() else { return nil }
         let rect = docToView(bounds)
-        let knob = CGPoint(x: rect.midX, y: rect.minY - 22)
-        guard hypot(point.x - knob.x, point.y - knob.y) <= handleGrab else { return nil }
+        let corners = [CGPoint(x: rect.minX, y: rect.minY), CGPoint(x: rect.maxX, y: rect.minY),
+                       CGPoint(x: rect.maxX, y: rect.maxY), CGPoint(x: rect.minX, y: rect.maxY)]
+        guard isInCornerRotateRegion(point, corners: corners) else { return nil }
         return CGPoint(x: bounds.midX, y: bounds.midY)
     }
 
@@ -2346,6 +2373,17 @@ final class CanvasNSView: NSView {
     /// convention (matches the rotate knob + `node.rotation`).
     private func selectionAngle(of p: CGPoint, around c: CGPoint) -> Double {
         var deg = atan2(Double(p.x - c.x), Double(-(p.y - c.y))) * 180 / .pi
+        if deg < 0 { deg += 360 }
+        return deg
+    }
+
+    /// Pointer angle in the selected node's parent coordinate space. Mapping both
+    /// center and pointer through the ancestor chain preserves flipped handedness.
+    private func nodeRotationAngle(atViewPoint p: CGPoint, id: UUID, centerView: CGPoint) -> Double {
+        let chain = ancestorGroups(of: id)
+        let a = docToParentLocal(viewToDoc(centerView), chain: chain)
+        let b = docToParentLocal(viewToDoc(p), chain: chain)
+        var deg = atan2(Double(b.x - a.x), Double(-(b.y - a.y))) * 180 / .pi
         if deg < 0 { deg += 360 }
         return deg
     }
@@ -2798,7 +2836,7 @@ final class CanvasNSView: NSView {
         switch dragMode {
         case .nodes(_, let origins):            return Set(origins.keys)
         case .resize(let id, _, _):             return [id]
-        case .rotate(let id, _):                return [id]
+        case .rotate(let id, _, _, _):          return [id]
         case .resizeSelection, .rotateSelection: return Set(selectionDragBaseline.keys)
         case .draw(let id, _):                  return [id]
         case .drawLine(let id, _):              return [id]
@@ -5045,13 +5083,13 @@ final class CanvasNSView: NSView {
             }
         }
 
-        // 8-handle box + rotate knob only for box-resizable shapes.
+        // Eight resize handles. Rotation is available in the invisible outside-
+        // corner regions, communicated by the rotate cursor rather than a notch.
         guard handles, isBoxResizable(node) else { return }
         perf.measure("sel-handles") {
             for handle in Handle.allCases {
                 drawHandleBox(centeredAt: handlePoint(handle, in: rect), in: ctx)
             }
-            drawRotateKnob(topMid: handlePoint(.top, in: rect), in: ctx)
         }
     }
 
@@ -5205,8 +5243,8 @@ final class CanvasNSView: NSView {
     }
 
     /// The unified selection box for a multi-selection or a single group: an
-    /// axis-aligned accent rect over the selection's bounds with 8 resize handles
-    /// and a rotate knob (drawn in view space at constant size).
+    /// axis-aligned accent rect over the selection's bounds with 8 resize handles.
+    /// Rotation lives just outside the corners (Adobe-style), without extra chrome.
     private func drawSelectionTransformBox(_ docBounds: CGRect, in ctx: CGContext) {
         let rect = docToView(docBounds)
         ctx.saveGState()
@@ -5217,7 +5255,6 @@ final class CanvasNSView: NSView {
         for handle in Handle.allCases {
             drawHandleBox(centeredAt: handlePoint(handle, in: rect), in: ctx)
         }
-        drawRotateKnob(topMid: handlePoint(.top, in: rect), in: ctx)
     }
 
     /// Selection box for a node living inside rotated group(s): its frame corners
@@ -5238,24 +5275,11 @@ final class CanvasNSView: NSView {
         ctx.closePath()
         ctx.strokePath()
         ctx.restoreGState()
-        // Handles + rotate knob at the same mapped positions the hit-tests use.
+        // Resize handles at the same mapped positions the hit-tests use. Rotation
+        // is the invisible outside-corner region and needs no extra notch/knob.
         guard handles, isBoxResizable(node) else { return }
         for handle in Handle.allCases {
             drawHandleBox(centeredAt: boxPointToView(handlePoint(handle, in: f), node, chain: chain), in: ctx)
-        }
-        if let k = rotateKnobPoint(), k.node.id == node.id {
-            let top = boxPointToView(CGPoint(x: f.midX, y: f.minY), node, chain: chain)
-            ctx.saveGState()
-            NSColor.controlAccentColor.setStroke()
-            ctx.setLineWidth(1)
-            ctx.move(to: top)
-            ctx.addLine(to: k.point)
-            ctx.strokePath()
-            let box = CGRect(x: k.point.x - 4, y: k.point.y - 4, width: 8, height: 8)
-            NSColor.white.setFill()
-            ctx.fillEllipse(in: box)
-            ctx.strokeEllipse(in: box.insetBy(dx: 0.5, dy: 0.5))
-            ctx.restoreGState()
         }
     }
 
@@ -5272,21 +5296,6 @@ final class CanvasNSView: NSView {
         ctx.move(to: CGPoint(x: box.midX, y: box.minY + 3)); ctx.addLine(to: CGPoint(x: box.midX, y: box.maxY - 3))
         ctx.move(to: CGPoint(x: box.minX + 3, y: box.midY)); ctx.addLine(to: CGPoint(x: box.maxX - 3, y: box.midY))
         ctx.strokePath()
-        ctx.restoreGState()
-    }
-
-    private func drawRotateKnob(topMid: CGPoint, in ctx: CGContext) {
-        let knob = CGPoint(x: topMid.x, y: topMid.y - 22)
-        ctx.saveGState()
-        NSColor.controlAccentColor.setStroke()
-        ctx.setLineWidth(1)
-        ctx.move(to: topMid)
-        ctx.addLine(to: CGPoint(x: knob.x, y: knob.y + 5))
-        ctx.strokePath()
-        let box = CGRect(x: knob.x - 4, y: knob.y - 4, width: 8, height: 8)
-        NSColor.white.setFill()
-        ctx.fillEllipse(in: box)
-        ctx.strokeEllipse(in: box.insetBy(dx: 0.5, dy: 0.5))
         ctx.restoreGState()
     }
 
@@ -5383,6 +5392,23 @@ final class CanvasNSView: NSView {
         return NSCursor(image: canvas, hotSpot: arrow.hotSpot)
     }()
 
+    /// Rotate cursor shown in the outside-corner hit regions. A white backing
+    /// keeps the black system symbol legible over both light and dark artwork.
+    private static let rotateCursor: NSCursor = {
+        let size = NSSize(width: 24, height: 24)
+        let canvas = NSImage(size: size)
+        canvas.lockFocus()
+        NSColor.white.withAlphaComponent(0.92).setFill()
+        NSBezierPath(ovalIn: CGRect(x: 1, y: 1, width: 22, height: 22)).fill()
+        if let symbol = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: "Rotate")?
+            .withSymbolConfiguration(.init(pointSize: 15, weight: .bold)
+                .applying(.init(paletteColors: [.black]))) {
+            symbol.draw(in: CGRect(x: 4, y: 4, width: 16, height: 16))
+        }
+        canvas.unlockFocus()
+        return NSCursor(image: canvas, hotSpot: NSPoint(x: 12, y: 12))
+    }()
+
     private func desiredCursor(at p: CGPoint, flags: NSEvent.ModifierFlags) -> NSCursor {
         if spaceHeld { return .openHand }
         guard let app else { return .arrow }
@@ -5408,9 +5434,9 @@ final class CanvasNSView: NSView {
         case .node:
             return .arrow
         case .select:
-            if hitTestSelectionRotate(atViewPoint: p) != nil { return .crosshair }
+            if hitTestSelectionRotate(atViewPoint: p) != nil { return Self.rotateCursor }
             if let handle = hitTestSelectionHandle(atViewPoint: p) { return cursor(for: handle) }
-            if hitTestRotateHandle(atViewPoint: p) != nil { return .crosshair }
+            if hitTestRotateHandle(atViewPoint: p) != nil { return Self.rotateCursor }
             if let handle = hitTestHandle(atViewPoint: p) { return cursor(for: handle) }
             if let board = soleSelectedArtboard(),
                let handle = hitTestArtboardHandle(atViewPoint: p, board: board) { return cursor(for: handle) }
@@ -5675,7 +5701,7 @@ final class CanvasNSView: NSView {
             return
         }
 
-        // Selection rotate knob (multi-select or a group) — before single checks.
+        // Outside-corner rotation (multi-select or a group) — before resize.
         if let pivot = hitTestSelectionRotate(atViewPoint: p) {
             dragBaseline = document.model
             gestureUndoName = "Rotate"
@@ -5694,11 +5720,13 @@ final class CanvasNSView: NSView {
             return
         }
 
-        // Rotate knob (single selection) — checked before resize handles.
-        if let rk = hitTestRotateHandle(atViewPoint: p) {
+        // Outside-corner rotation (single selection) — before resize handles.
+        if let rk = hitTestRotateHandle(atViewPoint: p), let n = node(rk.id) {
             dragBaseline = document.model
             gestureUndoName = "Rotate"
-            dragMode = .rotate(id: rk.id, centerView: rk.center)
+            dragMode = .rotate(id: rk.id, centerView: rk.center,
+                               lastAngle: nodeRotationAngle(atViewPoint: p, id: rk.id, centerView: rk.center),
+                               rawRotation: n.rotation)
             return
         }
 
@@ -6036,19 +6064,22 @@ final class CanvasNSView: NSView {
             didEdit = true
             needsDisplay = true
 
-        case .rotate(let id, let centerView):
+        case .rotate(let id, let centerView, let lastAngle, let rawRotation):
             // `rotation` is stored in the node's PARENT-local space. Map the
-            // knob direction (center → cursor) down through the ancestor chain
-            // and measure the angle THERE: a rotated ancestor's constant offset
-            // and a flipped ancestor's reversed handedness both fall out of the
-            // two-point difference — the shape tracks the cursor either way.
-            let chain = ancestorGroups(of: id)
-            let a = docToParentLocal(viewToDoc(centerView), chain: chain)
-            let b = docToParentLocal(viewToDoc(p), chain: chain)
-            var deg = atan2(Double(b.x - a.x), Double(-(b.y - a.y))) * 180 / .pi
-            if deg < 0 { deg += 360 }
-            if shift { deg = (deg / 15).rounded() * 15 }   // snap to 15°
-            updateNode(id) { $0.rotation = deg }
+            // pointer direction through the ancestor chain. Corner rotation is
+            // DELTA-based (unlike the old top notch's absolute 0° direction), so
+            // grabbing any of the four corners never makes the object jump.
+            let angle = nodeRotationAngle(atViewPoint: p, id: id, centerView: centerView)
+            var delta = angle - lastAngle
+            if delta > 180 { delta -= 360 }
+            if delta < -180 { delta += 360 }
+            let raw = rawRotation + delta
+            var displayed = raw.truncatingRemainder(dividingBy: 360)
+            if displayed < 0 { displayed += 360 }
+            if shift { displayed = (displayed / 15).rounded() * 15 }   // snap to 15°
+            updateNode(id) { $0.rotation = displayed }
+            dragMode = .rotate(id: id, centerView: centerView,
+                               lastAngle: angle, rawRotation: raw)
             didEdit = true
             needsDisplay = true
 
@@ -6372,6 +6403,7 @@ final class CanvasNSView: NSView {
         editingNodeID = nodeID
         editingIsNew = isNew
         editorSelectedRange = tv.selectedRange()
+        captureTextEditSnapshot()
         // Inspector controls call this directly (synchronously) while editing.
         app?.applyTextStyle = { [weak self] op in self?.applyTextStyleOp(op) }
         publishTextSelection()
@@ -6402,25 +6434,20 @@ final class CanvasNSView: NSView {
     /// Commit if the selected node changed out from under an open editor.
     func commitTextEditingIfSelectionChanged() {
         guard let id = editingNodeID, let app else { return }
-        if !app.selectedNodeIDs.contains(id) { commitTextEditing() }
+        if !app.selectedNodeIDs.contains(id) { commitTextEditing(keepNodeSelected: false) }
     }
 
-    private func commitTextEditing() {
+    private func commitTextEditing(keepNodeSelected: Bool = true) {
         guard !committingText, let tv = textEditor, let id = editingNodeID, let document else { return }
         committingText = true
         defer { committingText = false }
 
-        // If the user was typing in an Inspector field (for example the size
-        // field) and then clicked the canvas, make that field commit while the
-        // live text editor hook is still installed. Otherwise the final inspector
-        // value can arrive after this commit and overwrite/lose the selected-run
-        // attributes.
-        let selectionForCommit = effectiveEditorRange()
+        // If an Inspector field (for example font size) is first responder, ask
+        // it to commit while the live editor hook is still installed. Do not make
+        // the NSTextView first responder again: that focus/selection round-trip is
+        // the path that could erase selected-run attributes on direct click-out.
         if window?.firstResponder !== tv {
-            window?.makeFirstResponder(tv)
-            if selectionForCommit.length > 0 {
-                tv.setSelectedRange(selectionForCommit)
-            }
+            window?.endEditing(for: nil)
         }
 
         // Inspector style changes were already applied synchronously to the editor
@@ -6429,18 +6456,16 @@ final class CanvasNSView: NSView {
         // committed editor.
         app?.applyTextStyle = nil
 
-        // Force the text view to finish processing any pending edits before we
-        // read the attributed string. This ensures font size changes made to
-        // selected text are captured even if the user clicks out while text is
-        // still selected.
-        tv.layoutManager?.ensureLayout(for: tv.textContainer!)
-        
-        // Use textStorage (the authoritative source) not attributedString(), which
-        // can be stale when the editor loses first responder during the commit.
-        let edited = tv.textStorage?.copy() as? NSAttributedString ?? tv.attributedString()
+        // Text/style delegate paths update this snapshot synchronously. It is the
+        // source of truth at commit so AppKit's first-responder teardown cannot
+        // flatten or otherwise alter rich-text runs before model reconstruction.
+        let edited = textEditSnapshot
+            ?? tv.textStorage.map { NSAttributedString(attributedString: $0) }
+            ?? tv.attributedString()
         let scale = textEditScale
         tv.removeFromSuperview()
         textEditor = nil
+        textEditSnapshot = nil
         editingNodeID = nil
         let wasNew = editingIsNew
         editingIsNew = false
@@ -6451,7 +6476,7 @@ final class CanvasNSView: NSView {
         if trimmed.isEmpty && wasNew {
             // Never really created — silently drop it (no undo, no dirtying).
             if let baseline { document.model = baseline }
-            app?.selectedNodeIDs = []
+            if keepNodeSelected { app?.selectedNodeIDs = [] }
         } else if let target = node(id), case .text(let old) = target.content {
             // Rebuild styled runs from the edited attributed string (keep the
             // node's paragraph settings).
@@ -6471,14 +6496,21 @@ final class CanvasNSView: NSView {
             }
             // Leave the text box SELECTED after committing (Esc / click-out) so it can
             // be grabbed and moved immediately — including for auto-layout reordering.
-            app?.selectedNodeIDs = [id]
-            app?.selectedArtboardID = nil
+            if keepNodeSelected {
+                app?.selectedNodeIDs = [id]
+                app?.selectedArtboardID = nil
+            }
         }
 
         app?.textSelection = nil
         app?.tool = .select
-        window?.makeFirstResponder(self)
-        refreshCursor()
+        // A canvas-originated commit should return keyboard focus to the canvas.
+        // If selection changed elsewhere (for example in Layers), leave focus
+        // with the control the user actually clicked.
+        if keepNodeSelected {
+            window?.makeFirstResponder(self)
+            refreshCursor()
+        }
         needsDisplay = true
     }
 
@@ -6516,6 +6548,7 @@ final class CanvasNSView: NSView {
                 storage.addAttribute(.font, value: self.toggledFont(f, trait), range: sub)
             }
             storage.endEditing()
+            captureTextEditSnapshot()
             tv.didChangeText()
             publishTextSelection()
             needsDisplay = true
@@ -6546,6 +6579,7 @@ final class CanvasNSView: NSView {
             if firstOn { storage.removeAttribute(.underlineStyle, range: sel) }
             else { storage.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: sel) }
             storage.endEditing()
+            captureTextEditSnapshot()
             tv.didChangeText()
             needsDisplay = true
         } else if let id = app?.singleSelectedNodeID {
@@ -6568,6 +6602,11 @@ final class CanvasNSView: NSView {
     }
 
     // MARK: Inspector → text (font / size / color), selection-aware
+
+    private func captureTextEditSnapshot() {
+        guard editingNodeID != nil, let storage = textEditor?.textStorage else { return }
+        textEditSnapshot = NSAttributedString(attributedString: storage)
+    }
 
     /// The range an Inspector style op should target: the live selection while the
     /// editor is focused, otherwise the last user-driven selection (since clicking
@@ -6595,6 +6634,7 @@ final class CanvasNSView: NSView {
                                          range: NSRange(location: 0, length: storage.length))
                     tv.typingAttributes[.paragraphStyle] = para
                     syncTextEditorFrameToModel()
+                    captureTextEditSnapshot()
                     tv.didChangeText()
                     needsDisplay = true
                 }
@@ -6637,6 +6677,7 @@ final class CanvasNSView: NSView {
                 }
                 storage.endEditing()
             }
+            captureTextEditSnapshot()
             tv.didChangeText()
             publishTextSelection()
             needsDisplay = true
@@ -7065,7 +7106,7 @@ final class CanvasNSView: NSView {
     }
 
     @objc func paste(_ sender: Any?) {
-        guard let document else { return }
+        guard document != nil else { return }
         let pb = NSPasteboard.general
         // Artboards first (only in the main document scope).
         if !isSourceScope, let data = pb.data(forType: Self.artboardPasteboardType),
@@ -7078,15 +7119,16 @@ final class CanvasNSView: NSView {
             pasteNodes(clip)
             return
         }
-        // An SVG on the clipboard → import as editable vector layers.
-        if let svg = svgData(from: pb) { placeSVG(svg, at: nil); return }
+        // SVG(s) on the clipboard → import as editable vector layers.
+        let svgItems = svgImports(from: pb)
+        if !svgItems.isEmpty { placeSVGImports(svgItems, at: nil); return }
         // A PDF on the clipboard (a vector copy from Illustrator/Figma/Sketch/
         // Preview lands as com.adobe.pdf, NOT svg) → import as an editable vector
         // group. Checked before the raster branch so vector wins over NSImage.
         if let pdf = pdfData(from: pb) { placePDF(pdf, at: nil); return }
         // Otherwise: image(s) on the clipboard (copied image(s), or file(s)) → place them.
-        let datas = imageDatas(from: pb)
-        if !datas.isEmpty { placeImagesData(datas, at: nil) }
+        let images = imageImports(from: pb)
+        if !images.isEmpty { placeImageImports(images, at: nil) }
     }
 
     // MARK: Images (place / paste / drag-drop)
@@ -7095,25 +7137,42 @@ final class CanvasNSView: NSView {
     /// (original bytes, format preserved, in drop order), or -- if there are no
     /// image files -- raw PNG data / any NSImage-readable content (a copied
     /// image). Multiple files dragged or pasted at once all come back here.
-    private func imageDatas(from pb: NSPasteboard) -> [Data] {
+    private struct NamedImport {
+        let data: Data
+        let name: String?
+    }
+
+    /// A Finder filename becomes a useful layer name. Keep Unicode and spaces;
+    /// only the file extension is transport detail rather than part of the name.
+    private func layerName(for url: URL) -> String? {
+        let name = url.deletingPathExtension().lastPathComponent
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? nil : name
+    }
+
+    private func imageImports(from pb: NSPasteboard) -> [NamedImport] {
         if let urls = pb.readObjects(forClasses: [NSURL.self], options: nil) as? [URL] {
-            let fromFiles = urls.compactMap { url -> Data? in
+            let fromFiles = urls.compactMap { url -> NamedImport? in
                 guard let data = try? Data(contentsOf: url), NSImage(data: data) != nil else { return nil }
-                return data
+                return NamedImport(data: data, name: layerName(for: url))
             }
             if !fromFiles.isEmpty { return fromFiles }
         }
-        if let data = pb.data(forType: .png) { return [data] }
-        if let data = pb.data(forType: .tiff), Self.imagePixelDimensions(data) != nil { return [data] }
-        if let ns = NSImage(pasteboard: pb), let png = Self.pngData(from: ns) { return [png] }
+        if let data = pb.data(forType: .png) { return [NamedImport(data: data, name: nil)] }
+        if let data = pb.data(forType: .tiff), Self.imagePixelDimensions(data) != nil {
+            return [NamedImport(data: data, name: nil)]
+        }
+        if let ns = NSImage(pasteboard: pb), let png = Self.pngData(from: ns) {
+            return [NamedImport(data: png, name: nil)]
+        }
         return []
     }
 
     /// Create an image node from raw image bytes, centred at `viewPoint` (or the
     /// viewport centre), at the image's full natural size. One undo step.
     @discardableResult
-    func placeImageData(_ data: Data, at viewPoint: CGPoint?) -> Bool {
-        placeImagesData([data], at: viewPoint)
+    func placeImageData(_ data: Data, at viewPoint: CGPoint?, name: String? = nil) -> Bool {
+        placeImageImports([NamedImport(data: data, name: name)], at: viewPoint)
     }
 
     /// Create one image node per item in `datas`, each at its full natural size,
@@ -7121,11 +7180,11 @@ final class CanvasNSView: NSView {
     /// centre) so images dropped together land side-by-side instead of stacked
     /// exactly on top of one another. All of them land in a single undo step.
     @discardableResult
-    func placeImagesData(_ datas: [Data], at viewPoint: CGPoint?) -> Bool {
+    private func placeImageImports(_ imports: [NamedImport], at viewPoint: CGPoint?) -> Bool {
         guard let app else { return false }
-        let images: [(data: Data, size: CGSize)] = datas.compactMap { d in
-            guard let ns = NSImage(data: d), ns.size.width > 0, ns.size.height > 0 else { return nil }
-            return (d, ns.size)
+        let images: [(data: Data, size: CGSize, name: String?)] = imports.compactMap { item in
+            guard let ns = NSImage(data: item.data), ns.size.width > 0, ns.size.height > 0 else { return nil }
+            return (item.data, ns.size, item.name)
         }
         guard !images.isEmpty else { return false }
 
@@ -7138,7 +7197,7 @@ final class CanvasNSView: NSView {
         var newIDs: [UUID] = []
         for img in images {
             let origin = CGPoint(x: x, y: center.y - img.size.height / 2)
-            let node = Node(name: "Image", frame: CGRect(origin: origin, size: img.size),
+            let node = Node(name: img.name ?? "Image", frame: CGRect(origin: origin, size: img.size),
                             content: .image(ImageContent(data: img.data, naturalSize: img.size)))
             nodes.append(node)
             newIDs.append(node.id)
@@ -7153,24 +7212,26 @@ final class CanvasNSView: NSView {
     }
 
     /// File ▸ Place Image… — pick one or more image (or SVG) files and drop them
-    /// on the canvas. SVGs import as vector groups one at a time; any raster
-    /// images chosen alongside them are batched into a single row/undo step.
+    /// on the canvas. Each media type is placed as a named row in one undo step.
     @objc func placeImageAction(_ sender: Any?) {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.image, .svg]
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
         guard panel.runModal() == .OK, !panel.urls.isEmpty else { return }
-        var rasterDatas: [Data] = []
+        var svgs: [NamedImport] = []
+        var images: [NamedImport] = []
         for url in panel.urls {
             guard let data = try? Data(contentsOf: url) else { continue }
+            let item = NamedImport(data: data, name: layerName(for: url))
             if url.pathExtension.lowercased() == "svg" || looksLikeSVG(data) {
-                placeSVG(data, at: nil)
+                svgs.append(item)
             } else {
-                rasterDatas.append(data)
+                images.append(item)
             }
         }
-        if !rasterDatas.isEmpty { placeImagesData(rasterDatas, at: nil) }
+        if !svgs.isEmpty { placeSVGImports(svgs, at: nil) }
+        if !images.isEmpty { placeImageImports(images, at: nil) }
     }
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
@@ -7187,16 +7248,17 @@ final class CanvasNSView: NSView {
         if let sid = componentSourceID(from: sender.draggingPasteboard) {
             return placeComponentInstance(sid, at: at)
         }
-        if let svg = svgData(from: sender.draggingPasteboard) { return placeSVG(svg, at: at) }
+        let svgs = svgImports(from: sender.draggingPasteboard)
+        if !svgs.isEmpty { return placeSVGImports(svgs, at: at) }
         if let pdf = pdfData(from: sender.draggingPasteboard) { return placePDF(pdf, at: at) }
-        let datas = imageDatas(from: sender.draggingPasteboard)
-        guard !datas.isEmpty else { return false }
-        return placeImagesData(datas, at: at)
+        let images = imageImports(from: sender.draggingPasteboard)
+        guard !images.isEmpty else { return false }
+        return placeImageImports(images, at: at)
     }
 
     private func canDrop(_ pb: NSPasteboard) -> Bool {
-        componentSourceID(from: pb) != nil || svgData(from: pb) != nil
-            || pdfData(from: pb) != nil || !imageDatas(from: pb).isEmpty
+        componentSourceID(from: pb) != nil || !svgImports(from: pb).isEmpty
+            || pdfData(from: pb) != nil || !imageImports(from: pb).isEmpty
     }
 
     // MARK: Component drop (v1.3 — drag a component from the panel onto the canvas)
@@ -7242,41 +7304,69 @@ final class CanvasNSView: NSView {
         return s.contains("<svg")
     }
 
-    /// Pull SVG bytes from a pasteboard: a dragged/pasted `.svg` FILE, raw SVG
-    /// data, or pasted SVG markup as a string. nil if there's no SVG.
-    private func svgData(from pb: NSPasteboard) -> Data? {
+    /// Pull every SVG from a pasteboard. Finder drops retain each source filename;
+    /// raw SVG data/markup remains a single unnamed import.
+    private func svgImports(from pb: NSPasteboard) -> [NamedImport] {
         if let urls = pb.readObjects(forClasses: [NSURL.self], options: nil) as? [URL] {
-            for url in urls where url.pathExtension.lowercased() == "svg" {
-                if let data = try? Data(contentsOf: url) { return data }
+            let files = urls.compactMap { url -> NamedImport? in
+                guard url.pathExtension.lowercased() == "svg",
+                      let data = try? Data(contentsOf: url) else { return nil }
+                return NamedImport(data: data, name: layerName(for: url))
             }
+            if !files.isEmpty { return files }
         }
         if let svgType = UTType.svg.identifier as String?,
            let data = pb.data(forType: NSPasteboard.PasteboardType(svgType)), looksLikeSVG(data) {
-            return data
+            return [NamedImport(data: data, name: nil)]
         }
         if let s = pb.string(forType: .string), s.contains("<svg"),
-           let data = s.data(using: .utf8) { return data }
-        return nil
+           let data = s.data(using: .utf8) { return [NamedImport(data: data, name: nil)] }
+        return []
     }
 
     /// Import an SVG as a group of editable native layers, centred at `viewPoint`
     /// (or the viewport centre). Falls back to a raster image if the document
     /// can't be parsed into vectors. One undo step.
     @discardableResult
-    func placeSVG(_ data: Data, at viewPoint: CGPoint?) -> Bool {
+    func placeSVG(_ data: Data, at viewPoint: CGPoint?, name: String? = nil) -> Bool {
+        placeSVGImports([NamedImport(data: data, name: name)], at: viewPoint)
+    }
+
+    /// Import multiple SVGs as one named, side-by-side batch and one undo step.
+    /// Invalid vector markup still gets the existing raster fallback when AppKit
+    /// can render it, so one problematic file does not cancel the rest of a drop.
+    @discardableResult
+    private func placeSVGImports(_ imports: [NamedImport], at viewPoint: CGPoint?) -> Bool {
         guard let app else { return false }
-        guard var group = SVGImporter.importGroup(from: data) else {
-            // Couldn't parse → try to place it as a raster so the drop still works.
-            return placeImageData(data, at: viewPoint)
+        var imported: [Node] = []
+        for item in imports {
+            if var group = SVGImporter.importGroup(from: item.data) {
+                if let name = item.name { group.name = name }
+                imported.append(group)
+            } else if let image = NSImage(data: item.data), image.size.width > 0, image.size.height > 0 {
+                imported.append(Node(name: item.name ?? "Image",
+                                     frame: CGRect(origin: .zero, size: image.size),
+                                     content: .image(ImageContent(data: item.data, naturalSize: image.size))))
+            }
         }
-        let size = group.frame.size
+        guard !imported.isEmpty else { return false }
+
+        let gap: CGFloat = 24
+        let totalWidth = imported.reduce(0) { $0 + $1.frame.width }
+            + gap * CGFloat(imported.count - 1)
         let center = viewPoint.map { viewToDoc($0) } ?? viewToDoc(viewCenter)
-        group.frame.origin = CGPoint(x: center.x - size.width / 2, y: center.y - size.height / 2)
+        var x = center.x - totalWidth / 2
         var nodes = currentNodes
-        nodes.append(group)
-        commitNodes(nodes, actionName: "Import SVG")
+        var newIDs: [UUID] = []
+        for var node in imported {
+            node.frame.origin = CGPoint(x: x, y: center.y - node.frame.height / 2)
+            nodes.append(node)
+            newIDs.append(node.id)
+            x += node.frame.width + gap
+        }
+        commitNodes(nodes, actionName: imported.count > 1 ? "Import SVGs" : "Import SVG")
         app.selectedArtboardID = nil
-        app.selectedNodeIDs = [group.id]
+        app.selectedNodeIDs = Set(newIDs)
         app.tool = .select
         needsDisplay = true
         return true
@@ -7866,14 +7956,20 @@ final class CanvasNSView: NSView {
     /// when nothing is selected), then cross-checks every pair with equal doc
     /// sizes. Separates "the math is wrong" (a real bug — flagged loudly) from
     /// "the paint reads differently":
-    ///  • a shape's stroke is CENTERED on its frame → extends strokeWidth/2
-    ///    OUTSIDE the frame on every edge;
+    ///  • a shape's outline reach follows its Inside / Center / Outside setting,
+    ///    and the audit reports the same painted-outer bounds as the Inspector;
     ///  • an artboard's 1px hairline is drawn fully INSIDE its frame, and its
     ///    drop shadow softens the bottom edge;
     ///  • fractional origins/sizes antialias across 2px and read "soft".
     private func geometryAuditLines() -> [String] {
         guard let app, let document else { return ["(geometry audit: no document)"] }
-        struct Item { let kind: String; let name: String; let frame: CGRect; let visualNote: String }
+        struct Item {
+            let kind: String
+            let name: String
+            let frame: CGRect
+            let painted: CGRect
+            let visualNote: String
+        }
         var items: [Item] = []
 
         let selBoards = app.selectedArtboardIDs
@@ -7881,15 +7977,28 @@ final class CanvasNSView: NSView {
         let auditAll = selBoards.isEmpty && selNodes.isEmpty
 
         for ab in document.model.artboards where auditAll || selBoards.contains(ab.id) {
-            items.append(Item(kind: "artboard", name: ab.name, frame: ab.frame,
+            items.append(Item(kind: "artboard", name: ab.name, frame: ab.frame, painted: ab.frame,
                               visualNote: "1px hairline drawn INSIDE frame; shadow softens bottom edge"))
         }
         for node in currentNodes where auditAll || selNodes.contains(node.id) {
             let reach = strokeReach(node.content)
-            let note = reach > 0
-                ? String(format: "centered stroke extends %.2fpt OUTSIDE frame per edge", reach)
-                : "no stroke — visual edge == frame edge"
-            items.append(Item(kind: "node", name: node.name, frame: node.frame, visualNote: note))
+            let note: String
+            switch node.content {
+            case .rectangle(let s) where s.strokeWidth > 0:
+                note = "\(s.strokeAlignment.label.lowercased()) stroke; outer reach \(String(format: "%.2f", reach))pt"
+            case .ellipse(let s) where s.strokeWidth > 0:
+                note = "\(s.strokeAlignment.label.lowercased()) stroke; outer reach \(String(format: "%.2f", reach))pt"
+            case .polygon(let s) where s.strokeWidth > 0:
+                note = "\(s.strokeAlignment.label.lowercased()) stroke; outer reach \(String(format: "%.2f", reach))pt"
+            case .path(let s) where s.strokeWidth > 0:
+                note = "\(s.effectiveStrokeAlignment.label.lowercased()) stroke; outer reach \(String(format: "%.2f", reach))pt"
+            case .line(let s) where s.strokeWidth > 0:
+                note = "centered line stroke; outer reach \(String(format: "%.2f", reach))pt"
+            default:
+                note = "no outline beyond geometry frame"
+            }
+            items.append(Item(kind: "node", name: node.name, frame: node.frame,
+                              painted: SelectionTransform.paintedBounds(node), visualNote: note))
         }
 
         var lines: [String] = []
@@ -7908,6 +8017,11 @@ final class CanvasNSView: NSView {
                                 frac ? "  ⚠️ fractional — edges antialias across 2px" : ""))
             lines.append(String(format: "    view(x %.3f, y %.3f, w %.3f, h %.3f) — %@",
                                 v.minX, v.minY, v.width, v.height, it.visualNote))
+            if it.painted != it.frame {
+                lines.append(String(format: "    inspector outer(x %.3f, y %.3f, w %.3f, h %.3f)",
+                                    it.painted.minX, it.painted.minY,
+                                    it.painted.width, it.painted.height))
+            }
         }
         // Any two audited objects with equal doc sizes MUST produce identical
         // view sizes (same docToView math). If they don't, that IS the bug.
@@ -8884,6 +8998,7 @@ extension CanvasNSView: NSTextViewDelegate {
         publishTextSelection()
     }
     func textDidChange(_ notification: Notification) {
+        captureTextEditSnapshot()
         publishTextSelection()
     }
     /// Escape ends editing but KEEPS the text node selected (commitTextEditing
