@@ -1250,45 +1250,272 @@ final class CanvasNSView: NSView {
 
     /// Convert a rectangle/ellipse/line into an equivalent path shape.
     private static func pathShape(from content: NodeContent, size: CGSize) -> PathShape? {
-        let w = size.width, h = size.height
-        switch content {
-        case .rectangle(let s):
-            // v1.3 BUG FIX: rounded rectangles convert with their corners intact
-            // (κ-bézier arcs, per-corner aware) instead of snapping square.
-            let radii = s.effectiveRadii.clamped(to: size)
-            let pts: [PathPoint]
-            if radii.isZero {
-                pts = [CGPoint(x: 0, y: 0), CGPoint(x: w, y: 0),
-                       CGPoint(x: w, y: h), CGPoint(x: 0, y: h)].map { PathPoint(point: $0) }
-            } else {
-                pts = PathShape.roundedRectPoints(size: size, radii: radii)
-            }
-            return PathShape(points: pts, closed: true, fill: s.fill,
-                             stroke: s.stroke, strokeWidth: s.strokeWidth,
-                             strokeAlignment: s.strokeAlignment)
-        case .ellipse(let s):
-            let kx = w / 2 * 0.5523, ky = h / 2 * 0.5523
-            let top = CGPoint(x: w / 2, y: 0), right = CGPoint(x: w, y: h / 2)
-            let bottom = CGPoint(x: w / 2, y: h), left = CGPoint(x: 0, y: h / 2)
-            var pts: [PathPoint] = []
-            pts.append(PathPoint(point: top, controlIn: CGPoint(x: top.x - kx, y: top.y), controlOut: CGPoint(x: top.x + kx, y: top.y)))
-            pts.append(PathPoint(point: right, controlIn: CGPoint(x: right.x, y: right.y - ky), controlOut: CGPoint(x: right.x, y: right.y + ky)))
-            pts.append(PathPoint(point: bottom, controlIn: CGPoint(x: bottom.x + kx, y: bottom.y), controlOut: CGPoint(x: bottom.x - kx, y: bottom.y)))
-            pts.append(PathPoint(point: left, controlIn: CGPoint(x: left.x, y: left.y + ky), controlOut: CGPoint(x: left.x, y: left.y - ky)))
-            return PathShape(points: pts, closed: true, fill: s.fill, stroke: s.stroke,
-                             strokeWidth: s.strokeWidth, strokeAlignment: s.strokeAlignment)
-        case .line(let ls):
-            return PathShape(points: [PathPoint(point: ls.start), PathPoint(point: ls.end)],
-                             closed: false, fill: .clear, stroke: ls.stroke, strokeWidth: ls.strokeWidth)
-            // (fill unused for open paths; .clear == Paint.solid(.clear))
-        case .polygon(let s):
-            let pts = s.vertices(in: CGRect(x: 0, y: 0, width: w, height: h))
-            return PathShape(points: pts.map { PathPoint(point: $0) }, closed: true,
-                             fill: s.fill, stroke: s.stroke, strokeWidth: s.strokeWidth,
-                             strokeAlignment: s.strokeAlignment)
-        default:
-            return nil
+        VectorPathGeometry.pathShape(from: content, size: size)
+    }
+
+    // MARK: Outline Stroke + Pathfinder
+
+    @objc func outlineStrokeAction(_ sender: Any?) { outlineSelectedStrokes() }
+    @objc func pathfinderUniteAction(_ sender: Any?) { applyPathfinder(.unite) }
+    @objc func pathfinderSubtractAction(_ sender: Any?) { applyPathfinder(.subtract) }
+    @objc func pathfinderIntersectAction(_ sender: Any?) { applyPathfinder(.intersect) }
+    @objc func pathfinderExcludeAction(_ sender: Any?) { applyPathfinder(.exclude) }
+
+    /// A node-local vector point in its direct parent's coordinate space. This
+    /// bakes the node's own flip/rotation but deliberately leaves ancestor-group
+    /// transforms alone; replacement geometry stays in the same parent.
+    private func vectorPointToParent(_ local: CGPoint, node: Node) -> CGPoint {
+        var point = local
+        if node.flipH { point.x = node.frame.width - point.x }
+        if node.flipV { point.y = node.frame.height - point.y }
+        point.x += node.frame.minX
+        point.y += node.frame.minY
+        if node.rotation != 0 {
+            point = rotatePoint(point,
+                                around: CGPoint(x: node.frame.midX, y: node.frame.midY),
+                                byDegrees: node.rotation)
         }
+        return point
+    }
+
+    private func vectorPointToDocument(_ local: CGPoint, node: Node) -> CGPoint {
+        parentLocalToDoc(vectorPointToParent(local, node: node),
+                         chain: ancestorGroups(of: node.id))
+    }
+
+    private func vectorPathInDocument(_ node: Node) -> CGPath? {
+        guard let shape = VectorPathGeometry.pathShape(from: node.content,
+                                                       size: node.frame.size) else { return nil }
+        let local = VectorPathGeometry.cgPath(from: shape)
+        return VectorPathGeometry.map(local) { self.vectorPointToDocument($0, node: node) }
+    }
+
+    private static func paintIsVisible(_ paint: Paint?) -> Bool {
+        guard let paint else { return false }
+        if case .solid(let color) = paint { return color.a > 0.000_1 }
+        return true
+    }
+
+    /// Illustrator-style expansion: a stroke-only object becomes one filled
+    /// path. A filled+stroked object becomes a group containing an editable fill
+    /// path and an editable outline path in the same paint order as the original.
+    /// Resizing that group therefore scales the former stroke as geometry.
+    private func outlineSelectedStrokes() {
+        guard let app, !app.selectedNodeIDs.isEmpty else { return }
+        let selected = app.selectedNodeIDs
+        var nodes = currentNodes
+        var changed = false
+
+        func outlinedReplacement(for original: Node) -> Node? {
+            guard let sourceShape = VectorPathGeometry.pathShape(from: original.content,
+                                                                 size: original.frame.size),
+                  let stroke = VectorPathGeometry.stroke(from: original.content) else { return nil }
+            let centerline = VectorPathGeometry.cgPath(from: sourceShape)
+            let outlinePath = VectorPathGeometry.outlinedStroke(centerline: centerline,
+                                                                 shape: sourceShape,
+                                                                 stroke: stroke)
+            guard let outline = VectorPathGeometry.pathShape(from: outlinePath,
+                                                              fill: .solid(stroke.color)) else { return nil }
+            let visibleFill = Self.paintIsVisible(VectorPathGeometry.fill(from: original.content))
+
+            // Stroke-only (lines, open paths, or a transparent closed shape): one
+            // direct filled path, with the old transform baked into its anchors.
+            if !visibleFill {
+                let parentPath = VectorPathGeometry.map(outlinePath) {
+                    self.vectorPointToParent($0, node: original)
+                }
+                guard let converted = VectorPathGeometry.pathShape(from: parentPath,
+                                                                    fill: .solid(stroke.color)) else { return nil }
+                return Node(id: original.id, name: original.name, frame: converted.bounds,
+                            isVisible: original.isVisible, isLocked: original.isLocked,
+                            opacity: original.opacity, effects: original.effects,
+                            blendMode: original.blendMode,
+                            isMask: original.isMask, isMaskShape: original.isMaskShape,
+                            relationships: original.relationships, publicProps: original.publicProps,
+                            content: .path(converted.shape))
+            }
+
+            // Preserve the original center as the group's transform center. The
+            // outline can have asymmetric miter bounds, so make a symmetric frame
+            // large enough for both children instead of shifting rotation on expand.
+            let originalBounds = CGRect(origin: .zero, size: original.frame.size)
+            let inkBounds = originalBounds.union(outline.bounds)
+            let center = CGPoint(x: original.frame.width / 2, y: original.frame.height / 2)
+            let halfWidth = max(center.x - inkBounds.minX, inkBounds.maxX - center.x)
+            let halfHeight = max(center.y - inkBounds.minY, inkBounds.maxY - center.y)
+            let groupFrame = CGRect(x: original.frame.midX - halfWidth,
+                                    y: original.frame.midY - halfHeight,
+                                    width: max(1, halfWidth * 2),
+                                    height: max(1, halfHeight * 2))
+            let childOffset = CGPoint(x: original.frame.minX - groupFrame.minX,
+                                      y: original.frame.minY - groupFrame.minY)
+
+            var fillShape = sourceShape
+            fillShape.strokeWidth = 0
+            fillShape.strokeAlignment = .center
+            let fillNode = Node(name: "\(original.name) Fill",
+                                frame: CGRect(origin: childOffset, size: original.frame.size),
+                                content: .path(fillShape))
+            let outlineNode = Node(name: "\(original.name) Outline",
+                                   frame: outline.bounds.offsetBy(dx: childOffset.x, dy: childOffset.y),
+                                   content: .path(outline.shape))
+            return Node(id: original.id, name: original.name, frame: groupFrame,
+                        isVisible: original.isVisible, isLocked: original.isLocked,
+                        rotation: original.rotation, opacity: original.opacity,
+                        effects: original.effects, blendMode: original.blendMode,
+                        flipH: original.flipH, flipV: original.flipV,
+                        isMask: original.isMask, isMaskShape: original.isMaskShape,
+                        relationships: original.relationships, publicProps: original.publicProps,
+                        content: .group(children: [fillNode, outlineNode]))
+        }
+
+        func process(_ array: inout [Node]) {
+            for i in array.indices {
+                if selected.contains(array[i].id), let replacement = outlinedReplacement(for: array[i]) {
+                    array[i] = replacement
+                    changed = true
+                } else if case .group(var children) = array[i].content {
+                    process(&children)
+                    array[i].content = .group(children: children)
+                }
+            }
+        }
+        process(&nodes)
+        guard changed else { NSSound.beep(); return }
+        commitNodes(nodes, actionName: "Outline Stroke")
+        needsDisplay = true
+    }
+
+    private struct PathfinderInput {
+        var node: Node
+        var path: CGPath
+    }
+
+    /// Selected closed vector nodes in paint order (last = topmost).
+    private func pathfinderInputs() -> [PathfinderInput] {
+        guard let app else { return [] }
+        var result: [PathfinderInput] = []
+        func walk(_ nodes: [Node]) {
+            for node in nodes {
+                if app.selectedNodeIDs.contains(node.id),
+                   VectorPathGeometry.isClosedVector(node.content),
+                   let path = vectorPathInDocument(node) {
+                    result.append(PathfinderInput(node: node, path: path))
+                }
+                if case .group(let children) = node.content { walk(children) }
+            }
+        }
+        walk(currentNodes)
+        return result
+    }
+
+    private func applyPathfinder(_ operation: VectorBooleanOperation) {
+        guard let app else { return }
+        let inputs = pathfinderInputs()
+        // Do not partially consume a mixed selection: every selected item must be
+        // a closed vector shape, and Pathfinder always needs at least two.
+        guard inputs.count >= 2, inputs.count == app.selectedNodeIDs.count else {
+            NSSound.beep(); return
+        }
+
+        let combined: CGPath
+        let styleNode: Node
+        switch operation {
+        case .unite:
+            combined = inputs.dropFirst().reduce(inputs[0].path) {
+                $0.union($1.path, using: .winding)
+            }
+            styleNode = inputs.last!.node
+        case .subtract:
+            let cutters = inputs.dropFirst().dropFirst().reduce(inputs[1].path) {
+                $0.union($1.path, using: .winding)
+            }
+            combined = inputs[0].path.subtracting(cutters, using: .winding)
+            styleNode = inputs[0].node
+        case .intersect:
+            combined = inputs.dropFirst().reduce(inputs[0].path) {
+                $0.intersection($1.path, using: .winding)
+            }
+            styleNode = inputs.last!.node
+        case .exclude:
+            combined = inputs.dropFirst().reduce(inputs[0].path) {
+                $0.symmetricDifference($1.path, using: .winding)
+            }
+            styleNode = inputs.last!.node
+        }
+        guard !combined.isEmpty else { NSSound.beep(); return }
+
+        let ids = app.selectedNodeIDs
+        let parents = Set(ids.map { parentGroupID(of: $0) })
+        let sharedParent: UUID? = parents.count == 1 ? parents.first! : nil
+        let outputPath: CGPath
+        if let first = inputs.first, parents.count == 1 {
+            let parentChain = ancestorGroups(of: first.node.id)
+            outputPath = parentChain.isEmpty ? combined : VectorPathGeometry.map(combined) {
+                self.docToParentLocal($0, chain: parentChain)
+            }
+        } else {
+            outputPath = combined       // mixed parents are promoted to document level
+        }
+
+        guard let sourceStyle = VectorPathGeometry.pathShape(from: styleNode.content,
+                                                              size: styleNode.frame.size),
+              let converted = VectorPathGeometry.pathShape(from: outputPath,
+                                                            fill: sourceStyle.fill,
+                                                            stroke: sourceStyle.stroke,
+                                                            strokeWidth: sourceStyle.strokeWidth,
+                                                            strokeAlignment: sourceStyle.effectiveStrokeAlignment)
+        else { NSSound.beep(); return }
+
+        var result = Node(id: styleNode.id, name: styleNode.name, frame: converted.bounds,
+                          isVisible: styleNode.isVisible, isLocked: styleNode.isLocked,
+                          opacity: styleNode.opacity, effects: styleNode.effects,
+                          blendMode: styleNode.blendMode,
+                          isMask: styleNode.isMask, isMaskShape: styleNode.isMaskShape,
+                          relationships: styleNode.relationships, publicProps: styleNode.publicProps,
+                          content: .path(converted.shape))
+        // All source transforms are already baked into `combined`.
+        result.rotation = 0; result.flipH = false; result.flipV = false
+
+        var nodes = currentNodes
+        func replaceSelected(in array: inout [Node]) {
+            guard let topIndex = array.indices.last(where: { ids.contains(array[$0].id) }) else { return }
+            let insertion = array[..<topIndex].filter { !ids.contains($0.id) }.count
+            array.removeAll { ids.contains($0.id) }
+            array.insert(result, at: min(insertion, array.count))
+        }
+        if parents.count == 1 {
+            if let parentID = sharedParent {
+                Self.mutateNested(parentID, in: &nodes) { parent in
+                    guard case .group(var children) = parent.content else { return }
+                    replaceSelected(in: &children)
+                    parent.content = .group(children: children)
+                }
+            } else {
+                replaceSelected(in: &nodes)
+            }
+        } else {
+            Self.removeNested(ids, from: &nodes)
+            nodes.append(result)
+        }
+
+        commitNodes(nodes, actionName: operation.actionName)
+        app.selectedNodeIDs = [result.id]
+        app.selectedArtboardID = nil
+        needsDisplay = true
+    }
+
+    private var selectionCanOutlineStroke: Bool {
+        guard let app else { return false }
+        return app.selectedNodeIDs.contains { id in
+            guard let node = node(id) else { return false }
+            return VectorPathGeometry.stroke(from: node.content) != nil
+        }
+    }
+
+    private var selectionCanPathfinder: Bool {
+        guard let app, app.selectedNodeIDs.count >= 2 else { return false }
+        return pathfinderInputs().count == app.selectedNodeIDs.count
     }
 
     private var selectionConvertibleToPath: Bool {
@@ -2234,8 +2461,8 @@ final class CanvasNSView: NSView {
     /// resize handle itself untouched. `corners` are clockwise in view space, so
     /// the two adjacent edge vectors define the outward corner quadrant even for
     /// rotated/flipped nodes.
-    private func isInCornerRotateRegion(_ point: CGPoint, corners: [CGPoint]) -> Bool {
-        guard corners.count == 4 else { return false }
+    private func cornerRotateRegion(at point: CGPoint, corners: [CGPoint]) -> CGPoint? {
+        guard corners.count == 4 else { return nil }
         let minDistance = handleGrab * 0.75
         let maxDistance: CGFloat = 30
         for i in corners.indices {
@@ -2250,12 +2477,13 @@ final class CanvasNSView: NSView {
                 guard length > 0.001 else { return false }
                 return (delta.x * edge.x + delta.y * edge.y) / length < -2
             }
-            if outsideBothEdges { return true }
+            if outsideBothEdges { return corner }
         }
-        return false
+        return nil
     }
 
-    private func hitTestRotateHandle(atViewPoint point: CGPoint) -> (id: UUID, center: CGPoint)? {
+    private func hitTestRotateHandle(atViewPoint point: CGPoint)
+        -> (id: UUID, center: CGPoint, corner: CGPoint)? {
         guard let app, let id = app.singleSelectedNodeID,
               let node = node(id), isBoxResizable(node) else { return nil }
         let chain = ancestorGroups(of: id)
@@ -2263,9 +2491,9 @@ final class CanvasNSView: NSView {
         let corners = [CGPoint(x: f.minX, y: f.minY), CGPoint(x: f.maxX, y: f.minY),
                        CGPoint(x: f.maxX, y: f.maxY), CGPoint(x: f.minX, y: f.maxY)]
             .map { boxPointToView($0, node, chain: chain) }
-        guard isInCornerRotateRegion(point, corners: corners) else { return nil }
+        guard let corner = cornerRotateRegion(at: point, corners: corners) else { return nil }
         let center = boxPointToView(CGPoint(x: f.midX, y: f.midY), node, chain: chain)
-        return (id, center)
+        return (id, center, corner)
     }
 
     // MARK: Selection transform (multi-select + group resize / rotate)
@@ -2359,14 +2587,17 @@ final class CanvasNSView: NSView {
         return nil
     }
 
-    /// Doc-space pivot if the pointer is just outside any selection-box corner.
-    private func hitTestSelectionRotate(atViewPoint point: CGPoint) -> CGPoint? {
+    /// Rotation pivot + hovered view-space corner when the pointer is just outside
+    /// a selection-box corner. The corner chooses the inward-facing authored cursor.
+    private func hitTestSelectionRotate(atViewPoint point: CGPoint)
+        -> (pivot: CGPoint, center: CGPoint, corner: CGPoint)? {
         guard usesSelectionTransform(), let bounds = selectionDocBounds() else { return nil }
         let rect = docToView(bounds)
         let corners = [CGPoint(x: rect.minX, y: rect.minY), CGPoint(x: rect.maxX, y: rect.minY),
                        CGPoint(x: rect.maxX, y: rect.maxY), CGPoint(x: rect.minX, y: rect.maxY)]
-        guard isInCornerRotateRegion(point, corners: corners) else { return nil }
-        return CGPoint(x: bounds.midX, y: bounds.midY)
+        guard let corner = cornerRotateRegion(at: point, corners: corners) else { return nil }
+        return (CGPoint(x: bounds.midX, y: bounds.midY),
+                CGPoint(x: rect.midX, y: rect.midY), corner)
     }
 
     /// Pointer angle (deg) about a view-space centre, in the canvas's rotation
@@ -5366,15 +5597,20 @@ final class CanvasNSView: NSView {
         refreshCursor()
     }
 
-    /// PLACEHOLDER pen "remove point" cursor — system arrow + a small black/white
-    /// minus badge, drawn in code. No formal cursor artwork has been supplied for
-    /// this yet (see docs/DESIGN-ASSETS.md §5 "Cursors" for the asset handoff
-    /// convention this app otherwise follows: vector art + explicit hotspot,
-    /// black fill + white halo). Swap this for a real
-    /// `NSCursor(image: NSImage(named: "cursor.pen.remove")!, hotSpot:)` the
-    /// moment that asset exists — same hotspot as the system arrow so it keeps
-    /// pointing at the anchor it's about to delete.
-    private static let removePointCursor: NSCursor = {
+    /// Load an authored vector cursor from Assets.xcassets while preserving its
+    /// vector representation. `size` is in display points, not source SVG pixels.
+    private static func authoredCursor(_ assetName: String, size: NSSize,
+                                       hotSpot: NSPoint, fallback: NSCursor) -> NSCursor {
+        guard let source = NSImage(named: NSImage.Name(assetName)),
+              let image = source.copy() as? NSImage else { return fallback }
+        image.size = size
+        image.isTemplate = false
+        return NSCursor(image: image, hotSpot: hotSpot)
+    }
+
+    /// Code-drawn fallbacks keep every interaction usable if an asset ever fails
+    /// to load from a development build. Shipped builds use the authored SVGs.
+    private static let fallbackRemovePointCursor: NSCursor = {
         let arrow = NSCursor.arrow
         let base = arrow.image
         let canvas = NSImage(size: base.size)
@@ -5392,9 +5628,7 @@ final class CanvasNSView: NSView {
         return NSCursor(image: canvas, hotSpot: arrow.hotSpot)
     }()
 
-    /// Rotate cursor shown in the outside-corner hit regions. A white backing
-    /// keeps the black system symbol legible over both light and dark artwork.
-    private static let rotateCursor: NSCursor = {
+    private static let fallbackRotateCursor: NSCursor = {
         let size = NSSize(width: 24, height: 24)
         let canvas = NSImage(size: size)
         canvas.lockFocus()
@@ -5409,9 +5643,44 @@ final class CanvasNSView: NSView {
         return NSCursor(image: canvas, hotSpot: NSPoint(x: 12, y: 12))
     }()
 
+    // The source SVG family was drawn at one shared 8x working scale. Keeping
+    // that relationship makes the pointer, point badges, and rotate marks feel
+    // like one system while remaining crisp on Retina displays.
+    private static let pointerCursor = authoredCursor(
+        "cursor-pointer", size: NSSize(width: 19, height: 28),
+        hotSpot: NSPoint(x: 4.5, y: 1.75), fallback: .arrow)
+    private static let addPointCursor = authoredCursor(
+        "cursor-pen-add", size: NSSize(width: 28, height: 37),
+        hotSpot: NSPoint(x: 4.5, y: 1.75), fallback: .dragCopy)
+    private static let removePointCursor = authoredCursor(
+        "cursor-pen-delete", size: NSSize(width: 28, height: 37),
+        hotSpot: NSPoint(x: 4.5, y: 1.75), fallback: fallbackRemovePointCursor)
+    private static let rotateTopLeftCursor = authoredCursor(
+        "cursor-rotate-top-left", size: NSSize(width: 24, height: 24),
+        hotSpot: NSPoint(x: 12, y: 12), fallback: fallbackRotateCursor)
+    private static let rotateTopRightCursor = authoredCursor(
+        "cursor-rotate-top-right", size: NSSize(width: 24, height: 24),
+        hotSpot: NSPoint(x: 12, y: 12), fallback: fallbackRotateCursor)
+    private static let rotateBottomLeftCursor = authoredCursor(
+        "cursor-rotate-bottom-left", size: NSSize(width: 24, height: 24),
+        hotSpot: NSPoint(x: 12, y: 12), fallback: fallbackRotateCursor)
+    private static let rotateBottomRightCursor = authoredCursor(
+        "cursor-rotate-bottom-right", size: NSSize(width: 24, height: 24),
+        hotSpot: NSPoint(x: 12, y: 12), fallback: fallbackRotateCursor)
+
+    /// Pick by the corner's VIEW-space quadrant, not its logical handle name.
+    /// A rotated/flipped object can move its logical top-left corner elsewhere on
+    /// screen; view-space selection keeps the authored arrows pointing inward.
+    private static func rotateCursor(corner: CGPoint, center: CGPoint) -> NSCursor {
+        if corner.y <= center.y {
+            return corner.x <= center.x ? rotateTopLeftCursor : rotateTopRightCursor
+        }
+        return corner.x <= center.x ? rotateBottomLeftCursor : rotateBottomRightCursor
+    }
+
     private func desiredCursor(at p: CGPoint, flags: NSEvent.ModifierFlags) -> NSCursor {
         if spaceHeld { return .openHand }
-        guard let app else { return .arrow }
+        guard let app else { return Self.pointerCursor }
         switch app.tool {
         case .pen:
             // "−" badge directly over an existing anchor (no active session) =
@@ -5420,7 +5689,7 @@ final class CanvasNSView: NSView {
             // comment) so neither badge fires on anchors elsewhere in the document.
             if penNodeID == nil, let hover = penHover(atViewPoint: p) {
                 if hover.removable != nil { return Self.removePointCursor }
-                if let n = node(hover.leafID), penAddable(n) { return .dragCopy }
+                if let n = node(hover.leafID), penAddable(n) { return Self.addPointCursor }
             }
             return .crosshair
         case .rectangle, .ellipse, .polygon, .line:
@@ -5428,22 +5697,26 @@ final class CanvasNSView: NSView {
         case .pan:
             return .openHand
         case .image, .component:
-            return .arrow
+            return Self.pointerCursor
         case .text:
             return .iBeam
         case .node:
-            return .arrow
+            return Self.pointerCursor
         case .select:
-            if hitTestSelectionRotate(atViewPoint: p) != nil { return Self.rotateCursor }
+            if let hit = hitTestSelectionRotate(atViewPoint: p) {
+                return Self.rotateCursor(corner: hit.corner, center: hit.center)
+            }
             if let handle = hitTestSelectionHandle(atViewPoint: p) { return cursor(for: handle) }
-            if hitTestRotateHandle(atViewPoint: p) != nil { return Self.rotateCursor }
+            if let hit = hitTestRotateHandle(atViewPoint: p) {
+                return Self.rotateCursor(corner: hit.corner, center: hit.center)
+            }
             if let handle = hitTestHandle(atViewPoint: p) { return cursor(for: handle) }
             if let board = soleSelectedArtboard(),
                let handle = hitTestArtboardHandle(atViewPoint: p, board: board) { return cursor(for: handle) }
             if let handle = hitTestSourceHandle(atViewPoint: p) { return cursor(for: handle) }
             if flags.contains(.option), hitTestNode(atViewPoint: p) != nil { return .dragCopy }
             if flags.contains(.option), hitTestArtboardLabel(atViewPoint: p) != nil { return .dragCopy }
-            return .arrow
+            return Self.pointerCursor
         }
     }
 
@@ -5702,12 +5975,12 @@ final class CanvasNSView: NSView {
         }
 
         // Outside-corner rotation (multi-select or a group) — before resize.
-        if let pivot = hitTestSelectionRotate(atViewPoint: p) {
+        if let rotateHit = hitTestSelectionRotate(atViewPoint: p) {
             dragBaseline = document.model
             gestureUndoName = "Rotate"
             snapshotSelectionBaseline()
-            let cView = docToViewPoint(pivot)
-            dragMode = .rotateSelection(centerDoc: pivot, startAngle: selectionAngle(of: p, around: cView))
+            dragMode = .rotateSelection(centerDoc: rotateHit.pivot,
+                                        startAngle: selectionAngle(of: p, around: rotateHit.center))
             return
         }
 
@@ -8923,6 +9196,19 @@ final class CanvasNSView: NSView {
                 }
             default: break
             }
+            if selectionCanOutlineStroke {
+                add(menu, "Outline Stroke", #selector(outlineStrokeAction(_:)))
+            }
+            if selectionCanPathfinder {
+                let pathfinder = NSMenuItem(title: "Pathfinder", action: nil, keyEquivalent: "")
+                let sub = NSMenu()
+                add(sub, "Unite", #selector(pathfinderUniteAction(_:)))
+                add(sub, "Subtract Front", #selector(pathfinderSubtractAction(_:)))
+                add(sub, "Intersect", #selector(pathfinderIntersectAction(_:)))
+                add(sub, "Exclude Overlap", #selector(pathfinderExcludeAction(_:)))
+                pathfinder.submenu = sub
+                menu.addItem(pathfinder)
+            }
             menu.addItem(.separator())
             add(menu, "Bring Forward", #selector(bringForward(_:)))
             add(menu, "Send Backward", #selector(sendBackward(_:)))
@@ -9093,6 +9379,11 @@ extension CanvasNSView: NSMenuItemValidation {
             return false
         case #selector(convertToPathAction(_:)):
             return selectionConvertibleToPath
+        case #selector(outlineStrokeAction(_:)):
+            return selectionCanOutlineStroke
+        case #selector(pathfinderUniteAction(_:)), #selector(pathfinderSubtractAction(_:)),
+             #selector(pathfinderIntersectAction(_:)), #selector(pathfinderExcludeAction(_:)):
+            return selectionCanPathfinder
         case #selector(toggleBoldText(_:)), #selector(toggleItalicText(_:)), #selector(toggleUnderlineText(_:)):
             return selectionIsText || textEditor != nil
         case #selector(convertTextToShapesAction(_:)), #selector(saveTypeStyleAction(_:)):

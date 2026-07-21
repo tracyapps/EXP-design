@@ -523,6 +523,8 @@ struct EditorMenuModel {
     var canCycleComponentState: Bool
 
     var canConvertToPath: Bool
+    var canOutlineStroke: Bool
+    var canPathfinder: Bool
     var canRoundToPixel: Bool
     var canEyedropper: Bool
 
@@ -597,6 +599,11 @@ func makeEditorMenuModel(document: ExpDocument, app: AppState, scope: CanvasScop
         default: return false
         }
     }
+    let hasOutlinedStroke = selectedNodes.contains {
+        VectorPathGeometry.stroke(from: $0.content) != nil
+    }
+    let canPathfinder = selectedIDs.count >= 2 && selectedNodes.count == selectedIDs.count
+        && selectedNodes.allSatisfy { VectorPathGeometry.isClosedVector($0.content) }
     let isSingleText: Bool = {
         guard let singleNode else { return false }
         if case .text = singleNode.content { return true }
@@ -642,6 +649,8 @@ func makeEditorMenuModel(document: ExpDocument, app: AppState, scope: CanvasScop
         addComponentStateTitle: stateName,
         canCycleComponentState: !(source?.states.isEmpty ?? true),
         canConvertToPath: hasConvertible,
+        canOutlineStroke: hasOutlinedStroke,
+        canPathfinder: canPathfinder,
         canRoundToPixel: hasNodes || hasArtboards,
         canEyedropper: hasNodes,
         canTypeActions: isSingleText,

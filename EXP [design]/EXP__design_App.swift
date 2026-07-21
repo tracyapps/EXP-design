@@ -242,8 +242,19 @@ private struct ObjectCommandItems: View {
                 .disabled(menu?.canEditRelationships != true)
         }
         Divider()
-        Button("Convert to Path") { sendEditorAction("convertToPathAction:") }
-            .disabled(menu?.canConvertToPath != true)
+        Menu("Path") {
+            Button("Convert to Path") { sendEditorAction("convertToPathAction:") }
+                .disabled(menu?.canConvertToPath != true)
+            Button("Outline Stroke") { sendEditorAction("outlineStrokeAction:") }
+                .disabled(menu?.canOutlineStroke != true)
+        }
+        Menu("Pathfinder") {
+            Button("Unite") { sendEditorAction("pathfinderUniteAction:") }
+            Button("Subtract Front") { sendEditorAction("pathfinderSubtractAction:") }
+            Button("Intersect") { sendEditorAction("pathfinderIntersectAction:") }
+            Button("Exclude Overlap") { sendEditorAction("pathfinderExcludeAction:") }
+        }
+        .disabled(menu?.canPathfinder != true)
         Button("Round to Pixel") { sendEditorAction("roundToPixelAction:") }
             .disabled(menu?.canRoundToPixel != true)
         Divider()

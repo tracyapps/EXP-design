@@ -351,10 +351,11 @@ Tester-facing v1.6 highlights for `expdesign.app/download#tester-features`:
       machinery states use; a live "Contrast N.NN:1 · AA / below AA" strip under
       the source-editor states bar re-checks as you switch states. Advisory only.
 
-## v1.6.1 — bug-fix stabilization (NEXT)
+## v1.6.1 — bug-fix stabilization (RELEASE CANDIDATE)
 
-Build 9, `MARKETING_VERSION 1.6.1`. Intentionally narrow: close confirmed
-defects after v1.6, led by the long-standing rich-text commit bug.
+Build 9, `MARKETING_VERSION 1.6.1`. Close confirmed defects after v1.6, led by
+the long-standing rich-text commit bug, plus the small owner-approved vector
+workflow additions needed to make custom cursors directly in EXP.
 
 - [x] **Rich text: preserve selected-run styling on direct click-out.** The
       inline editor now keeps a stable attributed-text snapshot refreshed by
@@ -365,7 +366,7 @@ defects after v1.6, led by the long-standing rich-text commit bug.
       next runloop tick without stealing the user's new selection. Verified in
       the Debug app with the exact regression: select one word, change 16 → 32
       pt, click directly onto the artboard, reopen, reselect — 32 pt survives.
-- [ ] **OWNER VERIFY:** Repeat the direct-click-out repro in the real document,
+- [x] **OWNER VERIFIED 2026-07-20:** Repeat the direct-click-out repro in the real document,
       covering word/line/character-level size, color, weight, and underline.
 - [x] **Sparkle installer launch for sandboxed builds.** Fresh system logs from
       the installed v1.4 baseline exposed the actual app-wide failure:
@@ -378,10 +379,13 @@ defects after v1.6, led by the long-standing rich-text commit bug.
       preflight checks for the complete sandboxed Sparkle contract. v1.6 and
       earlier cannot repair their own missing entitlement, so v1.6.1 requires
       one manual install; automatic-update proof resumes from that baseline.
-- [ ] **OWNER VERIFY:** Archive/export v1.6.1 and confirm the signed app carries
-      the `-spks` / `-spki` exceptions plus network/file/sandbox entitlements.
-      After manually installing v1.6.1, preserve it as the baseline for the next
-      live Sparkle update proof.
+- [x] **Signed Release entitlement preflight.** A locally development-signed
+      universal Release app passes strict deep signature verification and carries
+      sandbox, network, user-selected-file, and expanded `-spks` / `-spki`
+      exceptions; its Info.plist reports 1.6.1/build 9 and enables the launcher.
+- [ ] **OWNER DISTRIBUTION VERIFY:** Direct Distribution must repeat those checks
+      on the final Developer ID/notarized/stapled export. After manually installing
+      v1.6.1, preserve it as the baseline for the next live Sparkle update proof.
 - [x] **Named/batched media import.** Finder SVG and raster filenames (without
       extensions) now become their default layer names. Dragging/pasting multiple
       SVG files imports every file as a side-by-side batch, selects the batch,
@@ -395,19 +399,57 @@ defects after v1.6, led by the long-standing rich-text commit bug.
       Hover/drag just outside any of the four bounds corners now uses a rotate
       cursor and delta-based rotation (including existing Shift 15° snapping),
       so starting from a diagonal never jumps the object to an absolute angle.
+- [x] **Authored canvas cursors.** Imported the owner-supplied pointer,
+      add-point, delete-point, and four corner-rotate SVGs as preserved-vector
+      asset-catalog images. Pointer/add/delete use the arrow tip as their
+      hotspot; rotate cursors use their center. Rotation chooses an authored
+      orientation from the corner's actual view-space quadrant, so the arrows
+      keep pointing inward for rotated and flipped objects. All other tool,
+      resize, pan, text, and modifier cursors remain unchanged.
 - [x] **Inspector geometry coherence.** Single-layer X/Y/W/H now use the painted
       outside edge of Inside/Center/Outside outlines (shadows excluded). Group
       dimensions use the live painted descendant union instead of a potentially
       stale imported viewBox frame; numeric SVG-path resizing now scales its
       actual points/controls as well as its frame. Geometry Audit logs both stored
       and Inspector-outer bounds with the correct stroke-position description.
-- [ ] **OWNER VERIFY:** In a real document, drag several SVGs and named raster
+- [x] **Outline Stroke.** Object ▸ Path ▸ Outline Stroke expands center/inside/
+      outside strokes into ordinary editable filled path geometry. Stroke-only
+      lines/open paths become one filled shape; a filled+stroked object becomes a
+      group containing separate fill and outline paths in the original paint order,
+      so resizing scales the former stroke with the artwork. Rotation, flip,
+      opacity, effects, blend mode, layer identity, and one-step undo are preserved.
+- [x] **Pathfinder essentials.** Object ▸ Pathfinder and the canvas context menu
+      provide Unite, Subtract Front, Intersect, and Exclude Overlap. Native
+      curve-aware Core Graphics boolean operations preserve Bézier geometry and
+      compound contours without a flattening dependency; results are one editable
+      path, work across nested/rotated/flipped selections, and undo in one step.
+- [x] **VECTOR TOOL VERIFICATION:** Outline centered/inside/outside strokes on filled shapes,
+      lines, and curved paths, then resize the result. Exercise all four Pathfinder
+      modes with two and three overlapping shapes; Subtract Front uses the bottom
+      shape as its base and every selected shape above it as a cutter. Focused
+      native geometry smoke coverage passed all operations/stroke positions;
+      owner accepted the release scope with no reported issue.
+- [x] **OWNER VERIFIED 2026-07-20:** In a real document, drag several SVGs and named raster
       images; inspect an exported SVG's layer classes; rotate narrow/wide objects
       from all corners with and without Shift; compare group/child dimensions at
       several zoom levels and across Inside/Center/Outside strokes.
-- [ ] Bug sweep: collect and reproduce any other v1.6 defects; keep this release
-      scoped to fixes rather than new features.
-- [ ] Release notes, archive/notarize/staple, Sparkle appcast, and update proof.
+- [x] **OWNER VERIFIED 2026-07-20:** Check the authored pointer at normal canvas scale; use
+      the Pen tool over an existing shape and anchor to see the add/delete
+      badges; hover all four rotate corners on normal, rotated, and flipped
+      objects. Confirm visual size, arrow-tip/center hotspots, and inward-facing
+      rotate artwork feel right in use.
+- [x] **Bug sweep complete.** No additional v1.6 regression is open. The general
+      backlog's older centered-title popover polish remains a non-blocking P2
+      carry-over rather than a v1.6.1 defect.
+- [x] **Release-candidate prep.** Release notes finalized; versions fixed at
+      1.6.1/build 9; clean universal Release build, Sparkle configuration
+      preflight, vector-geometry smoke suite, and production website build pass.
+      A signed local `.xcarchive` is prepared in Xcode's local Archives folder;
+      strict nested-code verification passes on the archived app.
+- [ ] **External distribution:** Direct Distribution, notarize, staple, verify the signed
+      app's entitlements/signatures, create the exact Sparkle zip/appcast, publish
+      the GitHub release and website, then manually install v1.6.1 as the repaired
+      baseline for the next release's automatic-update proof.
 
 ---
 
@@ -793,11 +835,10 @@ _Owner chose to go straight to full rich text. Staged across builds._
       shows and drags anchors/handles on **every** contour of a glyph (inner counter
       of an 'o', all pieces of a complex face). _Underline strokes aren't outlined._
 
-> **v1.6.1 FIX — owner verification pending.** Selected-run styling is now
+> **v1.6.1 FIX — owner verified 2026-07-20.** Selected-run styling is now
 > committed from a stable attributed-text snapshot, independent of the
 > `NSTextView` first-responder/selection teardown. The exact direct-click-out
-> size regression passes in the Debug app; verify size/color/weight/underline in
-> the owner's real document before closing this phase.
+> regression passes in the Debug app and the owner's real workflow.
 
 ### Phase 10 — Effects ✅ DONE — refinements planned
 - [x] **Layer opacity** (Session 51) — `Node.opacity` (0…1, default 1, hardened
@@ -1013,6 +1054,9 @@ hybrid.** `AppState.workspaceMode`:
       Phase 9.5). `PathShape.contours` (multi-subpath, even-odd) is the foundation
       future boolean ops / masks can reuse.
 - [x] **Outline stroke** (expand stroke → fill path).
+      DONE 2026-07-20: center/inside/outside and open round-capped strokes expand
+      to editable `PathShape` contours. Filled+stroked art becomes a fill+outline
+      group so both pieces scale together; stroke-only art becomes one filled path.
 
 #### 16a — Shape mask (requested) — IMPLEMENTED Session 120
 DONE: a mask is a `.group` flagged `isMask`; its children marked `isMaskShape`
@@ -1050,11 +1094,13 @@ ORIGINAL PLAN (kept for reference):
   Layers drag-into-group machinery (`mutateNested` + drop delegate).
 - Command coverage: action + Object/right-click + validate + Layers row affordance.
 
-#### 16b — Pathfinder / boolean ops (FUTURE; requested)
-- [ ] **Subtract / cut-out** first (the donut/`o` counter case), then unite /
-      intersect / exclude. Operate on `PathShape.contours` with even-odd or a real
-      CG boolean (`CGPath` flatten + combine). Output one editable path. Destructive
-      by default (with undo); keep originals via a copy if needed.
+#### 16b — Pathfinder / boolean ops (IMPLEMENTED 2026-07-20)
+- [x] **Subtract / cut-out, unite, intersect, exclude.** Uses macOS's native
+      curve-aware `CGPath` boolean operations (no polygon flattening), converts the
+      result back into editable cubic `PathShape.contours`, and bakes nested rotation/
+      flip transforms correctly. Destructive by default with one-step undo; duplicate
+      first when originals are needed. Subtract Front keeps the bottom selected shape
+      and cuts every selected shape above it, matching the familiar Pathfinder model.
 
 #### 16c — Copy / paste styles (FUTURE; requested)
 - [ ] **Copy Style / Paste Style** (⌥⌘C / ⌥⌘V) — carry fill, stroke, corner,
@@ -1667,6 +1713,49 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-07-20 — v1.6.1 release candidate closed and preflighted:** Owner
+  confirmed the rich-text click-out fix and the complete authored cursor family,
+  accepted the focused release scope, and reported no new regression. Closed the
+  bug sweep with the older centered-title popover polish explicitly remaining a
+  non-blocking general-backlog item. Finalized release notes for the vector
+  workflow additions. Version is locked at 1.6.1/build 9; clean universal Release
+  build plus a development-signed universal Release whose nested signatures and
+  expanded installer entitlements validate, Sparkle package/appcast preflight,
+  focused vector geometry smoke suite, asset-catalog vector compilation, and
+  production website build all pass. A signed local `.xcarchive` is ready in
+  Xcode's local Archives folder. The archive check caught a delayed synced-folder/
+  Finder metadata write attaching `com.apple.FinderInfo` to `EXPThumbnail.appex`
+  and Sparkle XPC services; clearing those attributes restores strict verification.
+  The reusable checklist now keeps archives local and requires cleanup immediately
+  before distribution plus a second cleanup/round-trip proof on the final zip.
+  Only external distribution
+  remains: Xcode Direct Distribution,
+  notarization/stapling, exact-zip verification/signing, appcast generation,
+  GitHub/site publication, and one-time manual baseline installation.
+
+- **2026-07-20 — Owner-authored cursor family integrated:** Added the supplied
+  SVG pointer, add-point, delete-point, and four corner-specific rotate cursors
+  to `Assets.xcassets` with their vector representations preserved. The canvas
+  uses explicit arrow-tip hotspots for pointer/badge cursors and centered
+  hotspots for rotate cursors; rotate hover resolves by actual screen quadrant
+  so authored arrows point inward even when object transforms move a logical
+  corner. Existing crosshair, resize, I-beam, hand, and Option-copy behavior is
+  untouched, with safe system/code-drawn fallbacks if an asset cannot load.
+  Clean Debug build passed, and `assetutil` confirmed all seven names include
+  compiled 1×, 2×, and vector renditions. Owner feel/scale verification remains.
+
+- **2026-07-20 — Outline Stroke + essential Pathfinder tools:** Added Object ▸
+  Path ▸ Outline Stroke and Object ▸ Pathfinder (also available on the canvas
+  context menu). Outline Stroke expands the exact visible center/inside/outside
+  band into editable filled contours; filled art keeps separate fill + outline
+  children in a scalable group, while stroke-only art becomes one filled path.
+  Pathfinder now supports Unite, Subtract Front, Intersect, and Exclude Overlap
+  with native curve-aware Core Graphics booleans, compound-path reconstruction,
+  nested transform support, familiar bottom-base/front-cutter subtraction, and
+  one-step undo. Debug and Release builds passed; focused geometry smoke tests
+  passed all four boolean modes, all three stroke positions, and an open
+  round-capped path. Owner visual/resize verification remains.
 
 - **2026-07-20 — v1.6.1 media/SVG/rotation/geometry quality pass:** Finder file
   basenames now survive SVG/raster import as layer names; pasteboard SVG reads

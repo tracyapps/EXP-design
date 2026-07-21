@@ -145,15 +145,17 @@ bitmap.
 
 ## 5. Cursors
 
-Custom cursors are AppKit `NSCursor(image:hotSpot:)`. Today the app uses system
-cursors (`NSCursor.openHand`, `.closedHand`, `.crosshair`, `.resize*`, etc.) chosen in
-`desiredCursor(at:flags:)`. Add custom ones only where the system set has no good fit
-(pen, eyedropper, the rotate cursor).
+Custom cursors are AppKit `NSCursor(image:hotSpot:)`. The canvas uses authored
+SVGs for its pointer, pen add/delete badges, and four corner-rotate cursors, while
+retaining system cursors (`NSCursor.openHand`, `.closedHand`, `.crosshair`,
+`.resize*`, etc.) where the system set already fits. Selection happens in
+`desiredCursor(at:flags:)`.
 
 **Deliverables per cursor:**
-- **Artwork:** vector **PDF** (preferred, scales to Retina) *or* PNG at **@1× and
-  @2×**. Native cursor size is **16–24 px**; design within a **32 × 32** box with the
-  art centered so the hotspot has room.
+- **Artwork:** **SVG or vector PDF** (preserved-vector asset-catalog image) *or*
+  PNG at **@1× and @2×**. Native cursor size is usually **16–24 pt**; larger badge
+  cursors are fine when their active arrow/tip stays clear and the hotspot is
+  explicit.
 - **Hotspot:** the active point in **@1× pixels from the top-left** (e.g. pen tip =
   `(3, 2)`; crosshair center = `(8, 8)`). **This is mandatory** — give it to me with
   the asset.

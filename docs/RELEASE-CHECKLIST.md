@@ -52,6 +52,24 @@ Distribute App -> Direct Distribution
 Export the stapled app to ../releases/v1.6.1/
 ```
 
+Keep the `.xcarchive` in Xcode's local Archives directory, not in the
+Dropbox-synced release folder. A synced-folder/Finder metadata write can attach
+`com.apple.FinderInfo` to Sparkle XPC services or the thumbnail extension,
+making an otherwise valid nested signature fail. If an archive was accidentally
+created there, move it into Xcode's local archive directory. In either case,
+clear attributes and verify immediately before Direct Distribution:
+
+```sh
+ARCHIVE_APP="/absolute/path/to/<archive>.xcarchive/Products/Applications/EXP [design].app"
+xattr -cr "$ARCHIVE_APP"
+codesign --verify --deep --strict --verbose=2 "$ARCHIVE_APP"
+```
+
+This pre-distribution check does not replace the identical cleanup and round-trip
+verification on the final exported app below. The final app/zip check is the
+shipping authority because a queued metadata write may occur after archive
+creation or movement.
+
 Important: Sparkle runs inside the sandboxed app, so the exported app must have
 outbound network permission. The preflight script checks the Xcode build setting,
 and the post-export step below checks the signed app entitlement, strict nested
