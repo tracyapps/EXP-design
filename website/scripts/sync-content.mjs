@@ -248,23 +248,23 @@ const testerPhaseCopy = [
   },
 ];
 
-const testerNextBuildCopy = [
+const testerLatestReleaseCopy = [
   {
     phase: "v1.6 scope — Component states & accessibility",
     title: "Component states",
-    status: "v1.6",
+    status: "done",
     body: "Create hover, pressed, focus, disabled, and custom source states; edit text, fill, and visibility per state; assign ARIA role categories; and check contrast for each active state.",
   },
   {
     phase: "v1.6 scope — Components panel",
     title: "Component previews",
-    status: "v1.6",
+    status: "done",
     body: "Switch the Components panel between list and grid, scan generated thumbnails, preview each source state, and use the fuller component actions from either display.",
   },
   {
     phase: "Phase 14 + import pipeline",
     title: "PDF and image import",
-    status: "v1.6",
+    status: "done",
     body: "Place embedded raster images as document nodes, render and export them with the canvas, and bring PDF pages into EXP for editing through the import path.",
   },
 ];
@@ -286,7 +286,7 @@ function buildTesterFeatures(phases) {
     })
     .filter(Boolean);
 
-  return [...phaseFeatures, ...testerNextBuildCopy];
+  return [...phaseFeatures, ...testerLatestReleaseCopy];
 }
 
 function buildTesterKnownIssues(backlog, limit = 4) {

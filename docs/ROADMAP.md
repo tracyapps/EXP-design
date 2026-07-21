@@ -1714,6 +1714,11 @@ font import → Phase 9, shadows → Phase 10._
 
 ## Progress Log
 
+- **2026-07-20 — v1.6.1 download-page status cleanup [site]:** Removed the
+  resolved rich-text click-out issue from the tester download page and marked
+  the three completed v1.6 feature cards as done so they receive the existing
+  completed-state label treatment. Production website build passed.
+
 - **2026-07-20 — v1.6.1 release candidate closed and preflighted:** Owner
   confirmed the rich-text click-out fix and the complete authored cursor family,
   accepted the focused release scope, and reported no new regression. Closed the

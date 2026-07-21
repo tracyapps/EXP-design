@@ -653,12 +653,6 @@ const reportChecklist = [
 
 const staticKnownIssues = [
   {
-    id: "TEXT",
-    title: "text styling can be lost on direct click-out",
-    priority: "known",
-    detail: "If you style selected text from the Inspector and click straight off the text box, the change can be dropped. Workaround: click once inside the text to collapse the selection, then click out.",
-  },
-  {
     id: "SAFETY",
     title: "early builds are not for irreplaceable client files",
     priority: "important",
