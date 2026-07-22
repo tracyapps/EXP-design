@@ -516,10 +516,10 @@ documentation-only update.
 
 ### 11. Final announcement checklist
 
-- [ ] GitHub Release is public and contains the byte-verified zip.
-- [ ] `expdesign.app` shows v2.0 and its download works.
-- [ ] Public appcast and HTML release notes pass step 9.
-- [ ] v1.6.1 → v2.0 update/install/relaunch proof passes step 10.
+- [x] GitHub Release is public and contains the byte-verified zip.
+- [x] `expdesign.app` shows v2.0 and its download works.
+- [x] Public appcast and HTML release notes pass step 9.
+- [x] v1.6.1 → v2.0 update/install/relaunch proof passes step 10.
 - [ ] ROADMAP records the completed release gates and is pushed.
 - [ ] Send the release announcement only after all checks above are green.
 

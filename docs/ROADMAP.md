@@ -620,18 +620,18 @@ with the design. Full chunk breakdown, risks, and release mapping live in
       DONE 2026-07-15: top-level `Document.schemaVersion = 1`, tolerant decode
       for existing files, automatic write on save.
 
-### v2.0 release gates (remaining; no additional feature chunk)
+### v2.0 release gates — complete 2026-07-22
 
 - [x] **Implementation closure:** Chunk B/B4 and the dark F1 spine are complete;
       deterministic package/browser/standards checks, direct helper↔app MCP
       contract checks, signed Debug/Release builds, and the universal local
       Release archive pass.
-- [ ] **Owner real-document acceptance:** export a Handoff Package from a normal
+- [x] **Owner real-document acceptance:** export a Handoff Package from a normal
       working document; inspect its README/manifest, open representative HTML in
       the browser, and confirm the intended notes/roles/type content survive.
-      AUTOMATED HALF PASS 2026-07-22: the owner's 5.7 MB v2 working document
+      PASS 2026-07-22: the owner's 5.7 MB v2 working document
       exported successfully with valid manifest bytes/SHA-256 and one complete
-      semantic page; the human browser/VoiceOver/intent review remains.
+      semantic page; owner completed the browser/VoiceOver/intent acceptance.
 - [x] **Real MCP-client compatibility smoke:** point at least one shipping MCP
       client (plus a second client or MCP Inspector if practical) at the bundled
       `Contents/Helpers/exp-mcp` from the release candidate. Verify initialize,
@@ -641,27 +641,29 @@ with the design. Full chunk breakdown, risks, and release mapping live in
       all six tools successfully against the signed archived app; direct live
       checks covered document retargeting, unavailable/default-off behavior,
       response-free notifications, socket permissions, and clean shutdown.
-- [ ] **Production archive/helper security:** archive with Developer ID; confirm
+- [x] **Production archive/helper security:** archive with Developer ID; confirm
       the app and nested `exp-mcp` are universal and correctly signed, strict deep
       codesign passes, the app carries sandbox + network client/server + Sparkle
       exceptions, the helper carries no sandbox/network entitlement, the socket
       is container-local at 0600/current UID, and the default-off app creates no
       listener. Repeat a live bridge smoke from the exported/notarized app because
       distribution signing and Gatekeeper can expose behavior a Debug build does not.
-      LOCAL HALF PASS 2026-07-22: the Apple Development-signed archive is universal;
-      helper/app strict signatures and the intended entitlement boundary pass the
-      reusable release-candidate verifier. Developer ID export, Gatekeeper, staple,
-      and one post-distribution live smoke remain.
-- [ ] **Release communication + packaging:** finalize `RELEASE-NOTES-v2.0.md`,
+      PASS 2026-07-22: the Developer ID/notarized app and zip round-trip are
+      universal and pass helper/app strict signatures, entitlement isolation,
+      Gatekeeper, staple, default-off behavior, and a live production bridge smoke.
+- [x] **Release communication + packaging:** finalize `RELEASE-NOTES-v2.0.md`,
       verify version 2.0/build 10 and production website content, then Direct
       Distribution → notarize → staple → strict signature/Gatekeeper verification
       → metadata-clean exact Sparkle zip/appcast → GitHub release + site deploy.
-      PREP PASS 2026-07-22: release notes, version/build preflight, release checklist,
-      and production website build are green; publication awaits the final zip.
-- [ ] **First complete Sparkle install proof:** from the preserved public v1.6.1
+      PASS 2026-07-22: exact 27,922,074-byte zip published with SHA-256
+      `3abbd5a1b1e67fb49859e503f3c3d8b4c5536c65b9b18497738bf4023192ca92`;
+      signed appcast, release notes, GitHub Release, site, and ARIA guide are live.
+- [x] **First complete Sparkle install proof:** from the preserved public v1.6.1
       baseline, discover v2.0, download, install, relaunch, and confirm About shows
       2.0/build 10. Exercise the update dialog with VoiceOver and increased contrast;
       rerun the installed-baseline/security checks on the updated app.
+      OWNER PASS 2026-07-22: v1.6.1 discovered v2.0, installed it, relaunched
+      successfully, and all final checklist/public verification passed.
 
 ---
 
@@ -1964,6 +1966,20 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-07-22 — v2.0 shipped; first complete Sparkle update proof passed:** Owner
+  confirmed the preserved v1.6.1 installation discovered v2.0, downloaded the
+  signed update, installed, and relaunched successfully—closing the update path
+  that earlier releases could not prove. Independent final checks confirm local
+  and remote `main` synchronized at the release-metadata commit; the public,
+  non-prerelease GitHub Release serves the exact 27,922,074-byte archive with
+  SHA-256 `3abbd5a1b1e67fb49859e503f3c3d8b4c5536c65b9b18497738bf4023192ca92`;
+  the live appcast advertises v2.0/build 10 with its EdDSA signature; and the
+  asset, HTML notes, site, and ARIA guide all return successfully. A final
+  isolated smoke against the Developer ID/notarized v2 app initialized the local
+  bridge, discovered all six tools, read a front document, confirmed the 0600
+  current-UID socket, and left the owner's already-running installed app
+  untouched. All v2.0 release gates are now closed. ✨
 
 - **2026-07-22 — v2.0 release staging hardened after live dry run:** The first
   production pass exposed two workflow—not app—failures. Running `set -euo
