@@ -50,6 +50,22 @@ enum DesignLanguageIO {
 
     static let schemaVersion = 1
 
+    /// Stable, reusable CSS identity for a Design Language paint. Exporters use
+    /// these bindings for both declaration and lookup so duplicate names resolve
+    /// the same way everywhere.
+    struct CSSAssetBinding: Sendable {
+        var assetID: UUID
+        var variableName: String
+        var paint: Paint
+    }
+
+    /// Stable CSS identity for a saved type style.
+    struct CSSTypeStyleBinding: Sendable {
+        var styleID: UUID
+        var className: String
+        var style: TypeStyle
+    }
+
     // MARK: Canonical EXP JSON
 
     static func exportJSON(_ dl: DesignLanguage) throws -> Data {
@@ -92,15 +108,8 @@ enum DesignLanguageIO {
     /// A `:root { … }` block of custom properties for every non-archived entry.
     /// Slugs are made unique so no two lines collide.
     static func exportCSS(_ dl: DesignLanguage) -> String {
-        let entries = dl.assets
-        var used = Set<String>()
-        var lines: [String] = []
-        for a in entries {
-            var name = slug(a.name, fallback: a.representativeColor)
-            var n = 2
-            while used.contains(name) { name = slug(a.name, fallback: a.representativeColor) + "-\(n)"; n += 1 }
-            used.insert(name)
-            lines.append("  --\(name): \(css(for: a.value));")
+        let lines = cssAssetBindings(dl).map {
+            "  --\($0.variableName): \(css(for: $0.paint));"
         }
         let root = lines.isEmpty ? ":root {\n}\n"
             : ":root {\n" + lines.joined(separator: "\n") + "\n}\n"
@@ -108,21 +117,35 @@ enum DesignLanguageIO {
         return type.isEmpty ? root : root + "\n" + type
     }
 
+    static func cssAssetBindings(_ dl: DesignLanguage) -> [CSSAssetBinding] {
+        var used = Set<String>()
+        return dl.assets.map { asset in
+            let base = slug(asset.name, fallback: asset.representativeColor)
+            var name = base
+            var suffix = 2
+            while used.contains(name) {
+                name = "\(base)-\(suffix)"
+                suffix += 1
+            }
+            used.insert(name)
+            return CSSAssetBinding(assetID: asset.id, variableName: name,
+                                   paint: asset.value)
+        }
+    }
+
+    static func firstAssetBinding(matching paint: Paint,
+                                  in dl: DesignLanguage) -> CSSAssetBinding? {
+        cssAssetBindings(dl).first { $0.paint == paint }
+    }
+
     /// Type styles as CSS classes (SCSS-friendly): one `.type-<slug>` block per
     /// style with honest `font-*` properties. Color is intentionally absent —
     /// EXP type styles don't own color (pair them with the custom properties).
     static func cssTypeStyles(_ dl: DesignLanguage) -> String {
-        guard !dl.typeStyles.isEmpty else { return "" }
-        var used = Set<String>()
-        var blocks: [String] = []
-        for t in dl.typeStyles {
-            let base = t.name.isEmpty ? t.fallbackLabel : t.name
-            var name = slug(base, fallback: .black)
-            var n = 2
-            while used.contains(name) { name = slug(base, fallback: .black) + "-\(n)"; n += 1 }
-            used.insert(name)
+        let blocks = cssTypeStyleBindings(dl).map { binding in
+            let t = binding.style
             var props: [String] = []
-            if !t.fontName.isEmpty { props.append("  font-family: \"\(t.fontName)\";") }
+            if !t.fontName.isEmpty { props.append("  font-family: \(cssQuotedString(t.fontName));") }
             props.append("  font-size: \(Int(t.fontSize.rounded()))px;")
             switch t.lineHeightUnit {
             case .auto:     props.append("  line-height: normal;")
@@ -140,9 +163,46 @@ enum DesignLanguageIO {
             case .title:    props.append("  text-transform: capitalize;")
             case .sentence: props.append("  /* text-transform: sentence-case (no CSS equivalent) */")
             }
-            blocks.append(".type-\(name) {\n" + props.joined(separator: "\n") + "\n}")
+            return ".\(binding.className) {\n" + props.joined(separator: "\n") + "\n}"
         }
-        return blocks.joined(separator: "\n\n") + "\n"
+        return blocks.isEmpty ? "" : blocks.joined(separator: "\n\n") + "\n"
+    }
+
+    static func cssTypeStyleBindings(_ dl: DesignLanguage) -> [CSSTypeStyleBinding] {
+        var used = Set<String>()
+        return dl.typeStyles.map { style in
+            let label = style.name.isEmpty ? style.fallbackLabel : style.name
+            let base = slug(label, fallback: .black)
+            var name = base
+            var suffix = 2
+            while used.contains(name) {
+                name = "\(base)-\(suffix)"
+                suffix += 1
+            }
+            used.insert(name)
+            return CSSTypeStyleBinding(styleID: style.id, className: "type-\(name)",
+                                       style: style)
+        }
+    }
+
+    /// A type style is linked only when the whole text layer matches. This keeps
+    /// mixed rich text honest: a paragraph-level class is never inferred from
+    /// only its first run.
+    static func firstTypeStyleBinding(matching text: TextContent,
+                                      in dl: DesignLanguage) -> CSSTypeStyleBinding? {
+        cssTypeStyleBindings(dl).first { binding in
+            let style = binding.style
+            guard text.align == style.align,
+                  text.lineHeight == style.lineHeight,
+                  text.lineHeightUnit == style.lineHeightUnit,
+                  text.tracking == style.tracking,
+                  text.textCase == style.textCase else { return false }
+            return text.runs.allSatisfy {
+                $0.fontName == style.fontName
+                    && $0.fontSize == style.fontSize
+                    && $0.underline == style.underline
+            }
+        }
     }
 
     /// A single CSS custom-property declaration for one paint.
@@ -158,29 +218,49 @@ enum DesignLanguageIO {
         }
     }
 
-    /// Convenience CSS gradient string. Approximate: CSS angles differ from the
-    /// model's y-down degrees — this is a copy-out helper, not a renderer.
+    /// Convenience CSS gradient string. EXP angles use a y-down canvas (0° points
+    /// right); CSS uses 0° pointing up, so the exact conversion adds 90°.
     static func cssGradient(_ g: GradientFill) -> String {
         let stops = g.sortedStops
             .map { "\(ColorMath.string($0.color, .hex)) \(Int(($0.position * 100).rounded()))%" }
             .joined(separator: ", ")
         switch g.kind {
-        case .linear: return "linear-gradient(\(Int(g.angle.rounded()))deg, \(stops))"
+        case .linear:
+            let normalized = (g.angle + 90).truncatingRemainder(dividingBy: 360)
+            let angle = normalized < 0 ? normalized + 360 : normalized
+            return "linear-gradient(\(Int(angle.rounded()))deg, \(stops))"
         case .radial: return "radial-gradient(circle, \(stops))"
         }
     }
 
     /// A CSS-safe slug from a name; falls back to the color's hex when unnamed.
     static func slug(_ name: String, fallback color: RGBAColor) -> String {
+        let fallback = ColorMath.string(color, .hex).replacingOccurrences(of: "#", with: "color-")
         let base = name.isEmpty
-            ? ColorMath.string(color, .hex).replacingOccurrences(of: "#", with: "color-")
+            ? fallback
             : name
         var out = ""
         for ch in base.lowercased() {
             if ch.isLetter || ch.isNumber { out.append(ch) }
             else if !out.hasSuffix("-") { out.append("-") }
         }
-        return out.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        let result = out.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        return result.isEmpty ? fallback.lowercased() : result
+    }
+
+    private static func cssQuotedString(_ value: String) -> String {
+        var result = "\""
+        for scalar in value.unicodeScalars {
+            switch scalar.value {
+            case 0: result += "\\fffd "
+            case 10, 13, 12: result += "\\a "
+            case 34: result += "\\22 "
+            case 92: result += "\\5c "
+            default: result.unicodeScalars.append(scalar)
+            }
+        }
+        result.append("\"")
+        return result
     }
 
     // MARK: Palette paste (HEX lists, CSS vars, Coolors URLs)

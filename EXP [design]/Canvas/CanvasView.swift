@@ -1551,6 +1551,21 @@ final class CanvasNSView: NSView {
         document.setModel(model, undoManager: undoManager, actionName: "Save Type Style")
     }
 
+    /// TYPE / Inspector / context menu all write the same content-level intent.
+    /// This deliberately leaves type-style identity and visual metrics untouched.
+    @objc func setTextContentRoleAction(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let role = TextContentRole(rawValue: raw),
+              let id = app?.singleSelectedNodeID else { return }
+        var nodes = currentNodes
+        guard Self.mutateNested(id, in: &nodes, { node in
+            guard case .text(var text) = node.content else { return }
+            text.contentRole = role
+            node.content = .text(text)
+        }) else { return }
+        commitNodes(nodes, actionName: "Text Content Role")
+    }
+
     /// Right-click ▸ Apply Type Style ▸ <style>. The NSMenuItem carries the
     /// style's UUID in representedObject (menus are built per-document).
     @objc func applyTypeStyleMenuAction(_ sender: NSMenuItem) {
@@ -9180,6 +9195,23 @@ final class CanvasNSView: NSView {
             case .text:
                 add(menu, "Convert to Outlines", #selector(convertTextToShapesAction(_:)))
                 add(menu, "Save as Type Style", #selector(saveTypeStyleAction(_:)))
+                let roleItem = NSMenuItem(title: "Content Role", action: nil, keyEquivalent: "")
+                let roleMenu = NSMenu()
+                let currentRole: TextContentRole = {
+                    guard case .text(let text) = hit.content else { return .plain }
+                    return text.contentRole
+                }()
+                for role in TextContentRole.allCases {
+                    let item = NSMenuItem(title: role.friendlyLabel,
+                                          action: #selector(setTextContentRoleAction(_:)),
+                                          keyEquivalent: "")
+                    item.target = self
+                    item.representedObject = role.rawValue
+                    item.state = role == currentRole ? .on : .off
+                    roleMenu.addItem(item)
+                }
+                roleItem.submenu = roleMenu
+                menu.addItem(roleItem)
                 if let styles = document?.model.designLanguage.typeStyles, !styles.isEmpty {
                     let styleItem = NSMenuItem(title: "Apply Type Style", action: nil, keyEquivalent: "")
                     let sub = NSMenu()
@@ -9386,7 +9418,8 @@ extension CanvasNSView: NSMenuItemValidation {
             return selectionCanPathfinder
         case #selector(toggleBoldText(_:)), #selector(toggleItalicText(_:)), #selector(toggleUnderlineText(_:)):
             return selectionIsText || textEditor != nil
-        case #selector(convertTextToShapesAction(_:)), #selector(saveTypeStyleAction(_:)):
+        case #selector(convertTextToShapesAction(_:)), #selector(saveTypeStyleAction(_:)),
+             #selector(setTextContentRoleAction(_:)):
             return selectionIsText
         case #selector(alignLeftAction(_:)), #selector(alignHCenterAction(_:)), #selector(alignRightAction(_:)),
              #selector(alignTopAction(_:)), #selector(alignVCenterAction(_:)), #selector(alignBottomAction(_:)):

@@ -175,10 +175,11 @@ struct ExportRenderer {
             && document.owningArtboard(of: node.frame)?.id == artboard.id {
             body += svgElement(node, offset: origin, defs: &defs)
         }
+        let tokenStyle = svgTokenStyle()
         let defsBlock = defs.isEmpty ? "" : "<defs>\n\(defs.joined())</defs>\n"
         return """
         <svg xmlns="http://www.w3.org/2000/svg" width="\(num(w))" height="\(num(h))" viewBox="0 0 \(num(w)) \(num(h))">
-        \(defsBlock)\(body)</svg>
+        \(tokenStyle)\(defsBlock)\(body)</svg>
         """
     }
 
@@ -476,10 +477,36 @@ struct ExportRenderer {
 
     // MARK: SVG attribute helpers
 
-    private func fillAttr(_ c: RGBAColor) -> String { " fill=\"\(hex(c))\"\(opacityAttr("fill-opacity", c.a))" }
+    private func fillAttr(_ c: RGBAColor) -> String {
+        if let binding = DesignLanguageIO.firstAssetBinding(
+            matching: .solid(c), in: document.designLanguage) {
+            let fallback = DesignLanguageIO.css(for: .solid(c))
+            return " fill=\"var(--\(binding.variableName), \(fallback))\""
+        }
+        return " fill=\"\(hex(c))\"\(opacityAttr("fill-opacity", c.a))"
+    }
+
     private func strokeAttr(_ c: RGBAColor, _ width: CGFloat) -> String {
         guard width > 0 else { return "" }
+        if let binding = DesignLanguageIO.firstAssetBinding(
+            matching: .solid(c), in: document.designLanguage) {
+            let fallback = DesignLanguageIO.css(for: .solid(c))
+            return " stroke=\"var(--\(binding.variableName), \(fallback))\" stroke-width=\"\(num(width))\""
+        }
         return " stroke=\"\(hex(c))\"\(opacityAttr("stroke-opacity", c.a)) stroke-width=\"\(num(width))\""
+    }
+
+    /// Standalone SVGs carry the same color-token names as semantic HTML/CSS.
+    /// Every usage still includes its literal fallback, so the artwork remains
+    /// portable if a downstream tool drops or overrides this style block.
+    private func svgTokenStyle() -> String {
+        let lines = DesignLanguageIO.cssAssetBindings(document.designLanguage)
+            .compactMap { binding -> String? in
+                guard case .solid = binding.paint else { return nil }
+                return "  --\(binding.variableName): \(DesignLanguageIO.css(for: binding.paint));"
+            }
+        guard !lines.isEmpty else { return "" }
+        return "<style>\n:root {\n\(lines.joined(separator: "\n"))\n}\n</style>\n"
     }
 
     /// SVG path data for a per-corner rounded rect (A-command arcs, clockwise,

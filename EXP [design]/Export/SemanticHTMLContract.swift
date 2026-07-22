@@ -1,0 +1,218 @@
+//
+//  SemanticHTMLContract.swift
+//  EXP [design]
+//
+//  v2.0 Chunk B0: deterministic semantics shared by HTML export and the later
+//  HTML import codec. This file contains decisions, not rendering. B1 consumes
+//  these mappings when it writes per-artboard HTML and shared CSS.
+//
+
+import Foundation
+
+enum SemanticHTMLRequirement: String, CaseIterable, Sendable {
+    case accessibleName
+    case href
+    case checkedState
+    case selectedState
+    case rangeValues
+    case headingLevel
+    case listOwnership
+    case tableStructure
+    case controlsRelationship
+    case labelledByRelationship
+    case describedByRelationship
+    case textInputImplementation
+}
+
+struct SemanticHTMLRoleMapping: Equatable, Sendable {
+    /// Preferred host element. Native elements are used only when EXP can emit
+    /// them without invalid child structure or invented model data.
+    var tag: String
+    /// Nil means the host element already supplies the intended implicit role.
+    /// A value is emitted when native HTML cannot honestly carry the contract.
+    var explicitRole: AriaRole?
+    /// Safe, deterministic attributes that do not fabricate behavior/data.
+    var fixedAttributes: [String: String] = [:]
+    /// Missing model facts that B1 must report rather than silently invent.
+    var requirements: Set<SemanticHTMLRequirement> = []
+}
+
+extension AriaRole {
+    /// Native-first mapping, constrained by what EXP currently models. The
+    /// explicit ARIA fallbacks intentionally keep arbitrary component artwork as
+    /// descendants; void elements such as input/img cannot do that safely.
+    var semanticHTMLMapping: SemanticHTMLRoleMapping {
+        switch self {
+        // Landmarks / regions with honest native containers.
+        case .banner:        return .init(tag: "header")
+        case .navigation:    return .init(tag: "nav")
+        case .main:          return .init(tag: "main")
+        case .complementary: return .init(tag: "aside")
+        case .contentinfo:   return .init(tag: "footer")
+        case .search:        return .init(tag: "search")
+        case .form:          return .init(tag: "form", requirements: [.accessibleName])
+        case .region:        return .init(tag: "section", requirements: [.accessibleName])
+
+        // Widgets. Button is complete as a host; the remaining roles need model
+        // facts EXP does not yet store, so the handoff reports those requirements.
+        case .button:
+            return .init(tag: "button", fixedAttributes: ["type": "button"])
+        case .link:
+            return .init(tag: "a", explicitRole: .link, requirements: [.href])
+        case .checkbox:
+            return .init(tag: "button", explicitRole: .checkbox,
+                         fixedAttributes: ["type": "button"], requirements: [.checkedState])
+        case .radio:
+            return .init(tag: "button", explicitRole: .radio,
+                         fixedAttributes: ["type": "button"], requirements: [.checkedState])
+        case .switch:
+            return .init(tag: "button", explicitRole: .switch,
+                         fixedAttributes: ["type": "button"], requirements: [.checkedState])
+        case .textbox:
+            return .init(tag: "div", explicitRole: .textbox,
+                         requirements: [.accessibleName, .textInputImplementation])
+        case .searchbox:
+            return .init(tag: "div", explicitRole: .searchbox,
+                         requirements: [.accessibleName, .textInputImplementation])
+        case .slider:
+            return .init(tag: "div", explicitRole: .slider,
+                         requirements: [.accessibleName, .rangeValues])
+        case .spinbutton:
+            return .init(tag: "div", explicitRole: .spinbutton,
+                         requirements: [.accessibleName, .rangeValues])
+        case .progressbar:
+            return .init(tag: "div", explicitRole: .progressbar,
+                         requirements: [.accessibleName, .rangeValues])
+        case .tooltip:
+            return .init(tag: "div", explicitRole: .tooltip,
+                         requirements: [.describedByRelationship])
+
+        // Composite widgets keep an explicit public ARIA contract. EXP exports
+        // no JavaScript; downstream implementation follows the WAI-APG pattern.
+        case .tablist:
+            return .init(tag: "div", explicitRole: .tablist,
+                         requirements: [.accessibleName])
+        case .tab:
+            return .init(tag: "button", explicitRole: .tab,
+                         fixedAttributes: ["type": "button"],
+                         requirements: [.selectedState, .controlsRelationship])
+        case .tabpanel:
+            return .init(tag: "section", explicitRole: .tabpanel,
+                         requirements: [.labelledByRelationship])
+        case .menu:       return .init(tag: "div", explicitRole: .menu)
+        case .menubar:    return .init(tag: "div", explicitRole: .menubar)
+        case .menuitem:
+            return .init(tag: "button", explicitRole: .menuitem,
+                         fixedAttributes: ["type": "button"])
+        case .listbox:
+            return .init(tag: "div", explicitRole: .listbox,
+                         requirements: [.accessibleName])
+        case .option:
+            return .init(tag: "div", explicitRole: .option,
+                         requirements: [.selectedState])
+        case .radiogroup:
+            return .init(tag: "div", explicitRole: .radiogroup,
+                         requirements: [.accessibleName])
+        case .toolbar:
+            return .init(tag: "div", explicitRole: .toolbar,
+                         requirements: [.accessibleName])
+        case .dialog:
+            return .init(tag: "div", explicitRole: .dialog,
+                         requirements: [.accessibleName])
+        case .alertdialog:
+            return .init(tag: "div", explicitRole: .alertdialog,
+                         requirements: [.accessibleName])
+        case .alert:      return .init(tag: "div", explicitRole: .alert)
+
+        // Document structure. Heading level and table/list ownership are never
+        // guessed: the generated markup carries the role and reports the gap.
+        case .heading:
+            return .init(tag: "div", explicitRole: .heading,
+                         requirements: [.headingLevel])
+        case .list:       return .init(tag: "ul")
+        case .listitem:
+            return .init(tag: "li", requirements: [.listOwnership])
+        case .img:
+            return .init(tag: "div", explicitRole: .img,
+                         requirements: [.accessibleName])
+        case .figure:     return .init(tag: "figure")
+        case .table:
+            return .init(tag: "div", explicitRole: .table,
+                         requirements: [.accessibleName, .tableStructure])
+        case .separator:  return .init(tag: "div", explicitRole: .separator)
+        case .group:      return .init(tag: "div", explicitRole: .group)
+        }
+    }
+}
+
+enum SemanticHTMLIdentity {
+    static func artboardDOMID(_ id: UUID) -> String {
+        "exp-artboard-\(uuid(id))"
+    }
+
+    /// Source-layer UUIDs repeat in every component instance. Composite ids keep
+    /// relationships stable and unique without changing EXP's reference model.
+    static func nodeDOMID(_ nodeID: UUID, instanceID: UUID? = nil) -> String {
+        if let instanceID { return "exp-\(uuid(instanceID))-\(uuid(nodeID))" }
+        return "exp-\(uuid(nodeID))"
+    }
+
+    static func artboardFilename(name: String, id: UUID) -> String {
+        let base = slug(name, fallback: "artboard")
+        return "\(base)--\(uuid(id)).html"
+    }
+
+    static func slug(_ value: String, fallback: String) -> String {
+        var result = ""
+        var pendingDash = false
+        for character in value.lowercased() {
+            if character.isLetter || character.isNumber {
+                if pendingDash, !result.isEmpty { result.append("-") }
+                result.append(character)
+                pendingDash = false
+            } else if !result.isEmpty {
+                pendingDash = true
+            }
+        }
+        return result.isEmpty ? fallback : result
+    }
+
+    private static func uuid(_ id: UUID) -> String { id.uuidString.lowercased() }
+}
+
+enum SemanticHTMLStateSelector: Equatable, Sendable {
+    case pseudoClass(String)
+    case disabled
+    case dataState(String)
+
+    static func forName(_ name: String) -> Self {
+        switch name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "hover":    return .pseudoClass(":hover")
+        case "pressed":  return .pseudoClass(":active")
+        case "focus":    return .pseudoClass(":focus-visible")
+        case "disabled": return .disabled
+        default:          return .dataState(name)
+        }
+    }
+}
+
+enum SemanticHTMLEscape {
+    static func text(_ value: String) -> String {
+        value.replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+    }
+
+    static func attribute(_ value: String) -> String {
+        text(value).replacingOccurrences(of: "\"", with: "&quot;")
+            .replacingOccurrences(of: "'", with: "&#39;")
+    }
+
+    /// HTML comments cannot contain `--` or end in `-`. Notes remain readable,
+    /// but never get a chance to terminate the generated comment early.
+    static func comment(_ value: String) -> String {
+        var safe = value.replacingOccurrences(of: "--", with: "—")
+        if safe.hasSuffix("-") { safe.append(" ") }
+        return safe
+    }
+}

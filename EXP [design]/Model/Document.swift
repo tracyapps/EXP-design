@@ -1166,6 +1166,58 @@ enum TextCase: String, Codable, Sendable {
     }
 }
 
+/// What the words *are* in the page hierarchy, independent of how they look.
+/// Type Styles remain reusable presentation; this value is the native HTML
+/// contract used by semantic handoff.
+enum TextContentRole: String, Codable, CaseIterable, Sendable {
+    case plain
+    case paragraph
+    case heading1
+    case heading2
+    case heading3
+    case heading4
+    case heading5
+    case heading6
+
+    var friendlyLabel: String {
+        switch self {
+        case .plain:     return "Plain text"
+        case .paragraph: return "Paragraph"
+        case .heading1:  return "Heading 1"
+        case .heading2:  return "Heading 2"
+        case .heading3:  return "Heading 3"
+        case .heading4:  return "Heading 4"
+        case .heading5:  return "Heading 5"
+        case .heading6:  return "Heading 6"
+        }
+    }
+
+    var htmlTag: String {
+        switch self {
+        case .plain:     return "span"
+        case .paragraph: return "p"
+        case .heading1:  return "h1"
+        case .heading2:  return "h2"
+        case .heading3:  return "h3"
+        case .heading4:  return "h4"
+        case .heading5:  return "h5"
+        case .heading6:  return "h6"
+        }
+    }
+
+    var headingLevel: Int? {
+        switch self {
+        case .heading1: return 1
+        case .heading2: return 2
+        case .heading3: return 3
+        case .heading4: return 4
+        case .heading5: return 5
+        case .heading6: return 6
+        case .plain, .paragraph: return nil
+        }
+    }
+}
+
 /// Rich text: a list of styled runs plus paragraph-level settings. Backward
 /// compatible — older single-style text (`{string,fontSize,color,fontName}`)
 /// decodes into one run.
@@ -1177,6 +1229,7 @@ struct TextContent: Codable, Sendable {
     var tracking: CGFloat = 0           // letter spacing in points
     var box: TextBox = .auto
     var textCase: TextCase = .none      // non-destructive CSS text-transform
+    var contentRole: TextContentRole = .plain
 
     /// Legacy-shaped initializer (one run) so existing call sites keep working.
     init(string: String = "", fontSize: CGFloat = 16, color: RGBAColor = .black, fontName: String = "") {
@@ -1184,10 +1237,11 @@ struct TextContent: Codable, Sendable {
     }
     init(runs: [TextRun], align: TextAlign = .left, lineHeight: CGFloat = 1.3,
          lineHeightUnit: LineHeightUnit = .auto, tracking: CGFloat = 0, box: TextBox = .auto,
-         textCase: TextCase = .none) {
+         textCase: TextCase = .none, contentRole: TextContentRole = .plain) {
         self.runs = runs.isEmpty ? [TextRun(string: "")] : runs
         self.align = align; self.lineHeight = lineHeight; self.lineHeightUnit = lineHeightUnit
         self.tracking = tracking; self.box = box; self.textCase = textCase
+        self.contentRole = contentRole
     }
 
     // MARK: convenience
@@ -1216,7 +1270,7 @@ struct TextContent: Codable, Sendable {
     // MARK: Codable (decode legacy single-style; encode runs + paragraph props)
 
     enum CodingKeys: String, CodingKey {
-        case runs, align, lineHeight, lineHeightUnit, tracking, box, textCase
+        case runs, align, lineHeight, lineHeightUnit, tracking, box, textCase, contentRole
         case string, fontName, fontSize, color   // legacy
     }
     init(from decoder: Decoder) throws {
@@ -1236,6 +1290,8 @@ struct TextContent: Codable, Sendable {
         tracking = (try? c.decode(CGFloat.self, forKey: .tracking)) ?? 0
         box = (try? c.decode(TextBox.self, forKey: .box)) ?? .auto
         textCase = (try? c.decode(TextCase.self, forKey: .textCase)) ?? .none
+        // Missing or future/unknown values stay readable as plain text.
+        contentRole = (try? c.decode(TextContentRole.self, forKey: .contentRole)) ?? .plain
     }
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
@@ -1246,6 +1302,7 @@ struct TextContent: Codable, Sendable {
         try c.encode(tracking, forKey: .tracking)
         try c.encode(box, forKey: .box)
         try c.encode(textCase, forKey: .textCase)
+        try c.encode(contentRole, forKey: .contentRole)
     }
 }
 

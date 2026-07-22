@@ -29,6 +29,7 @@ enum SVGImporter {
               let root = doc.rootElement(), root.name == "svg" else { return nil }
 
         var ctx = Context()
+        collectStylesheets(in: root, into: &ctx)
         collectGradients(in: root, into: &ctx)
         collectFilters(in: root, into: &ctx)
 
@@ -62,6 +63,43 @@ enum SVGImporter {
         /// `<filter id>` → the Effects we could reconstruct from its primitives
         /// (feTurbulence noise/dissolve chains, drop/inner shadow chains).
         var filters: [String: [Effect]] = [:]
+        /// Ordered author rules from SVG `<style>` elements. Many Illustrator
+        /// exports put every paint in `.cls-N` rules and leave only `class` on
+        /// the geometry; without this cascade those shapes silently use SVG's
+        /// initial black fill.
+        var cssRules: [CSSRule] = []
+    }
+
+    private struct CSSRule {
+        var selector: CSSSelector
+        var declarations: [String: String]
+        var sourceOrder: Int
+    }
+
+    /// A deliberately bounded CSS selector model for presentation styles in an
+    /// SVG file. Compound element/id/class selectors cover the common output of
+    /// Illustrator, Affinity, Sketch, and browser SVG exporters. Combinators,
+    /// attribute selectors, and pseudo-classes are rejected instead of being
+    /// approximated incorrectly.
+    private struct CSSSelector {
+        var element: String?
+        var id: String?
+        var classes: Set<String>
+
+        var specificity: Int {
+            (id == nil ? 0 : 100) + classes.count * 10 + (element == nil ? 0 : 1)
+        }
+
+        func matches(_ el: XMLElement) -> Bool {
+            if let element, el.name?.lowercased() != element { return false }
+            if let id, el.attribute(forName: "id")?.stringValue != id { return false }
+            if !classes.isEmpty {
+                let actual = Set((el.attribute(forName: "class")?.stringValue ?? "")
+                    .split(whereSeparator: \Character.isWhitespace).map(String.init))
+                if !classes.isSubset(of: actual) { return false }
+            }
+            return true
+        }
     }
 
     /// Resolved presentation style as it flows down the tree.
@@ -264,19 +302,7 @@ enum SVGImporter {
 
     private static func resolveStyle(_ el: XMLElement, inherited: Style, ctx: Context) -> Style {
         var s = inherited
-        var props: [String: String] = [:]
-        // Presentation attributes.
-        for key in ["fill", "stroke", "stroke-width", "opacity", "fill-opacity",
-                    "stroke-opacity", "font-size", "font-family", "font-weight", "font-style"] {
-            if let v = el.attribute(forName: key)?.stringValue { props[key] = v }
-        }
-        // style="" overrides presentation attributes.
-        if let style = el.attribute(forName: "style")?.stringValue {
-            for decl in style.split(separator: ";") {
-                let kv = decl.split(separator: ":", maxSplits: 1)
-                if kv.count == 2 { props[kv[0].trimmingCharacters(in: .whitespaces)] = kv[1].trimmingCharacters(in: .whitespaces) }
-            }
-        }
+        let props = resolvedProperties(for: el, ctx: ctx)
         if let v = props["opacity"], let d = Double(v) { s.opacity = d }
         if let v = props["fill-opacity"], let d = Double(v) { s.fillOpacity = d }
         if let v = props["stroke-opacity"], let d = Double(v) { s.strokeOpacity = d }
@@ -293,9 +319,121 @@ enum SVGImporter {
         return s
     }
 
+    private static let presentationAttributeKeys = [
+        "fill", "stroke", "stroke-width", "opacity", "fill-opacity",
+        "stroke-opacity", "font-size", "font-family", "font-weight", "font-style",
+        "stop-color", "stop-opacity", "filter",
+    ]
+
+    /// SVG presentation attributes behave like zero-specificity CSS. Author
+    /// stylesheet rules override them; an element's inline `style` wins last.
+    /// Matching stylesheet rules are applied by specificity, then source order.
+    private static func resolvedProperties(for el: XMLElement, ctx: Context) -> [String: String] {
+        var props: [String: String] = [:]
+        for key in presentationAttributeKeys {
+            if let value = el.attribute(forName: key)?.stringValue { props[key] = value }
+        }
+
+        let matches = ctx.cssRules.filter { $0.selector.matches(el) }.sorted {
+            let lhs = $0.selector.specificity, rhs = $1.selector.specificity
+            return lhs == rhs ? $0.sourceOrder < $1.sourceOrder : lhs < rhs
+        }
+        for rule in matches {
+            for (key, value) in rule.declarations { props[key] = value }
+        }
+
+        if let inline = el.attribute(forName: "style")?.stringValue {
+            for (key, value) in cssDeclarations(inline) { props[key] = value }
+        }
+        return props
+    }
+
+    private static func collectStylesheets(in root: XMLElement, into ctx: inout Context) {
+        guard let nodes = try? root.nodes(forXPath: "//*[local-name()='style']") else { return }
+        let commentPattern = #"/\*.*?\*/"#
+        let rulePattern = #"([^{}]+)\{([^{}]*)\}"#
+        guard let comments = try? NSRegularExpression(pattern: commentPattern, options: [.dotMatchesLineSeparators]),
+              let rules = try? NSRegularExpression(pattern: rulePattern, options: [.dotMatchesLineSeparators]) else { return }
+
+        var order = ctx.cssRules.count
+        for case let style as XMLElement in nodes {
+            let raw = style.stringValue ?? ""
+            let full = NSRange(raw.startIndex..<raw.endIndex, in: raw)
+            let css = comments.stringByReplacingMatches(in: raw, range: full, withTemplate: "")
+            let ns = css as NSString
+            for match in rules.matches(in: css, range: NSRange(location: 0, length: ns.length)) {
+                let selectorList = ns.substring(with: match.range(at: 1))
+                let declarations = cssDeclarations(ns.substring(with: match.range(at: 2)))
+                guard !declarations.isEmpty else { continue }
+                for rawSelector in selectorList.split(separator: ",") {
+                    guard let selector = cssSelector(String(rawSelector)) else { continue }
+                    ctx.cssRules.append(CSSRule(selector: selector,
+                                                declarations: declarations,
+                                                sourceOrder: order))
+                    order += 1
+                }
+            }
+        }
+    }
+
+    private static func cssDeclarations(_ body: String) -> [String: String] {
+        var props: [String: String] = [:]
+        for declaration in body.split(separator: ";") {
+            let pair = declaration.split(separator: ":", maxSplits: 1)
+            guard pair.count == 2 else { continue }
+            let key = pair[0].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            var value = pair[1].trimmingCharacters(in: .whitespacesAndNewlines)
+            if value.lowercased().hasSuffix("!important") {
+                value = String(value.dropLast("!important".count))
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            if !key.isEmpty, !value.isEmpty { props[key] = value }
+        }
+        return props
+    }
+
+    private static func cssSelector(_ raw: String) -> CSSSelector? {
+        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty,
+              !text.contains(where: { $0.isWhitespace || ">+~[]:".contains($0) }) else { return nil }
+
+        var selector = CSSSelector(element: nil, id: nil, classes: [])
+        var index = text.startIndex
+        if text[index] == "*" {
+            index = text.index(after: index)
+        } else if text[index] != ".", text[index] != "#" {
+            let start = index
+            while index < text.endIndex, isCSSIdentifierCharacter(text[index]) {
+                index = text.index(after: index)
+            }
+            guard index > start else { return nil }
+            selector.element = String(text[start..<index]).lowercased()
+        }
+
+        while index < text.endIndex {
+            let marker = text[index]
+            guard marker == "." || marker == "#" else { return nil }
+            index = text.index(after: index)
+            let start = index
+            while index < text.endIndex, isCSSIdentifierCharacter(text[index]) {
+                index = text.index(after: index)
+            }
+            guard index > start else { return nil }
+            let name = String(text[start..<index])
+            if marker == "." { selector.classes.insert(name) }
+            else if selector.id == nil { selector.id = name }
+            else { return nil }
+        }
+        return selector
+    }
+
+    private static func isCSSIdentifierCharacter(_ character: Character) -> Bool {
+        character.isLetter || character.isNumber || character == "_" || character == "-"
+    }
+
     private static func paint(_ value: String, opacity: Double, ctx: Context) -> Paint? {
-        let v = value.trimmingCharacters(in: .whitespaces)
-        if v == "none" { return nil }
+        let v = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if v.lowercased() == "none" { return nil }
         if v.hasPrefix("url(") {
             let id = v.dropFirst(4).drop(while: { $0 == "#" }).prefix(while: { $0 != ")" && $0 != "#" })
             if let g = ctx.gradients[String(id)] { return .gradient(g) }
@@ -327,16 +465,9 @@ enum SVGImporter {
                     off = o.hasSuffix("%") ? (Double(o.dropLast()) ?? 0) / 100 : (Double(o) ?? 0)
                 }
                 var sc = RGBAColor.black; var sa = 1.0
-                // stop-color / stop-opacity via attribute or style.
-                var props: [String: String] = [:]
-                if let c = stop.attribute(forName: "stop-color")?.stringValue { props["stop-color"] = c }
-                if let a = stop.attribute(forName: "stop-opacity")?.stringValue { props["stop-opacity"] = a }
-                if let style = stop.attribute(forName: "style")?.stringValue {
-                    for decl in style.split(separator: ";") {
-                        let kv = decl.split(separator: ":", maxSplits: 1)
-                        if kv.count == 2 { props[kv[0].trimmingCharacters(in: .whitespaces)] = kv[1].trimmingCharacters(in: .whitespaces) }
-                    }
-                }
+                // stop-color / stop-opacity via presentation attribute, class
+                // stylesheet, or inline style (same cascade as normal layers).
+                let props = resolvedProperties(for: stop, ctx: ctx)
                 if let c = props["stop-color"], let parsed = color(c) { sc = parsed }
                 if let a = props["stop-opacity"], let d = Double(a) { sa = d }
                 stops.append(GradientStop(color: applyAlpha(sc, sa), position: off))
@@ -354,18 +485,11 @@ enum SVGImporter {
 
     // MARK: Filters (feTurbulence noise / dissolve, shadow chains)
 
-    /// Read `filter="url(#id)"` from an attribute or a `style=""` declaration
-    /// and return the effects reconstructed for that id (nil when none).
+    /// Read `filter="url(#id)"` through the same presentation-attribute /
+    /// stylesheet / inline-style cascade as paint, then reattach reconstructed
+    /// effects (nil when none).
     private static func filterEffects(_ el: XMLElement, ctx: Context) -> [Effect]? {
-        var raw = el.attribute(forName: "filter")?.stringValue
-        if raw == nil, let style = el.attribute(forName: "style")?.stringValue {
-            for decl in style.split(separator: ";") {
-                let kv = decl.split(separator: ":", maxSplits: 1)
-                if kv.count == 2, kv[0].trimmingCharacters(in: .whitespaces) == "filter" {
-                    raw = kv[1].trimmingCharacters(in: .whitespaces)
-                }
-            }
-        }
+        let raw = resolvedProperties(for: el, ctx: ctx)["filter"]
         guard let v = raw?.trimmingCharacters(in: .whitespaces), v.hasPrefix("url(") else { return nil }
         let id = v.dropFirst(4).drop(while: { $0 == "#" }).prefix(while: { $0 != ")" && $0 != "#" })
         return ctx.filters[String(id)]

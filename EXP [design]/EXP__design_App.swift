@@ -47,6 +47,8 @@ struct EXP__design_App: App {
 
             // HELP ▸ Send Feedback (in-app bug / idea reporter).
             CommandGroup(replacing: .help) {
+                ARIARolesGuideCommand()
+                Divider()
                 Button("Send Feedback\u{2026}") { send("sendFeedbackAction:") }
                     .keyboardShortcut("/", modifiers: [.command, .shift])
                 Divider()
@@ -102,6 +104,15 @@ struct EXP__design_App: App {
         Settings {
             SettingsWindow()
         }
+
+        // A single-purpose learning surface rather than a general browser. The
+        // guide owns its search/history UI; EXP supplies only a resizable native
+        // window and keeps off-site navigation in the user's default browser.
+        Window("ARIA Roles Guide", id: ARIARolesGuideWindow.sceneID) {
+            ARIARolesGuideWindow()
+        }
+        .defaultSize(width: 1100, height: 820)
+        .windowResizability(.contentMinSize)
     }
 
     /// Send an action up the responder chain to whichever canvas is focused.
@@ -109,6 +120,16 @@ struct EXP__design_App: App {
         NSApp.sendAction(NSSelectorFromString(selectorName), to: nil, from: nil)
     }
 
+}
+
+private struct ARIARolesGuideCommand: View {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Button("ARIA Roles Guide") {
+            openWindow(id: ARIARolesGuideWindow.sceneID)
+        }
+    }
 }
 
 private func sendEditorAction(_ selectorName: String) {
@@ -120,6 +141,12 @@ private func sendEditorComponentCategory(_ role: AriaRole?) {
                           action: nil, keyEquivalent: "")
     item.representedObject = role?.rawValue
     NSApp.sendAction(NSSelectorFromString("setComponentCategoryAction:"), to: nil, from: item)
+}
+
+private func sendEditorTextContentRole(_ role: TextContentRole) {
+    let item = NSMenuItem(title: role.friendlyLabel, action: nil, keyEquivalent: "")
+    item.representedObject = role.rawValue
+    NSApp.sendAction(NSSelectorFromString("setTextContentRoleAction:"), to: nil, from: item)
 }
 
 private struct FileCommandItems: View {
@@ -267,6 +294,13 @@ private struct TypeCommandItems: View {
     @FocusedValue(\.editorMenu) private var menu
 
     var body: some View {
+        Menu("Content Role") {
+            ForEach(TextContentRole.allCases, id: \.self) { role in
+                Button(role.friendlyLabel) { sendEditorTextContentRole(role) }
+            }
+        }
+        .disabled(menu?.canTypeActions != true)
+        Divider()
         Button("Bold") { sendEditorAction("toggleBoldText:") }
             .keyboardShortcut("b", modifiers: .command)
             .disabled(menu?.canTypeActions != true)
