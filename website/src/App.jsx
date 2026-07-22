@@ -98,22 +98,54 @@ function useScrollProgress() {
 function NavDropdown({ item }) {
   const [open, setOpen] = useState(false);
   const ref = React.useRef(null);
+  const closeTimer = React.useRef(null);
+
+  const clearCloseTimer = () => {
+    if (closeTimer.current) {
+      window.clearTimeout(closeTimer.current);
+      closeTimer.current = null;
+    }
+  };
+  // Hover-intent close: give the pointer time to travel from the trigger down
+  // into the menu instead of slamming shut the instant the pointer leaves the
+  // trigger's own box. Paired with the .nav-menu bridge in styles.css, which
+  // closes the dead gap the pointer used to fall through.
+  const openNow = () => {
+    clearCloseTimer();
+    setOpen(true);
+  };
+  const closeSoon = () => {
+    clearCloseTimer();
+    closeTimer.current = window.setTimeout(() => setOpen(false), 300);
+  };
+
+  useEffect(() => clearCloseTimer, []);
 
   useEffect(() => {
     if (!open) return undefined;
     function onPointerDown(event) {
       if (ref.current && !ref.current.contains(event.target)) setOpen(false);
     }
+    // Also close when keyboard focus leaves the whole control, so a menu
+    // opened via ArrowDown never gets stranded open after tabbing past it.
+    function onFocusOut(event) {
+      if (ref.current && !ref.current.contains(event.relatedTarget)) setOpen(false);
+    }
     document.addEventListener("pointerdown", onPointerDown);
-    return () => document.removeEventListener("pointerdown", onPointerDown);
+    const node = ref.current;
+    node?.addEventListener("focusout", onFocusOut);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      node?.removeEventListener("focusout", onFocusOut);
+    };
   }, [open]);
 
   return (
     <div
       className={open ? "nav-dropdown open" : "nav-dropdown"}
       ref={ref}
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
+      onMouseEnter={openNow}
+      onMouseLeave={closeSoon}
     >
       <button
         type="button"
@@ -949,6 +981,10 @@ function DownloadPage() {
 }
 
 function Footer() {
+  // Plain, always-visible links to every page the header dropdowns jump to.
+  // This is the fallback path: if a dropdown ever fails to open (JS error,
+  // motor/pointer difficulty, reduced-motion edge case, whatever), every
+  // subpage is still one direct click away here.
   return (
     <footer className="site-footer">
       <a className="brand-lockup" href="#top" aria-label="EXP [design] home">
@@ -956,6 +992,29 @@ function Footer() {
         <span>EXP<span>[design]</span></span>
       </a>
       <p>native macOS. quiet precision. source, never master.</p>
+      <nav className="footer-sitemap" aria-label="site pages">
+        <div>
+          <p className="footer-sitemap-heading">features</p>
+          {featureLinks.map((link) => (
+            <a key={link.href} href={link.href}>
+              {link.label}
+            </a>
+          ))}
+        </div>
+        <div>
+          <p className="footer-sitemap-heading">learn</p>
+          {learnLinks.map((link) => (
+            <a key={link.href} href={link.href}>
+              {link.label}
+            </a>
+          ))}
+        </div>
+        <div>
+          <p className="footer-sitemap-heading">more</p>
+          <a href="/#roadmap">roadmap</a>
+          <a href="/download">download</a>
+        </div>
+      </nav>
     </footer>
   );
 }
