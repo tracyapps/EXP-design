@@ -39,9 +39,13 @@ private enum SemanticHTMLPackageCheck {
 
         let document = Fixture.document()
         let output = URL(fileURLWithPath: CommandLine.arguments[1], isDirectory: true)
-        try HandoffPackageWriter(document: document,
-                                 sourceURL: URL(fileURLWithPath: "/fixture/Handoff.design"))
-            .write(to: output)
+        let generatedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        let writer = HandoffPackageWriter(
+            document: document,
+            sourceURL: URL(fileURLWithPath: "/fixture/Handoff.design"),
+            generatedAt: generatedAt
+        )
+        try writer.write(to: output)
 
         let pageName = SemanticHTMLIdentity.artboardFilename(
             name: document.artboards[0].name, id: Fixture.artboardID)
@@ -52,6 +56,16 @@ private enum SemanticHTMLPackageCheck {
         for path in expected {
             require(FileManager.default.fileExists(atPath: output.appendingPathComponent(path).path),
                     "missing package file \(path)")
+        }
+
+        let repeatOutput = output.deletingLastPathComponent()
+            .appendingPathComponent(output.lastPathComponent + "-repeat", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: repeatOutput) }
+        try writer.write(to: repeatOutput)
+        for path in expected {
+            let first = try Data(contentsOf: output.appendingPathComponent(path))
+            let second = try Data(contentsOf: repeatOutput.appendingPathComponent(path))
+            require(first == second, "fixed-input export is not deterministic for \(path)")
         }
 
         let manifestData = try Data(contentsOf: output.appendingPathComponent("manifest.json"))
@@ -85,7 +99,20 @@ private enum SemanticHTMLPackageCheck {
         let readme = try String(contentsOf: output.appendingPathComponent("README.llm.md"),
                                 encoding: .utf8)
 
+        // Fixed-input golden digests make intentional exporter changes visible.
+        // Update these only after reviewing the complete generated artifacts.
+        require(sha256(Data(css.utf8)) == "974ec908be2368343d87fd71704bc11c0907f96c293a23ce99ecbc2ebf2e0b88",
+                "semantic stylesheet no longer matches the reviewed golden")
+        require(sha256(Data(html.utf8)) == "bdbe933a027de5c815fa23bbe36b2b0ffc8cebc5dd2d0638d9ba36765a5a07ad",
+                "semantic HTML page no longer matches the reviewed golden")
+        require(sha256(manifestData) == "650335123eeba63f8362a33513ba5459745cfa1e0e2c823942eb08fb14aba0c2",
+                "handoff manifest no longer matches the reviewed golden")
+        require(sha256(Data(readme.utf8)) == "f92c98f55900a28d6d5434d876e1e1e4bf67040efbdbda9711258ff385ae417c",
+                "handoff README no longer matches the reviewed golden")
+
         require(html.contains("<!doctype html>"), "page is not a standalone HTML document")
+        require(html.contains("<html lang=\"und\">"),
+                "page does not honestly declare its undetermined language")
         require(html.contains("href=\"styles.css\""), "page does not link shared CSS")
         require(html.contains("Test <markup> & comment — safety- "),
                 "artboard note comment was not safely preserved")
@@ -104,6 +131,15 @@ private enum SemanticHTMLPackageCheck {
         require(html.contains("id=\"\(secondResolvedID)\""), "second resolved child id missing")
         require(html.contains("<button") && html.contains("type=\"button\""),
                 "button component did not use a native host")
+        guard let buttonStart = html.range(of: "<button"),
+              let buttonEnd = html.range(of: "</button>", range: buttonStart.upperBound..<html.endIndex) else {
+            require(false, "button component markup is incomplete"); return
+        }
+        let buttonMarkup = String(html[buttonStart.lowerBound..<buttonEnd.upperBound])
+        require(!buttonMarkup.contains("<div") && !buttonMarkup.contains("<p ")
+                    && !buttonMarkup.contains("<h1 ") && !buttonMarkup.contains("<h2 ")
+                    && !buttonMarkup.contains("<h3 "),
+                "native button contains non-phrasing visual markup")
         require(html.contains("aria-labelledby=\"\(firstResolvedID)\""),
                 "component accessible-name relationship is missing")
         let describedTarget = SemanticHTMLIdentity.nodeDOMID(Fixture.descriptionID,
@@ -173,6 +209,9 @@ private enum SemanticHTMLPackageCheck {
         let secondDOMID = SemanticHTMLIdentity.nodeDOMID(Fixture.secondInstanceID)
         require(css.contains("#\(secondDOMID)[data-state=\"menu open\"]"),
                 "custom data-state selector is missing")
+        require(css.contains(".exp-instance:focus-visible")
+                    && css.contains("@media (prefers-contrast: more)"),
+                "keyboard focus or increased-contrast CSS is missing")
         require(readme.contains("html/\(pageName)"), "README lacks HTML entry point")
         require(readme.contains("> Test <markup> & comment -- safety-"),
                 "README does not include the full artboard note")
@@ -186,11 +225,50 @@ private enum SemanticHTMLPackageCheck {
         }
         require(!semanticIssues.contains { $0["requirement"] as? String == "headingLevel" },
                 "manifest still reports a heading level that was explicitly authored")
+        require(semanticIssues.contains {
+            $0["category"] as? String == "semanticRequirement"
+                && $0["requirement"] as? String == "unresolvedRelationship"
+        }, "broken relationship was not reported structurally")
+        let effectIssues = semanticIssues.filter {
+            $0["category"] as? String == "visualFallback"
+                && $0["requirement"] as? String == "unsupportedEffect"
+        }
+        require(effectIssues.count == 3,
+                "enabled unsupported effects were not reported for every exported instance")
+        let effectInstances = Set(effectIssues.compactMap { $0["instanceID"] as? String })
+        require(effectInstances == Set([
+            Fixture.instanceID.uuidString.uppercased(),
+            Fixture.secondInstanceID.uuidString.uppercased()
+        ]), "component effect fallbacks lack instance-qualified identity")
+        require(readme.contains("Visual fallback") && readme.contains("**unsupportedEffect**"),
+                "README does not surface visual fallbacks")
+
+        let rolesDocument = Fixture.allRolesDocument()
+        let rolesBundle = SemanticHTMLExporter(document: rolesDocument).makeBundle()
+        guard let rolesArtifact = rolesBundle.artifacts.first(where: { $0.mediaType == "text/html" }) else {
+            require(false, "all-roles smoke export produced no HTML"); return
+        }
+        let rolesHTML = String(decoding: rolesArtifact.data, as: UTF8.self)
+        require(rolesBundle.emittedNodeCount == AriaRole.allCases.count * 2,
+                "all-roles smoke export lost nodes")
+        for role in AriaRole.allCases {
+            require(rolesHTML.contains("data-exp-name=\"Role smoke: \(role.rawValue)\""),
+                    "all-roles export omitted \(role.rawValue)")
+            let mapping = role.semanticHTMLMapping
+            if let explicitRole = mapping.explicitRole {
+                require(rolesHTML.contains("role=\"\(explicitRole.rawValue)\""),
+                        "all-roles export omitted explicit \(explicitRole.rawValue) role")
+            } else {
+                require(rolesHTML.contains("<\(mapping.tag)"),
+                        "all-roles export omitted native \(mapping.tag) host")
+            }
+        }
 
         print("ok: standalone stylesheet + artboard page")
+        print("ok: deterministic fixed-input package bytes")
         print("ok: manifest byte counts and SHA-256 hashes")
         print("ok: absolute geometry, reading order, and stable instance identity")
         print("ok: hostile HTML/CSS text escaped and wall omission reported")
-        print("ok: native/ARIA hosts, relationships, states, and fidelity requirements")
+        print("ok: all 40 native/ARIA hosts, relationships, states, and fidelity reporting")
     }
 }

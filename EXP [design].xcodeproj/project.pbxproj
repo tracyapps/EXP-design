@@ -11,6 +11,7 @@
 		89BA6E682FE720550056C6DC /* QuickLookThumbnailing.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 89BA6E672FE720550056C6DC /* QuickLookThumbnailing.framework */; };
 		89BA6E6A2FE720550056C6DC /* Quartz.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 89BA6E692FE720550056C6DC /* Quartz.framework */; };
 		89BA6E712FE720550056C6DC /* EXPThumbnail.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 89BA6E652FE720550056C6DC /* EXPThumbnail.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		89C000013002100000000001 /* exp-mcp in Agent Helpers */ = {isa = PBXBuildFile; fileRef = 89C000043002100000000004 /* exp-mcp */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -20,6 +21,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = 89BA6E642FE720550056C6DC;
 			remoteInfo = EXPThumbnail;
+		};
+		89C000023002100000000002 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 89BA6DF62FD083870056C6DC /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 89C000073002100000000007;
+			remoteInfo = "exp-mcp";
 		};
 /* End PBXContainerItemProxy section */
 
@@ -35,6 +43,17 @@
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		89C000033002100000000003 /* Agent Helpers */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = Contents/Helpers;
+			dstSubfolderSpec = 1;
+			files = (
+				89C000013002100000000001 /* exp-mcp in Agent Helpers */,
+			);
+			name = "Agent Helpers";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
@@ -42,6 +61,7 @@
 		89BA6E652FE720550056C6DC /* EXPThumbnail.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = EXPThumbnail.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		89BA6E672FE720550056C6DC /* QuickLookThumbnailing.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuickLookThumbnailing.framework; path = System/Library/Frameworks/QuickLookThumbnailing.framework; sourceTree = SDKROOT; };
 		89BA6E692FE720550056C6DC /* Quartz.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Quartz.framework; path = System/Library/Frameworks/Quartz.framework; sourceTree = SDKROOT; };
+		89C000043002100000000004 /* exp-mcp */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = "exp-mcp"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -87,6 +107,11 @@
 			path = EXPThumbnail;
 			sourceTree = "<group>";
 		};
+		89C000053002100000000005 /* exp-mcp */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "exp-mcp";
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -107,6 +132,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		89C000063002100000000006 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -115,6 +147,7 @@
 			children = (
 				89BA6E002FD083870056C6DC /* EXP [design] */,
 				89BA6E6B2FE720550056C6DC /* EXPThumbnail */,
+				89C000053002100000000005 /* exp-mcp */,
 				89BA6E662FE720550056C6DC /* Frameworks */,
 				89BA6DFF2FD083870056C6DC /* Products */,
 			);
@@ -125,6 +158,7 @@
 			children = (
 				89BA6DFE2FD083870056C6DC /* EXP [design].app */,
 				89BA6E652FE720550056C6DC /* EXPThumbnail.appex */,
+				89C000043002100000000004 /* exp-mcp */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -149,11 +183,13 @@
 				89BA6DFB2FD083870056C6DC /* Frameworks */,
 				89BA6DFC2FD083870056C6DC /* Resources */,
 				89BA6E762FE720550056C6DC /* Embed Foundation Extensions */,
+				89C000033002100000000003 /* Agent Helpers */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 				89BA6E702FE720550056C6DC /* PBXTargetDependency */,
+				89C000093002100000000009 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				89BA6E002FD083870056C6DC /* EXP [design] */,
@@ -188,6 +224,27 @@
 			productReference = 89BA6E652FE720550056C6DC /* EXPThumbnail.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		89C000073002100000000007 /* exp-mcp */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 89C0000C300210000000000C /* Build configuration list for PBXNativeTarget "exp-mcp" */;
+			buildPhases = (
+				89C000083002100000000008 /* Sources */,
+				89C000063002100000000006 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				89C000053002100000000005 /* exp-mcp */,
+			);
+			name = "exp-mcp";
+			packageProductDependencies = (
+			);
+			productName = "exp-mcp";
+			productReference = 89C000043002100000000004 /* exp-mcp */;
+			productType = "com.apple.product-type.tool";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -202,6 +259,9 @@
 						CreatedOnToolsVersion = 26.3;
 					};
 					89BA6E642FE720550056C6DC = {
+						CreatedOnToolsVersion = 26.3;
+					};
+					89C000073002100000000007 = {
 						CreatedOnToolsVersion = 26.3;
 					};
 				};
@@ -225,6 +285,7 @@
 			targets = (
 				89BA6DFD2FD083870056C6DC /* EXP [design] */,
 				89BA6E642FE720550056C6DC /* EXPThumbnail */,
+				89C000073002100000000007 /* exp-mcp */,
 			);
 		};
 /* End PBXProject section */
@@ -261,6 +322,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		89C000083002100000000008 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -268,6 +336,11 @@
 			isa = PBXTargetDependency;
 			target = 89BA6E642FE720550056C6DC /* EXPThumbnail */;
 			targetProxy = 89BA6E6F2FE720550056C6DC /* PBXContainerItemProxy */;
+		};
+		89C000093002100000000009 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 89C000073002100000000007 /* exp-mcp */;
+			targetProxy = 89C000023002100000000002 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -522,6 +595,40 @@
 			};
 			name = Release;
 		};
+		89C0000A300210000000000A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 65LD7TZAL3;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.2;
+				PRODUCT_NAME = "exp-mcp";
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		89C0000B300210000000000B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 65LD7TZAL3;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.2;
+				PRODUCT_NAME = "exp-mcp";
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -548,6 +655,15 @@
 			buildConfigurations = (
 				89BA6E742FE720550056C6DC /* Debug */,
 				89BA6E752FE720550056C6DC /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		89C0000C300210000000000C /* Build configuration list for PBXNativeTarget "exp-mcp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				89C0000A300210000000000A /* Debug */,
+				89C0000B300210000000000B /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

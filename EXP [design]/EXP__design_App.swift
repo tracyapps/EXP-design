@@ -13,7 +13,10 @@ struct EXP__design_App: App {
     // Register the bundled SF Compact Display weights at launch (before any view
     // renders) so the condensed chrome voice is consistent on every Mac.
     // See UI/FontRegistration.swift for the licensing note.
-    init() { EXPFonts.registerBundledFonts() }
+    init() {
+        EXPFonts.registerBundledFonts()
+        AgentBridgeController.shared.startIfEnabled()
+    }
 
     // Sparkle auto-updates (Phase 20): one UpdaterModel for the app's
     // lifetime drives the "Check for Updates…" item below. See

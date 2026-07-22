@@ -39,6 +39,17 @@ enum Fixture {
     static let headingLabelID = id("00000000-0000-0000-0000-000000000061")
     static let headingInstanceID = id("00000000-0000-0000-0000-000000000062")
     static let vectorPathID = id("00000000-0000-0000-0000-000000000063")
+    static let validRelationshipID = id("00000000-0000-0000-0000-000000000064")
+    static let brokenRelationshipID = id("00000000-0000-0000-0000-000000000065")
+    static let gradientStartID = id("00000000-0000-0000-0000-000000000066")
+    static let gradientEndID = id("00000000-0000-0000-0000-000000000067")
+    static let shadowEffectID = id("00000000-0000-0000-0000-000000000068")
+    static let blurEffectID = id("00000000-0000-0000-0000-000000000069")
+
+    /// A deterministic UUID namespace for the all-roles exporter smoke fixture.
+    static func roleID(namespace: Int, index: Int) -> UUID {
+        id(String(format: "%08X-0000-0000-0000-%012X", namespace, index + 1))
+    }
 
     static func document() -> Document {
         let brand = RGBAColor(r: 0.12, g: 0.35, b: 0.82, a: 1)
@@ -49,6 +60,7 @@ enum Fixture {
             id: backgroundID,
             name: "Button surface",
             frame: CGRect(x: 0, y: 0, width: 132, height: 44),
+            effects: [Effect(id: blurEffectID, kind: .backgroundBlur, blur: 10)],
             publicProps: PublicOverrideProps(fill: true),
             content: .rectangle(RectangleShape(fill: .solid(brand), cornerRadius: 8))
         )
@@ -56,7 +68,9 @@ enum Fixture {
             id: labelID,
             name: "Button label",
             frame: CGRect(x: 28, y: 11, width: 76, height: 22),
-            relationships: [NodeRelationship(kind: .describedby, targetID: descriptionID)],
+            relationships: [NodeRelationship(id: validRelationshipID,
+                                             kind: .describedby,
+                                             targetID: descriptionID)],
             publicProps: PublicOverrideProps(text: true),
             content: .text(TextContent(
                 runs: [TextRun(string: "Continue", fontName: fixtureFont,
@@ -107,19 +121,24 @@ enum Fixture {
 
         let pageGradient = GradientFill(
             kind: .linear,
-            stops: [GradientStop(color: brand, position: 0),
-                    GradientStop(color: hover, position: 1)],
+            stops: [GradientStop(id: gradientStartID, color: brand, position: 0),
+                    GradientStop(id: gradientEndID, color: hover, position: 1)],
             angle: 90)
         let freeNode = Node(
             id: freeNodeID,
             name: "Free-positioned card",
             frame: CGRect(x: 64, y: 64, width: 360, height: 120),
+            effects: [Effect(id: shadowEffectID, kind: .dropShadow,
+                             dx: 0, dy: 6, blur: 14, spread: 0)],
             content: .rectangle(RectangleShape(fill: .gradient(pageGradient), cornerRadius: 16))
         )
         let vectorPath = Node(
             id: vectorPathID,
             name: "Complex vector path",
             frame: CGRect(x: 500, y: 80, width: 120, height: 100),
+            relationships: [NodeRelationship(id: brokenRelationshipID,
+                                             kind: .controls,
+                                             targetID: wallNodeID)],
             content: .path(PathShape(
                 points: [
                     PathPoint(point: CGPoint(x: 0, y: 80),
@@ -192,6 +211,50 @@ enum Fixture {
             designLanguage: language
         )
     }
+
+    /// One real exported instance per curated role. This is intentionally plain:
+    /// it proves every mapping passes through the exporter without relying on a
+    /// hand-written assertion for only the headline Button/Heading cases.
+    static func allRolesDocument() -> Document {
+        let artboard = Artboard(
+            id: roleID(namespace: 0xA1100001, index: 0),
+            name: "All ARIA roles",
+            frame: CGRect(x: 0, y: 0, width: 800, height: 2_600)
+        )
+        var sources: [ComponentSource] = []
+        var nodes: [Node] = []
+        for (index, role) in AriaRole.allCases.enumerated() {
+            let childID = roleID(namespace: 0xA1100002, index: index)
+            let sourceID = roleID(namespace: 0xA1100003, index: index)
+            let instanceID = roleID(namespace: 0xA1100004, index: index)
+            let roleText = TextContent(
+                runs: [TextRun(string: role.friendlyLabel, fontSize: 14)],
+                contentRole: role == .heading ? .heading2 : .plain
+            )
+            let child = Node(
+                id: childID,
+                name: "\(role.friendlyLabel) label",
+                frame: CGRect(x: 8, y: 8, width: 220, height: 24),
+                content: .text(roleText)
+            )
+            sources.append(ComponentSource(
+                id: sourceID,
+                name: "\(role.friendlyLabel) source",
+                size: CGSize(width: 240, height: 40),
+                children: [child],
+                a11y: A11ySemantics(role: role, accessibleNameLayerID: childID)
+            ))
+            nodes.append(Node(
+                id: instanceID,
+                name: "Role smoke: \(role.rawValue)",
+                frame: CGRect(x: 24 + CGFloat(index % 3) * 250,
+                              y: 24 + CGFloat(index / 3) * 52,
+                              width: 240, height: 40),
+                content: .instance(ComponentInstance(sourceID: sourceID))
+            ))
+        }
+        return Document(artboards: [artboard], nodes: nodes, sources: sources)
+    }
 }
 
 private func require(_ condition: @autoclosure () -> Bool, _ message: String) {
@@ -221,6 +284,13 @@ private enum SemanticHTMLGoldenFixtureCheck {
                 "link does not report missing href")
         require(AriaRole.heading.semanticHTMLMapping.requirements.contains(.headingLevel),
                 "heading does not report missing level")
+        require(AriaRole.list.semanticHTMLMapping.tag == "div"
+                    && AriaRole.list.semanticHTMLMapping.explicitRole == .list
+                    && AriaRole.list.semanticHTMLMapping.requirements.contains(.listStructure),
+                "list mapping can emit invalid native child structure")
+        require(AriaRole.listitem.semanticHTMLMapping.tag == "div"
+                    && AriaRole.listitem.semanticHTMLMapping.explicitRole == .listitem,
+                "list item mapping can emit an orphan native li")
 
         // Repeated instances must never duplicate DOM ids.
         let first = SemanticHTMLIdentity.nodeDOMID(Fixture.labelID, instanceID: Fixture.instanceID)

@@ -28,6 +28,9 @@
 			</array>
 		</dict>
 	</array>
+	<!-- Finder/System Settings classification for a native graphics editor. -->
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.graphics-design</string>
 	<key>UTExportedTypeDeclarations</key>
 	<array>
 		<dict>

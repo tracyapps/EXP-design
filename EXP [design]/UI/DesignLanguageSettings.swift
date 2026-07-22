@@ -5,9 +5,10 @@
 //  The "Design Language" pane in Settings (Document section). Unlike the app-wide
 //  panes, this edits the FRONTMOST document's design language — reached through
 //  PanelHub (Settings is one app-wide window and can't hold per-document state).
-//  It's the bulk-editing surface: rename / recategorize / delete many entries
-//  without the canvas-click hazard of the inline panel, add colors or gradients by
-//  hand with a real picker, and import / export between documents.
+//  It's the bulk-editing surface: rename / recategorize / delete colors,
+//  gradients, and type styles without the canvas-click hazard of the inline
+//  panel, add paints by hand with a real picker, and import / export between
+//  documents.
 //
 
 import SwiftUI
@@ -25,7 +26,7 @@ struct DesignLanguageSettingsPane: View {
                               footnote: "This edits the design language saved inside a document.") {
                     HStack(spacing: 8) {
                         Image(systemName: "swatchpalette").foregroundStyle(.secondary)
-                        Text("Open a design document to edit its colors and gradients.")
+                        Text("Open a design document to edit its colors, gradients, and typography.")
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -63,12 +64,27 @@ private struct DesignLanguageEditor: View {
         }
     }
 
+    /// Type styles follow the same category/name reading order as paints so the
+    /// two halves of the Design Language stay predictable in this bulk editor.
+    private var orderedTypeStyles: [TypeStyle] {
+        let rank = Dictionary(uniqueKeysWithValues: dl.categories.enumerated().map { ($1.id, $0) })
+        return dl.typeStyles.sorted { a, b in
+            let ra = a.categoryID.flatMap { rank[$0] } ?? Int.max
+            let rb = b.categoryID.flatMap { rank[$0] } ?? Int.max
+            if ra != rb { return ra < rb }
+            let an = a.name.isEmpty ? a.fallbackLabel : a.name
+            let bn = b.name.isEmpty ? b.fallbackLabel : b.name
+            return an.localizedCaseInsensitiveCompare(bn) == .orderedAscending
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
             importExportGroup
             addGroup
             categoriesGroup
             entriesGroup
+            typeStylesGroup
         }
         .sheet(isPresented: $showingPaste) { pasteSheet }
     }
@@ -77,15 +93,15 @@ private struct DesignLanguageEditor: View {
 
     private var importExportGroup: some View {
         SettingsGroup("Import & Export",
-                      footnote: "Share a design language between documents. EXP JSON round-trips names, categories, and gradients. Paste accepts a HEX list, CSS variables, or a Coolors URL. (Figma / XD import is a future addition.)") {
+                      footnote: "Share a design language between documents. EXP JSON round-trips names, categories, gradients, and type styles. Paste accepts a HEX list, CSS variables, or a Coolors URL. (Figma / XD import is a future addition.)") {
             HStack(spacing: 8) {
                 Button("Import from File\u{2026}") { importFromFile() }.buttonStyle(.exp(.secondary))
                 Button("Paste\u{2026}") { pasteText = ""; showingPaste = true }.buttonStyle(.exp(.secondary))
                 Spacer()
                 Button("Export EXP JSON\u{2026}") { exportToFile() }
-                    .buttonStyle(.exp(.secondary)).disabled(dl.assets.isEmpty)
+                    .buttonStyle(.exp(.secondary)).disabled(dl.assets.isEmpty && dl.typeStyles.isEmpty)
                 Button("Copy CSS") { copy(DesignLanguageIO.exportCSS(dl)) }
-                    .buttonStyle(.exp(.secondary)).disabled(dl.assets.isEmpty)
+                    .buttonStyle(.exp(.secondary)).disabled(dl.assets.isEmpty && dl.typeStyles.isEmpty)
             }
         }
     }
@@ -109,9 +125,9 @@ private struct DesignLanguageEditor: View {
 
     private var categoriesGroup: some View {
         SettingsGroup("Categories",
-                      footnote: "Deleting a category keeps its colors \u{2014} they just become uncategorized (Other).") {
+                      footnote: "Deleting a category keeps its colors and type styles \u{2014} they just become uncategorized (Other).") {
             if dl.categories.isEmpty {
-                Text("No categories yet. Add one to group colors (e.g. Primary, Accent).")
+                Text("No categories yet. Add one to group colors and type styles (e.g. Primary, Accent, Headings).")
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(dl.categories) { cat in
@@ -155,6 +171,33 @@ private struct DesignLanguageEditor: View {
                         onRename: { name in commit("Rename Swatch") { $0.rename(asset.id, to: name) } },
                         onSetCategory: { cid in commit("Set Category") { $0.setCategory(asset.id, to: cid) } },
                         onDelete: { commit("Delete Swatch") { $0.remove(asset.id) } })
+                    Divider().opacity(0.4)
+                }
+            }
+        }
+    }
+
+    private var typeStylesGroup: some View {
+        SettingsGroup(
+            "Typography · Type Styles (\(dl.typeStyles.count))",
+            footnote: "Type Styles store reusable presentation; Paragraph and Heading 1–6 remain content roles on each text layer. Create or update a style from selected text in the Type menu or Design Language panel."
+        ) {
+            if dl.typeStyles.isEmpty {
+                Text("No type styles saved yet.").foregroundStyle(.secondary)
+            } else {
+                ForEach(orderedTypeStyles) { style in
+                    DLTypeStyleRow(
+                        style: style,
+                        categories: dl.categories,
+                        onRename: { name in
+                            commit("Rename Type Style") { $0.renameTypeStyle(style.id, to: name) }
+                        },
+                        onSetCategory: { cid in
+                            commit("Set Type Style Category") { $0.setTypeStyleCategory(style.id, to: cid) }
+                        },
+                        onDelete: {
+                            commit("Delete Type Style") { $0.removeTypeStyle(style.id) }
+                        })
                     Divider().opacity(0.4)
                 }
             }
@@ -310,7 +353,7 @@ private struct DLCategoryRow: View {
             Spacer(minLength: 0)
             Button(role: .destructive) { onDelete() } label: { Image(systemName: "trash") }
                 .buttonStyle(.borderless)
-                .help("Delete category (keeps its colors)")
+                .help("Delete category (keeps its colors and type styles)")
         }
         .opacity(isDragging ? 0.4 : 1)
         .onAppear { name = category.name }
@@ -320,6 +363,107 @@ private struct DLCategoryRow: View {
     private func commit() {
         let t = name.trimmingCharacters(in: .whitespacesAndNewlines)
         if !t.isEmpty, t != category.name { onRename(t) }
+    }
+}
+
+/// One reusable type treatment: a live face preview, concise values, inline
+/// rename, shared category assignment, and delete. Typography values themselves
+/// are updated from a selected text layer so this surface never invents content.
+private struct DLTypeStyleRow: View {
+    let style: TypeStyle
+    let categories: [DLCategory]
+    let onRename: (String) -> Void
+    let onSetCategory: (UUID?) -> Void
+    let onDelete: () -> Void
+
+    @State private var name = ""
+    @FocusState private var focused: Bool
+
+    private var categoryLabel: String {
+        categories.first { $0.id == style.categoryID }?.name ?? "Other"
+    }
+
+    private var previewFont: Font {
+        let size = min(max(style.fontSize, 11), 18)
+        return style.fontName.isEmpty
+            ? .system(size: size)
+            : .custom(style.fontName, fixedSize: size)
+    }
+
+    private var details: String {
+        var parts = [style.fontName.isEmpty ? "System" : style.fontName,
+                     "\(format(style.fontSize)) pt"]
+        switch style.lineHeightUnit {
+        case .auto: break
+        case .multiple: parts.append("line \(format(style.lineHeight))×")
+        case .px: parts.append("line \(format(style.lineHeight)) pt")
+        case .em: parts.append("line \(format(style.lineHeight)) em")
+        }
+        if style.tracking != 0 { parts.append("tracking \(format(style.tracking))") }
+        if style.align != .left { parts.append(style.align.rawValue.capitalized) }
+        if style.textCase != .none { parts.append(style.textCase.rawValue.capitalized) }
+        if style.underline { parts.append("Underline") }
+        return parts.joined(separator: " · ")
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "textformat")
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+                .frame(width: 30, height: 20)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 3) {
+                TextField(style.fallbackLabel, text: $name)
+                    .font(previewFont)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(maxWidth: 220)
+                    .focused($focused)
+                    .onSubmit(commit)
+                    .onChange(of: focused) { _, f in if !f { commit() } }
+                Text(details)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .help(details)
+            }
+            Spacer(minLength: 8)
+            Menu {
+                Button("Other") { onSetCategory(nil) }
+                if !categories.isEmpty { Divider() }
+                ForEach(categories) { category in
+                    Button {
+                        onSetCategory(category.id)
+                    } label: {
+                        if style.categoryID == category.id {
+                            Label(category.name, systemImage: "checkmark")
+                        } else {
+                            Text(category.name)
+                        }
+                    }
+                }
+            } label: {
+                Text(categoryLabel).frame(minWidth: 84)
+            }
+            .fixedSize()
+            .accessibilityLabel("Category")
+            .accessibilityValue(categoryLabel)
+            Button(role: .destructive) { onDelete() } label: { Image(systemName: "trash") }
+                .buttonStyle(.borderless)
+                .help("Delete type style")
+                .accessibilityLabel("Delete \(name.isEmpty ? style.fallbackLabel : name) type style")
+        }
+        .onAppear { name = style.name }
+        .onChange(of: style.name) { _, newName in if !focused { name = newName } }
+    }
+
+    private func commit() {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed != style.name { onRename(trimmed) }
+    }
+
+    private func format(_ value: CGFloat) -> String {
+        value.rounded() == value ? String(Int(value)) : String(format: "%.2f", Double(value))
     }
 }
 

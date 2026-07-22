@@ -17,6 +17,7 @@ enum SemanticHTMLRequirement: String, CaseIterable, Sendable {
     case rangeValues
     case headingLevel
     case listOwnership
+    case listStructure
     case tableStructure
     case controlsRelationship
     case labelledByRelationship
@@ -129,9 +130,15 @@ extension AriaRole {
         case .heading:
             return .init(tag: "div", explicitRole: .heading,
                          requirements: [.headingLevel])
-        case .list:       return .init(tag: "ul")
+        // Source children are visual layers, not authored list items. A div
+        // keeps the HTML content model valid while the fidelity report carries
+        // the missing structural work explicitly.
+        case .list:
+            return .init(tag: "div", explicitRole: .list,
+                         requirements: [.listStructure])
         case .listitem:
-            return .init(tag: "li", requirements: [.listOwnership])
+            return .init(tag: "div", explicitRole: .listitem,
+                         requirements: [.listOwnership])
         case .img:
             return .init(tag: "div", explicitRole: .img,
                          requirements: [.accessibleName])

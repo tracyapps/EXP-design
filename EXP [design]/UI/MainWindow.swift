@@ -366,7 +366,8 @@ struct MainWindow: View {
     /// Make the shared panels target this document, then bring the tray windows
     /// in line with the current mode + arrangement.
     private func activate() {
-        PanelHub.shared.setActive(app: app, document: document, undoManager: undoManager)
+        PanelHub.shared.setActive(app: app, document: document, fileURL: fileURL,
+                                  undoManager: undoManager)
         PanelWindowManager.shared.reconcile()
     }
 

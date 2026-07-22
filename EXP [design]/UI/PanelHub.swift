@@ -31,6 +31,7 @@ final class PanelHub {
     /// never keep a closed document alive.
     weak var activeApp: AppState?
     weak var activeDocument: ExpDocument?
+    var activeFileURL: URL?
     @ObservationIgnored var activeUndo: UndoManager?
 
     private static let defaultPanels: [PanelID] = [.layers, .properties, .components, .designLanguage]
@@ -41,9 +42,10 @@ final class PanelHub {
 
     // MARK: Active document
 
-    func setActive(app: AppState, document: ExpDocument, undoManager: UndoManager?) {
+    func setActive(app: AppState, document: ExpDocument, fileURL: URL?, undoManager: UndoManager?) {
         activeApp = app
         activeDocument = document
+        activeFileURL = fileURL
         activeUndo = undoManager
     }
 

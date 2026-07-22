@@ -112,14 +112,17 @@ the CSS contract is proven and must not block the initial vertical slice.
   items; exact paints and whole-text styles retain reusable CSS identity; and
   standalone SVG fills/strokes share the same color-token lookup with literal
   fallbacks and correct semi-transparent alpha.
-- [ ] **B4 — Semantic closure, verification, and fidelity reporting.**
+- [x] **B4 — Semantic closure, verification, and fidelity reporting.**
   - [x] **B4a text content intent:** Plain text, Paragraph, and Heading 1–6 are
     independent from reusable Type Styles. Native tags now export without any
     font/name inference; Heading components inherit an unambiguous authored
     level or keep the `headingLevel` requirement. Inspector/menu authoring,
     tolerant decode, component resolution, and package round-trip checks pass.
-  - [ ] **B4b verification:** add deterministic golden comparisons and focused
-    exporter smoke coverage.
+  - [x] **B4b verification:** deterministic byte-for-byte + reviewed golden
+    comparisons, all-40-role exporter smoke coverage, categorized and
+    instance-qualified semantic/visual fidelity issues, valid Button/List host
+    structure, W3C Nu validation, and Firefox/WebKit accessibility, focus,
+    appearance, geometry, console, overflow, and visual checks all pass.
   Validate browser markup, visual output, keyboard/VoiceOver reading order,
   light/dark and increased contrast, safe escaping, broken relationship targets,
   and unsupported effects. Record every fallback honestly in the manifest rather
@@ -167,8 +170,11 @@ agent they already trust.
 stdio; streamable-HTTP support still varies. Ship a tiny CLI helper
 (`exp-mcp`, bundled inside EXP.app/Contents/Helpers/). The agent spawns the
 helper; the helper relays JSON-RPC to the running app over a local
-Unix-domain socket (`~/Library/Application Support/EXP/agent.sock`, 0600,
-current user only — nothing listens on the network). If EXP isn't running or
+Unix-domain socket (0600, current user only — nothing listens on the network).
+Implementation note (F1, 2026-07-22): App Sandbox prohibits `AF_UNIX` bind at
+the originally drafted top-level Application Support path, so the physical path
+is `~/Library/Containers/tapps.EXP--design-/Data/Library/Application Support/EXP/agent.sock`;
+the bundled helper resolves that same container path. If EXP isn't running or
 the toggle is off, the helper answers every request with one clear error
 string ("EXP is not running, or agent access is disabled in EXP's Handoff
 panel") and never hangs.
@@ -189,11 +195,13 @@ frontier ones):**
   resources.
 
 **Phases (back wiring first; nothing user-facing until the spine is proven):**
-- **F1 — spine, ships dark (v2.0):** socket listener in the app + `exp-mcp`
+- **F1 — spine, ships dark (v2.0; DONE 2026-07-22):** socket listener in the app + `exp-mcp`
   helper + read-only tools: `get_orientation`, `list_artboards`,
   `get_artboard(id)`, `get_selection`, `get_node(id)`, `get_tokens`.
   Enabled only via a hidden `defaults write` flag; exercised by us + testers.
-  Risk: LOW-MEDIUM (socket + serialization plumbing; zero new model code).
+  Shipped with UID verification, 0600 permissions, nonblocking buffered writes,
+  real bundled-helper and unavailable-app checks, and live multi-megabyte
+  front-document reads through all six tools plus both orientation paths.
 - **F2 — the Handoff panel (v2.1; name DECIDED 2026-07-17):** ONE panel for
   every way work leaves EXP — not an "AI panel." Sections:
   (1) **Export** — PNG/PDF/SVG for the current selection/artboards. Moving
@@ -210,6 +218,23 @@ frontier ones):**
   export panel — AI stays invisible unless invited.
   Risk: LOW-MEDIUM (panel plumbing + relocating export UI without
   regressing the existing export panels).
+  F2 is also the coordination point for a broader **panel IA + tool-
+  discoverability pass**. Before moving controls, inventory every shipped
+  command and assign it an intentional workflow home across docked/floating
+  panels. Pathfinder/vector operations, alignment/distribution, component
+  states + semantics, Design Language, and export/handoff must all be easy to
+  find with selection-aware enabled states; menu, context-menu, and keyboard
+  access remain additive. Acceptance includes removal of stale/duplicate
+  placements plus resize, collapse/detach, keyboard traversal, VoiceOver order,
+  and system appearance/contrast checks.
+  After F1 passes compatibility through real shipping MCP clients, F2 also owns
+  **agent capability packs / skills**: a canonical, versioned EXP tool-use and
+  privacy guide plus thin tested wrappers for Codex, Claude, and other supported
+  hosts. Include EXP logo/icon assets wherever a host renders skill/plugin
+  branding. Wrappers teach summaries-first calls, stable ids, read-only limits,
+  and unavailable-app behavior; they never replace or gate the generic stdio MCP
+  configuration, and their shared assertions prevent host instructions drifting
+  from the actual tool contract.
 - **F3 — write-back (v2.3+, separate consent):** `apply_changes` (JSON Patch
   against a documented design.json subset), per-session approval prompt in
   EXP, applied as ONE undo group, and an Import-Report-style change summary.
@@ -272,6 +297,34 @@ to all new actions).
   dependencies — ideal v1.x work. Makes B's export dramatically richer and is
   the prerequisite for E's sync; D benefits (variants → states).
 
+### Chunk I — Nested components + semantic containment (v2.1, before D/G fidelity closure)
+Treat component composition as a first-class graph rather than flattening nested
+instances. A component source can contain instances of other sources, with direct
+and indirect cycle prevention, recursive rendering/editing/detach, and a stable
+instance-path address for every nested override, visibility value, relationship,
+accessible-name source, emitted DOM id, and Import Report entry. Repeated uses of
+the same child source inside one parent remain independently overridable.
+
+This is a v2.1 model gate because real Figma/XD libraries frequently compose
+components. D/G may initially report unsupported constructs, but component-
+preserving import must not ship by silently flattening away source identity.
+Nested resolution must stay identical across canvas, auto-layout, states,
+thumbnails, SVG, semantic HTML, Handoff Packages, save/reopen, and Quick Look.
+
+Semantic authoring uses the same resolved tree as useful context. Parent roles
+recommend or constrain likely owned child roles—List → List Item, Tab List → Tab,
+Menu/Menu Bar → Menu Item variants, Radio Group → Radio, List Box → Option, Tree
+→ Tree Item, and Table/Grid → Row → Cell/Header. This is advisory, explainable
+assistance: EXP never infers roles from appearance, silently changes an authored
+role, or invents `aria-owns` to repair an invalid hierarchy. Export reports
+incompatible/ambiguous ownership as structured fidelity issues.
+
+- Risk: MEDIUM-HIGH (source dependency graph, recursive identity/migration,
+  override UX, every renderer/exporter, and semantic ownership validation).
+- Acceptance: two instances of one nested child can diverge safely inside a
+  parent, survive edit/save/detach/export/import, and emit unique deterministic
+  ids; cycles are impossible; role recommendations are correct and reversible.
+
 ### Cross-cutting
 - `InteropCodec` protocol (read/write, fidelity report, progress, cancel) so
   importers/exporters are peers; unit corpus of golden files per format.
@@ -291,8 +344,10 @@ to all new actions).
   design with notes + roles → one export → open in browser / hand to an agent
   / drop in an IDE, everything labeled and semantic. F1 (agent-bridge spine)
   rides along dark — no UI, hidden flag only.
-- **v2.1:** Chunk D (Figma import) + Chunk G (XD import) + F2 (the Handoff
-  panel — unified export/package/agent surface). **v2.2:** Chunk E
+- **v2.1:** Chunk I (nested components + semantic containment) as the model gate,
+  then Chunk D (Figma import) + Chunk G (XD import) + F2 (the Handoff panel —
+  unified export/package/agent surface) coordinated with the panel IA + complete
+  shipped-command discoverability pass. **v2.2:** Chunk E
   (code/Storybook import).
 - **v2.3+:** F3 (agent write-back, separate consent + undo-safe).
 
@@ -300,7 +355,10 @@ to all new actions).
 - [x] Package name/extension — DECIDED/SHIPPED (v1.5): inspectable `.exph`
       folder. The single `.design` file remains the native document, not a
       second handoff-package mode.
-- [ ] SCSS emission in B: v2.0 or fast-follow?
+- [x] SCSS emission in B — DEFERRED / back burner (owner, 2026-07-22).
+      Verified CSS/custom-property output satisfies the v2.0 handoff contract.
+      Do not schedule SCSS unless real downstream testing uncovers a concrete need;
+      it is neither a v2.0 blocker nor an assumed future requirement.
 - [ ] Figma import auth UX (token paste vs OAuth) — privacy stance to write
       down before building.
 - [ ] F: helper distribution — is spawn-from-app-bundle path enough for all

@@ -8,6 +8,10 @@
 	<true/>
 	<key>com.apple.security.network.client</key>
 	<true/>
+	<!-- App Sandbox classifies AF_UNIX bind() as a server operation too. The
+	     bridge still creates no IP listener; AgentBridge.swift only uses AF_UNIX. -->
+	<key>com.apple.security.network.server</key>
+	<true/>
 	<key>com.apple.security.temporary-exception.mach-lookup.global-name</key>
 	<array>
 		<string>$(PRODUCT_BUNDLE_IDENTIFIER)-spks</string>

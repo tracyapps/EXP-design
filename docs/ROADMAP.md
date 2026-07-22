@@ -487,7 +487,7 @@ with the design. Full chunk breakdown, risks, and release mapping live in
       schema, package writer, manifest, README.llm.md) — v1.5
 - [x] **Chunk C — W3C DTCG design-tokens import/export** (Design Language ↔
       tokens.json, standard stable 2025.10) — v1.5
-- [ ] **Chunk B — Semantic HTML/CSS export** (ARIA roles → real elements,
+- [x] **Chunk B — Semantic HTML/CSS export** (ARIA roles → real elements,
       tokens → custom properties, notes → comments; the v2.0 headline demo).
       Include the same bridge in standalone SVG export: when a fill/stroke exactly
       matches a Design Language color, emit/use its CSS custom property while
@@ -527,7 +527,7 @@ with the design. Full chunk breakdown, risks, and release mapping live in
         paints/type styles reuse deterministic Design Language CSS identities;
         and standalone SVG fill/stroke attributes use the identical color-token
         lookup with literal fallbacks and alpha applied exactly once.
-  - [ ] **B4 — Semantic closure + accessibility/fidelity verification:** close
+  - [x] **B4 — Semantic closure + accessibility/fidelity verification:** close
         the content-level semantic gaps exposed by the first real exports, then
         validate generated markup, keyboard/VoiceOver reading order, light/dark
         and increased-contrast behavior, visual fidelity in a browser,
@@ -550,11 +550,20 @@ with the design. Full chunk breakdown, risks, and release mapping live in
           components resolve `aria-level` from an unambiguous authored descendant
           without duplicating a nested heading. Package fixtures cover native
           tags, component inheritance, tolerant decode, and document round-trip.
-    - [ ] **B4b — Verification + fidelity reporting:** deterministic golden
+    - [x] **B4b — Verification + fidelity reporting:** deterministic golden
           comparison, standards-valid markup, browser visual comparison,
           keyboard/VoiceOver reading order, light/dark/increased-contrast checks,
           broken relationships, and structured reporting for every unsupported
-          semantic or visual fallback.
+          semantic or visual fallback. DONE 2026-07-22: fixed-input exports now
+          compare byte-for-byte and against reviewed SHA-256 goldens; all 40
+          curated roles pass through the real exporter; broken relationships and
+          every enabled unsupported-effect occurrence produce categorized,
+          instance-qualified fidelity issues. Native Button descendants keep a
+          valid phrasing content model, List/List Item use flow-safe ARIA hosts
+          until nested semantics exist, and pages declare honest `lang="und"`.
+          Firefox/WebKit accessibility-tree, keyboard-focus, light/dark,
+          increased-contrast, geometry, overflow, console, and visual checks
+          pass; W3C Nu reports no errors. Full app + Quick Look build passes.
 - [ ] **Chunk D — Figma import** (REST API path first; .fig best-effort later) — v2.1
 - [ ] **Chunk E — Code/Storybook/HTML-CSS import** — v2.2
 - [ ] **Chunk F — Agent Bridge** (EXP as a LOCAL MCP server the designer's own
@@ -563,8 +572,39 @@ with the design. Full chunk breakdown, risks, and release mapping live in
       F2 **Handoff panel** in v2.1 (named 2026-07-17: one panel for exports,
       packages, AND the agent section; PNG/PDF/SVG surface there too, with
       File ▸ Export menus kept per command-coverage rule) → F3 write-back v2.3+
+  - [x] **F1 — dark read-only spine (v2.0):** hidden-default-gated current-user
+        Unix socket, bundled `Contents/Helpers/exp-mcp` stdio relay, MCP
+        initialize/tools/resources handling, and the six planned read-only tools.
+        DONE 2026-07-22; full signed app/helper build, unavailable-app behavior,
+        real front-document artboard/node/selection/token reads, dual orientation
+        access, multi-megabyte framing, permissions, and clean shutdown passed.
+  - [ ] **F2 — Handoff panel + visible opt-in/setup (v2.1).**
+    - [ ] **Agent capability packs / skills:** after the F1 tool contract has
+          survived real-client compatibility testing, publish one canonical EXP
+          usage guide plus thin host-specific packages for Codex, Claude, and
+          other worthwhile MCP clients. Each teaches summaries-first use of the
+          six tools, ids as reference currency, read-only/privacy boundaries,
+          and graceful no-app behavior; include the EXP name/logo/icon wherever
+          that host renders skill/plugin branding. Keep raw generic MCP setup
+          fully supported—the skill improves recognition and guidance but must
+          never be required to connect. Version/test each wrapper against the
+          shared contract so agent-specific instructions cannot silently drift.
+  - [ ] **F3 — separately consented, undo-safe write-back (v2.3+).**
+- [ ] **Panel IA + tool-discoverability pass** — v2.1, coordinated with F2 so
+      the new Handoff panel joins an intentional system rather than becoming one
+      more destination. Inventory every shipped command and reorganize docked/
+      floating panels by workflow; give Pathfinder/vector operations, alignment/
+      distribution, component states + semantics, Design Language, and export/
+      handoff controls clear homes and appropriate selection-aware states. Preserve
+      menu, context-menu, and keyboard paths (a panel is never the only path),
+      remove stale/duplicate placements, and verify resizing, collapse/detach,
+      keyboard traversal, VoiceOver order, and system appearance/contrast.
 - [ ] **Chunk G — XD import** (.xd = frozen ZIP-of-JSON; rides the same
       InteropCodec pipeline; proves importers before Figma) — v2.1
+- [ ] **Chunk I — Nested components + semantic containment** — v2.1 model gate
+      before component-preserving Figma/XD import: cycle-safe source dependencies,
+      instance-path overrides/ids, recursive authoring/detach/export, and
+      context-aware ARIA child-role recommendations (List → List Item, etc.).
 - [x] **Chunk H — Component states & behavior contract** (states as
       override-diffs, ARIA relationships, motion tokens; interaction data as
       contract, never JS; components-panel grid redesign) — v1.6 shipped:
@@ -577,6 +617,49 @@ with the design. Full chunk breakdown, risks, and release mapping live in
       saved .design files so v1.x files self-identify to future readers.
       DONE 2026-07-15: top-level `Document.schemaVersion = 1`, tolerant decode
       for existing files, automatic write on save.
+
+### v2.0 release gates (remaining; no additional feature chunk)
+
+- [x] **Implementation closure:** Chunk B/B4 and the dark F1 spine are complete;
+      deterministic package/browser/standards checks, direct helper↔app MCP
+      contract checks, signed Debug/Release builds, and the universal local
+      Release archive pass.
+- [ ] **Owner real-document acceptance:** export a Handoff Package from a normal
+      working document; inspect its README/manifest, open representative HTML in
+      the browser, and confirm the intended notes/roles/type content survive.
+      AUTOMATED HALF PASS 2026-07-22: the owner's 5.7 MB v2 working document
+      exported successfully with valid manifest bytes/SHA-256 and one complete
+      semantic page; the human browser/VoiceOver/intent review remains.
+- [x] **Real MCP-client compatibility smoke:** point at least one shipping MCP
+      client (plus a second client or MCP Inspector if practical) at the bundled
+      `Contents/Helpers/exp-mcp` from the release candidate. Verify initialize,
+      discovery, resource reading, every read-only tool, front-document switching,
+      app-not-running/access-off errors, and no response to notifications.
+      PASS 2026-07-22: the shipping Codex client discovered the server and called
+      all six tools successfully against the signed archived app; direct live
+      checks covered document retargeting, unavailable/default-off behavior,
+      response-free notifications, socket permissions, and clean shutdown.
+- [ ] **Production archive/helper security:** archive with Developer ID; confirm
+      the app and nested `exp-mcp` are universal and correctly signed, strict deep
+      codesign passes, the app carries sandbox + network client/server + Sparkle
+      exceptions, the helper carries no sandbox/network entitlement, the socket
+      is container-local at 0600/current UID, and the default-off app creates no
+      listener. Repeat a live bridge smoke from the exported/notarized app because
+      distribution signing and Gatekeeper can expose behavior a Debug build does not.
+      LOCAL HALF PASS 2026-07-22: the Apple Development-signed archive is universal;
+      helper/app strict signatures and the intended entitlement boundary pass the
+      reusable release-candidate verifier. Developer ID export, Gatekeeper, staple,
+      and one post-distribution live smoke remain.
+- [ ] **Release communication + packaging:** finalize `RELEASE-NOTES-v2.0.md`,
+      verify version 2.0/build 10 and production website content, then Direct
+      Distribution → notarize → staple → strict signature/Gatekeeper verification
+      → metadata-clean exact Sparkle zip/appcast → GitHub release + site deploy.
+      PREP PASS 2026-07-22: release notes, version/build preflight, release checklist,
+      and production website build are green; publication awaits the final zip.
+- [ ] **First complete Sparkle install proof:** from the preserved public v1.6.1
+      baseline, discover v2.0, download, install, relaunch, and confirm About shows
+      2.0/build 10. Exercise the update dialog with VoiceOver and increased contrast;
+      rerun the installed-baseline/security checks on the updated app.
 
 ---
 
@@ -716,6 +799,42 @@ with the design. Full chunk breakdown, risks, and release mapping live in
       lists the source's text layers (editable text fields) and fillable layers
       (color pickers); each has a reset-to-source button. Applied live in render
       and baked in on detach. (Top-level source layers; nested + stroke later.)
+
+#### Phase 4.1 — Nested component composition + semantic context (v2.1 / Chunk I)
+
+Make components genuinely composable: a component source may contain instances
+of other component sources as first-class children. Some recursive resolution
+machinery already exists, but this phase owns the complete authoring and data
+contract rather than treating nested instances as an incidental render case.
+
+- [ ] Let the Components panel, Object menu, context menu, and source editor place
+      a component instance inside another component source. Show the nested source
+      boundary/name in Layers and make Edit Component step into the correct source.
+- [ ] Add a source-dependency graph and reject direct or indirect cycles
+      (`A → A`, `A → B → A`) before mutation. Deleting a referenced source must
+      identify dependents and require an explicit flatten/remove choice.
+- [ ] Replace ambiguous raw descendant ids with stable **instance paths** for
+      nested overrides, visibility, accessible-name sources, relationships, DOM
+      ids, and import reports. Two uses of the same nested source must never share
+      override identity or emitted ids.
+- [ ] Define nested override inheritance deliberately: parent instances may expose
+      selected public props from nested children; source edits flow through unless
+      overridden; reset returns to the nearest source value. States, auto-layout,
+      bounds, clipping, thumbnails, duplicate/copy-paste, detach, SVG, semantic
+      HTML, Handoff Package, and Quick Look all resolve the same tree.
+- [ ] Add **context-aware ARIA role authoring** from semantic containment. A parent
+      List recommends/filters children toward List Item; Tab List → Tab; Menu /
+      Menu Bar → Menu Item variants; Radio Group → Radio; List Box → Option;
+      Tree → Tree Item; Table/Grid → Row and Cell/Header roles. Show a concise
+      explanation and warn on invalid ownership without silently changing an
+      authored role or inventing `aria-owns`.
+- [ ] Semantic export uses the same resolved nesting: native containment where
+      possible, instance-qualified relationships, deterministic reading order,
+      and structured fidelity issues for incompatible or ambiguous ownership.
+- [ ] Acceptance: nest one reusable component twice inside a parent, override each
+      independently, edit both source levels, save/reopen, detach/export/import,
+      and receive correct role recommendations with no cycles, duplicate ids,
+      cross-instance override leakage, or hidden flattening.
 
 ### Phase 5 — Export ✅ DONE
 _`Export/ExportRenderer.swift` (rendering) + `Export/ExportPanels.swift` (the
@@ -1649,11 +1768,15 @@ failing the document._
       accessibility "task" was ever presented — it felt like organizing.
 
 #### 19b — Semantics layer (the hidden "health food")
-- [ ] Add lightweight **text content roles**, initially Plain text / Paragraph /
+- [x] Add lightweight **text content roles**, initially Plain text / Paragraph /
       Heading 1–6, as metadata independent from Type Styles. Export Paragraph as
       `<p>` and headings as native `<h1>`…`<h6>`; never guess a level from visual
       size, weight, layer name, or style category. This is the content-design
-      counterpart to component roles and is scheduled as v2.0 B4a.
+      counterpart to component roles. DONE 2026-07-22 in v2.0 B4a.
+- [ ] Add **context-aware child-role recommendations** with v2.1 nested components
+      (Chunk I): use the authored semantic parent to narrow or recommend valid
+      owned roles, such as List → List Item and Tab List → Tab. Keep the designer
+      in control: warn and explain; never silently rewrite a role based on visuals.
 - [ ] Surface the **accessible-name source** captured in 19a: let the designer
       pick which child text layer names the component (or fall back to a typed
       label). Still lightweight — one control.
@@ -1839,6 +1962,117 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-07-22 — v2.0 release runbook made fully copy/paste-ready:** Replaced the
+  partial v2 release notes in `docs/RELEASE-CHECKLIST.md` with one linear,
+  version-specific build 10 path: canonical external artifact locations, complete
+  automated gate, owner acceptance, intentional source commit, fresh local Xcode
+  archive, Direct Distribution destination, production app/staple/Gatekeeper and
+  zip round-trip verification, exact Sparkle generation, automatic release-date
+  heading update, release-metadata commit, annotated tag, GitHub upload and byte-
+  identity download check, Vercel deployment order, public endpoint checks, and
+  the v1.6.1 → v2.0 install/relaunch proof. The asset is now uploaded before
+  `main` is pushed, preventing Vercel from briefly serving an appcast whose
+  download does not exist yet. Added a narrow cleanup for Xcode's generated
+  `exp-mcp` per-user auto-scheme entry so `git add -A` cannot accidentally ship
+  that noise. Audited all 31 shell blocks with `bash -n`, exercised the roadmap
+  transformation and scheme cleanup on temporary copies, verified every named
+  helper is executable, and confirmed the existing public endpoint response
+  shape used by the live checks.
+
+- **2026-07-22 — v2.0 release candidate matrix green; human/distribution gates remain:**
+  Added public v2.0/build 10 release notes, a copy/paste v2 release path, and a
+  reusable `verify_release_candidate.sh` that checks version/build, universal app
+  and helper slices, Finder metadata, strict nested signatures, the sandbox/Sparkle
+  entitlement boundary, Gatekeeper, and the notarization staple (with a local-
+  archive mode for the last two). Semantic HTML contract/package tests, SVG token
+  bridge, Sparkle preflight, and production website build all pass. A 5.7 MB owner
+  document completed the real-package smoke with valid manifest hashes and one
+  full semantic page. Created an Apple Development-signed universal Xcode archive;
+  both the app and bundled `exp-mcp` pass strict signature/entitlement inspection.
+  The shipping Codex 0.145 client discovered the archived helper and successfully
+  called all six read-only tools; live checks also proved protected 0600/current-
+  UID socket creation, document retargeting, honest unavailable/default-off errors,
+  response-free notifications, and socket removal at shutdown. Added the missing
+  graphics-design application category to clear the archive metadata warning.
+  Existing Swift 6 migration warnings remain known backlog rather than new v2
+  regressions. LEFT FOR OWNER/DISTRIBUTION: subjective browser/VoiceOver handoff
+  acceptance, Direct Distribution/Developer ID notarize+staple, exact zip/appcast/
+  GitHub/site publication, and the v1.6.1 → v2.0 Sparkle install/relaunch proof.
+
+- **2026-07-22 — v2.0 closure audit + agent skills roadmapped:** Confirmed the
+  planned v2.0 feature/spine work is complete; no additional interop chunk belongs
+  in this release. Added an explicit remaining release-gate checklist: owner
+  real-document handoff acceptance, compatibility through a shipping MCP client,
+  production-signed/notarized nested-helper and default-off/socket security,
+  release notes/package/appcast/site publication, and the first full v1.6.1 →
+  v2.0 Sparkle install/relaunch proof (including VoiceOver/increased contrast).
+  Local Release already confirms `exp-mcp` is universal arm64+x86_64. Extended
+  Sparkle preflight to require the sandbox server entitlement used solely for the
+  container-local Unix socket. Also roadmapped v2.1 agent capability packs: one
+  canonical tool-use/privacy guide plus tested Codex/Claude/other host wrappers
+  with EXP branding wherever supported; raw MCP remains the non-proprietary base.
+  LATER: owner explicitly deferred SCSS to the back burner; it is not a v2.0
+  blocker or promised follow-up and returns only if downstream testing reveals a
+  concrete need. Verified CSS/custom properties remain the shipping contract.
+
+- **2026-07-22 — F1 Agent Bridge spine complete + v2.1 panel IA logged:** EXP
+  now ships dark as a local read-only MCP server when—and only when—the hidden
+  `exp.agentBridge.enabled` default is true. The signed app owns a 0600,
+  current-UID-verified Unix socket inside its sandbox Application Support
+  container; a new real command-line target bundles `exp-mcp` at
+  `Contents/Helpers/`, relaying standard newline-delimited MCP stdio without any
+  network listener or vendor credentials. The protocol handles initialize,
+  ping, tool/resource discovery, the shared README orientation resource, and the
+  six intentionally small-surface tools: `get_orientation`, `list_artboards`,
+  `get_artboard`, `get_selection`, `get_node`, and `get_tokens`. Responses reuse
+  the native Codable document fragments and existing DTCG/README generators;
+  front-document/selection context follows PanelHub. The helper returns the
+  exact planned unavailable message for every request when EXP/access is off,
+  while notifications remain response-free. Signed Debug build passed; live
+  helper↔app checks covered all six tools, valid artboard/node round-trips,
+  tool/resource orientation equality, error paths, clean socket shutdown, and
+  intact multi-megabyte detail framing. The temporary hidden default was removed
+  after testing. Also placed the owner-requested v2.1 Panel IA + complete shipped-
+  command inventory beside F2, explicitly including Pathfinder/vector tools,
+  alignment/distribution, components/semantics, Design Language, and handoff,
+  with additive menu/shortcut access and accessibility acceptance criteria.
+
+- **2026-07-22 — v2.0 Chunk B / B4b complete:** Closed semantic HTML/CSS with
+  evidence before moving on (the pun survived after all). Fixed-input Handoff
+  Packages now compare byte-for-byte and against reviewed HTML/CSS/manifest/
+  README SHA-256 goldens; a generated smoke document exercises all 40 curated
+  ARIA roles through the real exporter. Broken relationships remain out of the
+  DOM and become structured semantic requirements; unsupported effects and the
+  other known non-exact visual paths become categorized, instance-qualified
+  fallbacks in both manifest and README. Tightened standards behavior with
+  phrasing-only native Button descendants, flow-safe List/List Item hosts, honest
+  `lang="und"`, visible keyboard focus, and increased-contrast CSS. Firefox and
+  WebKit accessibility-tree/focus/appearance/geometry/overflow/console checks,
+  visual screenshot review, W3C Nu validation, all headless semantic/SVG suites,
+  and the full unsigned Debug app + Quick Look build pass. Chunk B is complete;
+  next v2.0 implementation slice is F1, the hidden/off-by-default read-only Agent
+  Bridge spine.
+
+- **2026-07-22 — Typography added to Design Language Settings:** Closed the
+  settings-screen omission: saved Type Styles now have their own typography
+  section with a live face/size preview, concise line-height/tracking/alignment/
+  case details, inline rename, shared-category assignment, and undoable delete.
+  Empty-state and category copy now describe both paints and typography, and EXP
+  JSON/CSS export remains available for a typography-only design language. The
+  UI explicitly preserves the semantic boundary: Type Styles are presentation;
+  Paragraph and Heading 1–6 remain per-text content roles. Full unsigned Debug
+  app + Quick Look build passes. Next active v2.0 work remains B4b verification.
+
+- **2026-07-22 — v2.1 nested components + semantic containment scoped:** Logged
+  first-class component composition as Chunk I / Phase 4.1, sequenced before
+  component-preserving Figma/XD import. The slice includes cycle-safe source
+  dependencies, stable instance-path identity for recursive overrides and DOM ids,
+  nested public-prop/state/layout/detach/export behavior, and complete save/import
+  coverage. Paired it with context-aware ARIA authoring: semantic parents recommend
+  valid child roles (List → List Item, Tab List → Tab, Menu → Menu Item, and the
+  other owned-role families) while warnings remain advisory and never silently
+  rewrite authored meaning. Next active v2.0 work remains B4b verification.
 
 - **2026-07-22 — ARIA guide integrated + v2.0 B4a text semantics complete:**
   Housed the owner's completed ARIA Roles Designer Guide at the website's new

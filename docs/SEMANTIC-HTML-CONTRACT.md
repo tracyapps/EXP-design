@@ -1,6 +1,6 @@
 # Semantic HTML Export Contract
 
-Status: v2.0 Chunks B0–B3 implemented; B4 verification/fidelity reporting is next.
+Status: v2.0 Chunks B0–B4 implemented and verified.
 `SemanticHTMLContract.swift` is the executable source of truth; this document
 explains the decisions that B1–B4 implement.
 
@@ -125,8 +125,8 @@ contain arbitrary component artwork or lacks required model data.
 | alertdialog | `div` | `alertdialog` | accessible name + focus implementation |
 | alert | `div` | `alert` | — |
 | heading | `div` | `heading` | heading level |
-| list | `ul` | — | — |
-| listitem | `li` | — | owning list |
+| list | `div` | `list` | authored list-item structure |
+| listitem | `div` | `listitem` | owning list |
 | img | `div` | `img` | accessible name/alternative text |
 | figure | `figure` | — | — |
 | table | `div` | `table` | name + row/cell structure |
@@ -244,7 +244,7 @@ token and proves alpha is applied exactly once. The Design Language CSS copier
 and semantic exporter now also share the renderer-correct EXP-to-CSS gradient
 angle conversion.
 
-## B4 Text Content Semantics
+## B4a Text Content Semantics
 
 Type Styles describe reusable presentation and their categories remain visual
 organization. They do not determine document hierarchy. Text layers store an
@@ -258,5 +258,43 @@ categorized Heading resolves `aria-level` when its explicitly headed descendants
 agree on one level; its descendant renders as a plain span inside that semantic
 host to avoid a duplicate nested heading. Missing or ambiguous levels continue
 reporting the requirement—EXP does not fabricate one.
+
+## B4b Verification and Fidelity Reporting
+
+`scripts/verify_semantic_html_package.sh` now performs both a byte-for-byte
+repeat export and reviewed SHA-256 golden comparisons for the fixture HTML, CSS,
+manifest, and README. A separate generated document sends all 40 curated ARIA
+roles through the real exporter, rather than only checking the mapping table.
+The fixture additionally covers an out-of-artboard relationship target and
+enabled unsupported effects on both a top-level node and repeated component
+children.
+
+Every fidelity issue carries a category (`semanticRequirement` or
+`visualFallback`), artboard/node/source identity, and instance identity when the
+affected layer came from a component. Enabled effects are reported once per
+exported occurrence. Other known non-exact paths—mask silhouettes, unsupported
+polygon strokes, non-horizontal line approximation, non-native stroke alignment,
+managed margins, and unknown embedded-image formats—are also structured issues.
+They remain preserved losslessly in `design.json`.
+
+Native Button hosts render their visual descendants with phrasing elements, so
+their component artwork does not create an invalid HTML content model. List and
+List Item use explicit ARIA on flow-safe `div` hosts until nested semantic
+components can provide real list ownership in v2.1; the missing structure is
+reported rather than inventing `<li>` elements from visual layers. Pages declare
+`lang="und"`, because EXP does not yet model document language.
+
+The 2026-07-22 browser pass loaded the fixed fixture in both Firefox and WebKit.
+The accessibility tree read Heading 2 → Button → Button → Paragraph → Heading 3;
+full-keyboard navigation followed the same frontmost-first Button order with a
+visible focus outline. DOM checks found no duplicate ids, unresolved emitted
+ARIA references, block/interactive Button descendants, scripts, inline event
+handlers, console errors, or horizontal overflow. Computed geometry and paints
+matched the fixture in light and dark schemes; `prefers-contrast: more` activated
+the stronger artboard/focus treatment. The official W3C Nu validator returned no
+errors (only the expected informational note that this isolated fixture begins
+at Heading 2). The browser screenshot was visually reviewed for shape, gradient,
+path, type, and component placement; its deliberately omitted shadow/blur are
+present in the manifest as visual fallbacks.
 Lists, labels, block quotes, and code remain later discovery so the first model
 addition stays small and testable.

@@ -18,11 +18,13 @@ struct HandoffPackageWriter {
     let sourceURL: URL?
     let toolVersion: String
     let buildVersion: String
+    let generatedAt: Date
 
     init(document: Document, sourceURL: URL? = nil,
-         bundle: Bundle = .main) {
+         bundle: Bundle = .main, generatedAt: Date = Date()) {
         self.document = document
         self.sourceURL = sourceURL
+        self.generatedAt = generatedAt
         toolVersion = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
         buildVersion = bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown"
     }
@@ -37,7 +39,7 @@ struct HandoffPackageWriter {
         let designData = try encodedDesign()
         let tokensData = try DesignLanguageIO.exportDesignTokensJSON(document.designLanguage)
         let htmlBundle = SemanticHTMLExporter(document: document).makeBundle()
-        let readmeData = Data(readme(htmlBundle: htmlBundle).utf8)
+        let readmeData = Data(orientationMarkdown(htmlBundle: htmlBundle).utf8)
 
         try designData.write(to: packageURL.appendingPathComponent("design.json"), options: .atomic)
         try tokensData.write(to: packageURL.appendingPathComponent("tokens.json"), options: .atomic)
@@ -72,7 +74,7 @@ struct HandoffPackageWriter {
         }
         let manifest = HandoffManifest(
             expHandoffPackage: Self.packageFormatVersion,
-            generatedAt: ISO8601DateFormatter().string(from: Date()),
+            generatedAt: ISO8601DateFormatter().string(from: generatedAt),
             tool: .init(name: "EXP [design]", version: toolVersion, build: buildVersion),
             sourceDocument: sourceURL?.lastPathComponent,
             entries: [
@@ -106,8 +108,8 @@ struct HandoffPackageWriter {
                            semanticHTMLPages: htmlBundle.pagePaths.count,
                            semanticHTMLNodes: htmlBundle.emittedNodeCount,
                            semanticHTMLOmittedWallNodes: htmlBundle.omittedWallNodeCount),
-            fidelity: .init(geometry: "native",
-                            styles: "native",
+            fidelity: .init(geometry: "native geometry where representable; structured visual fallbacks identify approximations",
+                            styles: "CSS/SVG with structured visual fallbacks for unsupported effects and paint details",
                             text: "native",
                             components: "source-instance references",
                             semantics: "HTML B2 native/ARIA component contract with explicit requirements for missing model facts",
@@ -115,8 +117,10 @@ struct HandoffPackageWriter {
                             semanticHTMLRequirements: htmlBundle.fidelityIssues.map {
                                 .init(artboardID: $0.artboardID,
                                       nodeID: $0.nodeID,
+                                      instanceID: $0.instanceID,
                                       sourceID: $0.sourceID,
                                       role: $0.role?.rawValue,
+                                      category: $0.category.rawValue,
                                       requirement: $0.requirement,
                                       detail: $0.detail)
                             }))
@@ -138,7 +142,13 @@ struct HandoffPackageWriter {
         }
     }
 
-    private func readme(htmlBundle: SemanticHTMLBundle) -> String {
+    /// The same orientation shipped as README.llm.md and exposed through MCP.
+    /// Keeping one generator prevents the package and live bridge from drifting.
+    func orientationMarkdown() -> String {
+        orientationMarkdown(htmlBundle: SemanticHTMLExporter(document: document).makeBundle())
+    }
+
+    private func orientationMarkdown(htmlBundle: SemanticHTMLBundle) -> String {
         let sourceName = sourceURL?.lastPathComponent ?? "Untitled document"
         let notes = document.artboards
             .filter { !$0.notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
@@ -159,7 +169,9 @@ struct HandoffPackageWriter {
             .joined(separator: "\n")
         let semanticRequirements = htmlBundle.fidelityIssues.map { issue in
             let role = issue.role.map { " ARIA `\($0.rawValue)`" } ?? ""
-            return "- Artboard `\(issue.artboardID.uuidString)`, node `\(issue.nodeID.uuidString)`\(role): **\(markdownInline(issue.requirement))** — \(issue.detail)"
+            let instance = issue.instanceID.map { ", instance `\($0.uuidString)`" } ?? ""
+            let category = issue.category == .visualFallback ? "Visual fallback" : "Semantic requirement"
+            return "- \(category) — artboard `\(issue.artboardID.uuidString)`, node `\(issue.nodeID.uuidString)`\(instance)\(role): **\(markdownInline(issue.requirement))** — \(issue.detail)"
         }.joined(separator: "\n")
 
         return """
@@ -185,7 +197,7 @@ struct HandoffPackageWriter {
 
         \(htmlPages.isEmpty ? "No artboards were available for HTML export." : htmlPages)
 
-        The B2 HTML slice preserves artboard ownership, stable `data-exp-id` references, component source references, repeated-instance identity, visibility, and absolute geometry. Categorized components use native HTML where EXP can do so honestly and explicit ARIA otherwise. Accessible-name layers and typed relationships stay id-based. Component states export as conventional pseudo-classes, disabled attributes, or custom `data-state` selectors. EXP generates no JavaScript and does not fabricate missing behavior or values. Flex auto-layout and token-linked declarations arrive in B3.
+        The v2.0 HTML slice preserves artboard ownership, stable `data-exp-id` references, component source references, repeated-instance identity, visibility, and absolute geometry. Categorized components use native HTML where EXP can do so honestly and explicit ARIA otherwise. Accessible-name layers and typed relationships stay id-based. Component states export as conventional pseudo-classes, disabled attributes, or custom `data-state` selectors. EXP generates no JavaScript and does not fabricate missing behavior or values. Flex auto-layout and token-linked declarations are included; semantic requirements and visual approximations are listed below instead of being silently dropped.
 
         \(htmlBundle.omittedWallNodeCount == 0 ? "No wall-only nodes were omitted." : "\(htmlBundle.omittedWallNodeCount) wall-only node(s) were omitted because they do not belong to an artboard.")
 
@@ -197,13 +209,13 @@ struct HandoffPackageWriter {
 
         \(roles.isEmpty ? "No component ARIA roles are assigned." : roles)
 
-        ## Semantic HTML Requirements
+        ## Semantic HTML Requirements & Visual Fallbacks
 
         \(semanticRequirements.isEmpty ? "No unresolved semantic HTML requirements were found." : semanticRequirements)
 
         ## Fidelity
 
-        This package preserves EXP's native document data and includes the v2.0 B2 semantic HTML/CSS contract. The generated pages are deterministic, inspectable handoff artifacts—not a claim that listed downstream interaction requirements have been implemented.
+        This package preserves EXP's native document data and includes the verified v2.0 semantic HTML/CSS contract. The generated pages are deterministic, inspectable handoff artifacts—not a claim that listed downstream interaction requirements have been implemented or that a reported visual fallback is pixel-identical.
         """
     }
 
@@ -253,8 +265,10 @@ private struct HandoffManifest: Codable {
         struct SemanticIssue: Codable {
             var artboardID: UUID
             var nodeID: UUID
+            var instanceID: UUID?
             var sourceID: UUID?
             var role: String?
+            var category: String
             var requirement: String
             var detail: String
         }

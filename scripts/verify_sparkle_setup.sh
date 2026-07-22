@@ -83,6 +83,7 @@ check "app Debug and Release use the checked-in entitlements file" test "$(grep 
 check "entitlements keep the app sandbox enabled" test "$(entitlement_value com.apple.security.app-sandbox)" = "true"
 check "entitlements keep user-selected files read/write" test "$(entitlement_value com.apple.security.files.user-selected.read-write)" = "true"
 check "entitlements keep outgoing network access" test "$(entitlement_value com.apple.security.network.client)" = "true"
+check "entitlements allow the container-local AF_UNIX agent listener" test "$(entitlement_value com.apple.security.network.server)" = "true"
 check "entitlements allow Sparkle installer status service" test "$(entitlement_value com.apple.security.temporary-exception.mach-lookup.global-name:0)" = '$(PRODUCT_BUNDLE_IDENTIFIER)-spks'
 check "entitlements allow Sparkle installer connection service" test "$(entitlement_value com.apple.security.temporary-exception.mach-lookup.global-name:1)" = '$(PRODUCT_BUNDLE_IDENTIFIER)-spki'
 check "release notes exist for v$version" test -f "$notes"

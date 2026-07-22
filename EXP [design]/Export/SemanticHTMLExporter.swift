@@ -18,10 +18,17 @@ struct SemanticHTMLArtifact: Sendable {
 }
 
 struct SemanticHTMLFidelityIssue: Sendable {
+    enum Category: String, Sendable {
+        case semanticRequirement
+        case visualFallback
+    }
+
     var artboardID: UUID
     var nodeID: UUID
+    var instanceID: UUID?
     var sourceID: UUID?
     var role: AriaRole?
+    var category: Category
     var requirement: String
     var detail: String
 }
@@ -101,6 +108,7 @@ private struct HTMLWriter {
         let nodeHTML = topLevelNodes.reversed().map { item in
             render(node: item.element, instanceID: nil, sourceID: nil,
                    instanceNodeIDs: nil, semanticAncestors: [],
+                   phrasingOnly: false,
                    availableDOMIDs: available, level: 2,
                    count: &count, issues: &issues)
         }.joined(separator: "\n")
@@ -112,7 +120,7 @@ private struct HTMLWriter {
 
         let html = """
         <!doctype html>
-        <html>
+        <html lang="und">
         <head>
           <meta charset="utf-8">
           <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -132,6 +140,7 @@ private struct HTMLWriter {
     private func render(node: Node, instanceID: UUID?, sourceID: UUID?,
                         instanceNodeIDs: Set<UUID>?,
                         semanticAncestors: [AriaRole],
+                        phrasingOnly: Bool,
                         availableDOMIDs: Set<String>, level: Int,
                         count: inout Int,
                         issues: inout [SemanticHTMLFidelityIssue]) -> String {
@@ -150,6 +159,9 @@ private struct HTMLWriter {
         }
         if !node.isVisible { common.append(Attribute(name: "hidden", value: nil)) }
 
+        reportVisualFallbacks(node: node, sourceID: sourceID,
+                              instanceID: instanceID, issues: &issues)
+
         let relationships = relationshipAttributes(
             node: node, instanceID: instanceID,
             instanceNodeIDs: instanceNodeIDs,
@@ -162,6 +174,7 @@ private struct HTMLWriter {
                 render(node: $0, instanceID: instanceID, sourceID: sourceID,
                        instanceNodeIDs: instanceNodeIDs,
                        semanticAncestors: semanticAncestors,
+                       phrasingOnly: phrasingOnly,
                        availableDOMIDs: availableDOMIDs, level: level + 1,
                        count: &count, issues: &issues)
             }.joined(separator: "\n")
@@ -170,7 +183,8 @@ private struct HTMLWriter {
             attrs.append(Attribute(name: "class", value: "exp-node exp-group\(layoutClass)"))
             attrs.append(Attribute(name: "data-exp-content", value: "group"))
             append(relationships, to: &attrs)
-            return "\(indent)<div\(attributes(attrs))>\n\(childHTML)\n\(indent)</div>"
+            let tag = phrasingOnly ? "span" : "div"
+            return "\(indent)<\(tag)\(attributes(attrs))>\n\(childHTML)\n\(indent)</\(tag)>"
 
         case .instance(let instance):
             guard let source = document.source(for: instance.sourceID) else {
@@ -182,7 +196,8 @@ private struct HTMLWriter {
                 attrs.append(Attribute(name: "data-exp-content", value: "instance"))
                 attrs.append(Attribute(name: "data-exp-source-id",
                                        value: instance.sourceID.uuidString.lowercased()))
-                return "\(indent)<div\(attributes(attrs))></div>"
+                let tag = phrasingOnly ? "span" : "div"
+                return "\(indent)<\(tag)\(attributes(attrs))></\(tag)>"
             }
 
             let baseInstance = instance.withoutActiveState
@@ -190,11 +205,20 @@ private struct HTMLWriter {
             let sourceNodeIDs = allNodeIDs(source.children)
             let role = source.a11y.role
             let mapping = role?.semanticHTMLMapping
-            let tag = mapping?.tag ?? "div"
+            let preferredTag = mapping?.tag ?? "div"
+            let tag = phrasingOnly ? "span" : preferredTag
             var attrs = common
             attrs.append(Attribute(name: "class", value: "exp-node exp-instance"))
             attrs.append(Attribute(name: "data-exp-content", value: "instance"))
             attrs.append(Attribute(name: "data-exp-source-id", value: source.id.uuidString.lowercased()))
+            if phrasingOnly, let role {
+                attrs.append(Attribute(name: "data-exp-intended-role", value: role.rawValue))
+                issues.append(issue(
+                    node: node, sourceID: source.id, instanceID: instanceID, role: role,
+                    requirement: "nestedInteractiveStructure",
+                    detail: "A semantic component is nested inside a phrasing-only control host; EXP preserved valid HTML and recorded the intended role for downstream restructuring."
+                ))
+            }
 
             var semanticAttributes = relationships
             if let labelID = source.a11y.accessibleNameLayerID {
@@ -208,7 +232,7 @@ private struct HTMLWriter {
                                         detail: "The configured accessible-name layer is missing from this instance."))
                 }
             }
-            if let mapping, let role {
+            if let mapping, let role, !phrasingOnly {
                 if role == .heading,
                    let level = unambiguousHeadingLevel(in: children) {
                     semanticAttributes["aria-level"] = String(level)
@@ -238,6 +262,7 @@ private struct HTMLWriter {
                        instanceNodeIDs: sourceNodeIDs,
                        semanticAncestors: role.map { semanticAncestors + [$0] }
                            ?? semanticAncestors,
+                       phrasingOnly: phrasingOnly || tag == "button",
                        availableDOMIDs: availableDOMIDs, level: level + 1,
                        count: &count, issues: &issues)
             }.joined(separator: "\n")
@@ -258,7 +283,8 @@ private struct HTMLWriter {
             // its host. Its authored text role supplies aria-level, but renders
             // as a span here so assistive technology does not encounter a nested
             // duplicate heading. Ordinary text layers use their native tag.
-            let tag = semanticAncestors.last == .heading ? "span" : text.contentRole.htmlTag
+            let tag = phrasingOnly || semanticAncestors.last == .heading
+                ? "span" : text.contentRole.htmlTag
             return "\(indent)<\(tag)\(attributes(attrs))>\(runs)</\(tag)>"
 
         case .path(let path):
@@ -266,7 +292,8 @@ private struct HTMLWriter {
             attrs.append(Attribute(name: "class", value: "exp-node exp-path"))
             attrs.append(Attribute(name: "data-exp-content", value: "path"))
             append(relationships, to: &attrs)
-            return "\(indent)<div\(attributes(attrs))>\(svg(path: path, domID: id, size: node.frame.size))</div>"
+            let tag = phrasingOnly ? "span" : "div"
+            return "\(indent)<\(tag)\(attributes(attrs))>\(svg(path: path, domID: id, size: node.frame.size))</\(tag)>"
 
         default:
             let kind = contentName(node.content)
@@ -274,7 +301,8 @@ private struct HTMLWriter {
             attrs.append(Attribute(name: "class", value: "exp-node exp-\(kind)"))
             attrs.append(Attribute(name: "data-exp-content", value: kind))
             append(relationships, to: &attrs)
-            return "\(indent)<div\(attributes(attrs))></div>"
+            let tag = phrasingOnly ? "span" : "div"
+            return "\(indent)<\(tag)\(attributes(attrs))></\(tag)>"
         }
     }
 
@@ -313,7 +341,8 @@ private struct HTMLWriter {
                 instanceID: instanceID != nil && instanceNodeIDs?.contains(relationship.targetID) == true
                     ? instanceID : nil)
             guard availableDOMIDs.contains(target) else {
-                issues.append(issue(node: node, sourceID: sourceID, role: nil,
+                issues.append(issue(node: node, sourceID: sourceID,
+                                    instanceID: instanceID, role: nil,
                                     requirement: "unresolvedRelationship",
                                     detail: "\(relationship.kind.ariaAttribute) target \(relationship.targetID.uuidString.lowercased()) is outside this artboard or missing."))
                 continue
@@ -370,6 +399,10 @@ private struct HTMLWriter {
                 fulfilled = semanticAttributes["aria-describedby"]?.isEmpty == false
             case .listOwnership:
                 fulfilled = semanticAncestors.last == .list
+            case .listStructure:
+                // Visual source children are not silently promoted to list
+                // items. Nested semantic components will satisfy this in v2.1.
+                fulfilled = false
             case .headingLevel:
                 fulfilled = Int(semanticAttributes["aria-level"] ?? "") != nil
             default:
@@ -388,10 +421,98 @@ private struct HTMLWriter {
         }
     }
 
-    private func issue(node: Node, sourceID: UUID?, role: AriaRole?,
+    private func issue(node: Node, sourceID: UUID?,
+                       instanceID: UUID? = nil, role: AriaRole?,
+                       category: SemanticHTMLFidelityIssue.Category = .semanticRequirement,
                        requirement: String, detail: String) -> SemanticHTMLFidelityIssue {
-        .init(artboardID: artboard.id, nodeID: node.id, sourceID: sourceID,
-              role: role, requirement: requirement, detail: detail)
+        .init(artboardID: artboard.id, nodeID: node.id,
+              instanceID: instanceID, sourceID: sourceID,
+              role: role, category: category,
+              requirement: requirement, detail: detail)
+    }
+
+    /// CSS/SVG covers the common geometry and paint path. Anything we cannot
+    /// reproduce exactly is surfaced here instead of disappearing silently.
+    private func reportVisualFallbacks(
+        node: Node, sourceID: UUID?, instanceID: UUID?,
+        issues: inout [SemanticHTMLFidelityIssue]
+    ) {
+        func report(_ requirement: String, _ detail: String) {
+            issues.append(issue(node: node, sourceID: sourceID,
+                                instanceID: instanceID, role: nil,
+                                category: .visualFallback,
+                                requirement: requirement, detail: detail))
+        }
+        func reportStrokeAlignment(_ alignment: StrokeAlignment) {
+            report("strokeAlignment",
+                   "The \(alignment.rawValue) stroke is approximated by the browser's available border/SVG stroke alignment.")
+        }
+
+        for effect in node.effects where effect.isEnabled {
+            report("unsupportedEffect",
+                   "The enabled \(effect.kind.rawValue) effect is preserved in design.json but is not reproduced by semantic HTML/CSS.")
+        }
+        if node.isMask {
+            report("maskClippingApproximation",
+                   "The mask group falls back to rectangular overflow clipping; its authored mask silhouette remains in design.json.")
+        }
+        if node.isMaskShape {
+            report("maskShape",
+                   "This mask-shape layer cannot drive the HTML clipping silhouette and may remain visible in the preview.")
+        }
+
+        switch node.content {
+        case .rectangle(let shape):
+            if shape.strokeWidth > 0, shape.strokeAlignment != .inside {
+                reportStrokeAlignment(shape.strokeAlignment)
+            }
+        case .ellipse(let shape):
+            if shape.strokeWidth > 0, shape.strokeAlignment != .inside {
+                reportStrokeAlignment(shape.strokeAlignment)
+            }
+        case .polygon(let shape):
+            if shape.strokeWidth > 0 {
+                report("polygonStroke",
+                       "The polygon fill is preserved with clip-path, but its stroke is not reproduced in semantic CSS.")
+            }
+        case .line(let line):
+            let horizontal = abs(line.start.y - line.end.y) < 0.0001
+                && abs(line.start.x) < 0.0001
+                && abs(line.end.x - node.frame.width) < 0.0001
+            if !horizontal {
+                report("lineGeometry",
+                       "A non-horizontal line is approximated by the layer's horizontal CSS border; exact endpoints remain in design.json.")
+            }
+        case .path(let shape):
+            if shape.strokeWidth > 0, shape.strokeAlignment != .center {
+                reportStrokeAlignment(shape.strokeAlignment)
+            }
+        case .group:
+            if let padding = node.autoPadding,
+               [padding.marginTop, padding.marginRight,
+                padding.marginBottom, padding.marginLeft].contains(where: { $0 != 0 }) {
+                report("autoLayoutMargin",
+                       "Managed margins are folded into HTML padding; the transparent outer margin remains exact only in design.json.")
+            }
+        case .image(let image):
+            if imageMediaTypeForFidelity(image.data) == "application/octet-stream" {
+                report("unknownImageFormat",
+                       "The embedded image format was not recognized as PNG, JPEG, GIF, or WebP.")
+            }
+        default:
+            break
+        }
+    }
+
+    private func imageMediaTypeForFidelity(_ data: Data) -> String {
+        let bytes = [UInt8](data.prefix(12))
+        if bytes.starts(with: [0x89, 0x50, 0x4E, 0x47]) { return "image/png" }
+        if bytes.starts(with: [0xFF, 0xD8, 0xFF]) { return "image/jpeg" }
+        if bytes.starts(with: [0x47, 0x49, 0x46, 0x38]) { return "image/gif" }
+        if bytes.count >= 12,
+           Array(bytes[0..<4]) == [0x52, 0x49, 0x46, 0x46],
+           Array(bytes[8..<12]) == [0x57, 0x45, 0x42, 0x50] { return "image/webp" }
+        return "application/octet-stream"
     }
 
     private func allNodeIDs(_ nodes: [Node]) -> Set<UUID> {
@@ -602,6 +723,10 @@ private struct CSSWriter {
           min-height: 100%;
         }
 
+        html {
+          color-scheme: light dark;
+        }
+
         body {
           width: max-content;
           color: #000;
@@ -634,8 +759,13 @@ private struct CSSWriter {
           text-align: inherit;
         }
 
-        ul.exp-instance {
+        [role="list"].exp-instance {
           list-style: none;
+        }
+
+        .exp-instance:focus-visible {
+          outline: 3px solid currentColor;
+          outline-offset: 2px;
         }
 
         .exp-text {
@@ -652,6 +782,17 @@ private struct CSSWriter {
 
         [hidden] {
           display: none !important;
+        }
+
+        @media (prefers-contrast: more) {
+          .exp-artboard {
+            outline: 2px solid currentColor;
+            outline-offset: -2px;
+          }
+
+          .exp-instance:focus-visible {
+            outline-width: 4px;
+          }
         }
         """
         let designLanguage = DesignLanguageIO.exportCSS(document.designLanguage)
