@@ -129,6 +129,10 @@ done
 
 if xattr -lr "$APP_PATH" 2>/dev/null | grep 'com.apple.FinderInfo' >/dev/null; then
   echo "FAIL: app contains com.apple.FinderInfo; clear metadata before shipping" >&2
+  if [[ "$APP_PATH" == *"/Dropbox/"* ]]; then
+    echo "      Dropbox may reattach this metadata after cleanup." >&2
+    echo "      Copy/export the app to a non-synced local staging directory, then retry." >&2
+  fi
   exit 1
 fi
 echo "PASS: no com.apple.FinderInfo metadata"

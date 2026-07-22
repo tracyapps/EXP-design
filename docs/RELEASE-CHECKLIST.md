@@ -8,6 +8,9 @@ GitHub auth is off-box, so the owner runs every `git`/`gh` step.
 This is the complete v2.0/build 10 path. It does not depend on translating any
 `X.Y` placeholders in the reusable sections below. Use a fresh Terminal tab and
 stop at the first failed command. Do not tag, upload, or deploy around a failure.
+Every command block first neutralizes fail-fast options leaked by an earlier
+attempt, then runs inside `( … )`. A failure stops that block but always returns
+to the Terminal prompt instead of closing the window.
 
 SCSS is deliberately deferred and is not a release gate. CSS custom properties
 are the v2 handoff contract.
@@ -18,15 +21,19 @@ Paste this block at the start of a Terminal tab. Keep that tab open for the
 release; later blocks repeat critical values where a mistake would be costly.
 
 ```sh
+set +e +u
+set +o pipefail 2>/dev/null || true
+(
 set -euo pipefail
 
 ROOT="/Users/tapps/Library/CloudStorage/Dropbox/work/custom-work-tools/apps/EXP [design]"
+APPS_ROOT="$(cd "$ROOT/.." && pwd)"
 VERSION="2.0"
 BUILD="10"
-RELEASE_DIR="$ROOT/../releases/v$VERSION"
+RELEASE_DIR="$APPS_ROOT/releases/v$VERSION"
 APP_PATH="$RELEASE_DIR/EXP [design].app"
 ZIP_PATH="$RELEASE_DIR/EXP-design-v$VERSION.zip"
-SPARKLE_DIR="$ROOT/../sparkle-releases"
+SPARKLE_DIR="$APPS_ROOT/sparkle-releases"
 ARCHIVE_PATH="$HOME/Library/Developer/Xcode/Archives/$(date +%Y-%m-%d)/EXP design v$VERSION.xcarchive"
 
 cd "$ROOT"
@@ -34,15 +41,24 @@ mkdir -p "$RELEASE_DIR" "$SPARKLE_DIR" "$(dirname "$ARCHIVE_PATH")"
 
 printf 'root:     %s\narchive:  %s\napp:      %s\nzip:      %s\nappcasts: %s\n' \
   "$ROOT" "$ARCHIVE_PATH" "$APP_PATH" "$ZIP_PATH" "$SPARKLE_DIR"
+)
 ```
 
-Release artifacts stay outside the repository. The `.xcarchive` stays in
-Xcode's local Archives folder; the app/zip and accumulated Sparkle archives live
-in sibling folders outside this repo.
+Release artifacts stay outside the repository. The `.xcarchive` stays in Xcode's
+local Archives folder; the exported app/zip and accumulated Sparkle archives use
+the normal sibling `apps/releases/` and `apps/sparkle-releases/` folders. Keep
+Dropbox syncing paused—or confirm the `apps` ignore rule is actually honored—
+through appcast generation. Step 6 deliberately copies the exported app into a
+temporary non-synced directory for signature verification and zipping because
+Dropbox's File Provider can attach `com.apple.FinderInfo` even while syncing is
+paused. The final zip still lives in the normal release directory.
 
 ### 1. Run the complete local gate
 
 ```sh
+set +e +u
+set +o pipefail 2>/dev/null || true
+(
 set -euo pipefail
 ROOT="/Users/tapps/Library/CloudStorage/Dropbox/work/custom-work-tools/apps/EXP [design]"
 cd "$ROOT"
@@ -72,6 +88,7 @@ SCHEME_STATE="EXP [design].xcodeproj/xcuserdata/tapps.xcuserdatad/xcschemes/xcsc
 
 git diff --check
 git status --short
+)
 ```
 
 The Sparkle preflight should end with a note that v2.0 is not in the checked-in
@@ -104,6 +121,9 @@ Review the status printed by step 1. When every listed change belongs in v2.0,
 paste:
 
 ```sh
+set +e +u
+set +o pipefail 2>/dev/null || true
+(
 set -euo pipefail
 ROOT="/Users/tapps/Library/CloudStorage/Dropbox/work/custom-work-tools/apps/EXP [design]"
 cd "$ROOT"
@@ -114,6 +134,7 @@ git diff --cached --check
 git diff --cached --stat
 git commit -m "v2.0: semantic handoff and agent bridge"
 test -z "$(git status --porcelain)"
+)
 ```
 
 Do not create the `v2.0` tag yet. The generated appcast and its release-note HTML
@@ -125,6 +146,9 @@ This produces a fresh archive from committed source and refuses to overwrite an
 older archive with the same name.
 
 ```sh
+set +e +u
+set +o pipefail 2>/dev/null || true
+(
 set -euo pipefail
 ROOT="/Users/tapps/Library/CloudStorage/Dropbox/work/custom-work-tools/apps/EXP [design]"
 VERSION="2.0"
@@ -152,6 +176,7 @@ SCHEME_STATE="EXP [design].xcodeproj/xcuserdata/tapps.xcuserdatad/xcschemes/xcsc
 
 scripts/verify_release_candidate.sh --local "$ARCHIVE_APP" "$VERSION" "$BUILD"
 open "$ARCHIVE_PATH"
+)
 ```
 
 The local verifier must confirm version/build, universal arm64+x86_64 app and
@@ -166,9 +191,13 @@ silently reused. If it stops, move the old artifact aside deliberately and
 rerun it.
 
 ```sh
+set +e +u
+set +o pipefail 2>/dev/null || true
+(
 set -euo pipefail
 ROOT="/Users/tapps/Library/CloudStorage/Dropbox/work/custom-work-tools/apps/EXP [design]"
-RELEASE_DIR="$ROOT/../releases/v2.0"
+APPS_ROOT="$(cd "$ROOT/.." && pwd)"
+RELEASE_DIR="$APPS_ROOT/releases/v2.0"
 APP_PATH="$RELEASE_DIR/EXP [design].app"
 ZIP_PATH="$RELEASE_DIR/EXP-design-v2.0.zip"
 
@@ -176,6 +205,7 @@ mkdir -p "$RELEASE_DIR"
 test ! -e "$APP_PATH"
 test ! -e "$ZIP_PATH"
 printf 'Export the Direct Distribution app into:\n%s\n' "$RELEASE_DIR"
+)
 ```
 
 The archive command in step 4 opens the archive. In Xcode Organizer:
@@ -202,11 +232,15 @@ Run only after Xcode reports successful notarization/stapling and the app exists
 at the exact path above.
 
 ```sh
+set +e +u
+set +o pipefail 2>/dev/null || true
+(
 set -euo pipefail
 ROOT="/Users/tapps/Library/CloudStorage/Dropbox/work/custom-work-tools/apps/EXP [design]"
+APPS_ROOT="$(cd "$ROOT/.." && pwd)"
 VERSION="2.0"
 BUILD="10"
-RELEASE_DIR="$ROOT/../releases/v$VERSION"
+RELEASE_DIR="$APPS_ROOT/releases/v$VERSION"
 APP_PATH="$RELEASE_DIR/EXP [design].app"
 ZIP_PATH="$RELEASE_DIR/EXP-design-v$VERSION.zip"
 
@@ -214,21 +248,25 @@ cd "$ROOT"
 test -d "$APP_PATH"
 test ! -e "$ZIP_PATH"
 
-xattr -cr "$APP_PATH"
-scripts/verify_release_candidate.sh "$APP_PATH" "$VERSION" "$BUILD"
+CLEAN_DIR="$(mktemp -d)"
+CLEAN_APP="$CLEAN_DIR/EXP [design].app"
+ditto --norsrc --noextattr --noqtn --noacl "$APP_PATH" "$CLEAN_APP"
+xattr -cr "$CLEAN_APP"
+scripts/verify_release_candidate.sh "$CLEAN_APP" "$VERSION" "$BUILD"
 
 ditto -c -k \
   --norsrc --noextattr --noqtn --noacl --keepParent \
-  "$APP_PATH" "$ZIP_PATH"
+  "$CLEAN_APP" "$ZIP_PATH"
 
 CHECK_DIR="$(mktemp -d)"
 ditto -x -k "$ZIP_PATH" "$CHECK_DIR"
 scripts/verify_release_candidate.sh \
   "$CHECK_DIR/EXP [design].app" "$VERSION" "$BUILD"
-rm -rf "$CHECK_DIR"
+rm -rf "$CHECK_DIR" "$CLEAN_DIR"
 
 ls -lh "$ZIP_PATH"
 shasum -a 256 "$ZIP_PATH"
+)
 ```
 
 That zip is now immutable. Do not re-zip the app. Sparkle's EdDSA signature,
@@ -241,12 +279,16 @@ Sparkle folder, signs it, creates the HTML update notes, updates the public
 appcast, and refuses to replace a different existing v2.0 archive.
 
 ```sh
+set +e +u
+set +o pipefail 2>/dev/null || true
+(
 set -euo pipefail
 ROOT="/Users/tapps/Library/CloudStorage/Dropbox/work/custom-work-tools/apps/EXP [design]"
+APPS_ROOT="$(cd "$ROOT/.." && pwd)"
 VERSION="2.0"
 BUILD="10"
-ZIP_PATH="$ROOT/../releases/v$VERSION/EXP-design-v$VERSION.zip"
-SPARKLE_DIR="$ROOT/../sparkle-releases"
+ZIP_PATH="$APPS_ROOT/releases/v$VERSION/EXP-design-v$VERSION.zip"
+SPARKLE_DIR="$APPS_ROOT/sparkle-releases"
 RELEASE_DATE="$(date +%F)"
 
 cd "$ROOT"
@@ -270,6 +312,7 @@ rg -n '^## v2\.0 — released' docs/ROADMAP.md
 (cd website && npm run build)
 git diff --check
 git status --short
+)
 ```
 
 Expected release-metadata changes are:
@@ -280,21 +323,31 @@ website/public/appcast.xml
 website/public/EXP-design-v2.0.html
 ```
 
+On a resumed release, the checklist/verifier may also contain reviewed workflow
+hardening from the failed attempt. The commit block intentionally includes those
+paths when changed and is a no-op for them otherwise.
+
 Commit them before tagging:
 
 ```sh
+set +e +u
+set +o pipefail 2>/dev/null || true
+(
 set -euo pipefail
 ROOT="/Users/tapps/Library/CloudStorage/Dropbox/work/custom-work-tools/apps/EXP [design]"
 cd "$ROOT"
 
 git add \
+  docs/RELEASE-CHECKLIST.md \
   docs/ROADMAP.md \
+  scripts/verify_release_candidate.sh \
   website/public/appcast.xml \
   website/public/EXP-design-v2.0.html
 git diff --cached --check
 git diff --cached --stat
-git commit -m "v2.0: publish release metadata"
+git commit -m "v2.0: publish release metadata and harden workflow"
 test -z "$(git status --porcelain)"
+)
 ```
 
 ### 8. Tag, upload the exact asset, then deploy the site
@@ -303,25 +356,56 @@ The order is intentional: publish the GitHub asset before pushing `main`, so
 Vercel never serves an appcast that points at a not-yet-existing download.
 
 ```sh
+set +e +u
+set +o pipefail 2>/dev/null || true
+(
 set -euo pipefail
 ROOT="/Users/tapps/Library/CloudStorage/Dropbox/work/custom-work-tools/apps/EXP [design]"
+APPS_ROOT="$(cd "$ROOT/.." && pwd)"
 VERSION="2.0"
-ZIP_PATH="$ROOT/../releases/v$VERSION/EXP-design-v$VERSION.zip"
+ZIP_PATH="$APPS_ROOT/releases/v$VERSION/EXP-design-v$VERSION.zip"
 
 cd "$ROOT"
-test -z "$(git status --porcelain)"
-if git rev-parse --verify --quiet "refs/tags/v$VERSION" >/dev/null; then
-  echo "Local tag v$VERSION already exists; stop and inspect it." >&2
-  exit 1
-fi
-if git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null 2>&1; then
-  echo "Remote tag v$VERSION already exists; stop and inspect it." >&2
-  exit 1
+
+# A resumed release may have reviewed runbook-only corrections made after the
+# local metadata commit. Fold only those known paths into that unpushed commit.
+if [[ -n "$(git status --porcelain -- \
+  docs/RELEASE-CHECKLIST.md \
+  docs/ROADMAP.md \
+  scripts/verify_release_candidate.sh)" ]]; then
+  git add \
+    docs/RELEASE-CHECKLIST.md \
+    docs/ROADMAP.md \
+    scripts/verify_release_candidate.sh
+  git diff --cached --check
+  git commit --amend --no-edit
 fi
 
+test -z "$(git status --porcelain)"
 gh auth status
-git tag -a "v$VERSION" -m "EXP [design] v$VERSION"
-git push origin "v$VERSION"
+
+if git rev-parse --verify --quiet "refs/tags/v$VERSION" >/dev/null; then
+  TAG_COMMIT="$(git rev-list -n 1 "v$VERSION")"
+  git merge-base --is-ancestor "$TAG_COMMIT" HEAD
+  TAG_DISTANCE="$(git rev-list --count "v$VERSION..HEAD")"
+  test "$TAG_DISTANCE" -le 1
+  echo "Reusing existing v$VERSION tag at $TAG_COMMIT ($TAG_DISTANCE metadata commit(s) behind HEAD)."
+else
+  if git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null 2>&1; then
+    echo "Remote tag v$VERSION exists without a matching local tag; stop and inspect it." >&2
+    exit 1
+  fi
+  git tag -a "v$VERSION" -m "EXP [design] v$VERSION"
+fi
+
+LOCAL_TAG_COMMIT="$(git rev-list -n 1 "v$VERSION")"
+REMOTE_TAG_COMMIT="$(git ls-remote --tags origin "refs/tags/v$VERSION^{}" | awk 'NR == 1 { print $1 }')"
+if [[ -z "$REMOTE_TAG_COMMIT" ]]; then
+  git push origin "v$VERSION"
+else
+  test "$REMOTE_TAG_COMMIT" = "$LOCAL_TAG_COMMIT"
+  echo "Remote v$VERSION tag already matches $LOCAL_TAG_COMMIT."
+fi
 
 gh release create "v$VERSION" \
   --verify-tag \
@@ -339,6 +423,7 @@ cmp -s \
 rm -rf "$DOWNLOAD_CHECK"
 
 git push origin main
+)
 ```
 
 Pushing `main` triggers the configured Vercel production build from the repo
@@ -347,6 +432,9 @@ root. Wait for that deployment to report success before running the live checks.
 ### 9. Verify the public release
 
 ```sh
+set +e +u
+set +o pipefail 2>/dev/null || true
+(
 set -euo pipefail
 ROOT="/Users/tapps/Library/CloudStorage/Dropbox/work/custom-work-tools/apps/EXP [design]"
 VERSION="2.0"
@@ -366,6 +454,7 @@ curl -fsSIL "https://github.com/tracyapps/EXP-design/releases/download/v$VERSION
 curl -fsSI "https://expdesign.app/EXP-design-v$VERSION.html" >/dev/null
 curl -fsSI "https://expdesign.app/aria-roles/" >/dev/null
 gh release view "v$VERSION" --json tagName,name,isDraft,isPrerelease,assets,url
+)
 ```
 
 Every command must return zero. Confirm the GitHub result says the release is
@@ -378,6 +467,9 @@ installed-app baseline. Install the preserved public v1.6.1 build in
 `/Applications`, then paste:
 
 ```sh
+set +e +u
+set +o pipefail 2>/dev/null || true
+(
 set -euo pipefail
 ROOT="/Users/tapps/Library/CloudStorage/Dropbox/work/custom-work-tools/apps/EXP [design]"
 INSTALLED_APP="/Applications/EXP [design].app"
@@ -391,6 +483,7 @@ test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' \
   "$INSTALLED_APP/Contents/Info.plist")" = "9"
 
 open "$INSTALLED_APP"
+)
 ```
 
 In the running v1.6.1 app:
@@ -402,6 +495,9 @@ In the running v1.6.1 app:
 Then paste:
 
 ```sh
+set +e +u
+set +o pipefail 2>/dev/null || true
+(
 set -euo pipefail
 ROOT="/Users/tapps/Library/CloudStorage/Dropbox/work/custom-work-tools/apps/EXP [design]"
 INSTALLED_APP="/Applications/EXP [design].app"
@@ -410,6 +506,7 @@ SOCKET_PATH="$HOME/Library/Containers/tapps.EXP--design-/Data/Library/Applicatio
 cd "$ROOT"
 scripts/verify_release_candidate.sh "$INSTALLED_APP" 2.0 10
 test ! -e "$SOCKET_PATH"
+)
 ```
 
 The final socket check proves agent access remains off by default in the

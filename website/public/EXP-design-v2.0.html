@@ -1,0 +1,56 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>EXP [design] v2.0</title></head>
+<body><pre style="white-space: pre-wrap; font: -apple-system-body;">
+# EXP [design] v2.0
+
+## Handoff that keeps its meaning
+
+EXP [design] 2.0 turns a design document into an inspectable Handoff Package:
+a self-contained `.exph` folder with a manifest, structured design data, W3C
+design tokens, a human-readable README, and browser-ready semantic HTML/CSS for
+each artboard. Packages are deterministic, use stable IDs, require no build
+step or CDN, and preserve design notes instead of flattening them into pixels.
+
+### Semantic by design
+
+- Components carry states, relationships, notes, and ARIA roles into handoff.
+- Text can be marked as Plain text, Paragraph, or Heading 1–6 independently of
+  its visual Type Style.
+- Native HTML is used when it honestly represents the design; ARIA is added
+  only where it is needed. EXP does not fabricate interactions or JavaScript.
+- Semantic requirements and visual fallbacks are reported explicitly so the
+  next person can see what needs implementation rather than infer it.
+
+### A shared design language
+
+- Colors, gradients, and typography export as CSS custom properties and W3C
+  Design Tokens Community Group data.
+- Auto Layout maps to readable flexbox where the design supports it.
+- Typography is now visible and editable in Design Language Settings.
+- SVG stylesheet classes and color references import more reliably.
+
+### Learning built into the workflow
+
+The ARIA Roles Designer Guide is available from EXP's Help menu and on the web
+at [expdesign.app/aria-roles](https://expdesign.app/aria-roles/). It offers
+plain-language role descriptions, examples, categories, comparisons, search,
+and bookmarks without interrupting the design workflow.
+
+### Accessibility and verification
+
+The v2 handoff path was exercised with keyboard navigation, VoiceOver reading
+order, semantic validation, light and dark appearances, increased contrast,
+Firefox and WebKit rendering, deterministic package hashing, and signed
+universal macOS builds.
+
+### Agent-ready foundation
+
+This release also includes the local, read-only foundation for future agent
+handoff. It is off by default, listens only through a protected local Unix
+socket when explicitly enabled, requires no vendor API key, and exposes no
+network listener. The user-facing Handoff panel and guided agent setup remain
+part of the next release cycle.
+
+EXP [design] 2.0 is build 10 and requires macOS 26.2 or later.
+
+</pre></body></html>

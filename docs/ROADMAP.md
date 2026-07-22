@@ -464,7 +464,9 @@ proof remains a gate for the next published build.
 
 ---
 
-## v2.0 — Interop & Handoff (ACTIVE — build 10; anchor: docs/V2-INTEROP-PLAN.md)
+## v2.0 — released (2026-07-22)
+
+Interop & Handoff, build 10. Planning record: `docs/V2-INTEROP-PLAN.md`.
 
 Owner-set focus (2026-07-14): make EXP the design tool that lets go — hand
 work to dev teams, LLM agents, IDEs, or CodePen, and read work back in.
@@ -1962,6 +1964,39 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-07-22 — v2.0 release staging hardened after live dry run:** The first
+  production pass exposed two workflow—not app—failures. Running `set -euo
+  pipefail` directly in the interactive shell closed the Terminal window at the
+  first guard failure, and Dropbox repeatedly reattached `com.apple.FinderInfo`
+  to five signed nested bundles after `xattr` cleanup. Wrapped every v2 runbook
+  block in a subshell so failures return to the prompt, moved signed app/zip and
+  accumulated Sparkle staging to non-synced `~/Library/Developer/` folders, and
+  taught the verifier to identify Dropbox as the likely metadata source. Copied
+  the already-notarized v2 app into clean local staging without extended
+  attributes; production verification passes version/build, universal slices,
+  entitlements, strict nested signatures, Gatekeeper, and staple both before and
+  after zip round-trip. Created the immutable 27 MB v2 zip with SHA-256
+  `3abbd5a1b1e67fb49859e503f3c3d8b4c5536c65b9b18497738bf4023192ca92`.
+  Also made tag publication resumable: the already-pushed v2.0 tag may be reused
+  only when it is the current release-source commit or exactly one metadata
+  commit behind HEAD, and its peeled remote commit must match locally. No GitHub
+  Release, appcast, or website deployment was performed during this recovery.
+  OWNER FOLLOW-UP: Dropbox syncing was paused and the owner asked to retain the
+  normal sibling release directories while they repair the ignored-folder rule.
+  Cleared the regular exported app again and reran the full production verifier
+  successfully, but File Provider metadata returned even with syncing paused.
+  Copied the clean local safety zip byte-for-byte back to
+  `apps/releases/v2.0/`; its SHA-256 is unchanged. The runbook again uses the
+  standard directories for every final artifact, while Step 6 verifies and zips
+  from an ephemeral clean app copy so File Provider cannot race the signature
+  check. The local clean zip also remains available as a fallback. FINAL RUNBOOK
+  FOLLOW-UP: zsh still reported `no matches found` when an older/copied path
+  retained the literal `EXP [design]/..` segment. All v2 release/Sparkle paths
+  now canonicalize the parent `apps` directory first, yielding a bracket-free
+  `/apps/releases/v2.0/...` path even if a quote is lost. Step 8 conditionally
+  amends only these reviewed runbook corrections into the still-unpushed local
+  metadata commit before enforcing a completely clean tree.
 
 - **2026-07-22 — v2.0 release runbook made fully copy/paste-ready:** Replaced the
   partial v2 release notes in `docs/RELEASE-CHECKLIST.md` with one linear,
