@@ -8,3 +8,5 @@ docs/*
 !docs/HANDOFF-SCHEMA.md
 !docs/RELEASE-CHECKLIST.md
 !docs/ROADMAP.md
+!docs/V2-INTEROP-PLAN.md
+!docs/SEMANTIC-HTML-CONTRACT.md

@@ -351,11 +351,17 @@ Tester-facing v1.6 highlights for `expdesign.app/download#tester-features`:
       machinery states use; a live "Contrast N.NN:1 · AA / below AA" strip under
       the source-editor states bar re-checks as you switch states. Advisory only.
 
-## v1.6.1 — bug-fix stabilization (RELEASE CANDIDATE)
+## v1.6.1 — released (2026-07-21)
 
 Build 9, `MARKETING_VERSION 1.6.1`. Close confirmed defects after v1.6, led by
 the long-standing rich-text commit bug, plus the small owner-approved vector
 workflow additions needed to make custom cursors directly in EXP.
+
+Public release completed 2026-07-21: Direct Distribution, notarization,
+stapling, final signature/entitlement verification, exact Sparkle archive and
+appcast, GitHub release, and website publication are complete. v1.6.1 is the
+one-time manual-install updater baseline; the first automatic install/relaunch
+proof remains a gate for the next published build.
 
 - [x] **Rich text: preserve selected-run styling on direct click-out.** The
       inline editor now keeps a stable attributed-text snapshot refreshed by
@@ -383,7 +389,7 @@ workflow additions needed to make custom cursors directly in EXP.
       universal Release app passes strict deep signature verification and carries
       sandbox, network, user-selected-file, and expanded `-spks` / `-spki`
       exceptions; its Info.plist reports 1.6.1/build 9 and enables the launcher.
-- [ ] **OWNER DISTRIBUTION VERIFY:** Direct Distribution must repeat those checks
+- [x] **OWNER DISTRIBUTION VERIFY:** Direct Distribution repeated those checks
       on the final Developer ID/notarized/stapled export. After manually installing
       v1.6.1, preserve it as the baseline for the next live Sparkle update proof.
 - [x] **Named/batched media import.** Finder SVG and raster filenames (without
@@ -446,14 +452,19 @@ workflow additions needed to make custom cursors directly in EXP.
       preflight, vector-geometry smoke suite, and production website build pass.
       A signed local `.xcarchive` is prepared in Xcode's local Archives folder;
       strict nested-code verification passes on the archived app.
-- [ ] **External distribution:** Direct Distribution, notarize, staple, verify the signed
+- [x] **External distribution:** Direct Distribution, notarize, staple, verify the signed
       app's entitlements/signatures, create the exact Sparkle zip/appcast, publish
-      the GitHub release and website, then manually install v1.6.1 as the repaired
-      baseline for the next release's automatic-update proof.
+      the GitHub release and website. COMPLETED 2026-07-21.
+- [x] **Updater baseline:** manually install public v1.6.1, confirm About shows
+      1.6.1/build 9, run `scripts/verify_installed_update_baseline.sh`, and preserve
+      that installed copy for v2.0's prompt → install → relaunch proof. OWNER
+      VERIFIED 2026-07-21: removed post-install `com.apple.FinderInfo` metadata;
+      strict deep signature validation and Gatekeeper's Notarized Developer ID
+      assessment pass; script reports “Installed update baseline is clean.”
 
 ---
 
-## v2.0 — Interop & Handoff (PLANNED — anchor doc: docs/V2-INTEROP-PLAN.md)
+## v2.0 — Interop & Handoff (ACTIVE — build 10; anchor: docs/V2-INTEROP-PLAN.md)
 
 Owner-set focus (2026-07-14): make EXP the design tool that lets go — hand
 work to dev teams, LLM agents, IDEs, or CodePen, and read work back in.
@@ -461,6 +472,17 @@ Export/handoff is the spine (decided 2026-07-14); notes + ARIA roles travel
 with the design. Full chunk breakdown, risks, and release mapping live in
 **docs/V2-INTEROP-PLAN.md**. Summary:
 
+- [x] **SVG import stabilization — stylesheet class colors:** SVGs that store
+      presentation data in `<style>` rules (for example Illustrator-style
+      `.cls-N { fill: … }`) now resolve simple element/id/class selectors with
+      correct presentation-attribute → stylesheet specificity/source-order →
+      inline-style precedence. The shared resolution also covers strokes,
+      opacity, fonts, gradient stops, and class-applied filters. Headless proof:
+      `1813-bowtie.svg` imports as 418 native nodes with all 133 distinct source
+      colors preserved; a focused cascade fixture also passes.
+- [x] **OWNER VERIFIED 2026-07-21 — SVG class colors:** rebuilt and re-imported
+      `1813-bowtie.svg`; its colored native layers now visually match the source
+      rather than importing as black. Owner reports the issue is fully fixed.
 - [x] **Chunk A — Schema + Handoff Package** (documented/versioned design.json
       schema, package writer, manifest, README.llm.md) — v1.5
 - [x] **Chunk C — W3C DTCG design-tokens import/export** (Design Language ↔
@@ -471,6 +493,68 @@ with the design. Full chunk breakdown, risks, and release mapping live in
       matches a Design Language color, emit/use its CSS custom property while
       retaining a standalone-safe fallback. Do not lose token identity during the
       broader import/export codec work.
+  - [x] **B0 — Contract + golden fixture:** document the deterministic role →
+        element mapping, DOM-id/data-exp-id rules, escaping, artboard ownership,
+        and fidelity fallbacks; add one representative export fixture that covers
+        notes, tokens, free-positioned layers, auto-layout, a categorized component,
+        a state, and an ARIA relationship. DONE 2026-07-21: added the written
+        semantic contract, executable mappings/identity/escaping helpers, and a
+        headless fixture verifier covering all 40 curated roles, duplicate-safe
+        instance IDs, selectors, hostile-text escaping, and document round-trip.
+  - [x] **B1 — First vertical package slice:** extend the existing
+        `HandoffPackageWriter` to add `html/styles.css` plus one HTML file per
+        artboard, list/hash those files in `manifest.json`, and orient readers to
+        them in `README.llm.md`. Start with an honest absolute-position baseline;
+        every emitted layer keeps its stable `data-exp-id` reference. DONE
+        2026-07-21: packages now include deterministic standalone artboard pages
+        and shared CSS, resolved component visuals with instance-qualified ids,
+        safe notes/strings, addressable hidden layers, reading-order rules, and
+        explicit wall-node omission counts. The golden package verifier checks
+        every entry's byte count and SHA-256 digest.
+  - [x] **B2 — Semantic component contract:** resolve instances and their active
+        state; emit role-appropriate elements/ARIA, accessible names, typed
+        relationships, conventional pseudo-classes, and custom `data-state`
+        selectors. Do not generate or store JavaScript. DONE 2026-07-21: native
+        and explicit-ARIA hosts, instance-qualified accessible names and typed
+        relationships, conventional/disabled/custom state selectors, active
+        state attributes, and structured missing-data requirements now ship in
+        the Handoff Package. No scripts or inline event handlers are generated.
+  - [x] **B3 — Layout + Design Language fidelity:** map auto-layout groups to
+        flexbox, type styles to classes, exact matching paints to CSS custom
+        properties with standalone fallbacks, and carry the same token identity
+        into standalone SVG export. DONE 2026-07-22: managed stacks now emit
+        flex direction/distribution/gap/alignment and fixed flex items; exact
+        paints/type styles reuse deterministic Design Language CSS identities;
+        and standalone SVG fill/stroke attributes use the identical color-token
+        lookup with literal fallbacks and alpha applied exactly once.
+  - [ ] **B4 — Semantic closure + accessibility/fidelity verification:** close
+        the content-level semantic gaps exposed by the first real exports, then
+        validate generated markup, keyboard/VoiceOver reading order, light/dark
+        and increased-contrast behavior, visual fidelity in a browser,
+        deterministic output, and honest manifest reporting for every fallback
+        or unsupported effect.
+    - [x] **B4a — Text content roles (do not overload Type Style categories):**
+          give text layers an independent semantic intent, initially **Plain
+          text / Paragraph / Heading 1–6**. A visual type style remains reusable
+          presentation; a content role controls native export (`<p>`, `<h1>`…
+          `<h6>`). Prefer native headings over `role="heading"`; if a component
+          is categorized Heading, resolve its level from explicit content data
+          or report `headingLevel`—never infer hierarchy from font size/name.
+          Inspector authoring, tolerant document decode, component/source
+          behavior, instance needs, and HTML/package round-trip coverage belong
+          in this slice. Keep lists/labels/quotes/code as later discovery rather
+          than inventing a broad content ontology now. DONE 2026-07-22: text
+          layers now store a tolerant, independently authored content role;
+          Inspector, Type menu, and context menu expose it; plain text emits a
+          safe `<span>`, Paragraph and Heading 1–6 emit native tags; and Heading
+          components resolve `aria-level` from an unambiguous authored descendant
+          without duplicating a nested heading. Package fixtures cover native
+          tags, component inheritance, tolerant decode, and document round-trip.
+    - [ ] **B4b — Verification + fidelity reporting:** deterministic golden
+          comparison, standards-valid markup, browser visual comparison,
+          keyboard/VoiceOver reading order, light/dark/increased-contrast checks,
+          broken relationships, and structured reporting for every unsupported
+          semantic or visual fallback.
 - [ ] **Chunk D — Figma import** (REST API path first; .fig best-effort later) — v2.1
 - [ ] **Chunk E — Code/Storybook/HTML-CSS import** — v2.2
 - [ ] **Chunk F — Agent Bridge** (EXP as a LOCAL MCP server the designer's own
@@ -1465,6 +1549,11 @@ Current baseline:
 - [x] Export/import: EXP JSON `typeStyles` array (merge modes incl. value
       de-dup via `sameValues`), CSS `.type-<slug>` classes (font-* only — no
       color, on purpose).
+- [x] **SEMANTIC BOUNDARY (decision 2026-07-22):** do not use a Type Style
+      category to mean `<h1>`…`<h6>`. Categories organize reusable visual
+      treatments; heading level belongs to the individual text layer's content
+      intent so meaning survives restyling and one style can be used at more than
+      one level. Implementation is v2.0 B4a / Phase 19b.
 - [ ] FUTURE (discovery first): per-style color notes / recommended pairings
       from the color library. Do not spec until the workflow is designed.
 - [ ] Settings-window Design Language editor: type-style section parity
@@ -1560,6 +1649,11 @@ failing the document._
       accessibility "task" was ever presented — it felt like organizing.
 
 #### 19b — Semantics layer (the hidden "health food")
+- [ ] Add lightweight **text content roles**, initially Plain text / Paragraph /
+      Heading 1–6, as metadata independent from Type Styles. Export Paragraph as
+      `<p>` and headings as native `<h1>`…`<h6>`; never guess a level from visual
+      size, weight, layer name, or style category. This is the content-design
+      counterpart to component roles and is scheduled as v2.0 B4a.
 - [ ] Surface the **accessible-name source** captured in 19a: let the designer
       pick which child text layer names the component (or fall back to a typed
       label). Still lightweight — one control.
@@ -1592,6 +1686,38 @@ failing the document._
 (organizing components). 19b and 19c can follow whenever; nothing downstream is
 blocked by shipping 19a first. That's the whole point — the health food is
 already on the plate before anyone orders the vegetables.
+
+#### 19d — Focused in-app ARIA reference (IN PROGRESS; v2.0 foundation)
+
+Embed the owner's searchable ARIA-role reference web app as a focused learning
+surface extending the short role blurbs already shown in EXP. This is an
+authoring aid, not preview/prototyping and not a general-purpose browser; its
+schedule follows the companion documentation reaching a usable published state.
+
+- [x] House the completed static guide under the existing website at
+      `/aria-roles/` and expose it from the site's Learn menu. The production
+      website build includes the complete exported directory. DONE 2026-07-22.
+- [x] Help ▸ **ARIA Roles Guide** opens the full searchable reference in a
+      resizable 1100×820 default window. Preserve the existing concise inline
+      role blurbs for fast/offline use. DONE 2026-07-22.
+- [ ] Add **Learn about this role…** beside role/category authoring once the
+      guide's role deep-link contract is exercised in-app.
+- [x] Use a dedicated `WKWebView` window or panel with no address bar and an
+      allowlisted first-party documentation origin. Navigation outside that
+      origin opens in the user's default browser; never accept arbitrary URLs,
+      inject credentials, or expose document data to page scripts. DONE 2026-07-22.
+- [x] Make network state explicit: loading progress,
+      accessible failure/offline state, Retry, and Open in Browser. Do not imply
+      the remote documentation is bundled or available offline. Failure copy
+      identifies `expdesign.app`; no browser toolbar is added. DONE 2026-07-22.
+- [ ] Accessibility/privacy acceptance: complete keyboard navigation and focus
+      return to the invoking role control; VoiceOver names/status; page zoom;
+      Reduce Motion/appearance compatibility owned by the reference site; no
+      third-party tracking requirement or persistent session needed for lookup.
+      The current export still loads React/Babel and Phosphor assets from unpkg;
+      converting those to first-party/offline assets is a separate hardening task.
+- [x] Keep URL/deep-link configuration out of the document schema. The focused
+      window allowlists `https://expdesign.app/aria-roles/`. DONE 2026-07-22.
 
 
 ### Phase 20 — Sparkle auto-updates (v1.4 update-path proof)
@@ -1713,6 +1839,126 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-07-22 — ARIA guide integrated + v2.0 B4a text semantics complete:**
+  Housed the owner's completed ARIA Roles Designer Guide at the website's new
+  `/aria-roles/` static section and linked it from Learn. Added Help ▸ ARIA Roles
+  Guide as a focused, resizable `WKWebView` window with no browser toolbar,
+  allowlisted first-party navigation, external-link handoff, loading state, and
+  accessible retry/open-in-browser failure UI. The guide remains online-only for
+  now because its export loads runtime/icon assets from unpkg. Then completed the
+  next roadmap slice: text layers now author Plain text, Paragraph, or Heading
+  1–6 independently from Type Styles; semantic handoff emits native tags and
+  resolves Heading-component `aria-level` without nested duplicate headings.
+  Website production build, semantic package suite, tolerant codec coverage,
+  and unsigned Debug app/Quick Look build pass. Next: B4b standards, browser,
+  VoiceOver/keyboard, appearance, determinism, and fidelity verification.
+
+- **2026-07-22 — Semantic authoring follow-ons placed:** Testing exposed a
+  useful distinction between typography as presentation and text as content.
+  Locked the boundary: Type Style categories remain visual organization; a new
+  per-text content role in v2.0 B4a will carry Paragraph or Heading 1–6 and drive
+  native `<p>`/`<h1>`…`<h6>` export without guessing from font size or style
+  names. Also planned a focused, allowlisted in-app window for the owner's
+  searchable ARIA reference web app as Phase 19d / likely v2.1. It will open
+  contextually from role authoring, preserve concise offline blurbs, expose
+  network/error state accessibly, send outside links to the default browser,
+  and remain documentation-dependent rather than blocking v2.0.
+
+- **2026-07-22 — v2.0 B3 layout + Design Language fidelity complete:** Semantic
+  handoff now maps managed horizontal/vertical stacks to real flexbox, including
+  packed gap/primary alignment, space-between distribution, cross alignment,
+  and managed padding; children become fixed flex items while free-positioned
+  artwork keeps its honest absolute geometry. Consolidated deterministic Design
+  Language CSS bindings so exact paints emit `var(--token, fallback)` and exact
+  whole-text matches emit reusable type-style classes (mixed rich text stays
+  explicit). Standalone SVG uses the same lookup for fills/strokes, embeds token
+  declarations, and preserves literal fallbacks without double-applying alpha.
+  Both semantic headless suites, the new semi-transparent SVG token smoke check,
+  and a full unsigned Debug build of the app + Quick Look extension pass. Next:
+  B4 accessibility, browser fidelity, determinism, and fallback reporting.
+
+- **2026-07-21 — Real-export vector and gradient fidelity fixed:** The owner's
+  browser-versus-canvas screenshot isolated two distinct baseline issues. HTML
+  treated every imported path as a background-filled rectangle, turning a
+  complex SVG portrait into block art; path nodes now emit their actual inline
+  SVG cubic/multi-contour geometry with fill, stroke, alpha, and local gradients.
+  CSS also used EXP angles verbatim even though the coordinate conventions
+  differ; generated linear gradients now normalize `EXP angle + 90°` (the real
+  document's 90° top-to-bottom gradient correctly becomes CSS 180°). Extended
+  the golden fixture with curved SVG data and angle checks, smoke-exported the
+  owner's real document with 282 artboard-owned inline paths, and confirmed a
+  clean Debug build. Playwright screenshot automation was unavailable because
+  Google Chrome is not installed; artifact-level verification completed without
+  installing new software. Next remains B3 auto-layout and Design Language
+  fidelity.
+
+- **2026-07-21 — v2.0 semantic component HTML active:** Finished Chunk B2 and
+  incorporated the owner's first real export feedback. Diagnosed the stylesheet
+  failure in the actual `test2` package: generated `rgb()` values lacked their
+  closing parenthesis, causing browser CSS parsing to fail. Fixed and regression
+  tested it. `README.llm.md` now includes each complete artboard note as a
+  blockquote rather than only noting its presence. Categorized instances now use
+  native HTML or explicit ARIA hosts; accessible-name layers and typed
+  relationships resolve through duplicate-safe ids; component states emit
+  pseudo-class/disabled/custom selectors; unresolved facts appear as structured
+  manifest and README requirements; and no JavaScript is generated. The golden
+  package checks, a smoke export of the owner's real 900×1322 document, and the
+  full Debug build all pass. Next: B3 auto-layout and Design Language fidelity.
+
+- **2026-07-21 — v2.0 first semantic HTML/CSS package slice complete:** Finished
+  Chunk B1. `HandoffPackageWriter` now emits `html/styles.css` and one standalone,
+  deterministic HTML file per artboard; lists and hashes them in `manifest.json`;
+  and explains entry points/fidelity in `README.llm.md`. The baseline preserves
+  absolute geometry, stable `data-exp-id` identity, frontmost-first plain-group
+  reading order, visual-axis auto-layout order, resolved component visuals with
+  duplicate-safe instance ids, hidden-layer addressability, basic visual styles,
+  and safe HTML/CSS strings. Wall-only nodes remain in `design.json` and are
+  counted as HTML omissions. Both headless semantic checks and the full Debug
+  build pass. Next: B2 component roles, names, relationships, and states.
+
+- **2026-07-21 — v2.0 semantic HTML/CSS contract complete:** Finished Chunk B0.
+  Defined all 40 curated ARIA-role mappings with native HTML preference and
+  explicit missing-data requirements; stable artboard/node/component identity;
+  duplicate-safe instance/source IDs; deterministic filenames; DOM/reading-order,
+  state-selector, relationship, notes, and escaping rules. Added an executable
+  headless golden-fixture verifier and confirmed a clean Debug build. Next: B1,
+  the first document-wide HTML/CSS bundle emitter.
+
+- **2026-07-21 — v1.6.1 installed updater baseline verified:** The baseline
+  audit caught `com.apple.FinderInfo` metadata attached post-install to the
+  thumbnail extension and nested Sparkle resources/XPC services. Removed only
+  that attribute recursively, then reran the complete check: EXP reports
+  1.6.1/build 9; the app, thumbnail extension, Sparkle framework, Updater,
+  Downloader/Installer XPC services, and Autoupdate all pass strict signature
+  validation; Gatekeeper accepts the app as Notarized Developer ID. Preserve
+  this installed copy for v2.0's prompt → install → relaunch proof.
+
+- **2026-07-21 — Owner verified SVG stylesheet colors:** Rebuilt and re-imported
+  `1813-bowtie.svg`; the native layers now retain their source colors and the
+  all-black regression is closed. v2.0 can resume at Chunk B0.
+
+- **2026-07-21 — SVG stylesheet-class color import fixed:** Diagnosed the
+  intermittent “all layers black” report using owner-supplied
+  `1813-bowtie.svg`. The geometry used `class="cls-N"` while all 133 paints lived
+  in a `<style>` block; `SVGImporter` previously read only presentation
+  attributes and inline `style`, so intact paths fell back to SVG's initial
+  black fill. Added a bounded stylesheet cascade for simple element/id/class
+  selectors, with specificity/source-order and inline-style precedence, shared
+  across layer styles, gradient stops, and filters. Debug build succeeds. A
+  headless import reports 418 native nodes and exactly 133 unique colors; focused
+  class/presentation/inline precedence coverage passes. Owner visual drag-in
+  verification remains.
+
+- **2026-07-21 — v1.6.1 shipped; v2.0/build 10 opened:** Owner confirmed the
+  Developer ID/notarized/stapled release, exact Sparkle archive/appcast, GitHub
+  release, website publication, and pushes are complete. Closed the v1.6.1
+  release-candidate/distribution gates. The manual installed-baseline check and
+  first automatic install/relaunch proof remain explicit owner gates. Opened
+  v2.0 as the active cycle and decomposed Chunk B into an executable semantic
+  export sequence: contract fixture → first `.exph` HTML/CSS vertical slice →
+  component semantics/states → flexbox/token/SVG fidelity → accessibility and
+  deterministic-output verification.
 
 - **2026-07-20 — v1.6.1 download-page status cleanup [site]:** Removed the
   resolved rich-text click-out issue from the tester download page and marked

@@ -15,9 +15,14 @@ const featureLinks = [
   { label: "multi-window", href: "/#workspace" },
 ];
 
+const learnLinks = [
+  { label: "tutorials", href: "/learn" },
+  { label: "ARIA roles guide", href: "/aria-roles/" },
+];
+
 const navItems = [
   { label: "features", dropdown: featureLinks },
-  { label: "learn", href: "/learn" },
+  { label: "learn", dropdown: learnLinks },
   { label: "roadmap", href: "/#roadmap" },
   { label: "download", href: "/download" },
 ];

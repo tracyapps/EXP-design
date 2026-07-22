@@ -4,7 +4,7 @@
 //
 //  v1.5 Chunk A: write the first EXP handoff package spine. The package is a
 //  folder with a stable extension so it is inspectable, diffable, and easy for
-//  agents/dev teams to consume before the later semantic HTML exporter lands.
+//  agents/dev teams to consume. v2.0 B1 adds the first semantic HTML/CSS slice.
 //
 
 import Foundation
@@ -36,11 +36,19 @@ struct HandoffPackageWriter {
 
         let designData = try encodedDesign()
         let tokensData = try DesignLanguageIO.exportDesignTokensJSON(document.designLanguage)
-        let readmeData = Data(readme().utf8)
+        let htmlBundle = SemanticHTMLExporter(document: document).makeBundle()
+        let readmeData = Data(readme(htmlBundle: htmlBundle).utf8)
 
         try designData.write(to: packageURL.appendingPathComponent("design.json"), options: .atomic)
         try tokensData.write(to: packageURL.appendingPathComponent("tokens.json"), options: .atomic)
-        try manifestData(designData: designData, tokensData: tokensData, readmeData: readmeData)
+        for artifact in htmlBundle.artifacts {
+            let target = packageURL.appendingPathComponent(artifact.path)
+            try fm.createDirectory(at: target.deletingLastPathComponent(),
+                                   withIntermediateDirectories: true)
+            try artifact.data.write(to: target, options: .atomic)
+        }
+        try manifestData(designData: designData, tokensData: tokensData,
+                         htmlBundle: htmlBundle, readmeData: readmeData)
             .write(to: packageURL.appendingPathComponent("manifest.json"), options: .atomic)
         try readmeData.write(to: packageURL.appendingPathComponent("README.llm.md"), options: .atomic)
     }
@@ -51,7 +59,17 @@ struct HandoffPackageWriter {
         return try enc.encode(document)
     }
 
-    private func manifestData(designData: Data, tokensData: Data, readmeData: Data) throws -> Data {
+    private func manifestData(designData: Data, tokensData: Data,
+                              htmlBundle: SemanticHTMLBundle,
+                              readmeData: Data) throws -> Data {
+        let htmlEntries = htmlBundle.artifacts.map { artifact in
+            HandoffManifest.Entry(path: artifact.path,
+                                  role: artifact.role,
+                                  mediaType: artifact.mediaType,
+                                  schemaVersion: SemanticHTMLExporter.formatVersion,
+                                  bytes: artifact.data.count,
+                                  sha256: sha256(artifact.data))
+        }
         let manifest = HandoffManifest(
             expHandoffPackage: Self.packageFormatVersion,
             generatedAt: ISO8601DateFormatter().string(from: Date()),
@@ -72,6 +90,7 @@ struct HandoffPackageWriter {
                       schemaVersion: 1,
                       bytes: tokensData.count,
                       sha256: sha256(tokensData)),
+            ] + htmlEntries + [
                 .init(path: "README.llm.md",
                       role: "orientation",
                       mediaType: "text/markdown",
@@ -83,13 +102,24 @@ struct HandoffPackageWriter {
                            nodes: count(document.nodes),
                            components: document.sources.count,
                            notes: document.artboards.filter { !$0.notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.count,
-                           designTokens: document.designLanguage.assets.count + document.designLanguage.typeStyles.count),
+                           designTokens: document.designLanguage.assets.count + document.designLanguage.typeStyles.count,
+                           semanticHTMLPages: htmlBundle.pagePaths.count,
+                           semanticHTMLNodes: htmlBundle.emittedNodeCount,
+                           semanticHTMLOmittedWallNodes: htmlBundle.omittedWallNodeCount),
             fidelity: .init(geometry: "native",
                             styles: "native",
                             text: "native",
                             components: "source-instance references",
-                            semantics: "component ARIA roles where assigned",
-                            notes: "artboard notes included"))
+                            semantics: "HTML B2 native/ARIA component contract with explicit requirements for missing model facts",
+                            notes: "full artboard notes included in README and as safe HTML comments; wall-only nodes omitted and counted",
+                            semanticHTMLRequirements: htmlBundle.fidelityIssues.map {
+                                .init(artboardID: $0.artboardID,
+                                      nodeID: $0.nodeID,
+                                      sourceID: $0.sourceID,
+                                      role: $0.role?.rawValue,
+                                      requirement: $0.requirement,
+                                      detail: $0.detail)
+                            }))
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
         return try enc.encode(manifest)
@@ -108,18 +138,29 @@ struct HandoffPackageWriter {
         }
     }
 
-    private func readme() -> String {
+    private func readme(htmlBundle: SemanticHTMLBundle) -> String {
         let sourceName = sourceURL?.lastPathComponent ?? "Untitled document"
         let notes = document.artboards
             .filter { !$0.notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-            .map { "- \($0.name) (`\($0.id.uuidString)`) has artboard notes." }
-            .joined(separator: "\n")
+            .map { artboard in
+                "### \(markdownInline(artboard.name))\n\n" +
+                "Artboard id: `\(artboard.id.uuidString)`\n\n" +
+                markdownBlockquote(artboard.notes)
+            }
+            .joined(separator: "\n\n")
         let roles = document.sources
             .compactMap { source -> String? in
                 guard let role = source.a11y.role else { return nil }
                 return "- \(source.name) (`\(source.id.uuidString)`) is categorized as ARIA `\(role.rawValue)`."
             }
             .joined(separator: "\n")
+        let htmlPages = htmlBundle.pagePaths
+            .map { "- `\($0)`" }
+            .joined(separator: "\n")
+        let semanticRequirements = htmlBundle.fidelityIssues.map { issue in
+            let role = issue.role.map { " ARIA `\($0.rawValue)`" } ?? ""
+            return "- Artboard `\(issue.artboardID.uuidString)`, node `\(issue.nodeID.uuidString)`\(role): **\(markdownInline(issue.requirement))** — \(issue.detail)"
+        }.joined(separator: "\n")
 
         return """
         # EXP Handoff Package
@@ -132,11 +173,21 @@ struct HandoffPackageWriter {
         - `manifest.json` lists package entries, versions, counts, and fidelity notes.
         - `design.json` is the public EXP document payload. Node, artboard, component, and design-language ids are stable references.
         - `tokens.json` is the document Design Language as W3C Design Tokens JSON.
+        - `html/styles.css` is the shared generated stylesheet.
+        - `html/*.html` contains one standalone page per artboard.
         - `README.llm.md` is this orientation file for people and local agents.
 
         ## How to Read This
 
-        Use `manifest.json` first, then open `design.json` for geometry, layers, components, ARIA role categories, and artboard notes. Use ids as the only reference currency: do not infer identity from names or layer order. `tokens.json` carries reusable colors, gradients, and type styles when the document has them.
+        Use `manifest.json` first, then open `design.json` for geometry, layers, components, ARIA role categories, and artboard notes. Use ids as the only reference currency: do not infer identity from names or layer order. `tokens.json` carries reusable colors, gradients, and type styles when the document has them. Open an HTML page directly in a browser; its relative link resolves the shared stylesheet without a build step or remote dependency.
+
+        ## HTML Entry Points
+
+        \(htmlPages.isEmpty ? "No artboards were available for HTML export." : htmlPages)
+
+        The B2 HTML slice preserves artboard ownership, stable `data-exp-id` references, component source references, repeated-instance identity, visibility, and absolute geometry. Categorized components use native HTML where EXP can do so honestly and explicit ARIA otherwise. Accessible-name layers and typed relationships stay id-based. Component states export as conventional pseudo-classes, disabled attributes, or custom `data-state` selectors. EXP generates no JavaScript and does not fabricate missing behavior or values. Flex auto-layout and token-linked declarations arrive in B3.
+
+        \(htmlBundle.omittedWallNodeCount == 0 ? "No wall-only nodes were omitted." : "\(htmlBundle.omittedWallNodeCount) wall-only node(s) were omitted because they do not belong to an artboard.")
 
         ## Artboard Notes
 
@@ -146,10 +197,28 @@ struct HandoffPackageWriter {
 
         \(roles.isEmpty ? "No component ARIA roles are assigned." : roles)
 
+        ## Semantic HTML Requirements
+
+        \(semanticRequirements.isEmpty ? "No unresolved semantic HTML requirements were found." : semanticRequirements)
+
         ## Fidelity
 
-        This v1.5 package preserves EXP's native document data. Semantic HTML/CSS export is planned for a later interop chunk, so this package intentionally does not pretend to be production markup yet.
+        This package preserves EXP's native document data and includes the v2.0 B2 semantic HTML/CSS contract. The generated pages are deterministic, inspectable handoff artifacts—not a claim that listed downstream interaction requirements have been implemented.
         """
+    }
+
+    private func markdownInline(_ value: String) -> String {
+        var escaped = value.replacingOccurrences(of: "\\", with: "\\\\")
+        for character in ["`", "*", "_", "{", "}", "[", "]", "<", ">", "#", "|"] {
+            escaped = escaped.replacingOccurrences(of: character, with: "\\\(character)")
+        }
+        return escaped
+    }
+
+    private func markdownBlockquote(_ value: String) -> String {
+        value.split(separator: "\n", omittingEmptySubsequences: false)
+            .map { "> \($0)" }
+            .joined(separator: "\n")
     }
 }
 
@@ -175,15 +244,28 @@ private struct HandoffManifest: Codable {
         var components: Int
         var notes: Int
         var designTokens: Int
+        var semanticHTMLPages: Int
+        var semanticHTMLNodes: Int
+        var semanticHTMLOmittedWallNodes: Int
     }
 
     struct Fidelity: Codable {
+        struct SemanticIssue: Codable {
+            var artboardID: UUID
+            var nodeID: UUID
+            var sourceID: UUID?
+            var role: String?
+            var requirement: String
+            var detail: String
+        }
+
         var geometry: String
         var styles: String
         var text: String
         var components: String
         var semantics: String
         var notes: String
+        var semanticHTMLRequirements: [SemanticIssue]
     }
 
     var expHandoffPackage: Int

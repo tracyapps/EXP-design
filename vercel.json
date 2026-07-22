@@ -5,7 +5,7 @@
   "outputDirectory": "website/dist",
   "rewrites": [
     {
-      "source": "/((?!assets/|api/).*)",
+      "source": "/((?!assets/|api/|aria-roles(?:/|$)).*)",
       "destination": "/"
     }
   ]

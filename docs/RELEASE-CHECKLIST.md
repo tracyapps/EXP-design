@@ -196,16 +196,16 @@ v1.6.1 repairs the baseline itself. The first valid end-to-end automatic-update
 proof therefore begins with installed v1.6.1 and targets the next published build.
 
 ### 5. After v1.6.1 is live
-Back on `dev`, open the next cycle:
+Open the approved v2.0 interop/handoff cycle:
 
 ```sh
-scripts/set_release_version.sh 1.7 10
+scripts/set_release_version.sh 2.0 10
 grep MARKETING_VERSION "EXP [design].xcodeproj/project.pbxproj" | sort -u
 grep CURRENT_PROJECT_VERSION "EXP [design].xcodeproj/project.pbxproj" | sort -u
 ```
 
-Then update `docs/ROADMAP.md` if the v1.7 section needs adjustment, commit on
-`dev`, and keep release artifacts out of the repo.
+Then update `docs/ROADMAP.md` if the v2.0 section needs adjustment, commit on
+the active development branch, and keep release artifacts out of the repo.
 
 ## 1. Land the work on `dev`
 - [ ] Xcode build is clean and the release's changes are smoke-tested.

@@ -1,0 +1,260 @@
+/* ============================================================================
+   EXP [design] — WEBFONTS  (self-hosted SF, uploaded by the owner)
+   Wires the brand families the tokens reference: SF Pro Text (--font-sans),
+   SF Pro Display (--font-display), SF Compact Display (--font-condensed).
+   SF Mono (--font-mono) stays on the system stack (no file supplied; that's fine
+   — it's present on macOS and was never flagged missing).
+   Weight names map: Ultralight 100 · Thin 200 · Light 300 · Regular 400 ·
+   Medium 500 · Semibold 600 · Bold 700 · Heavy 800 · Black 900.
+   ========================================================================== */
+
+/* ---- SF Pro Text ---- */
+@font-face {
+  font-family: "SF Pro Text";
+  font-style: normal;
+  font-weight: 100;
+  font-display: swap;
+  src: url("../fonts/SF-Pro-Text-Ultralight.otf") format("opentype");
+}
+@font-face {
+  font-family: "SF Pro Text";
+  font-style: normal;
+  font-weight: 200;
+  font-display: swap;
+  src: url("../fonts/SF-Pro-Text-Thin.otf") format("opentype");
+}
+@font-face {
+  font-family: "SF Pro Text";
+  font-style: normal;
+  font-weight: 300;
+  font-display: swap;
+  src: url("../fonts/SF-Pro-Text-Light.otf") format("opentype");
+}
+@font-face {
+  font-family: "SF Pro Text";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("../fonts/SF-Pro-Text-Regular.otf") format("opentype");
+}
+@font-face {
+  font-family: "SF Pro Text";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("../fonts/SF-Pro-Text-Medium.otf") format("opentype");
+}
+@font-face {
+  font-family: "SF Pro Text";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("../fonts/SF-Pro-Text-Semibold.otf") format("opentype");
+}
+@font-face {
+  font-family: "SF Pro Text";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("../fonts/SF-Pro-Text-Bold.otf") format("opentype");
+}
+@font-face {
+  font-family: "SF Pro Text";
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url("../fonts/SF-Pro-Text-Heavy.otf") format("opentype");
+}
+@font-face {
+  font-family: "SF Pro Text";
+  font-style: normal;
+  font-weight: 900;
+  font-display: swap;
+  src: url("../fonts/SF-Pro-Text-Black.otf") format("opentype");
+}
+@font-face {
+  font-family: "SF Pro Text";
+  font-style: italic;
+  font-weight: 300;
+  font-display: swap;
+  src: url("../fonts/SF-Pro-Text-LightItalic.otf") format("opentype");
+}
+@font-face {
+  font-family: "SF Pro Text";
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url("../fonts/SF-Pro-Text-RegularItalic.otf") format("opentype");
+}
+@font-face {
+  font-family: "SF Pro Text";
+  font-style: italic;
+  font-weight: 500;
+  font-display: swap;
+  src: url("../fonts/SF-Pro-Text-MediumItalic.otf") format("opentype");
+}
+@font-face {
+  font-family: "SF Pro Text";
+  font-style: italic;
+  font-weight: 600;
+  font-display: swap;
+  src: url("../fonts/SF-Pro-Text-SemiboldItalic.otf") format("opentype");
+}
+
+/* ---- SF Pro Display ---- */
+@font-face {
+  font-family: "SF Pro Display";
+  font-style: normal;
+  font-weight: 100;
+  font-display: swap;
+  src: url("../fonts/SF-Pro-Display-Ultralight.otf") format("opentype");
+}
+@font-face {
+  font-family: "SF Pro Display";
+  font-style: normal;
+  font-weight: 200;
+  font-display: swap;
+  src: url("../fonts/SF-Pro-Display-Thin.otf") format("opentype");
+}
+@font-face {
+  font-family: "SF Pro Display";
+  font-style: normal;
+  font-weight: 300;
+  font-display: swap;
+  src: url("../fonts/SF-Pro-Display-Light.otf") format("opentype");
+}
+@font-face {
+  font-family: "SF Pro Display";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("../fonts/SF-Pro-Display-Regular.otf") format("opentype");
+}
+@font-face {
+  font-family: "SF Pro Display";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("../fonts/SF-Pro-Display-Medium.otf") format("opentype");
+}
+@font-face {
+  font-family: "SF Pro Display";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("../fonts/SF-Pro-Display-Semibold.otf") format("opentype");
+}
+@font-face {
+  font-family: "SF Pro Display";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("../fonts/SF-Pro-Display-Bold.otf") format("opentype");
+}
+@font-face {
+  font-family: "SF Pro Display";
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url("../fonts/SF-Pro-Display-Heavy.otf") format("opentype");
+}
+@font-face {
+  font-family: "SF Pro Display";
+  font-style: normal;
+  font-weight: 900;
+  font-display: swap;
+  src: url("../fonts/SF-Pro-Display-Black.otf") format("opentype");
+}
+@font-face {
+  font-family: "SF Pro Display";
+  font-style: italic;
+  font-weight: 300;
+  font-display: swap;
+  src: url("../fonts/SF-Pro-Display-LightItalic.otf") format("opentype");
+}
+@font-face {
+  font-family: "SF Pro Display";
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url("../fonts/SF-Pro-Display-RegularItalic.otf") format("opentype");
+}
+@font-face {
+  font-family: "SF Pro Display";
+  font-style: italic;
+  font-weight: 500;
+  font-display: swap;
+  src: url("../fonts/SF-Pro-Display-MediumItalic.otf") format("opentype");
+}
+@font-face {
+  font-family: "SF Pro Display";
+  font-style: italic;
+  font-weight: 600;
+  font-display: swap;
+  src: url("../fonts/SF-Pro-Display-SemiboldItalic.otf") format("opentype");
+}
+
+/* ---- SF Compact Display ---- */
+@font-face {
+  font-family: "SF Compact Display";
+  font-style: normal;
+  font-weight: 100;
+  font-display: swap;
+  src: url("../fonts/SF-Compact-Display-Ultralight.otf") format("opentype");
+}
+@font-face {
+  font-family: "SF Compact Display";
+  font-style: normal;
+  font-weight: 200;
+  font-display: swap;
+  src: url("../fonts/SF-Compact-Display-Thin.otf") format("opentype");
+}
+@font-face {
+  font-family: "SF Compact Display";
+  font-style: normal;
+  font-weight: 300;
+  font-display: swap;
+  src: url("../fonts/SF-Compact-Display-Light.otf") format("opentype");
+}
+@font-face {
+  font-family: "SF Compact Display";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("../fonts/SF-Compact-Display-Regular.otf") format("opentype");
+}
+@font-face {
+  font-family: "SF Compact Display";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("../fonts/SF-Compact-Display-Medium.otf") format("opentype");
+}
+@font-face {
+  font-family: "SF Compact Display";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("../fonts/SF-Compact-Display-Semibold.otf") format("opentype");
+}
+@font-face {
+  font-family: "SF Compact Display";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("../fonts/SF-Compact-Display-Bold.otf") format("opentype");
+}
+@font-face {
+  font-family: "SF Compact Display";
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url("../fonts/SF-Compact-Display-Heavy.otf") format("opentype");
+}
+@font-face {
+  font-family: "SF Compact Display";
+  font-style: normal;
+  font-weight: 900;
+  font-display: swap;
+  src: url("../fonts/SF-Compact-Display-Black.otf") format("opentype");
+}

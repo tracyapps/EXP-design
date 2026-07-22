@@ -2603,6 +2603,20 @@ struct RightPanel: View {
             Divider()
             InspectorSectionTitle(title: "Type", icon: "textformat").padding(.top, 2)
 
+            HStack(spacing: 6) {
+                Text("Content")
+                    .foregroundStyle(EXPColor.textSecondary)
+                    .font(.callout)
+                Picker("", selection: contentRoleBinding) {
+                    ForEach(TextContentRole.allCases, id: \.self) { role in
+                        Text(role.friendlyLabel).tag(role)
+                    }
+                }
+                .labelsHidden()
+                .help("Semantic page role for HTML handoff; independent of the visual Type Style")
+                Spacer()
+            }
+
             // Typeface — families rendered in their own face.
             Menu {
                 Button("System") { setTextFontName("") }
@@ -2735,6 +2749,14 @@ struct RightPanel: View {
     private var textCaseBinding: Binding<TextCase> {
         Binding(get: { selectedTextContent?.textCase ?? .none },
                 set: { c in updateTextContent(action: "Text Case", remeasure: true) { $0.textCase = c } })
+    }
+    private var contentRoleBinding: Binding<TextContentRole> {
+        Binding(get: { selectedTextContent?.contentRole ?? .plain },
+                set: { role in
+                    updateTextContent(action: "Text Content Role", remeasure: false) {
+                        $0.contentRole = role
+                    }
+                })
     }
 
     private var selectedTextContent: TextContent? {

@@ -1,0 +1,125 @@
+/* ============================================================================
+   EXP [design] — TYPOGRAPHY
+   SF Pro (UI/text) + SF Pro Display (large) + SF Compact (the condensed voice).
+   These ARE the macOS system fonts — on the target platform they're already
+   installed, so we reference them via the native stack rather than bundling
+   webfonts (Apple's license forbids redistribution). On non-Apple browsers the
+   stack falls back to the platform UI font.  ⚠ See readme "Font substitution".
+
+   Weight philosophy: LIGHT and ULTRALIGHT carry the brand — the chrome should
+   feel airy and modern. Medium/Semibold are reserved for emphasis (active item
+   names, primary buttons). Hierarchy is built as much from OPACITY tiers
+   (see colors.css --text-*) as from size.
+   ========================================================================== */
+
+:root {
+  /* ---- Families --------------------------------------------------------- */
+  --font-sans: "SF Pro Text", "SF Pro", -apple-system, BlinkMacSystemFont,
+               "Helvetica Neue", system-ui, sans-serif;
+  --font-display: "SF Pro Display", "SF Pro", -apple-system, BlinkMacSystemFont,
+               system-ui, sans-serif;
+  /* The condensed voice — layer names, dense labels, ruler numerals. */
+  --font-condensed: "SF Compact Display", "SF Compact", "SF Pro Display",
+               -apple-system, system-ui, sans-serif;
+  --font-mono: "SF Mono", ui-monospace, Menlo, monospace;
+
+  /* ---- Weights (the airy end is the default) ---------------------------- */
+  --w-ultralight: 100;  /* @kind other */
+  --w-thin:       200;  /* @kind other */
+  --w-light:      300;  /* @kind other */
+  --w-regular:    400;  /* @kind other */
+  --w-medium:     500;  /* @kind other */
+  --w-semibold:   600;  /* @kind other */
+
+  /* ---- Type scale (pt = px @1x; matches the app's inspector metrics) ----- */
+  --t-micro:   10px;   /* caption2 — row sub, micro labels                   */
+  --t-mini:    11px;   /* caption  — section titles, edited labels           */
+  --t-small:   12px;   /* callout  — labels, form text, layer names          */
+  --t-base:    13px;   /* body     — panel titles, controls                  */
+  --t-md:      15px;   /* doc name, prominent control                        */
+  --t-lg:      18px;
+  --t-xl:      22px;
+  --t-2xl:     28px;
+  --t-3xl:     40px;
+  --t-display: 64px;   /* hero / marketing lockup                           */
+
+  /* ---- Line heights ----------------------------------------------------- */
+  --lh-tight:  1.1;   /* @kind other */
+  --lh-snug:   1.25;  /* @kind other */
+  --lh-normal: 1.45;  /* @kind other */
+
+  /* ---- Tracking (condensed & display want a touch negative) -------------- */
+  --tr-tight:   -0.02em;  /* @kind other */
+  --tr-snug:    -0.01em;  /* @kind other */
+  --tr-normal:  0em;      /* @kind other */
+  --tr-wide:     0.04em;  /* @kind other */
+  --tr-caps:     0.06em;  /* @kind other */
+
+  /* ============================================================================
+     SEMANTIC ROLES  — copy these onto an element to match the app's chrome.
+     Naming maps 1:1 to Typography.swift / the spec sheet screenshot.
+     ========================================================================== */
+
+  /* doc name — SF light 15pt, primary at ~70% */
+  --type-doc-name-size:   var(--t-md);
+  --type-doc-name-weight: var(--w-light);
+
+  /* panel titles — SF regular 13pt, UPPERCASE, tracked */
+  --type-panel-title-size:   var(--t-base);
+  --type-panel-title-weight: var(--w-regular);
+
+  /* section title — SF ultralight 11pt */
+  --type-section-size:   var(--t-mini);
+  --type-section-weight: var(--w-ultralight);
+
+  /* artboard name — SF medium 12pt (the one place medium leads) */
+  --type-artboard-size:   var(--t-small);
+  --type-artboard-weight: var(--w-medium);
+
+  /* layer names — SF Compact light 12pt */
+  --type-layer-size:   var(--t-small);
+  --type-layer-weight: var(--w-light);
+
+  /* labels / form text — SF light 12pt */
+  --type-label-size:   var(--t-small);
+  --type-label-weight: var(--w-light);
+
+  /* numeric fields — monospaced digits */
+  --type-numeric-size:   var(--t-small);
+  --type-numeric-weight: var(--w-regular);
+}
+
+/* ----------------------------------------------------------------------------
+   Optional utility classes (cards & kits may use these instead of re-deriving).
+   ---------------------------------------------------------------------------- */
+.exp-doc-name {
+  font-family: var(--font-sans); font-size: var(--type-doc-name-size);
+  font-weight: var(--w-light); color: var(--text-primary); letter-spacing: var(--tr-snug);
+}
+.exp-panel-title {
+  font-family: var(--font-sans); font-size: var(--type-panel-title-size);
+  font-weight: var(--w-regular); text-transform: uppercase;
+  letter-spacing: var(--tr-caps); color: var(--text-primary);
+}
+.exp-section-title {
+  font-family: var(--font-display); font-size: var(--type-section-size);
+  font-weight: var(--w-ultralight); color: var(--text-secondary);
+  text-transform: uppercase; letter-spacing: var(--tr-wide);
+}
+.exp-layer-name {
+  font-family: var(--font-condensed); font-size: var(--type-layer-size);
+  font-weight: var(--w-light); color: var(--text-primary);
+}
+.exp-label {
+  font-family: var(--font-sans); font-size: var(--type-label-size);
+  font-weight: var(--w-light); color: var(--text-secondary);
+}
+.exp-numeric {
+  font-family: var(--font-sans); font-size: var(--type-numeric-size);
+  font-weight: var(--w-regular); font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+.exp-display {
+  font-family: var(--font-display); font-weight: var(--w-ultralight);
+  letter-spacing: var(--tr-tight); color: var(--text-primary);
+}

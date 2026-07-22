@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<div style="display:flex;flex-direction:column;gap:22px;">
+
+  <div>
+    <a class="ag-link" href="{{ catHref }}" onClick="{{ onCatPick }}" style="display:inline-flex;align-items:center;gap:5px;font-size:var(--t-micro);color:var(--text-tertiary);text-decoration:none;text-transform:uppercase;letter-spacing:var(--tr-caps);margin-bottom:8px;">
+      <i class="ph ph-{{ catIcon }}"></i>{{ catLabel }}
+    </a>
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+      <div style="font-family:var(--font-display);font-weight:var(--w-ultralight);font-size:clamp(28px,7vw,44px);letter-spacing:var(--tr-tight);">{{ name }}</div>
+      <div style="display:flex;gap:4px;flex:0 0 auto;">
+        <button onClick="{{ onBookmarkToggle }}" title="bookmark" style="background:var(--surface-card);border:1px solid var(--border-soft);border-radius:var(--radius-tool);width:32px;height:32px;cursor:pointer;display:flex;align-items:center;justify-content:center;">
+          <i class="ph {{ isBookmarked }}" style="font-size:15px;"></i>
+        </button>
+        <button onClick="{{ onCopyLink }}" title="copy link" style="background:var(--surface-card);border:1px solid var(--border-soft);border-radius:var(--radius-tool);width:32px;height:32px;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--text-secondary);">
+          <i class="ph ph-link" style="font-size:15px;"></i>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex;align-items:flex-start;gap:10px;padding:14px 16px;background:var(--accent-subtle);border-radius:var(--radius-card);">
+    <i class="ph ph-eye" style="font-size:16px;color:var(--text-accent);flex:0 0 auto;margin-top:2px;"></i>
+    <div style="font-size:var(--t-md);line-height:var(--lh-normal);">{{ seesRich }}</div>
+  </div>
+
+  <p style="font-size:var(--t-md);line-height:var(--lh-normal);color:var(--text-secondary);margin:0;">{{ def }}</p>
+
+  <sc-if value="{{ hasHtmlNote }}" hint-placeholder-val="{{ false }}">
+    <div style="font-size:var(--t-small);color:var(--text-tertiary);">native HTML equivalent: <code style="font-family:var(--font-mono);background:var(--surface-card);padding:2px 6px;border-radius:4px;color:var(--text-secondary);">{{ htmlNote }}</code></div>
+  </sc-if>
+
+  <div style="display:flex;flex-wrap:wrap;gap:16px;">
+    <sc-if value="{{ hasUse }}" hint-placeholder-val="{{ false }}">
+      <div style="flex:1 1 220px;min-width:200px;">
+        <div style="font-size:var(--t-mini);color:var(--text-quaternary);text-transform:uppercase;letter-spacing:var(--tr-caps);margin-bottom:6px;">use it for</div>
+        <sc-for list="{{ useList }}" as="u" hint-placeholder-count="2">
+          <div style="display:flex;gap:8px;font-size:var(--t-small);color:var(--text-secondary);line-height:var(--lh-normal);margin-bottom:6px;">
+            <i class="ph ph-check" style="color:var(--green);flex:0 0 auto;margin-top:3px;font-size:11px;"></i><span>{{ u }}</span>
+          </div>
+        </sc-for>
+      </div>
+    </sc-if>
+    <sc-if value="{{ hasAvoid }}" hint-placeholder-val="{{ false }}">
+      <div style="flex:1 1 220px;min-width:200px;">
+        <div style="font-size:var(--t-mini);color:var(--text-quaternary);text-transform:uppercase;letter-spacing:var(--tr-caps);margin-bottom:6px;">watch out for</div>
+        <sc-for list="{{ avoidList }}" as="a" hint-placeholder-count="1">
+          <div style="display:flex;gap:8px;font-size:var(--t-small);color:var(--text-secondary);line-height:var(--lh-normal);margin-bottom:6px;">
+            <i class="ph ph-warning" style="color:var(--orange);flex:0 0 auto;margin-top:3px;font-size:11px;"></i><span>{{ a }}</span>
+          </div>
+        </sc-for>
+      </div>
+    </sc-if>
+  </div>
+
+  <!-- try it -->
+  <div style="background:var(--surface-card);border:1px solid var(--border-soft);border-radius:var(--radius-panel);padding:16px;">
+    <div style="font-size:var(--t-mini);color:var(--text-quaternary);text-transform:uppercase;letter-spacing:var(--tr-caps);margin-bottom:14px;">try it</div>
+
+    <div style="min-height:60px;display:flex;align-items:center;">
+      <sc-if value="{{ isPress }}" hint-placeholder-val="{{ false }}">
+        <button onClick="{{ onPress }}" style="background:{{ pressBg }};color:{{ pressColor }};border:{{ pressBorder }};border-radius:{{ pressRadius }};padding:9px 20px;font-size:var(--t-small);font-weight:var(--w-medium);cursor:pointer;text-decoration:{{ pressUnderline }};">{{ pressLabel }}</button>
+      </sc-if>
+
+      <sc-if value="{{ isToggle }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <sc-if value="{{ toggleIsSwitch }}" hint-placeholder-val="{{ false }}">
+            <x-import component-from-global-scope="EXPDesignDesignSystem_fb82b2.Switch" checked="{{ toggleChecked }}" onChange="{{ onToggle }}" hint-size="36px,20px"></x-import>
+          </sc-if>
+          <sc-if value="{{ toggleIsBox }}" hint-placeholder-val="{{ false }}">
+            <div onClick="{{ onToggle }}" style="width:18px;height:18px;border-radius:4px;border:1.5px solid {{ toggleBoxBorder }};background:{{ toggleBoxBg }};display:flex;align-items:center;justify-content:center;cursor:pointer;flex:0 0 auto;">
+              <sc-if value="{{ toggleChecked }}" hint-placeholder-val="{{ false }}"><i class="ph ph-fill ph-check" style="font-size:12px;color:#fff;"></i></sc-if>
+            </div>
+          </sc-if>
+          <span style="font-size:var(--t-small);cursor:pointer;" onClick="{{ onToggle }}">{{ toggleLabel }}</span>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isSelectOne }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;flex-direction:column;gap:6px;width:100%;">
+          <sc-for list="{{ selectOptions }}" as="o" hint-placeholder-count="3">
+            <div onClick="{{ o.onPick }}" style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:var(--radius-row);background:{{ o.rowBg }};cursor:pointer;">
+              <i class="ph ph-{{ o.icon }}" weight="{{ o.weight }}" style="font-size:13px;color:{{ o.iconColor }};"></i>
+              <span style="font-size:var(--t-small);color:{{ o.textColor }};">{{ o.label }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isTabSet }}" hint-placeholder-val="{{ false }}">
+        <div style="width:100%;">
+          <div style="display:flex;gap:4px;border-bottom:1px solid var(--hairline);margin-bottom:12px;">
+            <sc-for list="{{ tabItems }}" as="t" hint-placeholder-count="3">
+              <div onClick="{{ t.onPick }}" style="padding:8px 14px;font-size:var(--t-small);cursor:pointer;color:{{ t.color }};border-bottom:2px solid {{ t.underline }};">{{ t.label }}</div>
+            </sc-for>
+          </div>
+          <div style="font-size:var(--t-small);color:var(--text-secondary);padding:4px 2px;">{{ tabPanelText }}</div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isMenuOpen }}" hint-placeholder-val="{{ false }}">
+        <div style="position:relative;">
+          <button onClick="{{ onMenuToggle }}" style="background:var(--n-300);border:1px solid var(--border-soft);border-radius:var(--radius-button);padding:8px 16px;font-size:var(--t-small);color:var(--text-primary);cursor:pointer;display:flex;align-items:center;gap:6px;">{{ menuTriggerLabel }}<i class="ph ph-caret-down" style="font-size:10px;"></i></button>
+          <sc-if value="{{ menuOpen }}" hint-placeholder-val="{{ false }}">
+            <div style="position:absolute;top:calc(100% + 4px);left:0;background:var(--surface-popover);border:1px solid var(--glass-border);border-radius:var(--radius-card);box-shadow:var(--shadow-popover);min-width:160px;z-index:5;overflow:hidden;">
+              <sc-for list="{{ menuItems }}" as="m" hint-placeholder-count="3">
+                <div onClick="{{ m.onPick }}" style="padding:9px 14px;font-size:var(--t-small);cursor:pointer;border-bottom:1px solid var(--hairline);">{{ m.label }}</div>
+              </sc-for>
+            </div>
+          </sc-if>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isRange }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;align-items:center;gap:10px;width:100%;">
+          <sc-if value="{{ rangeInteractive }}" hint-placeholder-val="{{ false }}">
+            <button onClick="{{ onDec }}" style="width:24px;height:24px;border-radius:6px;border:1px solid var(--border-soft);background:var(--n-300);color:var(--text-primary);cursor:pointer;flex:0 0 auto;">–</button>
+          </sc-if>
+          <div style="flex:1;height:6px;background:var(--n-300);border-radius:99px;position:relative;min-width:80px;">
+            <div style="position:absolute;left:0;top:0;bottom:0;width:{{ rangePct }};background:var(--accent);border-radius:99px;"></div>
+          </div>
+          <sc-if value="{{ rangeInteractive }}" hint-placeholder-val="{{ false }}">
+            <button onClick="{{ onInc }}" style="width:24px;height:24px;border-radius:6px;border:1px solid var(--border-soft);background:var(--n-300);color:var(--text-primary);cursor:pointer;flex:0 0 auto;">+</button>
+          </sc-if>
+          <span style="font-size:var(--t-small);font-family:var(--font-mono);color:var(--text-secondary);flex:0 0 auto;">{{ rangeValue }}</span>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isTextInput }}" hint-placeholder-val="{{ false }}">
+        <input value="{{ textValue }}" onChange="{{ onTextChange }}" placeholder="{{ textPlaceholder }}" style="width:100%;background:var(--surface-field);border:1px solid var(--border-soft);border-radius:var(--radius-field);padding:8px 12px;font-size:var(--t-small);color:var(--text-primary);outline:none;" />
+      </sc-if>
+
+      <sc-if value="{{ isCombobox }}" hint-placeholder-val="{{ false }}">
+        <div style="position:relative;width:100%;">
+          <input value="{{ comboText }}" onChange="{{ onComboChange }}" onFocus="{{ onComboFocus }}" placeholder="type to filter…" style="width:100%;background:var(--surface-field);border:1px solid var(--border-soft);border-radius:var(--radius-field);padding:8px 12px;font-size:var(--t-small);color:var(--text-primary);outline:none;" />
+          <sc-if value="{{ comboOpen }}" hint-placeholder-val="{{ false }}">
+            <div style="position:absolute;top:calc(100% + 4px);left:0;right:0;background:var(--surface-popover);border:1px solid var(--glass-border);border-radius:var(--radius-card);box-shadow:var(--shadow-popover);z-index:5;overflow:hidden;">
+              <sc-if value="{{ hasComboOptions }}" hint-placeholder-val="{{ false }}">
+                <sc-for list="{{ comboOptions }}" as="co" hint-placeholder-count="3">
+                  <div onClick="{{ co.onPick }}" style="padding:9px 12px;font-size:var(--t-small);cursor:pointer;border-bottom:1px solid var(--hairline);">{{ co.label }}</div>
+                </sc-for>
+              </sc-if>
+            </div>
+          </sc-if>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isTreeExpand }}" hint-placeholder-val="{{ false }}">
+        <div style="width:100%;display:flex;flex-direction:column;gap:2px;">
+          <sc-for list="{{ treeItems }}" as="ti" hint-placeholder-count="2">
+            <div>
+              <div onClick="{{ ti.onToggle }}" style="display:flex;align-items:center;gap:6px;padding:6px 4px;cursor:pointer;font-size:var(--t-small);">
+                <i class="ph ph-caret-right" style="font-size:10px;transform:{{ ti.caretRotate }};color:var(--text-tertiary);"></i>
+                <i class="ph ph-folder" style="font-size:13px;color:var(--text-secondary);"></i>{{ ti.label }}
+              </div>
+              <sc-if value="{{ ti.isOpen }}" hint-placeholder-val="{{ false }}">
+                <div style="padding-left:28px;display:flex;flex-direction:column;gap:2px;">
+                  <sc-for list="{{ ti.children }}" as="tc" hint-placeholder-count="2">
+                    <div style="display:flex;align-items:center;gap:6px;padding:5px 4px;font-size:var(--t-small);color:var(--text-secondary);"><i class="ph ph-file" style="font-size:12px;"></i>{{ tc.label }}</div>
+                  </sc-for>
+                </div>
+              </sc-if>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isTableGrid }}" hint-placeholder-val="{{ false }}">
+        <div style="width:100%;overflow-x:auto;">
+          <table style="width:100%;border-collapse:collapse;font-size:var(--t-small);">
+            <thead>
+              <tr>
+                <sc-for list="{{ tableHeaders }}" as="h" hint-placeholder-count="3">
+                  <th style="text-align:left;padding:6px 10px;background:{{ headerBg }};color:var(--text-secondary);border-bottom:1px solid var(--hairline);font-weight:var(--w-medium);">{{ h }}</th>
+                </sc-for>
+              </tr>
+            </thead>
+            <tbody>
+              <sc-for list="{{ tableRows }}" as="row" hint-placeholder-count="3">
+                <tr>
+                  <sc-for list="{{ row.cells }}" as="cell" hint-placeholder-count="3">
+                    <td onClick="{{ cell.onPick }}" style="padding:7px 10px;border-bottom:1px solid var(--hairline);color:var(--text-primary);background:{{ cell.bg }};cursor:{{ cell.cursor }};">{{ cell.value }}</td>
+                  </sc-for>
+                </tr>
+              </sc-for>
+            </tbody>
+          </table>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isDialogOpen }}" hint-placeholder-val="{{ false }}">
+        <div style="width:100%;position:relative;min-height:110px;">
+          <button onClick="{{ onDialogOpen }}" style="background:var(--red-bg-or-accent, var(--accent));background:{{ dialogTriggerBg }};color:#fff;border:none;border-radius:var(--radius-button);padding:9px 18px;font-size:var(--t-small);cursor:pointer;">{{ dialogTriggerLabel }}</button>
+          <sc-if value="{{ dialogOpen }}" hint-placeholder-val="{{ false }}">
+            <div style="position:absolute;inset:0;background:rgba(0,0,0,0.55);border-radius:var(--radius-card);display:flex;align-items:center;justify-content:center;padding:14px;">
+              <div style="background:var(--surface-popover);border:1px solid var(--glass-border);border-radius:var(--radius-panel);box-shadow:var(--shadow-modal);padding:16px;max-width:280px;">
+                <div style="font-size:var(--t-base);font-weight:var(--w-medium);margin-bottom:8px;">{{ dialogTriggerLabel }}</div>
+                <div style="font-size:var(--t-small);color:var(--text-secondary);margin-bottom:14px;">{{ dialogMessage }}</div>
+                <div style="display:flex;gap:8px;justify-content:flex-end;">
+                  <button onClick="{{ onDialogClose }}" style="background:none;border:1px solid var(--border-soft);color:var(--text-secondary);border-radius:var(--radius-button);padding:6px 14px;font-size:var(--t-small);cursor:pointer;">cancel</button>
+                  <button onClick="{{ onDialogClose }}" style="background:var(--accent);border:none;color:#fff;border-radius:var(--radius-button);padding:6px 14px;font-size:var(--t-small);cursor:pointer;">confirm</button>
+                </div>
+              </div>
+            </div>
+          </sc-if>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isLiveAnnounce }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;flex-direction:column;gap:10px;width:100%;">
+          <button onClick="{{ onLiveTrigger }}" style="align-self:flex-start;background:var(--n-300);border:1px solid var(--border-soft);border-radius:var(--radius-button);padding:8px 16px;font-size:var(--t-small);color:var(--text-primary);cursor:pointer;">trigger update</button>
+          <sc-if value="{{ liveAnnounced }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;align-items:center;gap:8px;padding:9px 12px;background:{{ liveBg }};border-radius:var(--radius-row);font-size:var(--t-small);">
+              <i class="ph ph-fill ph-{{ liveIcon }}" style="color:{{ liveIconColor }};font-size:14px;"></i>{{ liveMessage }}
+            </div>
+          </sc-if>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isTooltipHover }}" hint-placeholder-val="{{ false }}">
+        <div style="position:relative;display:inline-block;">
+          <button onMouseEnter="{{ onTooltipShow }}" onMouseLeave="{{ onTooltipHide }}" onFocus="{{ onTooltipShow }}" onBlur="{{ onTooltipHide }}" style="background:var(--n-300);border:1px solid var(--border-soft);border-radius:var(--radius-tool);width:36px;height:32px;font-size:15px;color:var(--text-primary);cursor:pointer;">⧉</button>
+          <sc-if value="{{ tooltipHovered }}" hint-placeholder-val="{{ false }}">
+            <div style="position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);background:var(--n-0);border:1px solid var(--border-strong);border-radius:6px;padding:5px 9px;font-size:var(--t-mini);white-space:nowrap;box-shadow:var(--shadow-2);">{{ tooltipText }}</div>
+          </sc-if>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isReveal }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;align-items:center;gap:12px;width:100%;">
+          <div style="flex:1;padding:10px 12px;background:var(--n-300);border-radius:var(--radius-row);font-size:var(--t-small);color:var(--text-secondary);">{{ revealLabel }}</div>
+          <x-import component-from-global-scope="EXPDesignDesignSystem_fb82b2.Switch" checked="{{ revealed }}" onChange="{{ onRevealToggle }}" hint-size="36px,20px"></x-import>
+        </div>
+      </sc-if>
+    </div>
+
+    <div style="display:flex;align-items:flex-start;gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid var(--hairline);">
+      <i class="ph ph-speaker-high" style="font-size:13px;color:var(--text-tertiary);flex:0 0 auto;margin-top:2px;"></i>
+      <span style="font-size:var(--t-small);color:var(--text-tertiary);font-style:italic;">{{ demoCaption }}</span>
+    </div>
+  </div>
+
+  <div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+      <div style="font-size:var(--t-mini);color:var(--text-quaternary);text-transform:uppercase;letter-spacing:var(--tr-caps);">code</div>
+      <button onClick="{{ onCopyCode }}" style="background:none;border:none;color:var(--text-tertiary);font-size:var(--t-mini);cursor:pointer;display:flex;align-items:center;gap:4px;">
+        <i class="ph ph-{{ copyCodeIcon }}"></i>{{ copyCodeLabel }}
+      </button>
+    </div>
+    <pre style="background:var(--n-0);border:1px solid var(--hairline);border-radius:var(--radius-card);padding:12px 14px;font-family:var(--font-mono);font-size:12px;color:var(--text-secondary);overflow-x:auto;white-space:pre-wrap;margin:0;">{{ code }}</pre>
+  </div>
+
+  <sc-if value="{{ hasConfused }}" hint-placeholder-val="{{ false }}">
+    <div>
+      <div style="font-size:var(--t-mini);color:var(--text-quaternary);text-transform:uppercase;letter-spacing:var(--tr-caps);margin-bottom:8px;">commonly confused with</div>
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <sc-for list="{{ confusedList }}" as="cf" hint-placeholder-count="2">
+          <a class="ag-link" href="{{ cf.href }}" onClick="{{ cf.onPick }}" style="display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--text-primary);padding:12px 14px;background:var(--surface-card);border:1px solid var(--border-soft);border-radius:var(--radius-card);">
+            <i class="ph ph-arrows-left-right" style="font-size:14px;color:var(--text-secondary);flex:0 0 auto;"></i>
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:var(--t-small);">vs. <strong>{{ cf.name }}</strong></div>
+              <div style="font-size:var(--t-micro);color:var(--text-tertiary);margin-top:2px;">{{ cf.why }}</div>
+            </div>
+            <i class="ph ph-caret-right" style="font-size:12px;color:var(--text-quaternary);flex:0 0 auto;"></i>
+          </a>
+        </sc-for>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ hasRelated }}" hint-placeholder-val="{{ false }}">
+    <div>
+      <div style="font-size:var(--t-mini);color:var(--text-quaternary);text-transform:uppercase;letter-spacing:var(--tr-caps);margin-bottom:8px;">related roles</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;">
+        <sc-for list="{{ relatedList }}" as="rl" hint-placeholder-count="3">
+          <a class="ag-link" href="{{ rl.href }}" onClick="{{ rl.onPick }}" style="text-decoration:none;color:var(--text-primary);padding:6px 12px;background:var(--surface-card);border:1px solid var(--border-soft);border-radius:var(--radius-pill);font-size:var(--t-small);">{{ rl.name }}</a>
+        </sc-for>
+      </div>
+    </div>
+  </sc-if>
+
+  <div style="display:flex;flex-wrap:wrap;gap:8px;padding-top:6px;">
+    <sc-for list="{{ docLinksList }}" as="dl" hint-placeholder-count="2">
+      <a href="{{ dl.url }}" target="_blank" rel="noopener noreferrer" style="display:flex;align-items:center;gap:6px;text-decoration:none;color:var(--text-secondary);padding:6px 12px;background:var(--surface-card);border:1px solid var(--border-soft);border-radius:var(--radius-pill);font-size:var(--t-mini);">
+        {{ dl.label }}<i class="ph ph-arrow-square-out" style="font-size:12px;"></i>
+      </a>
+    </sc-for>
+  </div>
+
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  componentDidMount() {
+    import('./roles-data.js').then((mod) => { this.data = mod; this.forceUpdate(); });
+  }
+
+  renderVals() {
+    const role = this.props.role;
+    if (!role || !this.data) return { hasUse: false, hasAvoid: false, hasConfused: false, hasRelated: false, docLinksList: [] };
+    const nav = this.props.nav;
+    const demo = role.demo || {};
+    const ds = this.props.demoState || {};
+    const catMeta = nav.catMeta(role.cat);
+
+    const confusedList = (role.confused || []).map((c) => {
+      const other = this.data.findRole(c.id);
+      if (!other) return null;
+      return { name: other.name, why: nav.boldify(c.why), href: '#/compare/' + role.id + '/' + c.id, onPick: nav.navTo({ type: 'compare', a: role.id, b: c.id }) };
+    }).filter(Boolean);
+
+    const relatedList = (role.related || []).map((id) => {
+      const r = this.data.findRole(id);
+      if (!r) return null;
+      return { name: r.name, href: '#/role/' + id, onPick: nav.navTo({ type: 'role', id }) };
+    }).filter(Boolean);
+
+    const docLinksList = this.data.docLinks(role.id);
+
+    const kind = demo.kind;
+    const flags = {
+      isPress: kind === 'press-action', isToggle: kind === 'toggle', isSelectOne: kind === 'select-one', isTabSet: kind === 'tab-set',
+      isMenuOpen: kind === 'menu-open', isRange: kind === 'range', isTextInput: kind === 'text-input', isCombobox: kind === 'combobox-demo',
+      isTreeExpand: kind === 'tree-expand', isTableGrid: kind === 'table-grid', isDialogOpen: kind === 'dialog-open',
+      isLiveAnnounce: kind === 'live-announce', isTooltipHover: kind === 'tooltip-hover', isReveal: kind === 'reveal',
+    };
+
+    let caption = role.sum, demoProps = {};
+
+    if (kind === 'press-action') {
+      const pressed = !!ds.pressed;
+      const isLink = demo.visual === 'link';
+      caption = pressed ? demo.announce : 'click it to hear what a screen reader would announce.';
+      demoProps = {
+        pressLabel: demo.label, onPress: () => nav.setDemo({ pressed: true }),
+        pressBg: isLink ? 'transparent' : 'var(--accent)', pressColor: isLink ? 'var(--text-accent)' : '#fff',
+        pressBorder: isLink ? 'none' : 'none', pressRadius: isLink ? '0' : 'var(--radius-button)',
+        pressUnderline: isLink ? 'underline' : 'none',
+      };
+    } else if (kind === 'toggle') {
+      const checked = ds.checked ?? false;
+      const mode = demo.mode || 'checkbox';
+      caption = '"' + demo.label + '", ' + mode + '. ' + (checked ? 'checked.' : 'not checked.');
+      demoProps = {
+        toggleLabel: demo.label, toggleChecked: checked, onToggle: () => nav.setDemo({ checked: !checked }),
+        toggleIsSwitch: mode === 'switch', toggleIsBox: mode !== 'switch',
+        toggleBoxBorder: checked ? 'var(--accent)' : 'var(--border-strong)', toggleBoxBg: checked ? 'var(--accent)' : 'transparent',
+      };
+    } else if (kind === 'select-one') {
+      const options = demo.options || [];
+      const idx = ds.selectedIndex ?? 0;
+      caption = '"' + options[idx] + '", selected. ' + (idx + 1) + ' of ' + options.length + '.';
+      const useCheck = demo.visual === 'listbox' || demo.visual === 'option';
+      demoProps = {
+        selectOptions: options.map((label, i) => ({
+          label, onPick: () => nav.setDemo({ selectedIndex: i }),
+          icon: useCheck ? 'check' : 'circle', weight: i === idx ? 'fill' : 'regular',
+          rowBg: i === idx ? 'var(--accent-subtle)' : 'transparent',
+          iconColor: i === idx ? 'var(--text-accent)' : 'var(--text-quaternary)',
+          textColor: i === idx ? 'var(--text-primary)' : 'var(--text-secondary)',
+        })),
+      };
+    } else if (kind === 'tab-set') {
+      const tabs = demo.tabs || [];
+      const idx = ds.activeTab ?? 0;
+      caption = '"' + tabs[idx] + '" tab, selected.';
+      demoProps = {
+        tabItems: tabs.map((label, i) => ({ label, onPick: () => nav.setDemo({ activeTab: i }), color: i === idx ? 'var(--text-primary)' : 'var(--text-tertiary)', underline: i === idx ? 'var(--accent)' : 'transparent' })),
+        tabPanelText: 'panel content for "' + tabs[idx] + '" — this area swaps when you pick a different tab.',
+      };
+    } else if (kind === 'menu-open') {
+      const open = !!ds.menuOpen, picked = ds.lastPicked;
+      caption = open ? ('menu open, ' + (demo.items || []).length + ' items.') : (picked ? ('"' + picked + '" activated. menu closed.') : 'click to open the menu.');
+      demoProps = {
+        menuTriggerLabel: demo.label, menuOpen: open, onMenuToggle: () => nav.setDemo({ menuOpen: !open }),
+        menuItems: (demo.items || []).map((it) => ({ label: it, onPick: () => nav.setDemo({ menuOpen: false, lastPicked: it }) })),
+      };
+    } else if (kind === 'range') {
+      const interactive = demo.interactive !== false;
+      const min = demo.min ?? 0, max = demo.max ?? 100;
+      const value = ds.value ?? demo.value ?? min;
+      const pct = Math.round(((value - min) / (max - min || 1)) * 100);
+      caption = demo.label + ', ' + value + ((demo.mode === 'progressbar' || demo.mode === 'meter') ? '%' : '') + '.';
+      demoProps = {
+        rangeValue: value, rangePct: pct + '%', rangeInteractive: interactive,
+        onDec: () => nav.setDemo({ value: Math.max(min, value - (demo.step || 1)) }),
+        onInc: () => nav.setDemo({ value: Math.min(max, value + (demo.step || 1)) }),
+      };
+    } else if (kind === 'text-input') {
+      const text = ds.text ?? '';
+      caption = text ? ('"' + text + '"') : 'type something…';
+      demoProps = { textValue: text, textPlaceholder: demo.placeholder || '', onTextChange: (e) => nav.setDemo({ text: e.target.value }) };
+    } else if (kind === 'combobox-demo') {
+      const text = ds.text ?? '', open = !!ds.open;
+      const options = demo.options || [];
+      const filtered = text ? options.filter((o) => o.toLowerCase().includes(text.toLowerCase())) : options;
+      caption = open ? (filtered.length + ' suggestions.') : (text ? ('"' + text + '" selected.') : 'start typing to filter.');
+      demoProps = {
+        comboText: text, comboOpen: open, hasComboOptions: filtered.length > 0,
+        comboOptions: filtered.map((o) => ({ label: o, onPick: () => nav.setDemo({ text: o, open: false }) })),
+        onComboChange: (e) => nav.setDemo({ text: e.target.value, open: true }), onComboFocus: () => nav.setDemo({ open: true }),
+      };
+    } else if (kind === 'tree-expand') {
+      const items = demo.items || [];
+      const expanded = ds.expanded || {};
+      caption = ds.lastAction || 'click a row to expand it.';
+      demoProps = {
+        treeItems: items.map((it, i) => ({
+          label: it.label, isOpen: !!expanded[i], caretRotate: expanded[i] ? 'rotate(90deg)' : 'rotate(0deg)',
+          onToggle: () => nav.setDemo({ expanded: { ...expanded, [i]: !expanded[i] }, lastAction: !expanded[i] ? ('"' + it.label + '" expanded, ' + (it.children || []).length + ' items.') : ('"' + it.label + '" collapsed.') }),
+          children: (it.children || []).map((c) => ({ label: c })),
+        })),
+      };
+    } else if (kind === 'table-grid') {
+      const headers = ['item', 'qty', 'price'];
+      const rows = [['widget a', '12', '$4.00'], ['widget b', '5', '$9.50'], ['widget c', '20', '$1.25']];
+      const sel = ds.selectedCell || null;
+      caption = demo.highlightHeader ? ('column header, "' + headers[0] + '". announces before every cell below it.')
+        : demo.highlightRowHeader ? ('row header, "' + rows[0][0] + '". labels the whole row.')
+        : (demo.interactive && sel) ? ('row ' + (sel.r + 1) + ', column ' + (sel.c + 1) + ', gridcell, "' + rows[sel.r][sel.c] + '".')
+        : demo.interactive ? 'click a cell to navigate it like a spreadsheet.' : 'table, 3 columns, 3 rows.';
+      demoProps = {
+        headerBg: 'var(--n-300)',
+        tableHeaders: headers,
+        tableRows: rows.map((row, r) => ({ cells: row.map((cell, c) => ({
+          value: cell,
+          onPick: demo.interactive ? () => nav.setDemo({ selectedCell: { r, c } }) : null,
+          cursor: demo.interactive ? 'pointer' : 'default',
+          bg: (sel && sel.r === r && sel.c === c) ? 'var(--accent-subtle)' : (demo.highlightRow ? (r === 0 ? 'var(--accent-subtle)' : 'transparent') : 'transparent'),
+        })) })),
+      };
+    } else if (kind === 'dialog-open') {
+      const open = !!ds.open;
+      caption = open ? 'focus moved into the dialog — tab stays trapped inside until it closes.' : 'click to open.';
+      demoProps = {
+        dialogTriggerLabel: demo.triggerLabel, dialogOpen: open, dialogMessage: demo.message || 'edit the details below.',
+        dialogTriggerBg: demo.urgent ? 'var(--red)' : 'var(--accent)',
+        onDialogOpen: () => nav.setDemo({ open: true }), onDialogClose: () => nav.setDemo({ open: false }),
+      };
+    } else if (kind === 'live-announce') {
+      const announced = !!ds.announced;
+      const urgency = demo.urgency || 'polite';
+      caption = announced ? demo.message : ('click "trigger update" to see it announce (' + urgency + ').');
+      demoProps = {
+        liveAnnounced: announced, liveMessage: demo.message,
+        liveIcon: urgency === 'assertive' ? 'warning' : urgency === 'off' ? 'broadcast' : 'check-circle',
+        liveIconColor: urgency === 'assertive' ? 'var(--red)' : urgency === 'off' ? 'var(--text-tertiary)' : 'var(--green)',
+        liveBg: 'var(--n-300)',
+        onLiveTrigger: () => { nav.setDemo({ announced: true }); setTimeout(() => nav.setDemo({ announced: false }), 3200); },
+      };
+    } else if (kind === 'tooltip-hover') {
+      const hovered = !!ds.hovered;
+      caption = hovered ? demo.tooltipText : 'hover or focus the button to reveal its tooltip.';
+      demoProps = { tooltipHovered: hovered, tooltipText: demo.tooltipText, onTooltipShow: () => nav.setDemo({ hovered: true }), onTooltipHide: () => nav.setDemo({ hovered: false }) };
+    } else if (kind === 'reveal') {
+      const revealed = !!ds.revealed;
+      const announceText = demo.announce || demo.reveal || role.sum;
+      caption = revealed ? announceText : 'toggle to see what assistive tech would announce here.';
+      demoProps = { revealLabel: demo.highlight || demo.label || role.name, revealed, onRevealToggle: () => nav.setDemo({ revealed: !revealed }) };
+    }
+
+    return {
+      name: role.name, def: nav.boldify(role.def), code: role.code, catLabel: catMeta.label, catIcon: catMeta.icon,
+      catHref: '#/browse/' + role.cat, onCatPick: nav.navTo({ type: 'browse', category: role.cat }),
+      seesRich: nav.boldify(role.sees),
+      hasUse: (role.use || []).length > 0, useList: (role.use || []).map((u) => nav.boldify(u)),
+      hasAvoid: (role.avoid || []).length > 0, avoidList: (role.avoid || []).map((a) => nav.boldify(a)),
+      hasHtmlNote: !!role.html && role.html !== 'none', htmlNote: role.html,
+      isBookmarked: this.props.isBookmarked ? 'ph-fill ph-star' : 'ph ph-star', onBookmarkToggle: () => nav.toggleBookmark(role.id),
+      onCopyLink: () => nav.copyLink({ type: 'role', id: role.id }),
+      onCopyCode: () => nav.copyCode(role.code), copyCodeIcon: this.props.copied ? 'check' : 'copy', copyCodeLabel: this.props.copied ? 'copied' : 'copy',
+      hasConfused: confusedList.length > 0, confusedList,
+      hasRelated: relatedList.length > 0, relatedList,
+      docLinksList,
+      ...flags, ...demoProps, demoCaption: caption,
+    };
+  }
+}
+
+</script>
+</body>
+</html>

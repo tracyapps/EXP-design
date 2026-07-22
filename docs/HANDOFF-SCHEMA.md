@@ -10,6 +10,9 @@ Example.exph/
 |-- manifest.json
 |-- design.json
 |-- tokens.json
+|-- html/
+|   |-- styles.css
+|   `-- <artboard-name>--<artboard-uuid>.html
 `-- README.llm.md
 ```
 
@@ -17,6 +20,10 @@ Example.exph/
   SHA-256 checksums, summary counts, and fidelity notes.
 - `design.json`: the EXP document payload encoded from `Document`.
 - `tokens.json`: the document Design Language as W3C Design Tokens JSON.
+- `html/styles.css`: shared generated CSS for all artboard pages.
+- `html/*.html`: one standalone, deterministic entry point per artboard. v2.0
+  B1 uses absolute geometry as its honest baseline; each layer carries its EXP
+  identity, and repeated component children use instance-qualified DOM ids.
 - `README.llm.md`: plain-language orientation for people and local agents.
 
 ## `tokens.json`
@@ -39,7 +46,7 @@ The importer is intentionally tolerant for interop:
 ## Versioning
 
 - `manifest.json.expHandoffPackage`: the package-envelope version. v1.5 writes
-  `1`.
+  `1`; v2.0 B1 keeps that additive envelope version and adds HTML/CSS entries.
 - `design.json.schemaVersion`: the public document schema version. v1.5 wrote
   `1`; v1.6 writes `2`. Version history:
   - `1` — v1.4 baseline shape.
@@ -66,6 +73,16 @@ Each `manifest.json.entries[]` object describes one package file:
   omitted.
 - `bytes`: byte length of the written file.
 - `sha256`: lowercase hexadecimal SHA-256 digest of the written file.
+
+The manifest summary additionally reports `semanticHTMLPages`,
+`semanticHTMLNodes`, and `semanticHTMLOmittedWallNodes`. Wall-only nodes remain
+in `design.json`; they are not silently assigned to an artboard page.
+
+`fidelity.semanticHTMLRequirements[]` is the structured B2 handoff list for
+facts EXP cannot safely infer. Each item identifies its artboard/node/component
+source, assigned role, requirement key, and a human-readable detail. Typical
+examples are a missing heading level, link destination, checked/selected value,
+range values, or unresolved relationship target.
 
 ## `design.json` Top Level
 
@@ -107,6 +124,26 @@ future code/Storybook import:
 These fields do not store implementation code. Relationships plus
 `sources[].a11y.role` identify the public WAI-APG pattern; downstream codegen
 regenerates behavior from that contract.
+
+In generated HTML, categorized component instances use their native HTML host
+when the mapping is unambiguous (`nav`, `header`, `button`, and so on), or an
+explicit ARIA role otherwise. Accessible-name layers and typed relationships
+resolve through stable DOM ids. States export as `:hover`, `:active`,
+`:focus-visible`, native/ARIA disabled selectors, or custom `data-state` values.
+EXP generates no JavaScript.
+
+## Text Content Semantics (schemaVersion 2)
+
+Text node content carries `contentRole` independently from its reusable Type
+Style. Supported values are `plain`, `paragraph`, and `heading1` through
+`heading6`. Semantic HTML emits plain text as `<span>`, paragraphs as `<p>`, and
+headings as the corresponding native `<h1>`…`<h6>` element. Missing or unknown
+future values decode as `plain`; exporters never infer hierarchy from visual
+font properties or style/category names.
+
+A component source categorized `heading` resolves its host `aria-level` from an
+unambiguous authored descendant text role. Missing or conflicting levels remain
+visible as a `headingLevel` fidelity requirement.
 
 ## Component States (schemaVersion 2)
 

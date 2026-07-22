@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ARIA Roles Designer Guide · EXP [design]</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <!-- Use the platform SF/system stack from typography.css. The source export's
+       font-face sheet references Apple font binaries that are intentionally not
+       redistributed on the public website. -->
+  <link rel="stylesheet" href="_ds/exp-design-design-system-fb82b294-19e5-46bf-b8d4-aaa5f3f25b82/tokens/colors.css">
+  <link rel="stylesheet" href="_ds/exp-design-design-system-fb82b294-19e5-46bf-b8d4-aaa5f3f25b82/tokens/typography.css">
+  <link rel="stylesheet" href="_ds/exp-design-design-system-fb82b294-19e5-46bf-b8d4-aaa5f3f25b82/tokens/spacing.css">
+  <link rel="stylesheet" href="_ds/exp-design-design-system-fb82b294-19e5-46bf-b8d4-aaa5f3f25b82/tokens/glass.css">
+  <link rel="stylesheet" href="_ds/exp-design-design-system-fb82b294-19e5-46bf-b8d4-aaa5f3f25b82/styles.css">
+  <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+  <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css">
+  <script src="_ds/exp-design-design-system-fb82b294-19e5-46bf-b8d4-aaa5f3f25b82/_ds_bundle.js"></script>
+  <style>
+    body { margin: 0; }
+    * { box-sizing: border-box; }
+    @keyframes ag-fade-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes ag-toast-in { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
+    @keyframes ag-drawer-in { from { transform: translateX(100%); } to { transform: translateX(0); } }
+    a.ag-link { color: var(--text-accent); text-decoration: none; }
+    a.ag-link:hover { text-decoration: underline; }
+  </style>
+</helmet>
+
+<div class="{{ appearanceClass }}" style="height:100vh;width:100%;display:flex;flex-direction:column;background:var(--n-100);color:var(--text-primary);font-family:var(--font-sans);overflow:hidden;position:relative;">
+
+  <sc-if value="{{ dataLoaded }}" hint-placeholder-val="{{ false }}">
+    <div style="flex:1;display:flex;flex-direction:column;min-height:0;">
+
+      <!-- top bar -->
+      <div style="flex:0 0 auto;display:flex;align-items:center;gap:var(--space-sm);padding:var(--space-md) var(--space-lg);background:var(--surface-toolbar);backdrop-filter:blur(var(--glass-blur-thin)) saturate(var(--glass-saturate));border-bottom:1px solid var(--hairline);position:relative;z-index:30;">
+        <x-import component-from-global-scope="EXPDesignDesignSystem_fb82b2.IconButton" icon="arrow-left" title="back" disabled="{{ !canGoBack }}" onClick="{{ goBack }}" hint-size="28px,28px"></x-import>
+        <x-import component-from-global-scope="EXPDesignDesignSystem_fb82b2.IconButton" icon="arrow-right" title="forward" disabled="{{ !canGoForward }}" onClick="{{ goForward }}" hint-size="28px,28px"></x-import>
+
+        <div style="flex:1;position:relative;min-width:0;">
+          <div style="display:flex;align-items:center;gap:6px;background:var(--surface-field);border:1px solid var(--border-soft);border-radius:var(--radius-field);padding:0 8px;height:var(--control-h);">
+            <i class="ph ph-magnifying-glass" style="font-size:14px;color:var(--text-tertiary);flex:0 0 auto;"></i>
+            <input value="{{ searchQuery }}" onChange="{{ onSearchChange }}" onKeyDown="{{ onSearchKeyDown }}" onFocus="{{ onSearchFocus }}" placeholder="search roles… try &quot;button&quot;" style="flex:1;min-width:0;border:none;outline:none;background:transparent;color:var(--text-primary);font-family:var(--font-sans);font-size:var(--t-small);font-weight:var(--w-light);" />
+            <sc-if value="{{ hasSearchQuery }}" hint-placeholder-val="{{ false }}">
+              <i class="ph ph-x" onClick="{{ clearSearch }}" style="font-size:13px;color:var(--text-tertiary);cursor:pointer;flex:0 0 auto;"></i>
+            </sc-if>
+          </div>
+
+          <sc-if value="{{ searchOpen }}" hint-placeholder-val="{{ false }}">
+            <div style="position:fixed;inset:0;z-index:29;" onClick="{{ closeSearch }}"></div>
+            <div style="position:absolute;top:calc(100% + 6px);left:0;right:0;background:var(--surface-popover);backdrop-filter:blur(var(--glass-blur-medium)) saturate(var(--glass-saturate));border:1px solid var(--glass-border);border-radius:var(--radius-panel);box-shadow:var(--shadow-popover);z-index:31;overflow:hidden;animation:ag-fade-in var(--dur-base) var(--ease-standard);max-height:min(60vh,420px);overflow-y:auto;">
+              <sc-if value="{{ hasSuggestions }}" hint-placeholder-val="{{ false }}">
+                <sc-for list="{{ suggestions }}" as="s" hint-placeholder-count="4">
+                  <a class="ag-link" href="{{ s.href }}" onClick="{{ s.onPick }}" style="display:flex;align-items:center;gap:10px;padding:9px 12px;text-decoration:none;color:var(--text-primary);border-bottom:1px solid var(--hairline);background:{{ s.rowBg }};">
+                    <i class="ph ph-{{ s.icon }}" style="font-size:15px;color:var(--text-secondary);flex:0 0 auto;width:16px;text-align:center;"></i>
+                    <div style="flex:1;min-width:0;">
+                      <div style="font-size:var(--t-small);font-weight:var(--w-regular);">{{ s.name }}</div>
+                      <div style="font-size:var(--t-micro);color:var(--text-tertiary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ s.sum }}</div>
+                    </div>
+                    <div style="font-size:9px;color:var(--text-quaternary);text-transform:uppercase;letter-spacing:var(--tr-caps);flex:0 0 auto;">{{ s.catLabel }}</div>
+                  </a>
+                </sc-for>
+              </sc-if>
+              <sc-if value="{{ hasSearchQuery }}" hint-placeholder-val="{{ false }}">
+                <sc-if value="{{ hasNoSuggestions }}" hint-placeholder-val="{{ false }}">
+                  <div style="padding:16px 12px;font-size:var(--t-small);color:var(--text-tertiary);">no roles match "{{ searchQuery }}" — try a plainer word, like "click" or "toggle".</div>
+                </sc-if>
+              </sc-if>
+            </div>
+          </sc-if>
+        </div>
+
+        <x-import component-from-global-scope="EXPDesignDesignSystem_fb82b2.IconButton" icon="list" title="menu" onClick="{{ openMenu }}" hint-size="28px,28px"></x-import>
+      </div>
+
+      <!-- main -->
+      <div style="flex:1;overflow-y:auto;min-height:0;">
+        <div style="max-width:920px;margin:0 auto;padding:clamp(16px,4vw,32px) clamp(16px,4vw,28px) 60px;">
+
+          <sc-if value="{{ isHome }}" hint-placeholder-val="{{ false }}">
+            <sc-if value="{{ showExplainer }}" hint-placeholder-val="{{ true }}">
+              <div style="margin-bottom:28px;">
+                <div style="font-family:var(--font-display);font-weight:var(--w-ultralight);font-size:clamp(26px,6vw,36px);letter-spacing:var(--tr-tight);margin:0 0 10px;">aria roles, in plain human</div>
+                <p style="font-size:var(--t-md);color:var(--text-secondary);line-height:var(--lh-normal);margin:0 0 10px;max-width:56ch;">an <strong style="color:var(--text-primary);font-weight:var(--w-medium);">aria role</strong> just tells a screen reader what kind of thing an element is — a button, a checkbox, a whole navigation menu — so it can describe it correctly, even when it's built from a plain &lt;div&gt;.</p>
+                <p style="font-size:var(--t-small);color:var(--text-tertiary);line-height:var(--lh-normal);margin:0;max-width:56ch;">the tricky part: your design brain groups things by how they <em>look</em>. aria groups them by what they <em>do</em>. this guide is about that gap.</p>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ hasBookmarks }}" hint-placeholder-val="{{ false }}">
+              <div style="margin-bottom:28px;">
+                <x-import component-from-global-scope="EXPDesignDesignSystem_fb82b2.SectionHeader" title="your bookmarks" hint-size="100%,24px"></x-import>
+                <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;">
+                  <sc-for list="{{ bookmarkChips }}" as="b" hint-placeholder-count="3">
+                    <a class="ag-link" href="{{ b.href }}" onClick="{{ b.onPick }}" style="display:flex;align-items:center;gap:6px;padding:7px 12px;background:var(--surface-card);border:1px solid var(--border-soft);border-radius:var(--radius-pill);text-decoration:none;color:var(--text-primary);font-size:var(--t-small);">
+                      <i class="ph ph-fill ph-star" style="font-size:12px;color:var(--text-accent);"></i>{{ b.name }}
+                    </a>
+                  </sc-for>
+                </div>
+              </div>
+            </sc-if>
+
+            <div style="margin-bottom:28px;">
+              <x-import component-from-global-scope="EXPDesignDesignSystem_fb82b2.SectionHeader" title="browse by category" hint-size="100%,24px"></x-import>
+              <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:8px;">
+                <sc-for list="{{ categoryTiles }}" as="c" hint-placeholder-count="6">
+                  <a class="ag-link" href="{{ c.href }}" onClick="{{ c.onPick }}" style="display:block;text-decoration:none;color:var(--text-primary);padding:14px;background:var(--surface-card);border:1px solid var(--border-soft);border-radius:var(--radius-card);">
+                    <i class="ph ph-{{ c.icon }}" style="font-size:20px;color:var(--text-secondary);"></i>
+                    <div style="font-size:var(--t-base);font-weight:var(--w-regular);margin-top:8px;">{{ c.label }}</div>
+                    <div style="font-size:var(--t-micro);color:var(--text-tertiary);margin-top:4px;line-height:var(--lh-snug);">{{ c.blurb }}</div>
+                    <div style="font-size:var(--t-micro);color:var(--text-quaternary);margin-top:8px;">{{ c.count }} roles</div>
+                  </a>
+                </sc-for>
+              </div>
+            </div>
+
+            <div>
+              <x-import component-from-global-scope="EXPDesignDesignSystem_fb82b2.SectionHeader" title="commonly confused" hint-size="100%,24px"></x-import>
+              <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px;">
+                <sc-for list="{{ featuredPairs }}" as="p" hint-placeholder-count="3">
+                  <a class="ag-link" href="{{ p.href }}" onClick="{{ p.onPick }}" style="display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--text-primary);padding:12px 14px;background:var(--surface-card);border:1px solid var(--border-soft);border-radius:var(--radius-card);">
+                    <i class="ph ph-arrows-left-right" style="font-size:15px;color:var(--text-secondary);flex:0 0 auto;"></i>
+                    <div style="flex:1;min-width:0;">
+                      <div style="font-size:var(--t-small);"><strong>{{ p.aName }}</strong> vs. <strong>{{ p.bName }}</strong></div>
+                      <div style="font-size:var(--t-micro);color:var(--text-tertiary);margin-top:2px;">{{ p.whyRich }}</div>
+                    </div>
+                  </a>
+                </sc-for>
+              </div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ isBrowse }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
+              <div style="font-family:var(--font-display);font-weight:var(--w-ultralight);font-size:clamp(22px,5vw,28px);">all roles</div>
+              <div style="font-size:var(--t-micro);color:var(--text-tertiary);">{{ browseCount }} shown</div>
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:20px;">
+              <a class="ag-link" href="#/browse" onClick="{{ clearCategoryFilter }}" style="text-decoration:none;padding:6px 12px;border-radius:var(--radius-pill);font-size:var(--t-small);background:{{ allChipBg }};color:{{ allChipColor }};border:1px solid var(--border-soft);">all</a>
+              <sc-for list="{{ categoryChips }}" as="c" hint-placeholder-count="6">
+                <a class="ag-link" href="{{ c.href }}" onClick="{{ c.onPick }}" style="text-decoration:none;display:flex;align-items:center;gap:5px;padding:6px 12px;border-radius:var(--radius-pill);font-size:var(--t-small);background:{{ c.chipBg }};color:{{ c.chipColor }};border:1px solid var(--border-soft);">
+                  <i class="ph ph-{{ c.icon }}" style="font-size:12px;"></i>{{ c.label }}
+                </a>
+              </sc-for>
+            </div>
+
+            <sc-for list="{{ browseGroups }}" as="g" hint-placeholder-count="6">
+              <div style="margin-bottom:18px;">
+                <div style="font-family:var(--font-condensed);font-weight:var(--w-medium);font-size:var(--t-small);color:var(--text-quaternary);letter-spacing:var(--tr-caps);text-transform:uppercase;padding:4px 0;">{{ g.letter }}</div>
+                <sc-for list="{{ g.items }}" as="r" hint-placeholder-count="3">
+                  <a class="ag-link" href="{{ r.href }}" onClick="{{ r.onPick }}" style="display:flex;align-items:center;gap:10px;text-decoration:none;color:var(--text-primary);padding:10px 8px;border-bottom:1px solid var(--hairline);">
+                    <div style="flex:1;min-width:0;">
+                      <div style="font-size:var(--t-base);">{{ r.name }}</div>
+                      <div style="font-size:var(--t-micro);color:var(--text-tertiary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ r.sum }}</div>
+                    </div>
+                    <div style="font-size:9px;color:var(--text-quaternary);text-transform:uppercase;letter-spacing:var(--tr-caps);flex:0 0 auto;">{{ r.catShort }}</div>
+                    <i class="ph {{ r.starClass }}" onClick="{{ r.onStar }}" style="font-size:14px;color:{{ r.starColor }};flex:0 0 auto;cursor:pointer;"></i>
+                  </a>
+                </sc-for>
+              </div>
+            </sc-for>
+          </sc-if>
+
+          <sc-if value="{{ isRole }}" hint-placeholder-val="{{ false }}">
+            <dc-import name="RoleDetail" role="{{ activeRole }}" isBookmarked="{{ activeIsBookmarked }}" nav="{{ navBridge }}" demoState="{{ demoState }}" copied="{{ codeCopied }}" linkCopied="{{ linkCopied }}" hint-size="100%,600px"></dc-import>
+          </sc-if>
+
+          <sc-if value="{{ isCompare }}" hint-placeholder-val="{{ false }}">
+            <div style="margin-bottom:16px;">
+              <div style="font-family:var(--font-display);font-weight:var(--w-ultralight);font-size:clamp(22px,5vw,28px);">{{ compareTitle }}</div>
+              <p style="font-size:var(--t-small);color:var(--text-tertiary);margin:6px 0 0;">{{ compareWhy }}</p>
+            </div>
+            <div style="display:flex;flex-wrap:wrap;gap:14px;">
+              <sc-for list="{{ compareCards }}" as="cc" hint-placeholder-count="2">
+                <div style="flex:1 1 260px;min-width:240px;background:var(--surface-card);border:1px solid var(--border-soft);border-radius:var(--radius-card);padding:16px;">
+                  <div style="font-size:var(--t-lg);margin-bottom:4px;">{{ cc.name }}</div>
+                  <div style="font-size:var(--t-small);color:var(--text-secondary);margin-bottom:10px;line-height:var(--lh-normal);">{{ cc.sum }}</div>
+                  <div style="font-family:var(--font-mono);font-size:11px;background:var(--n-0);border:1px solid var(--hairline);border-radius:var(--radius-field);padding:8px 10px;color:var(--text-secondary);white-space:pre-wrap;margin-bottom:10px;">{{ cc.code }}</div>
+                  <a class="ag-link" href="{{ cc.href }}" onClick="{{ cc.onPick }}" style="font-size:var(--t-small);">see full "{{ cc.name }}" page →</a>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+
+        </div>
+      </div>
+    </div>
+  </sc-if>
+  <sc-if value="{{ dataLoading }}" hint-placeholder-val="{{ true }}">
+    <div style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--text-tertiary);font-size:var(--t-small);">loading roles…</div>
+  </sc-if>
+
+  <!-- slide-out menu -->
+  <sc-if value="{{ menuOpen }}" hint-placeholder-val="{{ false }}">
+    <div style="position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:39;" onClick="{{ closeMenu }}"></div>
+    <div style="position:fixed;top:0;right:0;bottom:0;width:min(86vw,360px);background:var(--surface-popover);backdrop-filter:blur(var(--glass-blur-thick)) saturate(var(--glass-saturate));border-left:1px solid var(--glass-border);box-shadow:var(--shadow-modal);z-index:40;display:flex;flex-direction:column;animation:ag-drawer-in var(--dur-base) var(--ease-standard);">
+      <div style="flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;padding:14px 14px 10px;border-bottom:1px solid var(--hairline);">
+        <div style="font-size:var(--t-base);font-weight:var(--w-regular);text-transform:uppercase;letter-spacing:var(--tr-caps);">menu</div>
+        <x-import component-from-global-scope="EXPDesignDesignSystem_fb82b2.IconButton" icon="x" title="close" onClick="{{ closeMenu }}" hint-size="28px,28px"></x-import>
+      </div>
+      <div style="flex:1;overflow-y:auto;padding:14px;">
+        <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:20px;">
+          <a class="ag-link" href="#/" onClick="{{ goHomeAndCloseMenu }}" style="display:flex;align-items:center;gap:8px;text-decoration:none;color:var(--text-primary);padding:8px 6px;font-size:var(--t-small);"><i class="ph ph-house" style="font-size:15px;"></i>home</a>
+          <a class="ag-link" href="#/browse" onClick="{{ goBrowseAndCloseMenu }}" style="display:flex;align-items:center;gap:8px;text-decoration:none;color:var(--text-primary);padding:8px 6px;font-size:var(--t-small);"><i class="ph ph-list-magnifying-glass" style="font-size:15px;"></i>browse all roles</a>
+        </div>
+
+        <x-import component-from-global-scope="EXPDesignDesignSystem_fb82b2.SectionHeader" title="bookmarks" hint-size="100%,24px"></x-import>
+        <sc-if value="{{ hasBookmarks }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;flex-direction:column;gap:2px;margin:8px 0 20px;">
+            <sc-for list="{{ menuBookmarks }}" as="b" hint-placeholder-count="3">
+              <div style="display:flex;align-items:center;gap:6px;">
+                <a class="ag-link" href="{{ b.href }}" onClick="{{ b.onPick }}" style="flex:1;min-width:0;text-decoration:none;color:var(--text-primary);padding:8px 6px;font-size:var(--t-small);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ b.name }}</a>
+                <i class="ph ph-x" onClick="{{ b.onRemove }}" style="font-size:12px;color:var(--text-quaternary);cursor:pointer;padding:6px;"></i>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+        <sc-if value="{{ hasNoBookmarks }}" hint-placeholder-val="{{ false }}">
+          <p style="font-size:var(--t-micro);color:var(--text-quaternary);margin:8px 0 20px;">roles you star will show up here.</p>
+        </sc-if>
+
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <x-import component-from-global-scope="EXPDesignDesignSystem_fb82b2.SectionHeader" title="recently viewed" hint-size="180px,24px"></x-import>
+          <sc-if value="{{ hasHistory }}" hint-placeholder-val="{{ false }}">
+            <button onClick="{{ clearHistory }}" style="background:none;border:none;color:var(--text-tertiary);font-size:10px;cursor:pointer;padding:4px 6px;">clear</button>
+          </sc-if>
+        </div>
+        <sc-if value="{{ hasHistory }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;flex-direction:column;gap:2px;margin-top:8px;">
+            <sc-for list="{{ menuHistory }}" as="h" hint-placeholder-count="4">
+              <a class="ag-link" href="{{ h.href }}" onClick="{{ h.onPick }}" style="display:flex;align-items:center;gap:8px;text-decoration:none;color:var(--text-primary);padding:8px 6px;font-size:var(--t-small);">
+                <i class="ph ph-clock-counter-clockwise" style="font-size:13px;color:var(--text-quaternary);flex:0 0 auto;"></i>
+                <span style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ h.name }}</span>
+              </a>
+            </sc-for>
+          </div>
+        </sc-if>
+        <sc-if value="{{ hasNoHistory }}" hint-placeholder-val="{{ false }}">
+          <p style="font-size:var(--t-micro);color:var(--text-quaternary);margin:8px 0;">roles you open will show up here.</p>
+        </sc-if>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ toast }}" hint-placeholder-val="{{ null }}">
+    <div style="position:fixed;bottom:20px;left:50%;background:var(--surface-popover);backdrop-filter:blur(var(--glass-blur-medium));border:1px solid var(--glass-border);border-radius:var(--radius-pill);padding:9px 16px;font-size:var(--t-small);box-shadow:var(--shadow-popover);z-index:50;animation:ag-toast-in var(--dur-base) var(--ease-standard);display:flex;align-items:center;gap:6px;">
+      <i class="ph ph-fill ph-check-circle" style="color:var(--green);font-size:14px;"></i>{{ toast }}
+    </div>
+  </sc-if>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;appearance&quot;: {&quot;editor&quot;: &quot;enum&quot;, &quot;default&quot;: &quot;dark&quot;, &quot;options&quot;: [&quot;dark&quot;, &quot;light&quot;], &quot;tsType&quot;: &quot;'dark' | 'light'&quot;, &quot;section&quot;: &quot;Behavior&quot;}, &quot;showExplainer&quot;: {&quot;editor&quot;: &quot;boolean&quot;, &quot;default&quot;: true, &quot;tsType&quot;: &quot;boolean&quot;, &quot;section&quot;: &quot;Behavior&quot;}}">
+class Component extends DCLogic {
+  state = {
+    route: { type: 'home' },
+    historyStack: [{ type: 'home' }],
+    historyIndex: 0,
+    searchQuery: '',
+    searchOpen: false,
+    menuOpen: false,
+    activeCategory: null,
+    bookmarks: [],
+    viewHistory: [],
+    demo: {},
+    toast: null,
+    codeCopied: false,
+    linkCopied: false,
+  };
+
+  componentDidMount() {
+    import('./roles-data.js').then((mod) => { this.data = mod; this.parseHash(); this.forceUpdate(); });
+    try { this.setState({ bookmarks: JSON.parse(localStorage.getItem('aria-guide-bookmarks') || '[]') }); } catch (e) {}
+    try { this.setState({ viewHistory: JSON.parse(localStorage.getItem('aria-guide-history') || '[]') }); } catch (e) {}
+    this._onHash = () => { if (this._internalNav) { this._internalNav = false; return; } this.parseHash(); };
+    window.addEventListener('hashchange', this._onHash);
+  }
+  componentWillUnmount() { window.removeEventListener('hashchange', this._onHash); }
+
+  parseHash() {
+    if (!this.data) return;
+    const parts = (location.hash || '').replace(/^#\/?/, '').split('/').filter(Boolean);
+    let route = { type: 'home' };
+    if (parts[0] === 'role' && parts[1] && this.data.findRole(parts[1])) route = { type: 'role', id: parts[1] };
+    else if (parts[0] === 'compare' && parts[1] && parts[2]) route = { type: 'compare', a: parts[1], b: parts[2] };
+    else if (parts[0] === 'browse') route = { type: 'browse', category: parts[1] || null };
+    this.setState({ route, historyStack: [route], historyIndex: 0, activeCategory: route.category || null });
+    if (route.type === 'role') this.recordView(route.id);
+  }
+
+  buildHash(route) {
+    if (route.type === 'role') return '#/role/' + route.id;
+    if (route.type === 'compare') return '#/compare/' + route.a + '/' + route.b;
+    if (route.type === 'browse') return route.category ? '#/browse/' + route.category : '#/browse';
+    return '#/';
+  }
+
+  navigate = (route) => {
+    const stack = this.state.historyStack.slice(0, this.state.historyIndex + 1);
+    stack.push(route);
+    this._internalNav = true;
+    location.hash = this.buildHash(route);
+    this.setState({ route, historyStack: stack, historyIndex: stack.length - 1, demo: {}, searchOpen: false, searchQuery: '', menuOpen: false, activeCategory: route.category || (route.type === 'role' ? this.state.activeCategory : null) });
+    if (route.type === 'role') this.recordView(route.id);
+    window.scrollTo && window.scrollTo(0, 0);
+  };
+  goBack = () => { if (this.state.historyIndex <= 0) return; const i = this.state.historyIndex - 1; const route = this.state.historyStack[i]; this._internalNav = true; location.hash = this.buildHash(route); this.setState({ route, historyIndex: i, demo: {} }); };
+  goForward = () => { if (this.state.historyIndex >= this.state.historyStack.length - 1) return; const i = this.state.historyIndex + 1; const route = this.state.historyStack[i]; this._internalNav = true; location.hash = this.buildHash(route); this.setState({ route, historyIndex: i, demo: {} }); };
+
+  navTo(route) { return (e) => { if (e) e.preventDefault(); this.navigate(route); }; }
+
+  recordView(id) {
+    let hist = (this.state.viewHistory || []).filter((h) => h.id !== id);
+    hist.unshift({ id, ts: Date.now() });
+    hist = hist.slice(0, 20);
+    this.setState({ viewHistory: hist });
+    try { localStorage.setItem('aria-guide-history', JSON.stringify(hist)); } catch (e) {}
+  }
+  clearHistory = () => { this.setState({ viewHistory: [] }); try { localStorage.setItem('aria-guide-history', '[]'); } catch (e) {} };
+
+  toggleBookmark = (id) => {
+    let bm = this.state.bookmarks || [];
+    bm = bm.includes(id) ? bm.filter((x) => x !== id) : [...bm, id];
+    this.setState({ bookmarks: bm });
+    try { localStorage.setItem('aria-guide-bookmarks', JSON.stringify(bm)); } catch (e) {}
+  };
+
+  onSearchChange = (e) => { this.setState({ searchQuery: e.target.value, searchOpen: true }); };
+  onSearchFocus = () => { this.setState({ searchOpen: true }); };
+  onSearchKeyDown = (e) => {
+    if (e.key === 'Escape') this.setState({ searchOpen: false });
+    if (e.key === 'Enter' && this.data) {
+      const res = this.data.searchRoles(this.state.searchQuery, 1);
+      if (res[0]) this.navigate({ type: 'role', id: res[0].id });
+    }
+  };
+  clearSearch = () => { this.setState({ searchQuery: '', searchOpen: false }); };
+  closeSearch = () => { this.setState({ searchOpen: false }); };
+  openMenu = () => { this.setState({ menuOpen: true }); };
+  closeMenu = () => { this.setState({ menuOpen: false }); };
+  goHomeAndCloseMenu = (e) => { e.preventDefault(); this.setState({ menuOpen: false }); this.navigate({ type: 'home' }); };
+  goBrowseAndCloseMenu = (e) => { e.preventDefault(); this.setState({ menuOpen: false }); this.navigate({ type: 'browse', category: null }); };
+  clearCategoryFilter = (e) => { e.preventDefault(); this.navigate({ type: 'browse', category: null }); };
+  openGlossaryScreenReader = (e) => { e.preventDefault(); };
+
+  showToast(msg) { this.setState({ toast: msg }); clearTimeout(this._toastT); this._toastT = setTimeout(() => this.setState({ toast: null }), 2200); }
+  copyLink = (route) => {
+    const url = location.origin + location.pathname + this.buildHash(route);
+    if (navigator.clipboard) navigator.clipboard.writeText(url).catch(() => {});
+    this.setState({ linkCopied: true });
+    this.showToast('link copied');
+    setTimeout(() => this.setState({ linkCopied: false }), 1600);
+  };
+  copyCode = (text) => {
+    if (navigator.clipboard) navigator.clipboard.writeText(text).catch(() => {});
+    this.setState({ codeCopied: true });
+    this.showToast('code copied');
+    setTimeout(() => this.setState({ codeCopied: false }), 1600);
+  };
+
+  setDemo = (patch) => { this.setState((s) => ({ demo: { ...s.demo, ...patch } })); };
+
+  boldify(str) {
+    if (!str) return str;
+    const parts = String(str).split(/(\*\*[^*]+\*\*|\*[^*]+\*)/g).filter((p) => p !== '');
+    return React.createElement(React.Fragment, null, ...parts.map((p, i) => {
+      if (/^\*\*[^*]+\*\*$/.test(p)) return React.createElement('strong', { key: i, style: { fontWeight: 500, color: 'var(--text-primary)' } }, p.slice(2, -2));
+      if (/^\*[^*]+\*$/.test(p)) return React.createElement('em', { key: i, style: { fontStyle: 'italic' } }, p.slice(1, -1));
+      return p;
+    }));
+  }
+
+  catMeta(catId) { return (this.data.CATEGORIES || []).find((c) => c.id === catId) || { label: catId, icon: 'circle', short: catId }; }
+  roleCount(catId) { return this.data.ROLES.filter((r) => r.cat === catId).length; }
+
+  renderVals() {
+    const data = this.data;
+    if (!data) return { dataLoaded: false, dataLoading: true };
+    const { route, bookmarks, viewHistory, searchQuery, searchOpen, menuOpen, toast, demo, activeCategory, codeCopied, linkCopied } = this.state;
+
+    const catLabelShort = (catId) => this.catMeta(catId).short;
+
+    const suggestionsRaw = searchQuery ? data.searchRoles(searchQuery, 8) : [];
+    const suggestions = suggestionsRaw.map((r) => ({
+      id: r.id, name: r.name, sum: r.sum, icon: this.catMeta(r.cat).icon, catLabel: catLabelShort(r.cat),
+      href: '#/role/' + r.id, onPick: this.navTo({ type: 'role', id: r.id }), rowBg: 'transparent',
+    }));
+
+    const bookmarkChips = (bookmarks || []).map((id) => {
+      const r = data.findRole(id); if (!r) return null;
+      return { id, name: r.name, href: '#/role/' + id, onPick: this.navTo({ type: 'role', id }) };
+    }).filter(Boolean);
+
+    const categoryTiles = (data.CATEGORIES || []).map((c) => ({
+      id: c.id, label: c.label, blurb: c.blurb, icon: c.icon, count: this.roleCount(c.id),
+      href: '#/browse/' + c.id, onPick: this.navTo({ type: 'browse', category: c.id }),
+    }));
+
+    const featuredIds = ['button|link', 'checkbox|switch', 'navigation|menu', 'search|searchbox'];
+    const featuredPairs = featuredIds.map((key) => {
+      const [aId, bId] = key.split('|');
+      const a = data.findRole(aId), b = data.findRole(bId);
+      if (!a || !b) return null;
+      const why = (a.confused || []).find((c) => c.id === bId)?.why || (b.confused || []).find((c) => c.id === aId)?.why || '';
+      return { aName: a.name, bName: b.name, whyRich: this.boldify(why), href: '#/compare/' + aId + '/' + bId, onPick: this.navTo({ type: 'compare', a: aId, b: bId }) };
+    }).filter(Boolean);
+
+    // browse
+    let browseList = data.ROLES;
+    if (route.type === 'browse' && route.category) browseList = browseList.filter((r) => r.cat === route.category);
+    browseList = [...browseList].sort((a, b) => a.name.localeCompare(b.name));
+    const groupsMap = {};
+    browseList.forEach((r) => { const l = r.name[0].toUpperCase(); (groupsMap[l] = groupsMap[l] || []).push(r); });
+    const browseGroups = Object.keys(groupsMap).sort().map((letter) => ({
+      letter, items: groupsMap[letter].map((r) => ({
+        id: r.id, name: r.name, sum: r.sum, catShort: catLabelShort(r.cat),
+        href: '#/role/' + r.id, onPick: this.navTo({ type: 'role', id: r.id }),
+        starClass: (bookmarks || []).includes(r.id) ? 'ph-fill ph-star' : 'ph ph-star',
+        starColor: (bookmarks || []).includes(r.id) ? 'var(--text-accent)' : 'var(--text-quaternary)',
+        onStar: (e) => { e.preventDefault(); e.stopPropagation(); this.toggleBookmark(r.id); },
+      })),
+    }));
+    const categoryChips = (data.CATEGORIES || []).map((c) => {
+      const on = route.type === 'browse' && route.category === c.id;
+      return { id: c.id, label: c.label, icon: c.icon, href: '#/browse/' + c.id, onPick: this.navTo({ type: 'browse', category: c.id }),
+        chipBg: on ? 'var(--accent-subtle)' : 'var(--surface-card)', chipColor: on ? 'var(--text-accent)' : 'var(--text-secondary)' };
+    });
+    const allOn = route.type === 'browse' && !route.category;
+
+    // role detail
+    let activeRole = null, activeIsBookmarked = false;
+    if (route.type === 'role') { activeRole = data.findRole(route.id); activeIsBookmarked = (bookmarks || []).includes(route.id); }
+
+    // compare
+    let compareCards = [], compareTitle = '', compareWhy = '';
+    if (route.type === 'compare') {
+      const a = data.findRole(route.a), b = data.findRole(route.b);
+      if (a && b) {
+        compareTitle = a.name + ' vs. ' + b.name;
+        compareWhy = this.boldify((a.confused || []).find((c) => c.id === b.id)?.why || (b.confused || []).find((c) => c.id === a.id)?.why || '');
+        compareCards = [a, b].map((r) => ({ id: r.id, name: r.name, sum: r.sum, code: r.code, href: '#/role/' + r.id, onPick: this.navTo({ type: 'role', id: r.id }) }));
+      }
+    }
+
+    const menuBookmarks = (bookmarks || []).map((id) => { const r = data.findRole(id); if (!r) return null; return { id, name: r.name, href: '#/role/' + id, onPick: this.navTo({ type: 'role', id }), onRemove: (e) => { e.preventDefault(); this.toggleBookmark(id); } }; }).filter(Boolean);
+    const menuHistory = (viewHistory || []).map((h) => { const r = data.findRole(h.id); if (!r) return null; return { id: h.id, name: r.name, href: '#/role/' + h.id, onPick: this.navTo({ type: 'role', id: h.id }) }; }).filter(Boolean);
+
+    return {
+      dataLoaded: true, dataLoading: false,
+      canGoBack: this.state.historyIndex > 0, canGoForward: this.state.historyIndex < this.state.historyStack.length - 1,
+      goBack: this.goBack, goForward: this.goForward,
+      searchQuery, hasSearchQuery: !!searchQuery, onSearchChange: this.onSearchChange, onSearchKeyDown: this.onSearchKeyDown, onSearchFocus: this.onSearchFocus, clearSearch: this.clearSearch, closeSearch: this.closeSearch,
+      searchOpen: searchOpen && !!searchQuery, suggestions, hasSuggestions: suggestions.length > 0, hasNoSuggestions: suggestions.length === 0,
+      openMenu: this.openMenu, closeMenu: this.closeMenu, menuOpen,
+      goHomeAndCloseMenu: this.goHomeAndCloseMenu, goBrowseAndCloseMenu: this.goBrowseAndCloseMenu,
+      isHome: route.type === 'home', isBrowse: route.type === 'browse', isRole: route.type === 'role', isCompare: route.type === 'compare',
+      hasBookmarks: (bookmarks || []).length > 0, bookmarkChips,
+      categoryTiles, featuredPairs,
+      browseCount: browseList.length, browseGroups, categoryChips, clearCategoryFilter: this.clearCategoryFilter,
+      allChipBg: allOn ? 'var(--accent-subtle)' : 'var(--surface-card)', allChipColor: allOn ? 'var(--text-accent)' : 'var(--text-secondary)',
+      activeRole, activeIsBookmarked, navBridge: { navigate: this.navigate, navTo: (r) => this.navTo(r), toggleBookmark: this.toggleBookmark, copyLink: this.copyLink, copyCode: this.copyCode, setDemo: this.setDemo, boldify: (s) => this.boldify(s), catMeta: (c) => this.catMeta(c) },
+      demoState: demo, copied: codeCopied, linkCopied,
+      compareTitle, compareWhy, compareCards,
+      hasNoBookmarks: !((bookmarks || []).length > 0), menuBookmarks,
+      hasHistory: (viewHistory || []).length > 0, hasNoHistory: !((viewHistory || []).length > 0), menuHistory, clearHistory: this.clearHistory,
+      toast,
+      appearanceClass: (this.props.appearance || 'dark') === 'light' ? 'exp-light' : 'exp-dark',
+      showExplainer: this.props.showExplainer ?? true,
+    };
+  }
+}
+
+</script>
+</body>
+</html>
