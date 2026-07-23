@@ -1967,6 +1967,32 @@ font import → Phase 9, shadows → Phase 10._
 
 ## Progress Log
 
+- **2026-07-23 — Searchable Help library built from the first edited clip set [site]:**
+  Replaced the `/learn` placeholders with a real task-oriented Help experience:
+  five searchable written tutorials (artboards, the wall, canvas navigation,
+  document-grid snapping, and artboard layout grids), category filters, related
+  articles, per-page contents navigation, and eleven short visual guides. Added
+  the owner's follow-up **Center in Canvas** clip to the navigation tutorial and
+  indexed both the UI label and the conversational “center on canvas” phrasing.
+  Preserved the full-resolution originals outside the site; generated 1920px
+  H.264 web copies plus poster images in `website/public/assets/help/`. Clips are
+  silent, use native controls, lazy-load, play only while substantially visible,
+  pause offscreen, and stay on their poster when Reduce Motion is enabled. The
+  production Vite build passes and all article-to-asset references were checked.
+  Work is local only; no deployment was performed.
+
+- **2026-07-22 — First Help recording curated into a written-content pilot [site]:**
+  Reviewed and locally transcribed the owner's 17:58 canvas/artboard walkthrough,
+  then converted the natural long-form demonstration into five task-oriented
+  draft pages: artboard management, using the wall, pan/zoom, the document grid,
+  and per-artboard layout grids. Added an editorial map, searchable terms, and a
+  timestamped micro-clip cut sheet at
+  `website/content/help/recording-01-canvas-artboards.md`. Flagged the failed
+  Fit to Screen demonstration at 12:05–12:22 as a bug/reproduction lead and
+  excluded it from publishable help. Draft content is not yet wired into `/learn`;
+  the owner will edit/re-record the short muted loops before the searchable Help
+  interface is built.
+
 - **2026-07-22 — v2.0 shipped; first complete Sparkle update proof passed:** Owner
   confirmed the preserved v1.6.1 installation discovered v2.0, downloaded the
   signed update, installed, and relaunched successfully—closing the update path

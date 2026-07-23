@@ -1,5 +1,11 @@
 import React, { useEffect, useMemo, useState } from "react";
 import siteContent from "./generated/siteContent.json";
+import {
+  findHelpArticle,
+  helpArticles,
+  helpCategories,
+  searchableHelpText,
+} from "./helpContent";
 
 const releaseUrl = "https://github.com/tracyapps/EXP-design/releases/latest";
 const releasesUrl = "https://github.com/tracyapps/EXP-design/releases";
@@ -48,29 +54,6 @@ const featureMoments = [
     icon: "ph-note-pencil",
     line: "notes live on the artboard, move with it, duplicate with it, and can export into PDF handoff pages.",
     detail: "assumptions, test-first prompts, and context travel with the thing they explain.",
-  },
-];
-
-const guideRows = [
-  {
-    title: "set up a working wall",
-    time: "soon",
-    body: "coming soon: a short walkthrough for artboards, presets, rearranging work, and keeping the canvas open.",
-  },
-  {
-    title: "make a source component",
-    time: "soon",
-    body: "coming soon: a practical component guide covering sources, instances, overrides, and detach.",
-  },
-  {
-    title: "write notes that matter",
-    time: "soon",
-    body: "coming soon: a field note pattern for assumptions, testing prompts, and handoff context.",
-  },
-  {
-    title: "export a handoff package",
-    time: "soon",
-    body: "coming soon: the small export checklist for PNG, PDF, SVG, and notes pages.",
   },
 ];
 
@@ -430,42 +413,6 @@ function DesignLanguageCallout() {
             alt="EXP design language panel in swatch grid view"
           />
         </figure>
-      </div>
-    </section>
-  );
-}
-
-function FieldGuide() {
-  const [open, setOpen] = useState(0);
-
-  return (
-    <section id="field-guide" className="guide-section" aria-labelledby="guide-title">
-      <div className="section-copy narrow">
-        <p className="section-label">field guide</p>
-        <h2 id="guide-title">how-to material for people actually testing it.</h2>
-        <p>
-          short, direct walkthroughs are coming soon. the first pass will focus
-          on the things testers need to try the app without a tour guide hovering
-          nearby.
-        </p>
-      </div>
-      <div className="guide-list">
-        {guideRows.map((row, index) => (
-          <button
-            key={row.title}
-            type="button"
-            className={open === index ? "guide-row open" : "guide-row"}
-            aria-expanded={open === index}
-            onClick={() => setOpen(open === index ? -1 : index)}
-          >
-            <span className="guide-index">{String(index + 1).padStart(2, "0")}</span>
-              <span className="guide-main">
-                <strong>{row.title}</strong>
-              <span>{open === index ? row.body : "coming soon"}</span>
-            </span>
-            <span className="guide-time">{row.time}</span>
-          </button>
-        ))}
       </div>
     </section>
   );
@@ -1019,57 +966,94 @@ function Footer() {
   );
 }
 
-function youtubeId(url) {
-  if (!url) return "";
-  const match = url.match(/(?:youtu\.be\/|v=|embed\/)([\w-]{6,})/);
-  return match ? match[1] : "";
+function HelpCard({ article, compact = false }) {
+  return (
+    <a className={compact ? "help-card compact" : "help-card"} href={`/learn/${article.slug}`}>
+      {!compact && (
+        <span className="help-card-image">
+          <img src={article.cardPoster} alt="" loading="lazy" />
+        </span>
+      )}
+      <span className="help-card-copy">
+        <span className="help-card-kicker">{article.category}</span>
+        <strong>{article.title}</strong>
+        <span>{article.summary}</span>
+        <small>{article.readTime} · {article.sections.filter((section) => section.video).length} visual {article.sections.filter((section) => section.video).length === 1 ? "guide" : "guides"}</small>
+      </span>
+      <i className="ph ph-arrow-up-right" aria-hidden="true" />
+    </a>
+  );
 }
 
-function VideoCard({ video }) {
-  const id = youtubeId(video.youtubeUrl);
-  const thumb = video.thumbnail || (id ? `https://img.youtube.com/vi/${id}/hqdefault.jpg` : "");
-  const ready = Boolean(video.youtubeUrl);
+function HelpVideo({ video }) {
+  const ref = React.useRef(null);
+
+  useEffect(() => {
+    const node = ref.current;
+    if (!node) return undefined;
+
+    const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+    if (motionQuery.matches) return undefined;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          node.play().catch(() => {});
+        } else {
+          node.pause();
+        }
+      },
+      { threshold: 0.55 },
+    );
+
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
 
   return (
-    <a
-      className={ready ? "video-card" : "video-card pending"}
-      href={ready ? video.youtubeUrl : undefined}
-      target={ready ? "_blank" : undefined}
-      rel={ready ? "noreferrer" : undefined}
-      aria-disabled={ready ? undefined : "true"}
-    >
-      <span className="video-thumb">
-        {thumb ? (
-          <img src={thumb} alt="" loading="lazy" />
-        ) : (
-          <span className="video-thumb-empty" aria-hidden="true" />
-        )}
-        <span className="video-play" aria-hidden="true">
-          <i className="ph ph-play-fill" />
-        </span>
-        {video.duration && <span className="video-duration">{video.duration}</span>}
-      </span>
-      <span className="video-meta">
-        {video.category && <span className="video-tag">{video.category}</span>}
-        <strong>{video.title}</strong>
-        <span>{ready ? video.description : "coming soon"}</span>
-      </span>
-    </a>
+    <figure className="help-video">
+      <video
+        ref={ref}
+        controls
+        loop
+        muted
+        playsInline
+        preload="metadata"
+        poster={video.poster}
+        aria-label={video.label}
+      >
+        <source src={video.src} type="video/mp4" />
+        Your browser does not support embedded video.
+      </video>
+      <figcaption>
+        <i className="ph ph-play-circle" aria-hidden="true" />
+        <span>{video.label}</span>
+      </figcaption>
+    </figure>
   );
 }
 
 function LearnPage() {
   const progress = useScrollProgress();
-  const videos = siteContent.learnVideos ?? [];
-  const readyCount = videos.filter((video) => video.youtubeUrl).length;
+  const [query, setQuery] = useState("");
+  const [category, setCategory] = useState("all");
+
+  const filtered = useMemo(() => {
+    const normalized = query.trim().toLocaleLowerCase();
+    return helpArticles.filter((article) => {
+      const categoryMatch = category === "all" || article.category === category;
+      const textMatch = !normalized || searchableHelpText(article).includes(normalized);
+      return categoryMatch && textMatch;
+    });
+  }, [category, query]);
 
   useEffect(() => {
-    document.title = "EXP [design] — learn";
+    document.title = "EXP [design] — Help";
     document
       .querySelector("meta[name='description']")
       ?.setAttribute(
         "content",
-        "Short walkthroughs and tutorials for testing EXP [design] on macOS.",
+        "Searchable written tutorials and short visual guides for EXP [design] on macOS.",
       );
   }, []);
 
@@ -1082,32 +1066,149 @@ function LearnPage() {
         brandHref="/"
       />
       <main>
-        <section id="top" className="learn-hero">
+        <section id="top" className="help-hero">
           <div className="section-copy">
-            <p className="section-label">learn</p>
-            <h1>short walkthroughs for people actually testing it.</h1>
+            <p className="section-label">EXP Help</p>
+            <h1>find the small thing you’re trying to do.</h1>
             <p>
-              quick, practical videos — no tour guide hovering nearby. more are on
-              the way; the list fills in as they publish.
+              Written steps for searching and scanning, with quiet visual guides
+              when seeing the action is easier than describing it.
             </p>
           </div>
+          <form className="help-search" role="search" onSubmit={(event) => event.preventDefault()}>
+            <label htmlFor="help-query">Search Help</label>
+            <span className="help-search-field">
+              <i className="ph ph-magnifying-glass" aria-hidden="true" />
+              <input
+                id="help-query"
+                type="search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Try “duplicate,” “center,” or “grid”"
+                autoComplete="off"
+              />
+              {query && (
+                <button type="button" onClick={() => setQuery("")} aria-label="Clear Help search">
+                  <i className="ph ph-x" aria-hidden="true" />
+                </button>
+              )}
+            </span>
+          </form>
         </section>
-        {videos.length > 0 && (
-          <section className="learn-videos" aria-label="tutorial videos">
-            {readyCount === 0 && (
-              <p className="learn-empty">
-                the first videos are being recorded now. in the meantime, the written
-                walkthroughs below cover the essentials.
-              </p>
-            )}
-            <div className="learn-grid">
-              {videos.map((video) => (
-                <VideoCard key={video.id ?? video.title} video={video} />
-              ))}
+
+        <section className="help-library" aria-labelledby="help-library-title">
+          <div className="help-library-head">
+            <div>
+              <p className="section-label">task library</p>
+              <h2 id="help-library-title">Start with what you need now.</h2>
             </div>
-          </section>
-        )}
-        <FieldGuide />
+            <p aria-live="polite">{filtered.length} {filtered.length === 1 ? "tutorial" : "tutorials"}</p>
+          </div>
+
+          <div className="help-filters" aria-label="Filter tutorials by category">
+            {["all", ...helpCategories].map((item) => (
+              <button
+                key={item}
+                type="button"
+                className={category === item ? "active" : ""}
+                aria-pressed={category === item}
+                onClick={() => setCategory(item)}
+              >
+                {item}
+              </button>
+            ))}
+          </div>
+
+          {filtered.length > 0 ? (
+            <div className="help-grid">
+              {filtered.map((article) => <HelpCard key={article.slug} article={article} />)}
+            </div>
+          ) : (
+            <div className="help-no-results">
+              <i className="ph ph-binoculars" aria-hidden="true" />
+              <h3>No tutorial matches that yet.</h3>
+              <p>Try a shorter term, or clear the category filter.</p>
+              <button type="button" onClick={() => { setQuery(""); setCategory("all"); }}>
+                Show every tutorial
+              </button>
+            </div>
+          )}
+        </section>
+      </main>
+      <Footer />
+    </>
+  );
+}
+
+function HelpArticlePage({ article }) {
+  const progress = useScrollProgress();
+  const related = article.related.map(findHelpArticle).filter(Boolean);
+
+  useEffect(() => {
+    document.title = `${article.title} — EXP Help`;
+    document
+      .querySelector("meta[name='description']")
+      ?.setAttribute("content", article.summary);
+  }, [article]);
+
+  return (
+    <>
+      <Header
+        progress={progress}
+        actionLabel="all help"
+        actionHref="/learn"
+        brandHref="/"
+      />
+      <main className="help-article-page">
+        <header className="help-article-hero">
+          <nav aria-label="Breadcrumb">
+            <a href="/learn">Help</a>
+            <i className="ph ph-caret-right" aria-hidden="true" />
+            <span>{article.category}</span>
+          </nav>
+          <p className="section-label">{article.category}</p>
+          <h1>{article.title}</h1>
+          <p className="help-article-summary">{article.summary}</p>
+          <p className="help-article-meta">{article.readTime} · Updated {article.updated}</p>
+        </header>
+
+        <div className="help-article-layout">
+          <aside className="help-toc" aria-label="On this page">
+            <strong>On this page</strong>
+            {article.sections.map((section) => (
+              <a key={section.id} href={`#${section.id}`}>{section.title}</a>
+            ))}
+          </aside>
+
+          <article className="help-article-body">
+            {article.sections.map((section) => (
+              <section key={section.id} id={section.id}>
+                <h2>{section.title}</h2>
+                {section.paragraphs?.map((paragraph) => <p key={paragraph}>{paragraph}</p>)}
+                {section.steps && (
+                  <ol>
+                    {section.steps.map((step) => <li key={step}>{step}</li>)}
+                  </ol>
+                )}
+                {section.note && (
+                  <aside className="help-note">
+                    <i className="ph ph-info" aria-hidden="true" />
+                    <p>{section.note}</p>
+                  </aside>
+                )}
+                {section.video && <HelpVideo video={section.video} />}
+              </section>
+            ))}
+          </article>
+        </div>
+
+        <section className="help-related" aria-labelledby="help-related-title">
+          <p className="section-label">keep going</p>
+          <h2 id="help-related-title">Related tutorials</h2>
+          <div className="help-related-grid">
+            {related.map((item) => <HelpCard key={item.slug} article={item} compact />)}
+          </div>
+        </section>
       </main>
       <Footer />
     </>
@@ -1138,6 +1239,12 @@ export default function App() {
   }
 
   if (path === "/learn") {
+    return <LearnPage />;
+  }
+
+  if (path.startsWith("/learn/")) {
+    const article = findHelpArticle(path.slice("/learn/".length));
+    if (article) return <HelpArticlePage article={article} />;
     return <LearnPage />;
   }
 
