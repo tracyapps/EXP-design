@@ -966,11 +966,15 @@ final class CanvasNSView: NSView {
     }
 
     /// Drag right after placing an anchor to pull symmetric bezier handles.
-    private func penHandleDrag(_ p: CGPoint, nodeID: UUID, anchorIndex: Int) {
+    private func penHandleDrag(_ p: CGPoint, nodeID: UUID, anchorIndex: Int, shift: Bool = false) {
         guard let n = node(nodeID), case .path(let ps) = n.content, anchorIndex < ps.points.count else { return }
         let docP = viewToDoc(p)
         let anchorLocal = ps.points[anchorIndex].point
-        let outLocal = docToLocal(docP, n)
+        var outLocal = docToLocal(docP, n)
+        // Shift locks the new handle to axis/45-degree increments, exactly like
+        // editing an existing control handle in pathPointDrag (BUG-005). The
+        // opposite handle is re-derived below so it stays mirrored.
+        if shift { outLocal = constrainLineEndpoint(outLocal, from: anchorLocal) }
         let inLocal = CGPoint(x: 2 * anchorLocal.x - outLocal.x, y: 2 * anchorLocal.y - outLocal.y)
         updateNodeLive(nodeID) {
             if case .path(var p2) = $0.content {
@@ -6463,7 +6467,7 @@ final class CanvasNSView: NSView {
             needsDisplay = true
 
         case .penHandle(let nodeID, let anchorIndex):
-            penHandleDrag(p, nodeID: nodeID, anchorIndex: anchorIndex)
+            penHandleDrag(p, nodeID: nodeID, anchorIndex: anchorIndex, shift: shift)
 
         case .pathPoint(let nodeID, let target):
             pathPointDrag(p, nodeID: nodeID, target: target, shift: shift)

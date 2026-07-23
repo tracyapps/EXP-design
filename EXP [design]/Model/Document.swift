@@ -1623,6 +1623,14 @@ enum ComponentStateEditing {
                 }
             case .fill(let paint):
                 setFill(paint, on: &node)
+            case .textStyle(let style):
+                if case .text(var tc) = node.content {
+                    tc = style.applied(to: tc)
+                    node.content = .text(tc)
+                    node.frame.size = tc.measuredSize()
+                }
+            case .opacity(let value):
+                node.opacity = value
             }
         }
         if case .group(let kids) = node.content {
@@ -1662,10 +1670,25 @@ enum ComponentStateEditing {
                 }
                 guard let b = baseByID[n.id] else { return n }   // new node → base as-is
                 if case .text(let editedTC) = n.content,
-                   case .text = b.content,
-                   editedTC.plainString != textPlainString(of: b) {
-                    overrides.append(InstanceOverride(targetNodeID: n.id,
-                                                      value: .text(editedTC.plainString)))
+                   case .text(let baseTC) = b.content {
+                    // Text string → its own override (CSS can't implement content).
+                    if editedTC.plainString != baseTC.plainString {
+                        overrides.append(InstanceOverride(targetNodeID: n.id,
+                                                          value: .text(editedTC.plainString)))
+                    }
+                    // Typography (color/face/size/underline/align/line-height/
+                    // tracking/case) → a bounded text-style override. Only the
+                    // properties that actually differ are recorded.
+                    let styleDiff = TextStyleOverride.diff(base: baseTC, edited: editedTC)
+                    if !styleDiff.isEmpty {
+                        overrides.append(InstanceOverride(targetNodeID: n.id,
+                                                          value: .textStyle(styleDiff)))
+                    }
+                    // Reset the base text node to its pristine content + frame. The
+                    // state now carries every text difference as an override, so the
+                    // shared base never absorbs a state-local text edit. This is the
+                    // BUG-006 fix: previously any non-string text edit (color, size,
+                    // …) fell through to the base and leaked into every state.
                     n.content = b.content
                     n.frame.size = b.frame.size
                 }
@@ -1674,6 +1697,13 @@ enum ComponentStateEditing {
                     overrides.append(InstanceOverride(targetNodeID: n.id,
                                                       value: .fill(editedFill)))
                     setFill(baseFill, on: &n)
+                }
+                // Whole-layer opacity (text, background, or the root group) →
+                // an opacity override; the base keeps its own opacity.
+                if n.opacity != b.opacity {
+                    overrides.append(InstanceOverride(targetNodeID: n.id,
+                                                      value: .opacity(n.opacity)))
+                    n.opacity = b.opacity
                 }
                 if n.isVisible != b.isVisible {
                     visibility.append(LayerVisibilityOverride(layerID: n.id,
@@ -1698,11 +1728,6 @@ enum ComponentStateEditing {
         collect(newBase)
         newState.layerVisibility.removeAll { !liveIDs.contains($0.layerID) }
         return (newBase, newState)
-    }
-
-    private static func textPlainString(of node: Node) -> String? {
-        if case .text(let tc) = node.content { return tc.plainString }
-        return nil
     }
 
     private static func fill(of node: Node) -> Paint? {
@@ -1773,15 +1798,92 @@ struct LayerVisibilityOverride: Codable, Sendable {
     var isVisible: Bool
 }
 
+/// A bounded set of TYPOGRAPHY properties overridden by a component state (or,
+/// in principle, an instance). Every field is optional: only the properties that
+/// actually differ from the base are stored, so the diff stays minimal and old
+/// files decode tolerantly — a missing key means "inherit the base." Run-level
+/// properties (color, face, size, underline) apply UNIFORMLY to every run: a
+/// component label is edited as a whole in the inspector, so representing per-run
+/// state styling is deliberately out of scope. Paragraph-level properties (align,
+/// line height + unit, tracking, case) set the matching `TextContent` field.
+///
+/// Synthesized `Codable` uses `encodeIfPresent`/`decodeIfPresent` for optionals,
+/// so nil fields are omitted from JSON and any absent/older key decodes as nil.
+struct TextStyleOverride: Codable, Sendable, Equatable {
+    // Run-level (applied to every run)
+    var color: RGBAColor?
+    var fontName: String?
+    var fontSize: CGFloat?
+    var underline: Bool?
+    // Paragraph-level
+    var align: TextAlign?
+    var lineHeight: CGFloat?
+    var lineHeightUnit: LineHeightUnit?
+    var tracking: CGFloat?
+    var textCase: TextCase?
+
+    var isEmpty: Bool {
+        color == nil && fontName == nil && fontSize == nil && underline == nil
+            && align == nil && lineHeight == nil && lineHeightUnit == nil
+            && tracking == nil && textCase == nil
+    }
+
+    /// Overlay the set properties onto `text`, returning the styled copy. Only
+    /// non-nil fields change; everything else inherits from `text` (the base).
+    func applied(to text: TextContent) -> TextContent {
+        var t = text
+        if let color { t.applyToAllRuns { $0.color = color } }
+        if let fontName { t.applyToAllRuns { $0.fontName = fontName } }
+        if let fontSize { t.applyToAllRuns { $0.fontSize = fontSize } }
+        if let underline { t.applyToAllRuns { $0.underline = underline } }
+        if let align { t.align = align }
+        if let lineHeight { t.lineHeight = lineHeight }
+        if let lineHeightUnit { t.lineHeightUnit = lineHeightUnit }
+        if let tracking { t.tracking = tracking }
+        if let textCase { t.textCase = textCase }
+        return t
+    }
+
+    /// The diff of `edited` against `base`: a field is recorded only when the
+    /// edited value differs. Run-level props compare the UNIFORM value across runs
+    /// (nil = mixed runs, which the bounded vocabulary can't represent, so that
+    /// property is left to the base rather than guessed).
+    static func diff(base: TextContent, edited: TextContent) -> TextStyleOverride {
+        func uniformColor(_ t: TextContent) -> RGBAColor? {
+            let first = t.runs.first?.color
+            return t.runs.allSatisfy { $0.color == first } ? first : nil
+        }
+        func uniformUnderline(_ t: TextContent) -> Bool? {
+            let first = t.runs.first?.underline
+            return t.runs.allSatisfy { $0.underline == first } ? first : nil
+        }
+        var o = TextStyleOverride()
+        if let e = uniformColor(edited), e != uniformColor(base) { o.color = e }
+        if let e = edited.uniformFontName, e != base.uniformFontName { o.fontName = e }
+        if let e = edited.uniformFontSize, e != base.uniformFontSize { o.fontSize = e }
+        if let e = uniformUnderline(edited), e != uniformUnderline(base) { o.underline = e }
+        if edited.align != base.align { o.align = edited.align }
+        if edited.lineHeight != base.lineHeight { o.lineHeight = edited.lineHeight }
+        if edited.lineHeightUnit != base.lineHeightUnit { o.lineHeightUnit = edited.lineHeightUnit }
+        if edited.tracking != base.tracking { o.tracking = edited.tracking }
+        if edited.textCase != base.textCase { o.textCase = edited.textCase }
+        return o
+    }
+}
+
 /// One bounded override targeting a node inside the resolved instance.
 /// Kept as an explicit list (not a dictionary) so the JSON stays readable.
 struct InstanceOverride: Codable, Sendable {
     enum Value: Codable, Sendable {
         case text(String)
         case fill(Paint)        // solid OR gradient (Paint decodes a legacy bare RGBAColor)
+        case textStyle(TextStyleOverride)   // bounded per-state/instance typography
+        case opacity(Double)                // whole-layer opacity (any node type)
 
         var textValue: String? { if case .text(let s) = self { return s }; return nil }
         var fillValue: Paint? { if case .fill(let p) = self { return p }; return nil }
+        var textStyleValue: TextStyleOverride? { if case .textStyle(let o) = self { return o }; return nil }
+        var opacityValue: Double? { if case .opacity(let v) = self { return v }; return nil }
     }
     var targetNodeID: UUID
     var value: Value
@@ -1827,6 +1929,15 @@ extension ComponentInstance {
                     if node.autoPadding != nil { node.autoPadding?.fill = paint }
                 default: break
                 }
+            case .textStyle(let style):
+                if case .text(var tc) = node.content {
+                    tc = style.applied(to: tc)
+                    node.content = .text(tc)
+                    // Re-measure so an overridden size/face/tracking still re-hugs.
+                    node.frame.size = tc.measuredSize()
+                }
+            case .opacity(let value):
+                node.opacity = value
             }
         }
         if case .group(var kids) = node.content {

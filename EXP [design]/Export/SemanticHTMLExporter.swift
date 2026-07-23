@@ -1169,6 +1169,19 @@ private extension Document {
                 default:
                     break
                 }
+            case .textStyle(let style):
+                // Per-state typography. The state CSS emitter re-resolves the node
+                // in each state and writes full run/appearance declarations, so
+                // folding the style in here is all that handoff needs.
+                if case .text(var text) = node.content {
+                    text = style.applied(to: text)
+                    node.content = .text(text)
+                    node.frame.size = text.measuredSize()
+                }
+            case .opacity(let value):
+                // geometry() emits `opacity` from the resolved node, so per-state
+                // opacity flows into the state rule automatically.
+                node.opacity = value
             }
         }
         if case .group(let children) = node.content {
