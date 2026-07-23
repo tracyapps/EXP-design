@@ -2006,6 +2006,21 @@ font import → Phase 9, shadows → Phase 10._
 
 ## Progress Log
 
+- **2026-07-23 — v2.0.1 release path documented; repo hygiene fixed [infra]:**
+  Added a complete `## v2.0.1 copy/paste path` to `docs/RELEASE-CHECKLIST.md`
+  (steps 0–11, mirroring the hardened v2.0 path at 2.0.1 / build 11: gate, commit,
+  archive, Direct Distribution, byte-verified zip, appcast + ROADMAP
+  in-progress→released transform, tag/upload/deploy, public verification, and the
+  v2.0→v2.0.1 Sparkle install proof). Investigated two stray files flagged in the
+  release diff: (1) `EXP [design].xcodeproj/xcuserdata/.../xcschememanagement.plist`
+  was tracked because the old `.gitignore` pattern `*.xcuserdata/` never matched the
+  real `xcuserdata/` directory — fixed `.gitignore` to ignore `xcuserdata/` +
+  `*.xcuserdatad/` and documented a one-time `git rm -r --cached` in checklist step
+  0.5; (2) a `.fuse_hidden…` file is a Linux/FUSE artifact from editing
+  project.pbxproj over the Dropbox mount (macOS does not create these), now
+  gitignored and cleared by step 0.5. Deletes and the stale `.git/index.lock` are
+  owner-run on macOS — the Cowork/Dropbox mount blocks unlinks.
+
 - **2026-07-23 — v2.0.1 inspector polish: Type controls labeled + Content moved [app]:**
   In the single-text-selection inspector (`MainWindow.textControls`), the typeface
   menu now has a "Font" label and the weight menu a "Weight" label, and the

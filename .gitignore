@@ -1,7 +1,15 @@
 .DS_Store
 build/
 DerivedData/
+# Xcode per-user state — must never be tracked. The old `*.xcuserdata/` pattern
+# did NOT match the real `xcuserdata/` directory (it holds `<user>.xcuserdatad/`),
+# so scheme/order churn kept surfacing in release diffs.
+xcuserdata/
+*.xcuserdatad/
 *.xcuserdata/
+# Linux/FUSE artifact for a file rewritten while a handle was open. Not created by
+# macOS; guards against accidentally committing one from a synced/mounted edit.
+.fuse_hidden*
 docs/*
 !docs/ARCHITECTURE.md
 !docs/BACKLOG.md

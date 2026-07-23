@@ -3,6 +3,442 @@
 The repeatable path from a green build on `dev` to a tagged GitHub Release.
 GitHub auth is off-box, so the owner runs every `git`/`gh` step.
 
+## v2.0.1 copy/paste path
+
+The complete v2.0.1 / build 11 bug-fix path: BUG-006 (component-state typography
+and opacity leak), BUG-005 (Shift ignored on a new Pen handle), and the Type-panel
+polish (labeled Font/Weight menus + Content role in its own sub-section). It mirrors
+the hardened v2.0 path below with the version variables changed to `2.0.1` / `11`.
+Same rules: fresh Terminal tab, stop at the first failed command, do not tag/upload/
+deploy around a failure. Each block neutralizes leaked fail-fast options, then runs
+inside `( … )`. Release artifacts stay OUTSIDE the repo (`../releases/`,
+`../sparkle-releases/`); keep Dropbox syncing paused through appcast generation.
+
+### 0. Canonical paths
+
+```sh
+set +e +u
+set +o pipefail 2>/dev/null || true
+(
+set -euo pipefail
+
+ROOT="/Users/tapps/Library/CloudStorage/Dropbox/work/custom-work-tools/apps/EXP [design]"
+APPS_ROOT="$(cd "$ROOT/.." && pwd)"
+VERSION="2.0.1"
+BUILD="11"
+RELEASE_DIR="$APPS_ROOT/releases/v$VERSION"
+APP_PATH="$RELEASE_DIR/EXP [design].app"
+ZIP_PATH="$RELEASE_DIR/EXP-design-v$VERSION.zip"
+SPARKLE_DIR="$APPS_ROOT/sparkle-releases"
+ARCHIVE_PATH="$HOME/Library/Developer/Xcode/Archives/$(date +%Y-%m-%d)/EXP design v$VERSION.xcarchive"
+
+cd "$ROOT"
+mkdir -p "$RELEASE_DIR" "$SPARKLE_DIR" "$(dirname "$ARCHIVE_PATH")"
+
+printf 'root:     %s\narchive:  %s\napp:      %s\nzip:      %s\nappcasts: %s\n' \
+  "$ROOT" "$ARCHIVE_PATH" "$APP_PATH" "$ZIP_PATH" "$SPARKLE_DIR"
+)
+```
+
+### 0.5 Working-tree hygiene (one-time repo cleanup)
+
+Two housekeeping items surfaced during the 2.0.1 work. Clear them before the gate so
+the release diff is clean.
+
+```sh
+set +e +u
+set +o pipefail 2>/dev/null || true
+(
+set -euo pipefail
+ROOT="/Users/tapps/Library/CloudStorage/Dropbox/work/custom-work-tools/apps/EXP [design]"
+cd "$ROOT"
+
+# 1) Remove any stale git lock left by an interrupted or mounted git run. (A
+#    Cowork session editing over the Dropbox mount can leave a 0-byte lock it
+#    cannot unlink; only a local macOS delete clears it.)
+rm -f .git/index.lock
+
+# 2) Stop tracking Xcode per-user state (scheme list + order hints). It should
+#    never have been committed; .gitignore now ignores `xcuserdata/`, but the
+#    already-tracked copy must leave the index once. Deletes nothing on disk.
+git rm -r --cached --ignore-unmatch "EXP [design].xcodeproj/xcuserdata" >/dev/null 2>&1 || true
+
+# 3) A ".fuse_hidden…" file inside the .xcodeproj is a Linux/FUSE artifact from a
+#    mounted editor rewriting project.pbxproj while a handle was open. macOS does
+#    not create these; if one exists locally it is safe to delete.
+find "EXP [design].xcodeproj" -name '.fuse_hidden*' -delete 2>/dev/null || true
+
+git status --short
+)
+```
+
+Expect `.gitignore` and the removed `xcuserdata/...xcschememanagement.plist` in the
+status; they get committed with the release source in step 3.
+
+### 1. Run the complete local gate
+
+```sh
+set +e +u
+set +o pipefail 2>/dev/null || true
+(
+set -euo pipefail
+ROOT="/Users/tapps/Library/CloudStorage/Dropbox/work/custom-work-tools/apps/EXP [design]"
+cd "$ROOT"
+
+test "$(git branch --show-current)" = "main"
+test -f RELEASE-NOTES-v2.0.1.md
+
+scripts/set_release_version.sh 2.0.1 11
+scripts/verify_semantic_html_contract.sh
+scripts/verify_semantic_html_package.sh
+scripts/verify_svg_token_bridge.sh
+scripts/verify_sparkle_setup.sh 2.0.1 11
+(cd website && npm run build)
+
+xcodebuild -project "EXP [design].xcodeproj" \
+  -scheme "EXP [design]" \
+  -configuration Release \
+  -destination "generic/platform=macOS" \
+  build
+
+git diff --check
+git status --short
+)
+```
+
+The v2.0 path's PlistBuddy scheme-cleanup step is no longer needed here: with
+`xcuserdata/` untracked and ignored (step 0.5), Xcode's scheme churn never reaches
+the index. The Sparkle preflight should end noting v2.0.1 is not yet in the checked-in
+appcast — expected until the notarized zip exists. Known non-blocking output: the
+existing Swift 6 deprecation backlog and AppIntents' "No AppIntents.framework
+dependency found" notice. Any new error, test/signature/package failure is a stop.
+
+### 2. Owner acceptance before freezing source
+
+- [ ] Launch the Release build; confirm create/open/edit/save/export still work.
+- [ ] Reproduce the two fixed defects from the 2026-07-23 recording:
+      - **BUG-006:** in a component source, activate a non-default state (e.g.
+        Disabled), change a text layer's color / size / face / alignment /
+        line-height / tracking / case and a layer or group opacity; confirm Default
+        and sibling states are byte-for-byte unchanged and instances render the
+        chosen state correctly.
+      - **BUG-005:** with the Pen, click-drag a new anchor's handle while holding
+        Shift; confirm it snaps to axis/45° and the opposite handle stays mirrored,
+        and that pressing/releasing Shift mid-drag toggles the snap.
+- [ ] In the Type inspector, confirm the Font and Weight menus are labeled and the
+      Content role sits in its own divider-separated sub-section below Case.
+- [ ] Export a Handoff Package from a doc with a stated component; confirm per-state
+      typography/opacity appear in the state CSS.
+- [ ] Confirm About shows **2.0.1 / build 11**.
+
+### 3. Commit the release source
+
+```sh
+set +e +u
+set +o pipefail 2>/dev/null || true
+(
+set -euo pipefail
+ROOT="/Users/tapps/Library/CloudStorage/Dropbox/work/custom-work-tools/apps/EXP [design]"
+cd "$ROOT"
+
+git diff --check
+git add -A
+git diff --cached --check
+git diff --cached --stat
+git commit -m "v2.0.1: fix component-state edit leak (BUG-006) and Pen Shift constraint (BUG-005)"
+test -z "$(git status --porcelain)"
+)
+```
+
+Do not create the `v2.0.1` tag yet — the generated appcast and its release-note HTML
+must be committed first.
+
+### 4. Create the final archive
+
+```sh
+set +e +u
+set +o pipefail 2>/dev/null || true
+(
+set -euo pipefail
+ROOT="/Users/tapps/Library/CloudStorage/Dropbox/work/custom-work-tools/apps/EXP [design]"
+VERSION="2.0.1"
+BUILD="11"
+ARCHIVE_PATH="$HOME/Library/Developer/Xcode/Archives/$(date +%Y-%m-%d)/EXP design v$VERSION.xcarchive"
+ARCHIVE_APP="$ARCHIVE_PATH/Products/Applications/EXP [design].app"
+
+cd "$ROOT"
+test -z "$(git status --porcelain)"
+test ! -e "$ARCHIVE_PATH"
+mkdir -p "$(dirname "$ARCHIVE_PATH")"
+
+xcodebuild archive \
+  -project "EXP [design].xcodeproj" \
+  -scheme "EXP [design]" \
+  -configuration Release \
+  -destination "generic/platform=macOS" \
+  -archivePath "$ARCHIVE_PATH" \
+  CODE_SIGN_STYLE=Automatic
+
+scripts/verify_release_candidate.sh --local "$ARCHIVE_APP" "$VERSION" "$BUILD"
+open "$ARCHIVE_PATH"
+)
+```
+
+### 5. Direct Distribution in Xcode
+
+```sh
+set +e +u
+set +o pipefail 2>/dev/null || true
+(
+set -euo pipefail
+ROOT="/Users/tapps/Library/CloudStorage/Dropbox/work/custom-work-tools/apps/EXP [design]"
+APPS_ROOT="$(cd "$ROOT/.." && pwd)"
+RELEASE_DIR="$APPS_ROOT/releases/v2.0.1"
+APP_PATH="$RELEASE_DIR/EXP [design].app"
+ZIP_PATH="$RELEASE_DIR/EXP-design-v2.0.1.zip"
+
+mkdir -p "$RELEASE_DIR"
+test ! -e "$APP_PATH"
+test ! -e "$ZIP_PATH"
+printf 'Export the Direct Distribution app into:\n%s\n' "$RELEASE_DIR"
+)
+```
+
+In Xcode Organizer (the archive opened in step 4):
+
+```text
+Distribute App → Direct Distribution → Upload for notarization → wait for success
+→ export the notarized/stapled app into:
+/Users/tapps/Library/CloudStorage/Dropbox/work/custom-work-tools/apps/releases/v2.0.1/
+```
+
+The exported bundle must land at exactly:
+
+```text
+/Users/tapps/Library/CloudStorage/Dropbox/work/custom-work-tools/apps/releases/v2.0.1/EXP [design].app
+```
+
+### 6. Verify the exported app and create the one shipping zip
+
+```sh
+set +e +u
+set +o pipefail 2>/dev/null || true
+(
+set -euo pipefail
+ROOT="/Users/tapps/Library/CloudStorage/Dropbox/work/custom-work-tools/apps/EXP [design]"
+APPS_ROOT="$(cd "$ROOT/.." && pwd)"
+VERSION="2.0.1"
+BUILD="11"
+RELEASE_DIR="$APPS_ROOT/releases/v$VERSION"
+APP_PATH="$RELEASE_DIR/EXP [design].app"
+ZIP_PATH="$RELEASE_DIR/EXP-design-v$VERSION.zip"
+
+cd "$ROOT"
+test -d "$APP_PATH"
+test ! -e "$ZIP_PATH"
+
+CLEAN_DIR="$(mktemp -d)"
+CLEAN_APP="$CLEAN_DIR/EXP [design].app"
+ditto --norsrc --noextattr --noqtn --noacl "$APP_PATH" "$CLEAN_APP"
+xattr -cr "$CLEAN_APP"
+scripts/verify_release_candidate.sh "$CLEAN_APP" "$VERSION" "$BUILD"
+
+ditto -c -k --norsrc --noextattr --noqtn --noacl --keepParent "$CLEAN_APP" "$ZIP_PATH"
+
+CHECK_DIR="$(mktemp -d)"
+ditto -x -k "$ZIP_PATH" "$CHECK_DIR"
+scripts/verify_release_candidate.sh "$CHECK_DIR/EXP [design].app" "$VERSION" "$BUILD"
+rm -rf "$CHECK_DIR" "$CLEAN_DIR"
+
+ls -lh "$ZIP_PATH"
+shasum -a 256 "$ZIP_PATH"
+)
+```
+
+That zip is now immutable — the same bytes back Sparkle's signature, the GitHub asset,
+and every downloaded byte. Do not re-zip.
+
+### 7. Generate the v2.0.1 appcast and mark the roadmap released
+
+```sh
+set +e +u
+set +o pipefail 2>/dev/null || true
+(
+set -euo pipefail
+ROOT="/Users/tapps/Library/CloudStorage/Dropbox/work/custom-work-tools/apps/EXP [design]"
+APPS_ROOT="$(cd "$ROOT/.." && pwd)"
+VERSION="2.0.1"
+BUILD="11"
+ZIP_PATH="$APPS_ROOT/releases/v$VERSION/EXP-design-v$VERSION.zip"
+SPARKLE_DIR="$APPS_ROOT/sparkle-releases"
+RELEASE_DATE="$(date +%F)"
+
+cd "$ROOT"
+test -f "$ZIP_PATH"
+
+SPARKLE_RELEASES_DIR="$SPARKLE_DIR" \
+  scripts/generate_sparkle_appcast.sh "$VERSION" "$BUILD" "$ZIP_PATH"
+scripts/verify_sparkle_setup.sh "$VERSION" "$BUILD"
+cmp -s "$ZIP_PATH" "$SPARKLE_DIR/EXP-design-v$VERSION.zip"
+
+grep -qF '## v2.0.1 — in progress (opened 2026-07-23)' docs/ROADMAP.md
+
+RELEASE_DATE="$RELEASE_DATE" perl -0pi -e '
+  s{^## v2\.0\.1 — in progress \(opened 2026-07-23\)$}
+   {## v2.0.1 — released ($ENV{RELEASE_DATE})}m
+' docs/ROADMAP.md
+
+rg -n '^## v2\.0\.1 — released' docs/ROADMAP.md
+(cd website && npm run build)
+git diff --check
+git status --short
+)
+```
+
+Expected release-metadata changes:
+
+```text
+docs/ROADMAP.md
+website/public/appcast.xml
+website/public/EXP-design-v2.0.1.html
+```
+
+Commit them before tagging:
+
+```sh
+set +e +u
+set +o pipefail 2>/dev/null || true
+(
+set -euo pipefail
+ROOT="/Users/tapps/Library/CloudStorage/Dropbox/work/custom-work-tools/apps/EXP [design]"
+cd "$ROOT"
+git add \
+  docs/ROADMAP.md \
+  website/public/appcast.xml \
+  website/public/EXP-design-v2.0.1.html
+git diff --cached --check
+git diff --cached --stat
+git commit -m "v2.0.1: publish release metadata"
+test -z "$(git status --porcelain)"
+)
+```
+
+### 8. Tag, upload the exact asset, then deploy the site
+
+Publish the GitHub asset before pushing `main`, so Vercel never serves an appcast
+that points at a not-yet-existing download.
+
+```sh
+set +e +u
+set +o pipefail 2>/dev/null || true
+(
+set -euo pipefail
+ROOT="/Users/tapps/Library/CloudStorage/Dropbox/work/custom-work-tools/apps/EXP [design]"
+APPS_ROOT="$(cd "$ROOT/.." && pwd)"
+VERSION="2.0.1"
+ZIP_PATH="$APPS_ROOT/releases/v$VERSION/EXP-design-v$VERSION.zip"
+
+cd "$ROOT"
+test -z "$(git status --porcelain)"
+gh auth status
+
+git tag -a "v$VERSION" -m "EXP [design] v$VERSION"
+git push origin "v$VERSION"
+
+gh release create "v$VERSION" \
+  --verify-tag \
+  --title "EXP [design] v$VERSION — Component states and Pen curves, fixed" \
+  --notes-file "RELEASE-NOTES-v$VERSION.md" \
+  "$ZIP_PATH"
+
+DOWNLOAD_CHECK="$(mktemp -d)"
+gh release download "v$VERSION" --pattern "EXP-design-v$VERSION.zip" --dir "$DOWNLOAD_CHECK"
+cmp -s "$ZIP_PATH" "$DOWNLOAD_CHECK/EXP-design-v$VERSION.zip"
+rm -rf "$DOWNLOAD_CHECK"
+
+git push origin main
+)
+```
+
+Wait for the Vercel production deploy to report success before the live checks.
+
+### 9. Verify the public release
+
+```sh
+set +e +u
+set +o pipefail 2>/dev/null || true
+(
+set -euo pipefail
+VERSION="2.0.1"
+BUILD="11"
+ZIP_NAME="EXP-design-v$VERSION.zip"
+LIVE_APPCAST="$(mktemp)"
+
+curl -fsS https://expdesign.app/appcast.xml -o "$LIVE_APPCAST"
+grep -q "<sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>" "$LIVE_APPCAST"
+grep -q "<sparkle:version>$BUILD</sparkle:version>" "$LIVE_APPCAST"
+grep -q "releases/download/v$VERSION/$ZIP_NAME" "$LIVE_APPCAST"
+grep -q 'sparkle:edSignature=' "$LIVE_APPCAST"
+rm -f "$LIVE_APPCAST"
+
+curl -fsSIL "https://github.com/tracyapps/EXP-design/releases/download/v$VERSION/$ZIP_NAME" >/dev/null
+curl -fsSI "https://expdesign.app/EXP-design-v$VERSION.html" >/dev/null
+gh release view "v$VERSION" --json tagName,name,isDraft,isPrerelease,assets,url
+)
+```
+
+Every command must return zero; confirm the release is neither draft nor prerelease
+and lists `EXP-design-v2.0.1.zip`.
+
+### 10. Prove v2.0 → v2.0.1 Sparkle installation
+
+Install the preserved public **v2.0 / build 10** build in `/Applications`, then:
+
+```sh
+set +e +u
+set +o pipefail 2>/dev/null || true
+(
+set -euo pipefail
+ROOT="/Users/tapps/Library/CloudStorage/Dropbox/work/custom-work-tools/apps/EXP [design]"
+INSTALLED_APP="/Applications/EXP [design].app"
+cd "$ROOT"
+scripts/verify_installed_update_baseline.sh "$INSTALLED_APP"
+test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$INSTALLED_APP/Contents/Info.plist")" = "2.0"
+test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$INSTALLED_APP/Contents/Info.plist")" = "10"
+open "$INSTALLED_APP"
+)
+```
+
+In the running v2.0 app: **EXP [design] → Check for Updates…**; confirm the v2.0.1
+notes read well with VoiceOver and increased contrast; install, allow relaunch, and
+confirm About shows **2.0.1 / build 11**. Then:
+
+```sh
+set +e +u
+set +o pipefail 2>/dev/null || true
+(
+set -euo pipefail
+ROOT="/Users/tapps/Library/CloudStorage/Dropbox/work/custom-work-tools/apps/EXP [design]"
+INSTALLED_APP="/Applications/EXP [design].app"
+SOCKET_PATH="$HOME/Library/Containers/tapps.EXP--design-/Data/Library/Application Support/EXP/agent.sock"
+cd "$ROOT"
+scripts/verify_release_candidate.sh "$INSTALLED_APP" 2.0.1 11
+test ! -e "$SOCKET_PATH"
+)
+```
+
+The socket check proves agent access stays off by default. Record the install/relaunch
+proof in the ROADMAP Progress Log, then commit/push that documentation-only update.
+
+### 11. Final announcement checklist
+
+- [ ] GitHub Release is public and contains the byte-verified zip.
+- [ ] `expdesign.app` shows v2.0.1 and its download works.
+- [ ] Public appcast and HTML release notes pass step 9.
+- [ ] v2.0 → v2.0.1 update/install/relaunch proof passes step 10.
+- [ ] ROADMAP records the completed release gates and is pushed.
+- [ ] Send the announcement only after all checks above are green.
+
 ## v2.0 copy/paste path
 
 This is the complete v2.0/build 10 path. It does not depend on translating any
