@@ -247,6 +247,283 @@ export const helpArticles = [
     ],
     related: ["document-grid-snap", "create-organize-artboards"],
   },
+  {
+    slug: "create-transform-shapes",
+    category: "shapes + layers",
+    title: "Create and transform shapes",
+    summary:
+      "Choose a drawing tool, then draw, resize, rotate, and position shapes visually or with exact values.",
+    readTime: "4 min",
+    updated: "July 23, 2026",
+    keywords: [
+      "shape", "rectangle", "ellipse", "polygon", "line", "pen", "draw",
+      "resize", "rotate", "aspect ratio", "dimensions", "position", "properties",
+      "inspector", "shortcut", "select", "edit points",
+    ],
+    cardPoster: helpAsset("shapes-draw-resize-poster.jpg"),
+    sections: [
+      {
+        id: "tools",
+        title: "Choose a drawing tool",
+        paragraphs: [
+          "Drawing tools live in the toolbar on the left. Pause over a tool to see its name and keyboard shortcut: Rectangle (R), Ellipse (O), Polygon (G), Line (L), Pen (P), Select (V), and Edit Points (A).",
+          "The Select tool moves and transforms an entire object. Edit Points works with the individual points that define a shape; point editing is covered separately with paths.",
+        ],
+      },
+      {
+        id: "draw-resize",
+        title: "Draw and resize a shape",
+        paragraphs: [
+          "Choose a drawing tool or press its shortcut. Click once to create the tool’s default shape—for Rectangle, a single click creates a square—or click and drag to draw the dimensions you want.",
+          "After drawing, switch to Select or press V. Drag an edge handle to change one dimension or a corner handle to change both. Hold Shift while resizing to preserve the object’s aspect ratio.",
+        ],
+        video: {
+          src: helpAsset("shapes-draw-resize.mp4"),
+          poster: helpAsset("shapes-draw-resize-poster.jpg"),
+          label: "Draw rectangles by clicking and dragging, then resize them freely or with Shift to preserve their proportions.",
+        },
+      },
+      {
+        id: "rotate",
+        title: "Rotate a shape",
+        paragraphs: [
+          "Move just outside a corner of the selection until the rotate cursor appears, then drag around the object’s center. Hold Shift while rotating to snap the angle to 15-degree increments.",
+        ],
+        video: {
+          src: helpAsset("shapes-rotate.mp4"),
+          poster: helpAsset("shapes-rotate-poster.jpg"),
+          label: "Rotate a shape freely, then hold Shift to rotate in consistent angle increments.",
+        },
+      },
+      {
+        id: "exact-transform",
+        title: "Enter exact values",
+        paragraphs: [
+          "Use Properties when the result needs exact position, size, or rotation values. With a numeric field focused, press an arrow key to change it by one unit or hold Shift while pressing an arrow key to change it by ten.",
+          "Enter 0 for the rotation to return an object to its unrotated angle.",
+        ],
+        video: {
+          src: helpAsset("shapes-exact-transform.mp4"),
+          poster: helpAsset("shapes-exact-transform-poster.jpg"),
+          label: "Adjust a shape’s position, dimensions, and rotation with exact values in Properties.",
+        },
+      },
+    ],
+    related: ["guides-measure-spacing", "align-distribute-objects", "organize-layers"],
+  },
+  {
+    slug: "guides-measure-spacing",
+    category: "layout + alignment",
+    title: "Use guides and measure spacing",
+    summary:
+      "Use temporary alignment guides, inspect the distance between objects, and nudge a selection into place.",
+    readTime: "2 min",
+    updated: "July 23, 2026",
+    keywords: [
+      "smart guide", "alignment guide", "measure", "spacing", "distance", "option",
+      "nudge", "arrow key", "pixels", "align", "measurement",
+    ],
+    cardPoster: helpAsset("guides-measure-spacing-poster.jpg"),
+    sections: [
+      {
+        id: "guides-measure",
+        title: "Align visually and inspect the distance",
+        paragraphs: [
+          "Move an object near another object. EXP displays temporary guides when their edges or centers align, so you can place related objects without calculating their coordinates first.",
+          "To inspect spacing, select an object, hold Option, and move the pointer toward another object. Use an arrow key to nudge the selection by one pixel, or Shift-arrow to move it by ten pixels, until the measurement reaches the value you want.",
+        ],
+        note: "Measurements are temporary canvas feedback; they do not add permanent guides or labels to the document.",
+        video: {
+          src: helpAsset("guides-measure-spacing.mp4"),
+          poster: helpAsset("guides-measure-spacing-poster.jpg"),
+          label: "Use smart guides to align two shapes, then hold Option to measure and refine the space between them.",
+        },
+      },
+    ],
+    related: ["align-distribute-objects", "create-transform-shapes", "document-grid-snap"],
+  },
+  {
+    slug: "align-distribute-objects",
+    category: "layout + alignment",
+    title: "Align and distribute objects",
+    summary:
+      "Align selected objects to one another or their artboard, then give three or more objects equal spacing.",
+    readTime: "3 min",
+    updated: "July 23, 2026",
+    keywords: [
+      "align", "distribute", "selection", "artboard", "top", "bottom", "left",
+      "right", "center", "horizontal", "vertical", "equal spacing", "multiple select",
+      "shift click", "marquee",
+    ],
+    cardPoster: helpAsset("align-selection-artboard-poster.jpg"),
+    sections: [
+      {
+        id: "align",
+        title: "Align to the selection or artboard",
+        paragraphs: [
+          "Drag a selection rectangle around several objects, or hold Shift while clicking each object you want to include. Alignment controls appear in Properties when multiple objects are selected.",
+          "With Selection as the target, choose an edge or center alignment to align the objects to one another. Switch the target to Artboard when the selection should use its artboard as the reference instead.",
+        ],
+        video: {
+          src: helpAsset("align-selection-artboard.mp4"),
+          poster: helpAsset("align-selection-artboard-poster.jpg"),
+          label: "Align objects to one another, then switch the alignment target and position them within their artboard.",
+        },
+      },
+      {
+        id: "distribute",
+        title: "Distribute objects evenly",
+        paragraphs: [
+          "Select three or more objects, then choose horizontal or vertical distribution. EXP keeps the two outer objects fixed and gives the objects between them equal spacing.",
+          "Align first when the objects should also share an edge or centerline; distribute afterward to make their spacing consistent.",
+        ],
+        video: {
+          src: helpAsset("distribute-objects.mp4"),
+          poster: helpAsset("distribute-objects-poster.jpg"),
+          label: "Align several objects and distribute them with equal horizontal and vertical spacing.",
+        },
+      },
+    ],
+    related: ["guides-measure-spacing", "create-transform-shapes", "group-edit-objects"],
+  },
+  {
+    slug: "organize-layers",
+    category: "shapes + layers",
+    title: "Organize, duplicate, and delete layers",
+    summary:
+      "Duplicate objects, control what draws in front, name layers clearly, and select work hidden underneath other objects.",
+    readTime: "4 min",
+    updated: "July 23, 2026",
+    keywords: [
+      "layer", "order", "stack", "front", "back", "duplicate", "copy", "paste",
+      "command d", "option drag", "shift", "rename", "delete", "undo", "hidden",
+      "covered", "select", "bring forward", "send backward",
+    ],
+    cardPoster: helpAsset("layers-reorder-poster.jpg"),
+    sections: [
+      {
+        id: "duplicate",
+        title: "Duplicate an object",
+        paragraphs: [
+          "Copy and paste with Command-C and Command-V, or choose Copy and Paste from the Edit menu. The duplicate begins in the same position as the original, so move it afterward to reveal it.",
+          "For a visible duplicate-and-move gesture, hold Option while dragging an object. Hold Shift with Option to constrain the drag horizontally or vertically and keep the copy aligned with the original.",
+        ],
+        video: {
+          src: helpAsset("layers-duplicate.mp4"),
+          poster: helpAsset("layers-duplicate-poster.jpg"),
+          label: "Duplicate objects with keyboard and menu copy-paste, Option-drag, and Option-Shift-drag for an aligned copy.",
+        },
+      },
+      {
+        id: "stacking",
+        title: "Change the stacking order",
+        paragraphs: [
+          "Objects higher in Layers draw in front of objects below them. Drag a layer up or down to change the order.",
+          "Use Command-] to bring an object forward one position and Command-[ to send it backward. Add Shift to bring it all the way to the front or send it all the way to the back.",
+        ],
+        video: {
+          src: helpAsset("layers-reorder.mp4"),
+          poster: helpAsset("layers-reorder-poster.jpg"),
+          label: "Change which objects draw in front by dragging layers and using the forward, backward, front, and back shortcuts.",
+        },
+      },
+      {
+        id: "rename",
+        title: "Rename a layer",
+        paragraphs: [
+          "Double-click a layer’s name in Layers, or edit its name in Properties. The new name appears everywhere. Descriptive names make covered objects and complex documents much easier to navigate.",
+        ],
+        video: {
+          src: helpAsset("layers-rename.mp4"),
+          poster: helpAsset("layers-rename-poster.jpg"),
+          label: "Give several colored shapes descriptive names that update immediately in Layers.",
+        },
+      },
+      {
+        id: "covered",
+        title: "Select a covered object",
+        paragraphs: [
+          "When an object is partially or completely hidden behind another, select its named layer in Layers. You can then move or edit it without first changing the stacking order.",
+        ],
+        video: {
+          src: helpAsset("layers-select-covered.mp4"),
+          poster: helpAsset("layers-select-covered-poster.jpg"),
+          label: "Use descriptive layer names to select individual shapes in a tightly overlapping composition.",
+        },
+      },
+      {
+        id: "delete",
+        title: "Delete an object",
+        paragraphs: [
+          "Select an object and press Delete, or choose Delete from the Edit menu.",
+        ],
+        note: "Press Command-Z or choose Edit > Undo if you remove an object accidentally.",
+      },
+    ],
+    related: ["group-edit-objects", "create-transform-shapes", "align-distribute-objects"],
+  },
+  {
+    slug: "group-edit-objects",
+    category: "shapes + layers",
+    title: "Group and edit objects",
+    summary:
+      "Make related objects move together while keeping every child available for direct editing—even inside nested groups.",
+    readTime: "3 min",
+    updated: "July 23, 2026",
+    keywords: [
+      "group", "ungroup", "nested group", "edit inside", "select child", "command click",
+      "double click", "command g", "shift command g", "layers", "move together",
+    ],
+    cardPoster: helpAsset("groups-create-move-poster.jpg"),
+    sections: [
+      {
+        id: "create",
+        title: "Create and move a group",
+        paragraphs: [
+          "Select two or more objects, then press Command-G or choose Object > Group. Rename the group in Layers so its purpose remains clear.",
+          "Expand the group in Layers to see its children. Clicking a member of the group on the canvas normally selects the group, allowing the whole set to move as one object.",
+        ],
+        video: {
+          src: helpAsset("groups-create-move.mp4"),
+          poster: helpAsset("groups-create-move-poster.jpg"),
+          label: "Group several shapes, expand the new group in Layers, and move the complete group together.",
+        },
+      },
+      {
+        id: "edit-child",
+        title: "Select an object inside a group",
+        paragraphs: [
+          "Click a child directly in the expanded Layers list, double-click a child on the canvas to enter the group, or hold Command while clicking a child to select it directly through the group.",
+          "After selecting the child, move or edit it without moving the entire group.",
+        ],
+        video: {
+          src: helpAsset("selecting-items-in-a-group.mp4"),
+          poster: helpAsset("selecting-items-in-a-group-poster.jpg"),
+          label: "Select individual objects inside a group from Layers, by double-clicking, and with Command-click.",
+        },
+      },
+      {
+        id: "nested",
+        title: "Navigate nested groups",
+        paragraphs: [
+          "A group can contain another group. Double-click once to enter the outer group, then double-click again to reach an object deeper inside it. Command-click is the shortcut when you want to select the deeply nested object directly.",
+        ],
+        video: {
+          src: helpAsset("navigating-nested-groups.mp4"),
+          poster: helpAsset("navigating-nested-groups-poster.jpg"),
+          label: "Move through a group nested inside another group, or use Command-click to reach a child directly.",
+        },
+      },
+      {
+        id: "ungroup",
+        title: "Ungroup objects",
+        paragraphs: [
+          "Select the group and press Shift-Command-G or choose Object > Ungroup. Its children return to individual layers while keeping their current appearance and positions.",
+        ],
+      },
+    ],
+    related: ["organize-layers", "align-distribute-objects", "create-transform-shapes"],
+  },
 ];
 
 export const helpCategories = [...new Set(helpArticles.map((article) => article.category))];

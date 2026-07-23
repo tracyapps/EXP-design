@@ -1967,6 +1967,21 @@ font import → Phase 9, shadows → Phase 10._
 
 ## Progress Log
 
+- **2026-07-23 — Second edited clip set integrated into searchable Help [site]:**
+  Published five more task-oriented tutorials locally: creating/transforming
+  shapes, guides and spacing measurement, alignment/distribution, layer
+  organization, and grouping/nested-group editing. Optimized twelve edited
+  source recordings into thirteen silent H.264 visual guides with poster images;
+  the longer layer-renaming recording became focused rename and covered-object
+  guides. Updated the duplication instructions and clip description to include
+  keyboard and menu copy/paste, Option-drag, and aligned Option-Shift-drag.
+  Delete and Ungroup remain concise written instructions, so no rerecording is
+  needed for those actions. The library now contains ten searchable tutorials
+  and twenty-four visual guides. All article relationships and media references
+  validate, and the production Vite build passes. Work is local only; no
+  deployment was performed. The editorial record and clip map remain in
+  `website/content/help/recording-02-shapes-groups-align-layers.md`.
+
 - **2026-07-23 — Searchable Help library built from the first edited clip set [site]:**
   Replaced the `/learn` placeholders with a real task-oriented Help experience:
   five searchable written tutorials (artboards, the wall, canvas navigation,
