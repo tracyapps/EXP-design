@@ -2604,54 +2604,48 @@ struct RightPanel: View {
             Divider()
             InspectorSectionTitle(title: "Type", icon: "textformat").padding(.top, 2)
 
-            HStack(spacing: 6) {
-                Text("Content")
-                    .foregroundStyle(EXPColor.textSecondary)
-                    .font(.callout)
-                Picker("", selection: contentRoleBinding) {
-                    ForEach(TextContentRole.allCases, id: \.self) { role in
-                        Text(role.friendlyLabel).tag(role)
+            // Typeface — families rendered in their own face. Labeled "Font" so it
+            // isn't mistaken for the semantic Content role (now its own sub-section
+            // below, near Case).
+            HStack(spacing: 8) {
+                Text("Font").foregroundStyle(EXPColor.textSecondary).font(.callout)
+                Menu {
+                    Button("System") { setTextFontName("") }
+                    Divider()
+                    ForEach(FontCatalog.families, id: \.self) { fam in
+                        Button { setTextFamily(fam) } label: {
+                            Text(fam).font(fontMenuPreview(for: fam, size: 13))
+                        }
+                    }
+                } label: {
+                    HStack {
+                        Text(currentFamilyDisplay).lineLimit(1)
+                        Spacer()
+                        Image(systemName: "chevron.up.chevron.down").font(.caption2).foregroundStyle(EXPColor.textSecondary)
                     }
                 }
-                .labelsHidden()
-                .help("Semantic page role for HTML handoff; independent of the visual Type Style")
-                Spacer()
+                .help("Typeface (applies to the whole text, or the selection while editing)")
             }
-
-            // Typeface — families rendered in their own face.
-            Menu {
-                Button("System") { setTextFontName("") }
-                Divider()
-                ForEach(FontCatalog.families, id: \.self) { fam in
-                    Button { setTextFamily(fam) } label: {
-                        Text(fam).font(fontMenuPreview(for: fam, size: 13))
-                    }
-                }
-            } label: {
-                HStack {
-                    Text(currentFamilyDisplay).lineLimit(1)
-                    Spacer()
-                    Image(systemName: "chevron.up.chevron.down").font(.caption2).foregroundStyle(EXPColor.textSecondary)
-                }
-            }
-            .help("Typeface (applies to the whole text, or the selection while editing)")
 
             // Weight / style within the family — a Menu (not a Picker) so a
             // selection that isn't in the list never logs warnings / writes back.
             let faces = currentFaces
             if faces.count > 1 {
-                Menu {
-                    ForEach(faces) { face in
-                        Button(face.faceName) { applyFontName(face.postScriptName) }
+                HStack(spacing: 8) {
+                    Text("Weight").foregroundStyle(EXPColor.textSecondary).font(.callout)
+                    Menu {
+                        ForEach(faces) { face in
+                            Button(face.faceName) { applyFontName(face.postScriptName) }
+                        }
+                    } label: {
+                        HStack {
+                            Text(currentFaceName).lineLimit(1)
+                            Spacer()
+                            Image(systemName: "chevron.up.chevron.down").font(.caption2).foregroundStyle(EXPColor.textSecondary)
+                        }
                     }
-                } label: {
-                    HStack {
-                        Text(currentFaceName).lineLimit(1)
-                        Spacer()
-                        Image(systemName: "chevron.up.chevron.down").font(.caption2).foregroundStyle(EXPColor.textSecondary)
-                    }
+                    .help("Weight / style")
                 }
-                .help("Weight / style")
             }
 
             HStack(spacing: 8) {
@@ -2717,6 +2711,24 @@ struct RightPanel: View {
                 }
                 .labelsHidden()
                 .help("Non-destructive — changes how the text is displayed, not the stored characters")
+                Spacer()
+            }
+
+            // Semantic page role for HTML handoff — its own sub-section, separated
+            // from the visual type controls it used to sit atop. Kept away from the
+            // Font menu because the two dropdowns were easy to confuse.
+            Divider()
+            HStack(spacing: 6) {
+                Text("Content")
+                    .foregroundStyle(EXPColor.textSecondary)
+                    .font(.callout)
+                Picker("", selection: contentRoleBinding) {
+                    ForEach(TextContentRole.allCases, id: \.self) { role in
+                        Text(role.friendlyLabel).tag(role)
+                    }
+                }
+                .labelsHidden()
+                .help("Semantic page role for HTML handoff; independent of the visual Type Style")
                 Spacer()
             }
         }

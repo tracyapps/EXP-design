@@ -28,6 +28,59 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 
 ## 🐞 Bugs
 
+### BUG-006 — Component-state typography and opacity leak into every state
+- Type: bug
+- Priority: P1 (soon)
+- Area: model · inspector · canvas · export
+- Status: needs-verify (v2.0.1 — extended the state-diff vocabulary with
+  `.textStyle` (bounded typography) + `.opacity` cases; capture now diffs both
+  into the active state and resets the base text node to pristine; apply,
+  instance render, and semantic-handoff resolution all fold the new cases;
+  owner builds in Xcode to confirm both leak repros are closed)
+- Repro/Detail: Create a component with Default, Hover, and Disabled states. In
+  the source editor, activate Disabled, select its text layer, then change a
+  typography property such as color, typeface, size, line height, tracking, or
+  case; alternatively change the opacity of the text, background, or root group.
+  The edit changes the shared component source, so Default and the other states
+  change too. The owner reproduced both opacity and text-style leakage in the
+  2026-07-23 Help recording at 37:17–38:45. This makes common state designs such
+  as muted Disabled labels unsafe to author.
+- Hypothesis: `ComponentStateEditing.capture` only records text-content strings,
+  shape/group fills, and visibility. `InstanceOverride.Value` has only `.text`
+  and `.fill`; every other visual edit intentionally falls through to the shared
+  base. Extend the state-diff vocabulary for bounded typography and layer
+  opacity, apply it recursively in state/instance resolution, and emit it in
+  semantic handoff without turning geometry or relationships into state-local
+  data. Preserve tolerant decoding for existing schema-v2 documents.
+- Acceptance: changing a text layer's color, typeface/face, size, alignment,
+  line-height unit/value, tracking, case, or a selected layer/group's opacity
+  while a non-default state is active affects only that state. Default and sibling
+  states remain byte-for-byte and visually unchanged; instances render the chosen
+  state correctly; semantic HTML/CSS handoff preserves the state differences;
+  undo/redo is one coherent step; old documents still open and save safely.
+
+### BUG-005 — Shift does not constrain a new Pen curve handle
+- Type: bug
+- Priority: P2
+- Area: canvas · vector
+- Status: needs-verify (v2.0.1 — `penHandleDrag` now takes the live Shift state
+  and snaps the dragged handle to axis/45° via `constrainLineEndpoint` (mirrors
+  `pathPointDrag`); the opposite handle is re-derived so it stays mirrored;
+  owner builds in Xcode to confirm)
+- Repro/Detail: Choose Pen (P), place an anchor, then click-drag a new anchor to
+  pull its Bézier handles. Hold Shift during the drag. The handle continues to
+  rotate freely instead of snapping to the same axis/45-degree increments used
+  when an existing handle is edited. Reproduced in the 2026-07-23 Help recording
+  at 13:44–14:13.
+- Hypothesis: the `.penHandle` drag branch calls `penHandleDrag` without its
+  current Shift state, and `penHandleDrag` never calls `constrainLineEndpoint`.
+  The existing `pathPointDrag` control-handle branches already implement the
+  expected axis/45-degree constraint and can supply the behavior to mirror.
+- Acceptance: while creating a curved Pen anchor, pressing or releasing Shift
+  during the drag immediately toggles axis/45-degree snapping; the opposite
+  handle stays mirrored; free dragging is unchanged; existing-handle editing
+  remains consistent; one path draw remains one undo step.
+
 ### BUG-004 — Custom centered document title uses native popup anchor awkwardly
 - Type: bug
 - Priority: P2

@@ -665,6 +665,45 @@ with the design. Full chunk breakdown, risks, and release mapping live in
       OWNER PASS 2026-07-22: v1.6.1 discovered v2.0, installed it, relaunched
       successfully, and all final checklist/public verification passed.
 
+### Post-v2.0 priority lane — Help-recording findings (2026-07-23)
+
+- [ ] **P1 — BUG-006: keep component-state typography and opacity local to the
+      active state.** Fix this before publishing the component-states Help page.
+      It is first because a state edit currently mutates the shared source and can
+      silently change Default, sibling states, and every instance. Extend the
+      bounded state/instance override model, rendering, editing capture, handoff,
+      undo, and tolerant document decoding together. Full repro and acceptance
+      criteria are in `docs/BACKLOG.md`.
+- [ ] **P2 — BUG-005: Shift-constrain new Pen handles to axis/45-degree
+      increments.** Reuse the constraint behavior already present for editing an
+      existing handle. This is second because free-drag remains usable and the
+      defect does not mutate unrelated document content. Full repro and acceptance
+      criteria are in `docs/BACKLOG.md`.
+- [ ] **Help follow-up after the fixes:** record the Pen-curves and component-
+      states clips without workarounds, then integrate Help draft 03. The rest of
+      that clip set can be recorded independently while the bugs are open.
+
+---
+
+## v2.0.1 — in progress (opened 2026-07-23)
+
+Build 11, `MARKETING_VERSION 2.0.1`. A narrow bug-fix lane after v2.0, closing
+two defects found while recording the Help walkthroughs so the blocked
+demonstrations can be rerecorded. Release notes: `RELEASE-NOTES-v2.0.1.md`;
+follow the v1.6.1-style copy/paste release path with 2.0.1/build 11.
+
+- [ ] **BUG-006 — component-state typography/opacity leak (P1).** Non-default
+      state edits (text color/face/size/alignment/line-height/tracking/case and
+      layer/group opacity) must affect only that state; Default and siblings stay
+      byte-for-byte unchanged; instances render the chosen state; semantic handoff
+      preserves the differences; one coherent undo step; tolerant schema-v2 decode.
+- [ ] **BUG-005 — Shift-constrain a new Pen curve handle (P2).** Shift during a
+      new anchor's handle drag snaps to axis/45-degree increments, mirroring the
+      existing `pathPointDrag` branches; the opposite handle stays mirrored; one
+      path draw remains one undo step.
+- [ ] **Owner verification + release.** Owner builds in Xcode, confirms both
+      repros from the 2026-07-23 recording, then runs the v2.0.1 release path.
+
 ---
 
 ## Architecture decisions
@@ -1966,6 +2005,63 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-07-23 — v2.0.1 inspector polish: Type controls labeled + Content moved [app]:**
+  In the single-text-selection inspector (`MainWindow.textControls`), the typeface
+  menu now has a "Font" label and the weight menu a "Weight" label, and the
+  semantic **Content** role picker moved out from directly above the font menu into
+  its own `Divider`-separated sub-section below the Case row. Owner reported the
+  Content and Font dropdowns were easy to confuse; layout-only change, no behavior
+  or binding changes.
+
+- **2026-07-23 — v2.0.1 fixes landed: BUG-006 state-leak + BUG-005 Pen Shift [app]:**
+  Closed both blocked-demo defects. **BUG-006 (P1):** extended
+  `InstanceOverride.Value` with `.textStyle(TextStyleOverride)` (a bounded,
+  all-optional typography bundle — color/face/size/underline/align/line-height +
+  unit/tracking/case) and `.opacity(Double)`. `ComponentStateEditing.capture`
+  now diffs typography and layer/group opacity into the active state and resets
+  the base text node to its pristine content+frame, so a non-default state's
+  edits can no longer fall through to the shared source. The new cases are folded
+  in by `ComponentStateEditing.apply` (source-editor preview),
+  `ComponentInstance.applyingOverrides` (instance + ephemeral-state render), and
+  `SemanticHTMLExporter.semanticHTMLResolvedNode` (handoff — the per-state CSS
+  emitter re-resolves each state and writes full declarations, so opacity/typography
+  flow through automatically). `TextStyleOverride` lives in `Document.swift`, which
+  is already a member of both the app and EXPThumbnail targets, so no target-membership
+  change was needed. All inspector edits route through the `commitScoped`/`capture`
+  funnel, so the fix is exercised for color, face, size, alignment, line-height,
+  tracking, case, and opacity. Tolerant schema-v2 decode preserved (synthesized
+  Codable omits nil fields / decodes missing keys as nil); one undo step unchanged.
+  **BUG-005 (P2):** `penHandleDrag` now takes the live Shift state from
+  `mouseDragged` and snaps the dragged handle to axis/45° via `constrainLineEndpoint`
+  (mirroring `pathPointDrag`'s control-handle branches); the opposite handle is
+  re-derived so it stays mirrored, and pressing/releasing Shift mid-drag toggles the
+  snap. Free dragging and one-undo-per-path are unchanged. BACKLOG entries set to
+  needs-verify; owner builds in Xcode to confirm both repros from the 2026-07-23
+  recording before the two clips are rerecorded and the v2.0.1 release runs.
+
+- **2026-07-23 — v2.0.1 bug-fix lane opened; scaffolding prepped [app]:** Bumped
+  the project to `MARKETING_VERSION 2.0.1` / build 11 via
+  `scripts/set_release_version.sh`, added `RELEASE-NOTES-v2.0.1.md`, and opened
+  the `## v2.0.1 — in progress` cycle above. The lane closes the two verified
+  defects from the 2026-07-23 Help recording — P1 BUG-006 (component-state
+  typography/opacity edits leaking into the shared source) and P2 BUG-005 (Shift
+  ignored while pulling a new Pen handle) — so the two blocked demonstrations can
+  be rerecorded. Release artifacts and the git/gh/Xcode steps remain owner-run;
+  the v1.6.1 copy/paste path in `docs/RELEASE-CHECKLIST.md` is the model.
+
+- **2026-07-23 — Third Help recording curated; two verified bugs prioritized [site/app]:**
+  Locally transcribed and visually reviewed the owner's 42:16
+  `a-whole-lotta-stuff-and-bugs.mov` walkthrough. Curated the material into six
+  task-oriented Help drafts covering text, basic shapes, vector paths, accessible
+  responsive buttons, reusable components, and component states/instance
+  navigation, with an eighteen-clip clean rerecording plan in
+  `website/content/help/recording-03-text-paths-components.md`. Confirmed two
+  defects against the implementation and added complete backlog entries: P1
+  BUG-006 (typography and opacity edits leak from an active component state into
+  the shared source) and P2 BUG-005 (Shift is ignored while pulling a new Pen
+  handle). Added a post-v2.0 priority lane: fix BUG-006 first, BUG-005 second,
+  then record the two blocked demonstrations and integrate the tutorial batch.
 
 - **2026-07-23 — Second edited clip set integrated into searchable Help [site]:**
   Published five more task-oriented tutorials locally: creating/transforming
