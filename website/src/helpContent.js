@@ -248,19 +248,103 @@ export const helpArticles = [
     related: ["document-grid-snap", "create-organize-artboards"],
   },
   {
+    slug: "create-format-text",
+    category: "text + handoff",
+    title: "Create and format text",
+    summary:
+      "Create auto-width text or a wrapping text box, style its typography, and add semantic context for handoff.",
+    readTime: "5 min",
+    updated: "July 23, 2026",
+    keywords: [
+      "text", "type", "point text", "area text", "auto width", "text box",
+      "wrap", "overflow", "font", "typeface", "weight", "size", "color",
+      "alignment", "line height", "leading", "spacing", "tracking", "case",
+      "content", "semantic", "heading", "paragraph", "handoff", "html",
+    ],
+    cardPoster: helpAsset("text-point-area-poster.jpg"),
+    sections: [
+      {
+        id: "create",
+        title: "Create auto-width text or a text box",
+        paragraphs: [
+          "Choose Text in the toolbar or press T. Click once to create Auto width text; its width grows and shrinks with its content. Click and drag to create a Text box with a fixed width that wraps onto additional lines.",
+          "Resize a text box to change where its lines wrap. A plus-sign overflow indicator means the box contains text that does not currently fit. Increase its height or switch to Auto width to reveal the hidden content.",
+        ],
+        video: {
+          src: helpAsset("text-point-area.mp4"),
+          poster: helpAsset("text-point-area-poster.jpg"),
+          label: "Create auto-width text and a wrapping text box, then change the box mode and dimensions.",
+        },
+      },
+      {
+        id: "font",
+        title: "Choose Font, Weight, Size, and Color",
+        paragraphs: [
+          "Select the text, then choose its typeface family from Font. When that family provides several faces, a Weight row appears below it; fonts without additional faces do not show that row.",
+          "Enter an exact Size, use an arrow key to change the focused value by one, or hold Shift while pressing an arrow key to change it by ten. Choose Color to set the text color.",
+        ],
+        video: {
+          src: helpAsset("text-font-weight-size-color.mp4"),
+          poster: helpAsset("text-font-weight-size-color-poster.jpg"),
+          label: "Change a text layer’s Font, Weight, Size, and Color in Properties.",
+        },
+      },
+      {
+        id: "alignment-line",
+        title: "Align text and set its line height",
+        paragraphs: [
+          "For a text box, choose left, center, or right alignment to position each line inside the box.",
+          "Line can use the font’s natural height with Auto, multiply that natural height with ×, use an exact pixel value with px, or use em relative to the text’s font size. A value of 1em equals the current font size.",
+        ],
+        video: {
+          src: helpAsset("text-alignment-line-spacing.mp4"),
+          poster: helpAsset("text-alignment-line-spacing-poster.jpg"),
+          label: "Change text alignment, then compare automatic, proportional, pixel, and em line-height settings.",
+        },
+      },
+      {
+        id: "spacing-case",
+        title: "Adjust spacing and case",
+        paragraphs: [
+          "Spacing controls letter spacing, also called tracking, in pixels. Use a positive value to spread characters apart or a negative value to bring them closer together.",
+          "Case changes how text is displayed without requiring you to retype it: As typed, UPPERCASE, lowercase, Capitalize Each, or Sentence case.",
+        ],
+        video: {
+          src: helpAsset("text-spacing-case.mp4"),
+          poster: helpAsset("text-spacing-case-poster.jpg"),
+          label: "Loosen and tighten letter spacing, then apply the available non-destructive text-case options.",
+        },
+      },
+      {
+        id: "content",
+        title: "Add semantic context for handoff",
+        paragraphs: [
+          "Below the visual text controls, a divider separates Content into its own handoff subsection. Use it to describe the text’s semantic purpose, such as Plain text, Paragraph, or Heading 1.",
+          "Content does not change Font, Weight, Size, Color, or any other visual styling. It gives HTML handoff enough context to produce a meaningful element instead of making an implementer infer document structure from appearance alone.",
+        ],
+        video: {
+          src: helpAsset("text-handoff-content.mp4"),
+          poster: helpAsset("text-handoff-content-poster.jpg"),
+          label: "Assign semantic Content to text after its visual typography settings are complete.",
+        },
+      },
+    ],
+    related: ["create-transform-shapes", "organize-layers", "group-edit-objects"],
+  },
+  {
     slug: "create-transform-shapes",
     category: "shapes + layers",
     title: "Create and transform shapes",
     summary:
-      "Choose a drawing tool, then draw, resize, rotate, and position shapes visually or with exact values.",
-    readTime: "4 min",
+      "Draw rectangles, ellipses, polygons, and lines, then resize, rotate, and position them visually or with exact values.",
+    readTime: "5 min",
     updated: "July 23, 2026",
     keywords: [
       "shape", "rectangle", "ellipse", "polygon", "line", "pen", "draw",
       "resize", "rotate", "aspect ratio", "dimensions", "position", "properties",
       "inspector", "shortcut", "select", "edit points",
     ],
-    cardPoster: helpAsset("shapes-draw-resize-poster.jpg"),
+    cardPoster: helpAsset("shapes-basic-tools-poster.jpg"),
     sections: [
       {
         id: "tools",
@@ -271,10 +355,34 @@ export const helpArticles = [
         ],
       },
       {
-        id: "draw-resize",
-        title: "Draw and resize a shape",
+        id: "basic-tools",
+        title: "Draw rectangles, ellipses, and lines",
         paragraphs: [
-          "Choose a drawing tool or press its shortcut. Click once to create the tool’s default shape—for Rectangle, a single click creates a square—or click and drag to draw the dimensions you want.",
+          "With Rectangle (R), Ellipse (O), or Line (L), click once to create the tool’s default shape or click and drag to choose its dimensions and direction.",
+          "A line has no fill. Use Stroke in Properties to change its color and width.",
+        ],
+        video: {
+          src: helpAsset("shapes-basic-tools.mp4"),
+          poster: helpAsset("shapes-basic-tools-poster.jpg"),
+          label: "Create rectangles, ellipses, and lines by clicking or dragging, then change a line’s stroke.",
+        },
+      },
+      {
+        id: "polygon",
+        title: "Change a polygon’s sides",
+        paragraphs: [
+          "Choose Polygon or press G. A new polygon begins with three sides. Change Sides in Properties to create a quadrilateral, pentagon, or another regular polygon; use the arrow keys while the field is focused to add or remove sides.",
+        ],
+        video: {
+          src: helpAsset("polygon-sides.mp4"),
+          poster: helpAsset("polygon-sides-poster.jpg"),
+          label: "Create the default triangle, then add sides to turn it into other regular polygons.",
+        },
+      },
+      {
+        id: "draw-resize",
+        title: "Resize a shape",
+        paragraphs: [
           "After drawing, switch to Select or press V. Drag an edge handle to change one dimension or a corner handle to change both. Hold Shift while resizing to preserve the object’s aspect ratio.",
         ],
         video: {
@@ -309,7 +417,90 @@ export const helpArticles = [
         },
       },
     ],
-    related: ["guides-measure-spacing", "align-distribute-objects", "organize-layers"],
+    related: ["draw-edit-vector-paths", "guides-measure-spacing", "align-distribute-objects"],
+  },
+  {
+    slug: "draw-edit-vector-paths",
+    category: "shapes + layers",
+    title: "Draw and edit vector paths",
+    summary:
+      "Draw straight and curved paths, add or remove anchors, and convert shapes or strokes into editable geometry.",
+    readTime: "5 min",
+    updated: "July 23, 2026",
+    keywords: [
+      "path", "vector", "pen", "bezier", "bézier", "curve", "anchor",
+      "point", "handle", "straight", "corner", "smooth", "add point",
+      "remove point", "delete point", "outline stroke", "convert to path",
+      "edit points", "direct select", "shift", "45 degree",
+    ],
+    cardPoster: helpAsset("pen-curved-path-poster.jpg"),
+    sections: [
+      {
+        id: "outline-stroke",
+        title: "Turn a stroke into a filled path",
+        paragraphs: [
+          "Select a stroked line or shape, then choose Object > Path > Outline Stroke. EXP replaces the stroke with ordinary filled path geometry.",
+          "Choose Edit Points or press A to move its anchors individually. Outlining is useful when a former stroke needs to scale as geometry or become a custom silhouette.",
+        ],
+        video: {
+          src: helpAsset("path-outline-stroke.mp4"),
+          poster: helpAsset("path-outline-stroke-poster.jpg"),
+          label: "Outline a line’s stroke, then edit the resulting filled path geometry.",
+        },
+      },
+      {
+        id: "straight",
+        title: "Draw a path with corner points",
+        paragraphs: [
+          "Choose Pen or press P. Click to place each corner anchor, then continue clicking to build the path. Click the first anchor again to close it; a closed path can use a fill like any other closed shape.",
+          "Use Select (V) to move the complete path and Edit Points (A) to change its individual anchors.",
+        ],
+        video: {
+          src: helpAsset("pen-straight-path.mp4"),
+          poster: helpAsset("pen-straight-path-poster.jpg"),
+          label: "Place corner anchors with Pen, close the path, apply a fill, and edit the resulting shape.",
+        },
+      },
+      {
+        id: "curves",
+        title: "Draw curves with Bézier handles",
+        paragraphs: [
+          "With Pen active, click and drag while placing an anchor to pull a pair of curve handles. Their direction and length control how the curve enters and leaves the anchor. Click without dragging when the next anchor should be a corner.",
+          "Hold Shift while pulling a handle to constrain it to axis and 45-degree increments. Mix corner and smooth anchors in the same path, then click the first anchor to close it.",
+        ],
+        video: {
+          src: helpAsset("pen-curved-path.mp4"),
+          poster: helpAsset("pen-curved-path-poster.jpg"),
+          label: "Combine corner and curved anchors, constrain a handle with Shift, and close the finished path.",
+        },
+      },
+      {
+        id: "add-remove",
+        title: "Add or remove an anchor",
+        paragraphs: [
+          "With Pen active, move over a path segment until the pointer shows a plus, then click to add an anchor. Move over an existing anchor until the pointer shows a minus, then click to remove it.",
+          "Switch to Edit Points when you want to select and reposition the remaining anchors instead of changing the path’s point count.",
+        ],
+        video: {
+          src: helpAsset("pen-add-remove-points.mp4"),
+          poster: helpAsset("pen-add-remove-points-poster.jpg"),
+          label: "Add anchors to a path segment and remove existing anchors with the Pen tool.",
+        },
+      },
+      {
+        id: "convert",
+        title: "Convert a shape to a path",
+        paragraphs: [
+          "Select a rectangle, ellipse, polygon, or line, then choose Object > Path > Convert to Path. Its appearance remains, but Edit Points can now reshape its anchors and Pen can add or remove points.",
+        ],
+        video: {
+          src: helpAsset("shape-to-path.mp4"),
+          poster: helpAsset("shape-to-path-poster.jpg"),
+          label: "Convert a regular shape into a path, then move its anchors to create custom geometry.",
+        },
+      },
+    ],
+    related: ["create-transform-shapes", "group-edit-objects", "organize-layers"],
   },
   {
     slug: "guides-measure-spacing",

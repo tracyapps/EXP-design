@@ -667,21 +667,22 @@ with the design. Full chunk breakdown, risks, and release mapping live in
 
 ### Post-v2.0 priority lane — Help-recording findings (2026-07-23)
 
-- [ ] **P1 — BUG-006: keep component-state typography and opacity local to the
-      active state.** Fix this before publishing the component-states Help page.
-      It is first because a state edit currently mutates the shared source and can
-      silently change Default, sibling states, and every instance. Extend the
-      bounded state/instance override model, rendering, editing capture, handoff,
-      undo, and tolerant document decoding together. Full repro and acceptance
-      criteria are in `docs/BACKLOG.md`.
-- [ ] **P2 — BUG-005: Shift-constrain new Pen handles to axis/45-degree
-      increments.** Reuse the constraint behavior already present for editing an
-      existing handle. This is second because free-drag remains usable and the
-      defect does not mutate unrelated document content. Full repro and acceptance
-      criteria are in `docs/BACKLOG.md`.
-- [ ] **Help follow-up after the fixes:** record the Pen-curves and component-
-      states clips without workarounds, then integrate Help draft 03. The rest of
-      that clip set can be recorded independently while the bugs are open.
+- [x] **P1 — BUG-006: keep component-state typography and opacity local to the
+      active state.** Fixed in v2.0.1 before publishing the component-states Help
+      page. This was first because a state edit previously mutated the shared
+      source and could silently change Default, sibling states, and every instance.
+      The bounded state/instance override model, rendering, editing capture,
+      handoff, undo, and tolerant document decoding were extended together. Full
+      repro and acceptance criteria are in `docs/BACKLOG.md`.
+- [x] **P2 — BUG-005: Shift-constrain new Pen handles to axis/45-degree
+      increments.** Fixed in v2.0.1 by reusing the constraint behavior already
+      present for editing an existing handle. This was second because free-drag
+      remained usable and the defect did not mutate unrelated document content.
+      Full repro and acceptance criteria are in `docs/BACKLOG.md`.
+- [x] **Help follow-up after the fixes:** Help draft 03 now reflects the fixed
+      behavior and the reordered Type panel. All eighteen clean demonstrations,
+      including Pen curves and component states, are ready to record without
+      workarounds; site integration still waits for the edited clip set.
 
 ---
 
@@ -692,17 +693,17 @@ two defects found while recording the Help walkthroughs so the blocked
 demonstrations can be rerecorded. Release notes: `RELEASE-NOTES-v2.0.1.md`;
 follow the v1.6.1-style copy/paste release path with 2.0.1/build 11.
 
-- [ ] **BUG-006 — component-state typography/opacity leak (P1).** Non-default
+- [x] **BUG-006 — component-state typography/opacity leak (P1).** Non-default
       state edits (text color/face/size/alignment/line-height/tracking/case and
       layer/group opacity) must affect only that state; Default and siblings stay
       byte-for-byte unchanged; instances render the chosen state; semantic handoff
       preserves the differences; one coherent undo step; tolerant schema-v2 decode.
-- [ ] **BUG-005 — Shift-constrain a new Pen curve handle (P2).** Shift during a
+- [x] **BUG-005 — Shift-constrain a new Pen curve handle (P2).** Shift during a
       new anchor's handle drag snaps to axis/45-degree increments, mirroring the
       existing `pathPointDrag` branches; the opposite handle stays mirrored; one
       path draw remains one undo step.
-- [ ] **Owner verification + release.** Owner builds in Xcode, confirms both
-      repros from the 2026-07-23 recording, then runs the v2.0.1 release path.
+- [x] **Owner verification + release.** Both fixes and the Type-panel ordering
+      polish are pushed on `main`; v2.0.1/build 11 is tagged and released.
 
 ---
 
@@ -2005,6 +2006,30 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-07-23 — Help draft 03 Text/Shapes/Paths clip set integrated [site]:**
+  Reviewed twelve clean silent clips from the owner's third recording batch and
+  integrated all of them locally: five Text guides, two basic Shape guides, and
+  five Vector Path guides through Convert to Path. Added two searchable Help
+  articles—Create and format text, and Draw and edit vector paths—and extended
+  the existing Create and transform shapes article rather than publishing a
+  redundant second shapes page. The owner's added Pen add/remove-points clip is
+  now its own focused section; broader multi-point selection and corner/smooth
+  conversion are deferred until they have dedicated footage. Generated 1920px
+  H.264 web copies and poster images while preserving the full-resolution source
+  edits outside the site. The library now contains twelve searchable tutorials
+  and thirty-six visual guides; all related-article and media references validate,
+  and the production Vite build passes. Six button/component clips remain queued
+  for the next recording round. Work is local only; no deployment was performed.
+
+- **2026-07-23 — Help draft 03 synchronized with v2.0.1 fixes and Type-panel order [site/app]:**
+  Updated the text tutorial and recording directions to follow the polished
+  inspector sequence: Font, optional Weight, Size, Color; text-box and paragraph
+  controls; then a divider-separated semantic Content picker below Case. Reframed
+  Content explicitly as HTML-handoff context independent of visual styling.
+  Confirmed the pushed v2.0.1 source contains both fixes, closed BUG-005/BUG-006
+  in the backlog and roadmap, and moved the Pen-curves and component-states clips
+  from blocked to ready. All eighteen Help draft 03 clips can now be recorded.
 
 - **2026-07-23 — v2.0.1 release path documented; repo hygiene fixed [infra]:**
   Added a complete `## v2.0.1 copy/paste path` to `docs/RELEASE-CHECKLIST.md`

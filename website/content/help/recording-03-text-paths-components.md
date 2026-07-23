@@ -3,22 +3,43 @@
 Source: `a-whole-lotta-stuff-and-bugs.mov`  
 Recorded: 2026-07-23  
 Duration: 42:16  
-Status: transcribed and curated; awaiting clean silent clips
+Status: first twelve clean clips integrated 2026-07-23; button and component clips remain
 
 The recording is very usable. It naturally divides into six task-oriented Help
 pages rather than one long tutorial. The copy below is curated from the owner's
 narration, corrected against the app source, and intentionally not verbatim.
 
-Two demonstrations exposed real product bugs:
+Two demonstrations exposed product bugs that are fixed in v2.0.1:
 
-- **BUG-005 (P2):** Shift does not constrain a new Pen curve handle. Existing
-  handles already snap to axis/45-degree increments when Shift is held.
-- **BUG-006 (P1):** typography and opacity edits made in an active component
-  state mutate the shared source instead of remaining local to that state.
+- **BUG-005 (P2, fixed):** new Pen handles now follow the same Shift axis/45-
+  degree constraint as existing handles.
+- **BUG-006 (P1, fixed):** typography and opacity edits now remain local to the
+  active component state.
 
-The component-state clip should wait for BUG-006. The Pen-curves clip can either
-omit Shift temporarily or, preferably, wait for BUG-005. Every other clip can be
-recorded independently now.
+The v2.0.1 Type panel is also more deliberate: Font, Weight, Size, and Color lead;
+text-box and paragraph controls follow; semantic **Content** is separated below
+Case because it describes HTML handoff rather than visual appearance. The article
+and recording plan below follow that order. All eighteen clips can now be recorded.
+
+## Edited clip follow-up
+
+The owner supplied twelve clean, silent clips covering the complete Text material,
+the basic shape tools, and vector paths through Convert to Path. They are integrated
+as twelve visual guides across two new Help pages—**Create and format text** and
+**Draw and edit vector paths**—plus two new sections in the existing **Create and
+transform shapes** page.
+
+The final demonstrations intentionally adapt the first recording plan:
+
+- Point addition and removal is now its own focused visual guide.
+- The broader multi-point-selection and corner/smooth conversion demonstration is
+  deferred instead of being implied by unrelated footage.
+- The delivered `shape-to-path.mp4` filename is preserved in the site rather than
+  renamed to the originally proposed `path-convert-shape.mp4`.
+- A second shapes article would duplicate the existing tutorial, so the Rectangle,
+  Ellipse, Line, and Polygon material strengthens that page instead.
+- The six button/component demonstrations remain queued for the owner's next
+  recording round.
 
 ## Editorial map
 
@@ -54,28 +75,28 @@ leave a short settled beat after the result.
 
 | Filename | Show this action | Raw reference | Readiness |
 | --- | --- | --- | --- |
-| `text-point-area.mp4` | Press T; click once for auto-width text, then drag a text box that wraps. Resize the box until the overflow `+` appears, then switch it back to Auto width. | 00:30–02:25 | Ready |
-| `text-typeface-size-color.mp4` | Change the typeface; choose a face/weight when the family provides one; change size with typing and Shift-arrow; change text color. | 02:27–03:21 | Ready |
-| `text-line-letter-spacing.mp4` | On multiline text, compare Auto, ×, px, and em line height; then use positive and negative Spacing values to loosen and tighten letters. | 03:24–05:12 | Ready |
-| `text-case-alignment.mp4` | Cycle As typed, UPPERCASE, lowercase, Capitalize Each, and Sentence case; demonstrate left, center, and right alignment on a text box. | 05:13–05:55 | Ready |
-| `text-semantic-content.mp4` | Change Content from Plain text to Heading 1 or Paragraph and state visually that this changes handoff semantics, not the appearance. | 06:07–06:54 | Ready |
-| `shapes-basic-tools.mp4` | With Rectangle, Ellipse, and Line, show click-once defaults and click-drag custom dimensions; finish by changing the line's stroke width and color. | 08:40–10:14 | Ready |
-| `polygon-sides.mp4` | Press G; click once for the default triangle; change Sides with the field and arrow keys. | 07:30–08:22 | Ready |
-| `path-outline-stroke.mp4` | Draw a line, choose Object > Path > Outline Stroke, switch to Edit Points, and move one resulting point. | 10:20–11:19 | Ready |
-| `pen-straight-path.mp4` | Press P; click several corner anchors; click the first anchor to close the path; switch between Select and Edit Points. | 11:30–13:07 | Ready |
-| `pen-curved-path.mp4` | Click-drag anchors to pull Bézier handles, mix curved and corner anchors, then close and fill the path. Include Shift-constrained handles after BUG-005. | 13:11–15:26 | **Blocked by BUG-005** |
-| `path-edit-points.mp4` | Select one anchor, Shift-select additional anchors, nudge or drag them together, clear the point selection, then convert a corner to smooth and back from the context menu. | 15:28–17:19 | Ready |
-| `path-convert-shape.mp4` | Draw an ellipse or polygon, choose Object > Path > Convert to Path, move an anchor, then add and remove an anchor with Pen. | 17:42–20:19 | Ready |
+| `text-point-area.mp4` | Press T; click once for auto-width text, then drag a text box that wraps. Resize the box until the overflow `+` appears, then switch it back to Auto width. | 00:30–02:25 | Integrated |
+| `text-font-weight-size-color.mp4` | Follow the first four Type controls in order: choose Font; use Weight when the font provides multiple faces; change Size with typing and Shift-arrow; change Color. | 02:27–03:21 | Integrated |
+| `text-alignment-line-spacing.mp4` | On multiline text, demonstrate left, center, and right alignment; then compare Auto, ×, px, and em line height. | 03:24–04:41 and 05:45–05:55 | Integrated |
+| `text-spacing-case.mp4` | Use positive and negative Spacing values to loosen and tighten letters; then cycle As typed, UPPERCASE, lowercase, Capitalize Each, and Sentence case. | 04:42–05:40 | Integrated |
+| `text-handoff-content.mp4` | Move below Case and the divider to Content; change Plain text to Heading 1 or Paragraph and state that this supplies semantic HTML handoff context without changing the visual styling. | 06:07–06:54 | Integrated |
+| `shapes-basic-tools.mp4` | With Rectangle, Ellipse, and Line, show click-once defaults and click-drag custom dimensions; finish by changing the line's stroke width and color. | 08:40–10:14 | Integrated |
+| `polygon-sides.mp4` | Press G; click once for the default triangle; change Sides with the field and arrow keys. | 07:30–08:22 | Integrated |
+| `path-outline-stroke.mp4` | Draw a line, choose Object > Path > Outline Stroke, switch to Edit Points, and move one resulting point. | 10:20–11:19 | Integrated |
+| `pen-straight-path.mp4` | Press P; click several corner anchors; click the first anchor to close the path; switch between Select and Edit Points. | 11:30–13:07 | Integrated |
+| `pen-curved-path.mp4` | Click-drag anchors to pull Bézier handles, hold Shift once to show axis/45-degree constraint, mix curved and corner anchors, then close and fill the path. | 13:11–15:26 | Integrated |
+| `pen-add-remove-points.mp4` | With Pen active, add points from path segments and remove existing anchors; leave broader multi-point editing for a later guide. | 15:28–17:19 | Integrated |
+| `shape-to-path.mp4` | Draw a regular shape, choose Object > Path > Convert to Path, then move individual anchors to create custom geometry. | 17:42–20:19 | Integrated |
 | `button-style-contrast.mp4` | Give a rectangle rounded corners, a stroke, and a shadow; place text above it; use the contrast result to replace a failing text color with a passing one. | 21:18–23:32 | Ready |
 | `button-auto-padding.mp4` | Center the label and background, group them, turn on Auto Padding, adjust the four padding values, and show the background re-hugging after the auto-width label changes. Briefly show Margin separately. | 23:42–27:26 | Ready |
 | `component-create-overrides.mp4` | Select the button group, press Command-K, rename the source, create several instances, and give their public text override different labels. | 27:40–30:46 | Ready |
 | `component-edit-source.mp4` | Open the component source, change shared padding and the background paint, close the editor, and show every instance updating while text overrides remain. | 30:50–33:15 | Ready |
-| `component-semantics-states.mp4` | Set the source category to Link; create Hover and Disabled states; edit state-local styling; use the live contrast result; switch instances between states. | 33:17–39:28 | **Blocked by BUG-006** |
+| `component-semantics-states.mp4` | Set the source category to Link; create Hover and Disabled states; edit state-local typography and opacity; show Default remains unchanged; use the live contrast result; switch instances between states. | 33:17–39:28 | Ready in v2.0.1 |
 | `component-find-instances.mp4` | In Components list view, select all instances from the count, page previous/next through them (including an offscreen instance), drag out a new instance, single-click to open the source, and double-click to rename. | 40:42–42:00 | Ready |
 
-This is eighteen short clips. If that feels like too much in one sitting, record
-the five text clips first, then paths, then buttons/components. The filenames
-are the organizing system; recording order does not matter.
+The first twelve clips are integrated. The remaining six begin with button styling
+and can wait for the next recording session; their filenames remain the organizing
+system, so recording order does not matter.
 
 ---
 
@@ -97,15 +118,24 @@ Resize a text box to change where its lines wrap. A `+` overflow indicator means
 the box contains text that does not currently fit. Increase the box height or
 switch to Auto width to reveal the hidden content.
 
-### Choose a typeface, face, size, and color
+### Choose Font, Weight, Size, and Color
 
-Select the text, then use the Type section in Properties. Choose a typeface
-family first. When that family contains multiple faces or weights, a second
-menu appears below it. Families without additional faces do not show that menu.
+Select the text, then follow the first controls in the Type section of Properties:
 
-Enter an exact type size or use an arrow key to change the focused value by one.
-Hold Shift while pressing an arrow key to change it by ten. Choose Color to set
-the text color.
+1. Choose the typeface family from **Font**.
+2. When the family contains multiple faces, choose one from **Weight**. Fonts
+   without additional faces do not show the Weight row.
+3. Enter an exact **Size**, or use an arrow key to change it by one and
+   Shift-arrow to change it by ten.
+4. Choose **Color** to set the text color.
+
+The controls below these settings describe the text box and its paragraphs.
+
+### Align text inside its box
+
+For a text box, choose left, center, or right alignment to position each line
+inside the box. Alignment appears below the Auto width/Text box control and above
+Line, Spacing, and Case.
 
 ### Adjust line height and letter spacing
 
@@ -122,20 +152,20 @@ The **Spacing** field controls letter spacing, also called tracking, in pixels.
 Use a positive value to spread characters apart or a negative value to bring
 them closer together. It changes spacing between letters, not only between words.
 
-### Change case and alignment
+### Change case
 
 Case changes how text is displayed without requiring you to retype it: As typed,
 UPPERCASE, lowercase, Capitalize Each, or Sentence case.
 
-For a text box, choose left, center, or right alignment to position each line
-inside the box.
+### Add semantic context for handoff
 
-### Describe the text for handoff
+After the visual text controls, a divider separates **Content** into its own
+handoff subsection below Case. Use it to describe the text's semantic purpose,
+such as Plain text, Paragraph, or Heading 1.
 
-Use **Content** to describe the text's semantic purpose, such as Plain text,
-Paragraph, or Heading 1. This does not change its visual styling. It gives HTML
-handoff enough information to produce a more meaningful element instead of
-making an implementer infer structure from font size alone.
+Content does not change Font, Weight, Size, Color, or any other visual styling.
+It gives HTML handoff enough context to produce a meaningful element instead of
+making an implementer infer document structure from appearance alone.
 
 **Related:** Build an accessible responsive button · Create and reuse components
 · Create and transform shapes
@@ -205,22 +235,21 @@ and leaves that anchor. A longer handle produces a stronger, broader bend.
 Click without dragging when the next anchor should be a corner. Mix corner and
 smooth anchors in the same path, then click the first anchor to close it.
 
-After BUG-005 is fixed, hold Shift while pulling a new handle to constrain it
-to axis/45-degree increments.
+Hold Shift while pulling a new handle to constrain it to axis/45-degree
+increments.
 
-### Add, remove, and select points
+### Add or remove an anchor
 
 With Pen active, the pointer shows a plus over a path segment and a minus over
 an existing anchor. Click the segment to add an anchor or click the anchor to
 remove it.
 
-With Edit Points active, click an anchor to select it. Hold Shift while clicking
-to select additional anchors, then drag or nudge the selected points together.
-The filled anchors are selected; hollow anchors are not. Click away from the
-path to clear the point selection.
+Switch to Edit Points when you want to select and reposition the remaining
+anchors instead of changing the path's point count.
 
-Right-click an anchor to convert it between a corner and smooth point. Smooth
-points expose curve handles; corner points do not.
+Selecting several anchors together and converting anchors between corner and
+smooth points remain useful future Help material, but are deferred until they
+have their own focused demonstration.
 
 ### Convert a shape to a path
 
@@ -330,8 +359,8 @@ Open the component source. The states bar begins with Default. Use the add menu
 to create Hover, Pressed, Focus, Disabled, or a custom state. Switch to a state
 before changing the properties that should differ from Default.
 
-State-local typography and opacity instructions must not be published until
-BUG-006 is fixed. Today those edits can change the shared source and every state.
+With a non-default state active, typography and opacity changes remain local to
+that state. Switch back to Default to confirm its styling has not changed.
 
 ### Check every visual state
 
@@ -366,10 +395,13 @@ component.
 - Text Content is explicitly labeled as semantic page-role information for HTML
   handoff and is independent of visual Type Style.
 - Create Component is Command-K and lives under Object > Component.
-- Existing Bézier-handle editing already Shift-snaps to axis/45-degree increments;
-  only new-handle creation drops the modifier (BUG-005).
-- Component state capture currently stores only text strings, fills, and layer
-  visibility. Typography and opacity fall through to the shared base (BUG-006).
+- In v2.0.1, both new and existing Bézier-handle editing Shift-snap to axis/45-
+  degree increments (BUG-005 fixed).
+- In v2.0.1, component-state capture includes bounded typography and layer/group
+  opacity alongside text, fills, and visibility (BUG-006 fixed).
+- The Type panel now presents Font, optional Weight, Size, and Color first;
+  Auto width/Text box, alignment, Line, Spacing, and Case next; and a separated
+  semantic Content picker last.
 - The Components list row uses single-click to open and double-click to rename.
   Its count selects all instances; paging selects one and centers it only when it
   is outside the visible document rectangle.

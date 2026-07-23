@@ -32,11 +32,11 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: bug
 - Priority: P1 (soon)
 - Area: model · inspector · canvas · export
-- Status: needs-verify (v2.0.1 — extended the state-diff vocabulary with
+- Status: done (v2.0.1 — owner reports fixed and pushed; extended the state-diff vocabulary with
   `.textStyle` (bounded typography) + `.opacity` cases; capture now diffs both
   into the active state and resets the base text node to pristine; apply,
   instance render, and semantic-handoff resolution all fold the new cases;
-  owner builds in Xcode to confirm both leak repros are closed)
+  both recorded leak repros closed)
 - Repro/Detail: Create a component with Default, Hover, and Disabled states. In
   the source editor, activate Disabled, select its text layer, then change a
   typography property such as color, typeface, size, line height, tracking, or
@@ -63,10 +63,10 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: bug
 - Priority: P2
 - Area: canvas · vector
-- Status: needs-verify (v2.0.1 — `penHandleDrag` now takes the live Shift state
+- Status: done (v2.0.1 — owner reports fixed and pushed; `penHandleDrag` now takes the live Shift state
   and snaps the dragged handle to axis/45° via `constrainLineEndpoint` (mirrors
   `pathPointDrag`); the opposite handle is re-derived so it stays mirrored;
-  owner builds in Xcode to confirm)
+  new-handle drawing now matches existing-handle constraint behavior)
 - Repro/Detail: Choose Pen (P), place an anchor, then click-drag a new anchor to
   pull its Bézier handles. Hold Shift during the drag. The handle continues to
   rotate freely instead of snapping to the same axis/45-degree increments used
