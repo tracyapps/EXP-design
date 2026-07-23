@@ -685,7 +685,7 @@ with the design. Full chunk breakdown, risks, and release mapping live in
 
 ---
 
-## v2.0.1 — in progress (opened 2026-07-23)
+## v2.0.1 — released (2026-07-23)
 
 Build 11, `MARKETING_VERSION 2.0.1`. A narrow bug-fix lane after v2.0, closing
 two defects found while recording the Help walkthroughs so the blocked
