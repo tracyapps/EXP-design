@@ -30,15 +30,28 @@ EXP [design]/
 │   ├── ROADMAP.md
 │   └── WORKING-AGREEMENT.md
 ├── EXP [design].xcodeproj
-└── EXP/                       ← Swift source
-    ├── EXPApp.swift           ← @main entry point (loads MainWindow)
+└── EXP [design]/              ← Swift source
+    ├── EXP__design_App.swift  ← @main entry point
     ├── Model/                 ← document data model (the foundation)
     ├── Canvas/                ← CanvasView.swift (AppKit-backed surface)
     └── UI/                    ← MainWindow.swift, panels, inspector
 ```
 
 ## Current status
-Phase 0 complete: three-pane editor shell runs (HSplitView: layers · canvas ·
-inspector, with toolbar toggles and a placeholder artboard). **Next: Phase 1** —
-introduce a shared app-state object, then build the real AppKit-backed canvas
-with smooth pan/zoom. See ROADMAP.md for the authoritative checklist.
+Public **v2.0.1/build 11** is released. Development is on **v2.1/build 12**.
+The core native editor, component states/behavior contract, semantic Handoff
+Package, agent-bridge spine, and the v2.0.1 stabilization fixes are shipped.
+
+Current v2.1 work is **Chunk I — nested components + semantic containment**.
+Completed and owner-verified on 2026-07-24: nested component placement from all
+surfaces, cycle-safe source dependencies, separate instance/source naming,
+recursive Layers disclosure, per-level component-state controls with stable
+nested instance paths, state-local outline color/alpha/width/position, group
+background outline position, role-aware Relationships placement, and the
+default-width Components/Layers density pass. Debug app + Quick Look/helper,
+focused graph/state checks, and semantic handoff checks pass.
+
+**Next:** finish Chunk I closure—dependent-source deletion choices and the
+remaining nested override/public-prop/layout/detach/export/Quick Look/semantic
+containment acceptance matrix—then begin the XD/Figma shared importer pipeline.
+See ROADMAP.md for the authoritative checklist and newest Progress Log entry.

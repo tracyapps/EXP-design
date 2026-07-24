@@ -2028,7 +2028,14 @@ final class CanvasNSView: NSView {
         guard isSourceScope, let app, app.selectedNodeIDs.count == 1,
               let selectedID = app.selectedNodeIDs.first else { return false }
         let allNodes = flattenedNodes(currentNodes)
-        return allNodes.count > 1 && allNodes.contains { $0.id == selectedID }
+        guard allNodes.count > 1, let node = allNodes.first(where: { $0.id == selectedID }) else { return false }
+        let roleKinds: [NodeRelationship.Kind]
+        if case .source(let sid) = scope {
+            roleKinds = document?.model.source(for: sid)?.a11y.role?.authoredRelationshipKinds ?? []
+        } else {
+            roleKinds = []
+        }
+        return !roleKinds.isEmpty || !node.relationships.isEmpty
     }
 
     /// Replace the current scope's node list and register one undo step.
@@ -4876,9 +4883,9 @@ final class CanvasNSView: NSView {
                 let path = NSBezierPath(roundedRect: box, xRadius: radius, yRadius: radius)
                 if let fill = pad.fill { PaintRender.fill(fill, path: path, bounds: box, in: ctx) }
                 if pad.strokeWidth > 0, let stroke = pad.stroke {
-                    stroke.nsColor.setStroke()
-                    path.lineWidth = pad.strokeWidth * z
-                    path.stroke()
+                    PaintRender.strokeAligned(path, width: pad.strokeWidth * z,
+                                              alignment: pad.strokeAlignment,
+                                              color: stroke.nsColor, in: ctx)
                 }
             }
             let childOffset = CGPoint(x: frameDoc.minX, y: frameDoc.minY)
@@ -7549,7 +7556,7 @@ final class CanvasNSView: NSView {
     }
 
     private func canDrop(_ pb: NSPasteboard) -> Bool {
-        componentSourceID(from: pb) != nil || !svgImports(from: pb).isEmpty
+        componentSourceID(from: pb).map(canPlaceComponent) == true || !svgImports(from: pb).isEmpty
             || pdfData(from: pb) != nil || !imageImports(from: pb).isEmpty
     }
 
@@ -7564,18 +7571,34 @@ final class CanvasNSView: NSView {
         return id
     }
 
-    /// Create an instance centered at the drop point (one undo step). Refuses
-    /// to drop a component inside its OWN source editor (no self-nesting).
+    /// A document canvas accepts every valid source. A component-source canvas
+    /// accepts only edges that keep the source dependency graph acyclic.
+    private func canPlaceComponent(_ sourceID: UUID) -> Bool {
+        guard let document, document.model.source(for: sourceID) != nil else { return false }
+        switch scope {
+        case .document:
+            return true
+        case .source(let parentSourceID):
+            return document.model.canNestComponent(sourceID, in: parentSourceID)
+        }
+    }
+
+    /// Create an instance centered at the drop point (one undo step). In a source
+    /// editor the dependency graph rejects direct and indirect cycles before any
+    /// mutation (`A -> A` and `A -> B -> A`).
     @discardableResult
     private func placeComponentInstance(_ sourceID: UUID, at viewPoint: CGPoint) -> Bool {
         guard let app, let document,
-              let source = document.model.source(for: sourceID) else { return false }
-        if case .source(let editingSID) = scope, editingSID == sourceID { return false }
+              let source = document.model.source(for: sourceID),
+              canPlaceComponent(sourceID) else {
+            NSSound.beep()
+            return false
+        }
         let center = viewToDoc(viewPoint)
         let frame = CGRect(x: center.x - source.size.width / 2,
                            y: center.y - source.size.height / 2,
                            width: source.size.width, height: source.size.height)
-        let node = Node(name: source.name, frame: frame,
+        let node = Node(name: "Instance", frame: frame,
                         content: .instance(ComponentInstance(sourceID: sourceID)))
         var nodes = currentNodes
         nodes.append(node)
@@ -8903,6 +8926,43 @@ final class CanvasNSView: NSView {
 
     // MARK: Components
 
+    /// Context-menu placement carries the click location; the Object menu and
+    /// Components panel carry only the source id and therefore place at the
+    /// visible canvas centre.
+    private final class ComponentPlacementRequest: NSObject {
+        let sourceID: UUID
+        let viewPoint: CGPoint?
+        init(sourceID: UUID, viewPoint: CGPoint? = nil) {
+            self.sourceID = sourceID
+            self.viewPoint = viewPoint
+        }
+    }
+
+    @objc func placeComponentAction(_ sender: Any?) {
+        let request = (sender as? NSMenuItem)?.representedObject
+        let sourceID: UUID?
+        let point: CGPoint?
+        if let request = request as? ComponentPlacementRequest {
+            sourceID = request.sourceID
+            point = request.viewPoint
+        } else if let id = request as? UUID {
+            sourceID = id
+            point = nil
+        } else if let string = request as? String {
+            sourceID = UUID(uuidString: string)
+            point = nil
+        } else if let string = request as? NSString {
+            sourceID = UUID(uuidString: string as String)
+            point = nil
+        } else {
+            sourceID = nil
+            point = nil
+        }
+        guard let sourceID else { return }
+        _ = placeComponentInstance(sourceID,
+                                   at: point ?? CGPoint(x: bounds.midX, y: bounds.midY))
+    }
+
     @objc func createComponentAction(_ sender: Any?) { createComponent() }
 
     /// Turn the selected nodes into a reusable component source, and replace the
@@ -8932,7 +8992,7 @@ final class CanvasNSView: NSView {
         }()
         let source = ComponentSource(name: baseName,
                                      size: union.size, children: children)
-        let instance = Node(name: source.name, frame: union,
+        let instance = Node(name: "Instance", frame: union,
                             content: .instance(ComponentInstance(sourceID: source.id)))
 
         // Mutate the whole model: add the source (document-level) and swap the
@@ -9186,6 +9246,9 @@ final class CanvasNSView: NSView {
                 add(menu, "Relationships…", #selector(showRelationshipsAction(_:)))
             }
             add(menu, "Create Component", #selector(createComponentAction(_:)))
+            if let placeItem = componentPlacementMenuItem(at: p) {
+                menu.addItem(placeItem)
+            }
             if case .instance(let inst) = hit.content {
                 add(menu, "Edit Component", #selector(editComponentAction(_:)))
                 add(menu, "Detach Component", #selector(detachComponentAction(_:)))
@@ -9287,11 +9350,43 @@ final class CanvasNSView: NSView {
             add(menu, "Paste", #selector(paste(_:)))
             add(menu, "Duplicate", #selector(duplicateArtboardsAction(_:)))
             add(menu, "Delete", #selector(delete(_:)))
+            if let placeItem = componentPlacementMenuItem(at: p) {
+                menu.addItem(.separator())
+                menu.addItem(placeItem)
+            }
         } else {
             add(menu, "Paste", #selector(paste(_:)))
+            if let placeItem = componentPlacementMenuItem(at: p) {
+                menu.addItem(placeItem)
+            }
             add(menu, "Fit to Screen", #selector(fitToScreen(_:)))
         }
         return menu
+    }
+
+    /// A selection-independent placement path for the canvas context menu. Only
+    /// graph-safe choices are shown while editing a component source, so keyboard
+    /// and VoiceOver users encounter the same constraint as drag/drop users.
+    private func componentPlacementMenuItem(at point: CGPoint) -> NSMenuItem? {
+        guard let document else { return nil }
+        let sources = document.model.sources
+            .filter { canPlaceComponent($0.id) }
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        guard !sources.isEmpty else { return nil }
+
+        let parent = NSMenuItem(title: "Place Component Instance", action: nil, keyEquivalent: "")
+        let submenu = NSMenu()
+        for source in sources {
+            let item = NSMenuItem(title: source.name,
+                                  action: #selector(placeComponentAction(_:)),
+                                  keyEquivalent: "")
+            item.target = self
+            item.representedObject = ComponentPlacementRequest(sourceID: source.id,
+                                                                viewPoint: point)
+            submenu.addItem(item)
+        }
+        parent.submenu = submenu
+        return parent
     }
 
     private func add(_ menu: NSMenu, _ title: String, _ action: Selector) {
@@ -9393,6 +9488,19 @@ extension CanvasNSView: NSMenuItemValidation {
             return selectedItemInAutoLayout
         case #selector(editComponentAction(_:)), #selector(detachComponentAction(_:)):
             return selectionHasInstance
+        case #selector(placeComponentAction(_:)):
+            let object = item.representedObject
+            if let request = object as? ComponentPlacementRequest {
+                return canPlaceComponent(request.sourceID)
+            }
+            if let id = object as? UUID { return canPlaceComponent(id) }
+            if let string = object as? String, let id = UUID(uuidString: string) {
+                return canPlaceComponent(id)
+            }
+            if let string = object as? NSString, let id = UUID(uuidString: string as String) {
+                return canPlaceComponent(id)
+            }
+            return false
         case #selector(setComponentCategoryAction(_:)):
             return categoryTargetSourceID != nil
         case #selector(addComponentStateAction(_:)):

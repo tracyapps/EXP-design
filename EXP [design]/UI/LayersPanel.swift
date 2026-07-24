@@ -155,6 +155,9 @@ struct LayersPanel: View {
                                 onToggleVisible: { toggleVisible($0) },
                                 onToggleLock: { toggleLock($0) },
                                 onRename: { rename($0, $1) },
+                                onRenameComponent: { renameComponent($0, $1) },
+                                onSetInstanceState: { setInstanceState($0, stateID: $1) },
+                                onSetNestedInstanceState: { setNestedInstanceState($0, path: $1, stateID: $2) },
                                 onToggleInstanceLayer: { toggleInstanceLayer(instanceID: $0, childID: $1) },
                                 onDrop: { handleDrop($0, onto: $1, place: $2) },
                                 onDelete: { deleteLayers(selectionOrRow($0)) },
@@ -499,25 +502,43 @@ struct LayersPanel: View {
     private func rename(_ id: UUID, _ name: String) {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        // A component instance shows its SOURCE (component) name — rename the source
-        // so the Layers panel, Inspector, and Components panel stay in lockstep.
-        if case .instance(let inst)? = findNode(id)?.content,
-           let si = document.model.sources.firstIndex(where: { $0.id == inst.sourceID }) {
-            guard trimmed != document.model.sources[si].name else { return }
-            var model = document.model
-            model.sources[si].name = trimmed
-            document.setModel(model, undoManager: undoManager, actionName: "Rename Component")
-            return
-        }
         updateNodeTree(id, action: "Rename") { $0.name = trimmed }
     }
 
-    /// Display name for a row: a component instance shows its source's name (so it
-    /// tracks the Components panel); every other layer shows its own name.
+    private func renameComponent(_ sourceID: UUID, _ name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let si = document.model.sources.firstIndex(where: { $0.id == sourceID }),
+              document.model.sources[si].name != trimmed else { return }
+        var model = document.model
+        model.sources[si].name = trimmed
+        document.setModel(model, undoManager: undoManager, actionName: "Rename Component")
+    }
+
+    private func setInstanceState(_ instanceID: UUID, stateID: UUID?) {
+        updateNodeTree(instanceID, action: "Set Component State") { node in
+            guard case .instance(var instance) = node.content else { return }
+            instance.activeStateID = stateID
+            node.content = .instance(instance)
+        }
+    }
+
+    private func setNestedInstanceState(_ rootInstanceID: UUID, path: [UUID], stateID: UUID?) {
+        guard !path.isEmpty else { return }
+        updateNodeTree(rootInstanceID, action: "Set Nested Component State") { node in
+            guard case .instance(var instance) = node.content else { return }
+            instance.nestedStateOverrides.removeAll { $0.instancePath == path }
+            instance.nestedStateOverrides.append(
+                NestedInstanceStateOverride(instancePath: path, stateID: stateID))
+            node.content = .instance(instance)
+        }
+    }
+
+    /// Instance names are independent from their source component names.
     private func displayName(_ node: Node) -> String {
-        if case .instance(let inst) = node.content,
-           let src = document.model.source(for: inst.sourceID) { return src.name }
-        return node.name
+        guard node.name.isEmpty else { return node.name }
+        if case .instance = node.content { return "Instance" }
+        return "Layer"
     }
 
     /// For a right-clicked row: act on the whole selection if the row is part of it,
@@ -726,6 +747,8 @@ struct LayersPanel: View {
     private func moveIntoSource(_ draggedID: UUID, instance instanceID: UUID, sourceID: UUID, oldOffset: CGPoint) {
         guard case .document = scope,
               let instance = findNode(instanceID),
+              let dragged = findNode(draggedID),
+              document.model.canInsert([dragged], intoSource: sourceID),
               let si = document.model.sources.firstIndex(where: { $0.id == sourceID }) else { return }
         var model = document.model
         var top = model.nodes
@@ -762,10 +785,13 @@ private struct LayerOutlineRow: View {
     /// Fixed row height: every row is the same height and flush with its neighbours,
     /// so the drop thresholds are stable and the before/after insertion lines land at
     /// the exact same y (one line per gap, not two). A measured height jittered.
-    private let rowH: CGFloat = 28
+    private var rowH: CGFloat { instance == nil ? 28 : 42 }
     let onToggleVisible: (UUID) -> Void
     let onToggleLock: (UUID) -> Void
     let onRename: (UUID, String) -> Void
+    let onRenameComponent: (UUID, String) -> Void
+    let onSetInstanceState: (UUID, UUID?) -> Void
+    let onSetNestedInstanceState: (UUID, [UUID], UUID?) -> Void
     let onToggleInstanceLayer: (UUID, UUID) -> Void
     let onDrop: (UUID, UUID, DropPlace) -> Void
     let onDelete: (UUID) -> Void
@@ -773,12 +799,10 @@ private struct LayerOutlineRow: View {
     let onPasteStyle: (UUID) -> Void
     let onSelect: (UUID) -> Void
 
-    /// A component instance row shows its source's (component) name; other rows show
-    /// their own. Mirrors LayersPanel.displayName so canvas/panel labels agree.
     private func displayName(_ n: Node) -> String {
-        if case .instance(let inst) = n.content,
-           let src = document.model.source(for: inst.sourceID) { return src.name }
-        return n.name
+        if !n.name.isEmpty { return n.name }
+        if case .instance = n.content { return "Instance" }
+        return "Layer"
     }
 
     private var isExpanded: Bool { expanded.contains(node.id) }
@@ -814,14 +838,23 @@ private struct LayerOutlineRow: View {
                                         draggingID: $draggingID, dropIndicator: $dropIndicator,
                                         inActiveSection: inActiveSection, depth: depth + 1,
                                         onToggleVisible: onToggleVisible, onToggleLock: onToggleLock,
-                                        onRename: onRename, onToggleInstanceLayer: onToggleInstanceLayer,
+                                        onRename: onRename, onRenameComponent: onRenameComponent,
+                                        onSetInstanceState: onSetInstanceState,
+                                        onSetNestedInstanceState: onSetNestedInstanceState,
+                                        onToggleInstanceLayer: onToggleInstanceLayer,
                                         onDrop: onDrop, onDelete: onDelete,
                                         onCopyStyle: onCopyStyle, onPasteStyle: onPasteStyle,
                                         onSelect: onSelect)
                     }
                 } else if let inst = instance, let source = instanceSource {
+                    let effective = inst.applyingState(source.states.first { $0.id == inst.activeStateID })
                     ForEach(Array(source.children.reversed())) { child in
-						InstanceLayerRow(child: child, inst: inst, onToggle: { onToggleInstanceLayer(node.id, $0) }, depth: depth + 1)
+                        InstanceLayerRow(child: child, inst: effective, document: document,
+                                         onSetState: { path, stateID in
+                                             onSetNestedInstanceState(node.id, path, stateID)
+                                         },
+                                         onToggle: { onToggleInstanceLayer(node.id, $0) },
+                                         depth: depth + 1)
                     }
                 }
             }
@@ -833,6 +866,8 @@ private struct LayerOutlineRow: View {
     private var rowDecorated: some View {
         LayerRow(node: node,
                  displayName: displayName(node),
+                 componentSource: instanceSource,
+                 componentStateID: instance?.activeStateID,
                  depth: depth,
                  hasDisclosure: hasDisclosure,
                  isExpanded: isExpanded,
@@ -842,9 +877,23 @@ private struct LayerOutlineRow: View {
                  onToggleExpanded: toggleExpanded,
                  onSelect: { onSelect(node.id) },
                  onRename: { onRename(node.id, $0) },
+                 onRenameComponent: instanceSource.map { source in
+                     { onRenameComponent(source.id, $0) }
+                 },
+                 onSetComponentState: instanceSource.map { _ in
+                     { onSetInstanceState(node.id, $0) }
+                 },
                  onDelete: { onDelete(node.id) },
                  onCopyStyle: { onCopyStyle(node.id) },
-                 onPasteStyle: { onPasteStyle(node.id) })
+                 onPasteStyle: { onPasteStyle(node.id) },
+                 onEditComponent: instance.map { instance in
+                     {
+                         SourceEditorWindowManager.shared.open(
+                             sourceID: instance.sourceID,
+                             document: document,
+                             undoManager: nil)
+                     }
+                 })
             .frame(height: rowH)
             .background {
                 if dropIndicator?.id == node.id, dropIndicator?.place == .into {
@@ -915,9 +964,9 @@ private struct LayerDropDelegate: DropDelegate {
 
 private struct LayerRow: View {
     let node: Node
-    /// What to show (and seed the rename field with). For component instances this is
-    /// the source/component name; for everything else it's `node.name`.
     let displayName: String
+    let componentSource: ComponentSource?
+    let componentStateID: UUID?
     let depth: Int
     let hasDisclosure: Bool
     let isExpanded: Bool
@@ -927,14 +976,20 @@ private struct LayerRow: View {
     let onToggleExpanded: () -> Void
     let onSelect: () -> Void
     let onRename: (String) -> Void
+    let onRenameComponent: ((String) -> Void)?
+    let onSetComponentState: ((UUID?) -> Void)?
     let onDelete: () -> Void
     let onCopyStyle: () -> Void
     let onPasteStyle: () -> Void
+    let onEditComponent: (() -> Void)?
 
     @State private var editing = false
     @State private var draft = ""
+    @State private var editingComponent = false
+    @State private var componentDraft = ""
     @State private var hovering = false
     @FocusState private var nameFocused: Bool
+    @FocusState private var componentNameFocused: Bool
     @Environment(AppState.self) private var app
 
     private let chevronW: CGFloat = 10
@@ -1026,6 +1081,11 @@ private struct LayerRow: View {
         .onTapGesture { onSelect() }
         .onHover { hovering = $0 }
         .contextMenu {
+            if let onEditComponent {
+                Button("Edit Component", action: onEditComponent)
+                Button("Rename Component…") { beginComponentRename() }
+                Divider()
+            }
             Button("Rename") { beginRename() }
             Button("Center in Canvas") { centerInCanvas() }
             Divider()
@@ -1049,15 +1109,78 @@ private struct LayerRow: View {
                     if !focused, editing { commit() }
                 }
         } else {
-            Text(displayName)
-                // SF Compact, medium when this layer is active (Session-133).
-                .expLayerName(active: isActive)
-                .foregroundStyle(node.isLocked ? EXPColor.textTertiary : EXPColor.textPrimary)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(displayName)
+                    // SF Compact, medium when this layer is active (Session-133).
+                    .expLayerName(active: isActive)
+                    .foregroundStyle(node.isLocked ? EXPColor.textTertiary : EXPColor.textPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    // Double-click always renames the INSTANCE/layer, never its source.
+                    .onTapGesture(count: 2) { beginRename() }
+                if let source = componentSource {
+                    HStack(spacing: 3) {
+                        componentNameView(source)
+                        componentStateMenu(source)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func componentNameView(_ source: ComponentSource) -> some View {
+        if editingComponent {
+            TextField("Component name", text: $componentDraft)
+                .textFieldStyle(.plain)
+                .font(.system(size: EXPType.micro))
+                .foregroundStyle(EXPColor.accent)
+                .focused($componentNameFocused)
+                .onSubmit { commitComponentRename() }
+                .onExitCommand { editingComponent = false }
+                .onChange(of: componentNameFocused) { _, focused in
+                    if !focused, editingComponent { commitComponentRename() }
+                }
+        } else {
+            Text(source.name)
+                .font(.system(size: EXPType.micro, weight: .medium))
+                .foregroundStyle(EXPColor.accent)
                 .lineLimit(1)
                 .truncationMode(.tail)
-                // Double-click the name to rename; single-click selects (falls through).
-                .onTapGesture(count: 2) { beginRename() }
+                .layoutPriority(1)
+                .padding(.horizontal, 3)
+                .padding(.vertical, 1)
+                .background(EXPColor.accentSubtle2, in: Capsule())
+                .help("Source component: \(source.name). Right-click to rename it.")
         }
+    }
+
+    private func componentStateMenu(_ source: ComponentSource) -> some View {
+        Menu {
+            Button {
+                onSetComponentState?(nil)
+            } label: {
+                if componentStateID == nil { Label("Default", systemImage: "checkmark") }
+                else { Text("Default") }
+            }
+            ForEach(source.states) { state in
+                Button {
+                    onSetComponentState?(state.id)
+                } label: {
+                    if componentStateID == state.id { Label(state.name, systemImage: "checkmark") }
+                    else { Text(state.name) }
+                }
+            }
+        } label: {
+            Text(source.states.first { $0.id == componentStateID }?.name ?? "Default")
+                .font(.system(size: EXPType.micro))
+                .foregroundStyle(EXPColor.textSecondary)
+                .lineLimit(1)
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help("Component state")
+        .accessibilityLabel("State for \(displayName)")
     }
 
     private func beginRename() {
@@ -1075,6 +1198,18 @@ private struct LayerRow: View {
     private func commit() {
         onRename(draft)
         editing = false
+    }
+
+    private func beginComponentRename() {
+        guard let source = componentSource else { return }
+        componentDraft = source.name
+        editingComponent = true
+        DispatchQueue.main.async { componentNameFocused = true }
+    }
+
+    private func commitComponentRename() {
+        onRenameComponent?(componentDraft)
+        editingComponent = false
     }
 
     private func centerInCanvas() {
@@ -1113,55 +1248,169 @@ func nodeTypeIcon(_ node: Node) -> String {
 /// so nested layers inside a grouped component can be toggled for this instance.
 private struct InstanceLayerRow: View {
     let child: Node
+    /// Effective instance for the source whose `child` belongs to. Its own active
+    /// state has already been folded in by the parent row.
     let inst: ComponentInstance
+    let document: ExpDocument
+    /// Full path from the placed root instance to a nested component instance.
+    let onSetState: ([UUID], UUID?) -> Void
     /// Toggle the per-instance visibility of the given layer id (this row or a
     /// nested descendant), routed up to the panel's `toggleInstanceLayer`.
     let onToggle: (UUID) -> Void
     /// Indentation depth (passed down from the owning instance row).
     var depth: Int = 0
+    var instancePath: [UUID] = []
+    var visibilityEditable = true
     @State private var expanded = false
 
     private var hidden: Bool { !inst.isLayerVisible(child.id, sourceDefault: child.isVisible) }
+    private var effectiveChild: Node { inst.applyingOverrides(to: child) }
+    private var nestedInstance: ComponentInstance? {
+        if case .instance(let nested) = effectiveChild.content { return nested }
+        return nil
+    }
+    private var nestedSource: ComponentSource? {
+        guard let nested = nestedInstance else { return nil }
+        return document.model.source(for: nested.sourceID)
+    }
+    private var displayName: String {
+        if !child.name.isEmpty { return child.name }
+        return nestedSource == nil ? "Layer" : "Instance"
+    }
+    private var currentInstancePath: [UUID] { instancePath + (nestedInstance == nil ? [] : [child.id]) }
+    private var groupChildren: [Node]? {
+        if case .group(let children) = child.content { return children }
+        return nil
+    }
+    private var hasDisclosure: Bool { groupChildren != nil || nestedSource != nil }
 
     var body: some View {
-        if case .group(let kids) = child.content {
-            DisclosureGroup(isExpanded: $expanded) {
-                ForEach(Array(kids.reversed())) { k in
-                    InstanceLayerRow(child: k, inst: inst, onToggle: onToggle, depth: depth + 1)
-                }
-            } label: { row }
-        } else {
+        VStack(spacing: 0) {
             row
+            if expanded, let kids = groupChildren {
+                ForEach(Array(kids.reversed())) { k in
+                    InstanceLayerRow(child: k, inst: inst, document: document,
+                                     onSetState: onSetState,
+                                     onToggle: onToggle, depth: depth + 1,
+                                     instancePath: instancePath,
+                                     visibilityEditable: visibilityEditable)
+                }
+            } else if expanded, let nested = nestedInstance, let source = nestedSource {
+                let effective = nested.applyingState(source.states.first { $0.id == nested.activeStateID })
+                ForEach(Array(source.children.reversed())) { nestedChild in
+                    InstanceLayerRow(child: nestedChild, inst: effective, document: document,
+                                     onSetState: onSetState,
+                                     onToggle: onToggle, depth: depth + 1,
+                                     instancePath: currentInstancePath,
+                                     visibilityEditable: false)
+                }
+            }
         }
     }
 
     private var row: some View {
-        HStack(spacing: EXPMetric.sm) {
-            // Indent so instance sub-layers sit under the instance's content column
-            // (≈ hairline + active-layer slot + chevron block = 17, then per depth).
-            Color.clear.frame(width: 17 + CGFloat(depth) * 12)
-            Button { onToggle(child.id) } label: {
+        HStack(spacing: 0) {
+            // Manual disclosure avoids native DisclosureGroup clipping inside the
+            // outer List row and keeps every recursive level aligned predictably.
+            Color.clear.frame(width: 4 + CGFloat(depth) * 12)
+            if hasDisclosure {
+                Button { expanded.toggle() } label: {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(EXPColor.textTertiary)
+                        .rotationEffect(.degrees(expanded ? 90 : 0))
+                        .frame(width: 14, height: 14)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(expanded ? "Collapse \(displayName)" : "Expand \(displayName)")
+                .accessibilityLabel(expanded ? "Collapse \(displayName)" : "Expand \(displayName)")
+            } else {
+                Color.clear.frame(width: 14)
+            }
+            Color.clear.frame(width: 4)
+            Button { if visibilityEditable { onToggle(child.id) } } label: {
                 Image(systemName: hidden ? "eye.slash.fill" : "eye.fill")
+                    .frame(width: 14)
             }
             .buttonStyle(.plain)
             .font(.system(size: 11))
             .foregroundStyle(hidden ? EXPColor.textTertiary : EXPColor.textSecondary)
+            .disabled(!visibilityEditable)
             .help(hidden ? "Show in this instance" : "Hide in this instance")
             .accessibilityLabel(hidden ? "Show \(child.name) in this instance"
                                        : "Hide \(child.name) in this instance")
 
+            Color.clear.frame(width: EXPMetric.xs)
             Image(systemName: nodeTypeIcon(child))
                 .font(.system(size: 10))
-                .foregroundStyle(EXPColor.textTertiary)
+                .foregroundStyle(nestedSource == nil ? EXPColor.textTertiary : EXPColor.accent)
                 .frame(width: 14)
 
-            Text(child.name)
-                .expLayerName(active: false)
-                .foregroundStyle(EXPColor.textPrimary)
-                .lineLimit(1)
-                .truncationMode(.tail)
+            Color.clear.frame(width: EXPMetric.xs)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(displayName)
+                    .expLayerName(active: false)
+                    .foregroundStyle(EXPColor.textPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                if let source = nestedSource, let nested = nestedInstance {
+                    HStack(spacing: 3) {
+                        Text(source.name)
+                            .font(.system(size: EXPType.micro, weight: .medium))
+                            .foregroundStyle(EXPColor.accent)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .layoutPriority(1)
+                            .padding(.horizontal, 3)
+                            .padding(.vertical, 1)
+                            .background(EXPColor.accentSubtle2, in: Capsule())
+                        nestedStateMenu(source: source, instance: nested)
+                    }
+                }
+            }
             Spacer(minLength: 0)
+            Color.clear.frame(width: EXPMetric.sm)
         }
+        .frame(height: nestedSource == nil ? 28 : 42)
         .opacity(hidden ? 0.5 : 1)
+        .contextMenu {
+            if let nestedSource {
+                Button("Edit Component") {
+                    SourceEditorWindowManager.shared.open(sourceID: nestedSource.id,
+                                                          document: document,
+                                                          undoManager: nil)
+                }
+            }
+        }
+        .help(nestedSource.map { "Nested component: \($0.name)" } ?? child.name)
+    }
+
+    private func nestedStateMenu(source: ComponentSource, instance: ComponentInstance) -> some View {
+        Menu {
+            Button {
+                onSetState(currentInstancePath, nil)
+            } label: {
+                if instance.activeStateID == nil { Label("Default", systemImage: "checkmark") }
+                else { Text("Default") }
+            }
+            ForEach(source.states) { state in
+                Button {
+                    onSetState(currentInstancePath, state.id)
+                } label: {
+                    if instance.activeStateID == state.id { Label(state.name, systemImage: "checkmark") }
+                    else { Text(state.name) }
+                }
+            }
+        } label: {
+            Text(source.states.first { $0.id == instance.activeStateID }?.name ?? "Default")
+                .font(.system(size: EXPType.micro))
+                .foregroundStyle(EXPColor.textSecondary)
+                .lineLimit(1)
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help("Nested component state")
+        .accessibilityLabel("State for \(displayName)")
     }
 }

@@ -105,7 +105,7 @@ private enum SemanticHTMLPackageCheck {
                 "semantic stylesheet no longer matches the reviewed golden")
         require(sha256(Data(html.utf8)) == "bdbe933a027de5c815fa23bbe36b2b0ffc8cebc5dd2d0638d9ba36765a5a07ad",
                 "semantic HTML page no longer matches the reviewed golden")
-        require(sha256(manifestData) == "650335123eeba63f8362a33513ba5459745cfa1e0e2c823942eb08fb14aba0c2",
+        require(sha256(manifestData) == "83fc525aec45d3824cbe9a1a4e63c1476f669bfdc81c5c55660040287be9df19",
                 "handoff manifest no longer matches the reviewed golden")
         require(sha256(Data(readme.utf8)) == "f92c98f55900a28d6d5434d876e1e1e4bf67040efbdbda9711258ff385ae417c",
                 "handoff README no longer matches the reviewed golden")

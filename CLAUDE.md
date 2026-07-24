@@ -60,26 +60,32 @@ EXP [design]/
 │   ├── ROADMAP.md
 │   └── WORKING-AGREEMENT.md
 ├── EXP [design].xcodeproj
-└── EXP/                       ← Swift source
-    ├── EXPApp.swift           ← @main entry point (loads MainWindow)
+└── EXP [design]/              ← Swift source
+    ├── EXP__design_App.swift  ← @main entry point
     ├── Model/                 ← document data model (the foundation)
     ├── Canvas/                ← CanvasView.swift (AppKit-backed surface)
     └── UI/                    ← MainWindow.swift, panels, inspector
 ```
 
 ## Current status
-Core editor is shipped and in tester hands (public download page at
-expdesign.app/download). Phases 0–7, 8.5, 9, 11, and 13 are ✅ DONE; Phases 8
-(color/gradients) and 10 (effects) are ✅ DONE with refinements planned; 9.5
-(rich text) is IN PROGRESS with one open editor bug. Documents save as
-**`.design`** (legacy `.exp` opens for migration). Phases 18 (Design Language —
-colors, gradients, categories, import/export, contrast, TYPE STYLES) and 19a
-(ARIA-role component categories) are ✅ CLOSED as of 2026-07-10 with
-improvements planned (see ROADMAP "Planned next" + unchecked sub-boxes).
-Recent v1.3 work also shipped: file-based tester diagnostics
-(`UI/DiagnosticLog.swift` — app target ONLY, never EXPThumbnail), View ▸ Log
-Geometry Audit, stroke alignment (inside/center/outside), per-corner border
-radius, drop-shadow "Preserve transparency", Round to Pixel, drag-to-canvas
-component instances, and the ×N instance badge. See ROADMAP.md for the
-authoritative checklist; phase statuses there feed the public site via
-`website/scripts/sync-content.mjs`.
+Public **v2.0.1/build 11** is released; local development is
+**v2.1/build 12**. The native editor, Design Language, component
+states/behavior contract, semantic Handoff Package, agent-bridge spine, and
+v2.0.1 stabilization fixes are shipped. Documents save as **`.design`**
+(legacy `.exp` opens for migration).
+
+Current work is **Chunk I — nested components + semantic containment**, the
+model gate before XD/Figma import. Completed and owner-verified on 2026-07-24:
+nested placement from every component surface, direct/indirect cycle safety,
+separate instance/source identity, recursive Layers disclosure, component-state
+controls at each nested level backed by stable instance-ID paths, state-local
+outline color/alpha/width/position, group-background outline position,
+role-aware Relationships placement, and compact default-width Layers/Components
+panel hierarchy. Debug app + Quick Look/helper, graph/state round-trip, semantic
+handoff package, and SVG token checks pass.
+
+**Next:** dependent-source deletion choices and the remaining nested
+override/public-prop/layout/detach/export/Quick Look/semantic-containment
+acceptance matrix; then the shared XD/Figma importer/report pipeline. See
+ROADMAP.md for the authoritative checklist and newest Progress Log entry; its
+phase statuses feed the public site via `website/scripts/sync-content.mjs`.

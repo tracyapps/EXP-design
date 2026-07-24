@@ -494,6 +494,10 @@ private struct HTMLWriter {
                 report("autoLayoutMargin",
                        "Managed margins are folded into HTML padding; the transparent outer margin remains exact only in design.json.")
             }
+            if let padding = node.autoPadding, padding.strokeWidth > 0,
+               padding.strokeAlignment != .inside {
+                reportStrokeAlignment(padding.strokeAlignment)
+            }
         case .image(let image):
             if imageMediaTypeForFidelity(image.data) == "application/octet-stream" {
                 report("unknownImageFormat",
@@ -1182,6 +1186,26 @@ private extension Document {
                 // geometry() emits `opacity` from the resolved node, so per-state
                 // opacity flows into the state rule automatically.
                 node.opacity = value
+            case .stroke(let stroke):
+                switch node.content {
+                case .rectangle(var shape): shape.stroke = stroke.color ?? .clear; shape.strokeWidth = stroke.width; shape.strokeAlignment = stroke.alignment; node.content = .rectangle(shape)
+                case .ellipse(var shape):   shape.stroke = stroke.color ?? .clear; shape.strokeWidth = stroke.width; shape.strokeAlignment = stroke.alignment; node.content = .ellipse(shape)
+                case .polygon(var shape):   shape.stroke = stroke.color ?? .clear; shape.strokeWidth = stroke.width; shape.strokeAlignment = stroke.alignment; node.content = .polygon(shape)
+                case .path(var shape):      shape.stroke = stroke.color ?? .clear; shape.strokeWidth = stroke.width; shape.strokeAlignment = stroke.alignment; node.content = .path(shape)
+                case .line(var shape):      shape.stroke = stroke.color ?? .clear; shape.strokeWidth = stroke.width; node.content = .line(shape)
+                case .group:
+                    if node.autoPadding != nil {
+                        node.autoPadding?.stroke = stroke.color
+                        node.autoPadding?.strokeWidth = stroke.width
+                        node.autoPadding?.strokeAlignment = stroke.alignment
+                    }
+                default: break
+                }
+            case .componentState(let stateID):
+                if case .instance(var nested) = node.content {
+                    nested.activeStateID = stateID
+                    node.content = .instance(nested)
+                }
             }
         }
         if case .group(let children) = node.content {

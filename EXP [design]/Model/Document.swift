@@ -119,6 +119,72 @@ struct Document: Codable, Sendable {
         sources.first { $0.id == id }
     }
 
+    // MARK: Component source dependency graph (v2.1 / Chunk I)
+
+    /// The component sources referenced directly by `nodes`. Group descendants
+    /// are included; an instance contributes its source id but deliberately does
+    /// not expand that source here. Keeping this as the graph's one edge reader
+    /// means placement, Layers drag/drop, importers, and deletion checks can all
+    /// ask the same question instead of growing subtly different walkers.
+    func referencedSourceIDs(in nodes: [Node]) -> Set<UUID> {
+        var result = Set<UUID>()
+        func walk(_ nodes: [Node]) {
+            for node in nodes {
+                switch node.content {
+                case .instance(let instance):
+                    result.insert(instance.sourceID)
+                case .group(let children):
+                    walk(children)
+                default:
+                    break
+                }
+            }
+        }
+        walk(nodes)
+        return result
+    }
+
+    /// Immediate outgoing edges for one component source (`parent -> child`).
+    func directSourceDependencies(of sourceID: UUID) -> Set<UUID> {
+        guard let source = source(for: sourceID) else { return [] }
+        return referencedSourceIDs(in: source.children)
+    }
+
+    /// Whether `sourceID` already reaches `targetID` through one or more nested
+    /// component references. The visited set makes this total even for a damaged
+    /// or legacy document that already contains a cycle.
+    func source(_ sourceID: UUID, dependsOn targetID: UUID) -> Bool {
+        var visited = Set<UUID>()
+        func reaches(_ current: UUID) -> Bool {
+            guard visited.insert(current).inserted else { return false }
+            for dependency in directSourceDependencies(of: current) {
+                if dependency == targetID || reaches(dependency) { return true }
+            }
+            return false
+        }
+        return reaches(sourceID)
+    }
+
+    /// True when adding `parent -> nested` would preserve an acyclic source
+    /// graph. Adding the edge is illegal when both ids are equal or when the
+    /// proposed child already reaches the parent (`A -> B -> A`).
+    func canNestComponent(_ nestedSourceID: UUID, in parentSourceID: UUID) -> Bool {
+        guard nestedSourceID != parentSourceID,
+              source(for: nestedSourceID) != nil,
+              source(for: parentSourceID) != nil else { return false }
+        return !source(nestedSourceID, dependsOn: parentSourceID)
+    }
+
+    /// Graph-safe form used when an existing layer/group is moved into a source.
+    /// Plain shapes have no references and are always safe; every component
+    /// reference inside the moved subtree must be legal in the destination.
+    func canInsert(_ nodes: [Node], intoSource parentSourceID: UUID) -> Bool {
+        guard source(for: parentSourceID) != nil else { return false }
+        return referencedSourceIDs(in: nodes).allSatisfy {
+            canNestComponent($0, in: parentSourceID)
+        }
+    }
+
     /// A source behaves as a dynamic component when its top level is exactly one
     /// managed frame (typical button/tag components). More complex sources keep
     /// SVG-style stable viewBox bounds.
@@ -550,13 +616,14 @@ struct AutoPadding: Codable, Equatable, Sendable {
     var cornerRadius: CGFloat = 0
     var stroke: RGBAColor? = nil
     var strokeWidth: CGFloat = 0
+    var strokeAlignment: StrokeAlignment = .center
 
     init() {}
 
     enum CodingKeys: String, CodingKey {
         case paddingTop, paddingRight, paddingBottom, paddingLeft
         case marginTop, marginRight, marginBottom, marginLeft
-        case fill, cornerRadius, stroke, strokeWidth
+        case fill, cornerRadius, stroke, strokeWidth, strokeAlignment
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -572,6 +639,7 @@ struct AutoPadding: Codable, Equatable, Sendable {
         cornerRadius = try c.decodeIfPresent(CGFloat.self, forKey: .cornerRadius) ?? 0
         stroke = try c.decodeIfPresent(RGBAColor.self, forKey: .stroke)
         strokeWidth = try c.decodeIfPresent(CGFloat.self, forKey: .strokeWidth) ?? 0
+        strokeAlignment = try c.decodeIfPresent(StrokeAlignment.self, forKey: .strokeAlignment) ?? .center
     }
 
     var marginW: CGFloat { marginLeft + marginRight }
@@ -1532,6 +1600,23 @@ enum AriaRole: String, Codable, Sendable, CaseIterable {
         }
     }
 
+    /// Relationships that make sense for this role in the component contract.
+    /// This guides the authoring UI; existing relationships remain preserved and
+    /// editable if a component's role later changes.
+    var authoredRelationshipKinds: [NodeRelationship.Kind] {
+        switch self {
+        case .button, .link, .checkbox, .radio, .switch, .textbox, .searchbox,
+             .slider, .spinbutton, .tab, .menuitem, .option:
+            return [.controls, .labelledby, .describedby]
+        case .navigation, .search, .form, .region, .tablist, .tabpanel, .menu,
+             .menubar, .listbox, .radiogroup, .toolbar, .dialog, .alertdialog,
+             .group:
+            return [.labelledby, .describedby]
+        default:
+            return []
+        }
+    }
+
     /// Roles grouped in picker order (stable, spec-shaped).
     static func grouped() -> [(category: AriaCategory, roles: [AriaRole])] {
         AriaCategory.allCases.map { cat in
@@ -1631,6 +1716,13 @@ enum ComponentStateEditing {
                 }
             case .opacity(let value):
                 node.opacity = value
+            case .stroke(let stroke):
+                setStroke(stroke, on: &node)
+            case .componentState(let stateID):
+                if case .instance(var instance) = node.content {
+                    instance.activeStateID = stateID
+                    node.content = .instance(instance)
+                }
             }
         }
         if case .group(let kids) = node.content {
@@ -1705,6 +1797,20 @@ enum ComponentStateEditing {
                                                       value: .opacity(n.opacity)))
                     n.opacity = b.opacity
                 }
+                if let editedStroke = stroke(of: n), let baseStroke = stroke(of: b),
+                   editedStroke != baseStroke {
+                    overrides.append(InstanceOverride(targetNodeID: n.id,
+                                                      value: .stroke(editedStroke)))
+                    setStroke(baseStroke, on: &n)
+                }
+                if case .instance(var editedInstance) = n.content,
+                   case .instance(let baseInstance) = b.content,
+                   editedInstance.activeStateID != baseInstance.activeStateID {
+                    overrides.append(InstanceOverride(targetNodeID: n.id,
+                                                      value: .componentState(editedInstance.activeStateID)))
+                    editedInstance.activeStateID = baseInstance.activeStateID
+                    n.content = .instance(editedInstance)
+                }
                 if n.isVisible != b.isVisible {
                     visibility.append(LayerVisibilityOverride(layerID: n.id,
                                                               isVisible: n.isVisible))
@@ -1752,6 +1858,37 @@ enum ComponentStateEditing {
         default: break
         }
     }
+
+    private static func stroke(of node: Node) -> StrokeStyleOverride? {
+        switch node.content {
+        case .rectangle(let s): return StrokeStyleOverride(color: s.stroke, width: s.strokeWidth, alignment: s.strokeAlignment)
+        case .ellipse(let s):   return StrokeStyleOverride(color: s.stroke, width: s.strokeWidth, alignment: s.strokeAlignment)
+        case .polygon(let s):   return StrokeStyleOverride(color: s.stroke, width: s.strokeWidth, alignment: s.strokeAlignment)
+        case .path(let s):      return StrokeStyleOverride(color: s.stroke, width: s.strokeWidth, alignment: s.effectiveStrokeAlignment)
+        case .line(let s):      return StrokeStyleOverride(color: s.stroke, width: s.strokeWidth, alignment: .center)
+        case .group:
+            guard let pad = node.autoPadding else { return nil }
+            return StrokeStyleOverride(color: pad.stroke, width: pad.strokeWidth, alignment: pad.strokeAlignment)
+        default: return nil
+        }
+    }
+
+    private static func setStroke(_ stroke: StrokeStyleOverride, on node: inout Node) {
+        switch node.content {
+        case .rectangle(var s): s.stroke = stroke.color ?? .clear; s.strokeWidth = stroke.width; s.strokeAlignment = stroke.alignment; node.content = .rectangle(s)
+        case .ellipse(var s):   s.stroke = stroke.color ?? .clear; s.strokeWidth = stroke.width; s.strokeAlignment = stroke.alignment; node.content = .ellipse(s)
+        case .polygon(var s):   s.stroke = stroke.color ?? .clear; s.strokeWidth = stroke.width; s.strokeAlignment = stroke.alignment; node.content = .polygon(s)
+        case .path(var s):      s.stroke = stroke.color ?? .clear; s.strokeWidth = stroke.width; s.strokeAlignment = stroke.alignment; node.content = .path(s)
+        case .line(var s):      s.stroke = stroke.color ?? .clear; s.strokeWidth = stroke.width; node.content = .line(s)
+        case .group:
+            if node.autoPadding != nil {
+                node.autoPadding?.stroke = stroke.color
+                node.autoPadding?.strokeWidth = stroke.width
+                node.autoPadding?.strokeAlignment = stroke.alignment
+            }
+        default: break
+        }
+    }
 }
 
 /// A placed reference to a `ComponentSource`. Carries only what differs from the
@@ -1772,6 +1909,34 @@ struct ComponentInstance: Codable, Sendable {
     /// entry here simply inherit the source's own visibility.
     var layerVisibility: [LayerVisibilityOverride] = []
 
+    /// State choices for component instances nested inside this instance's source.
+    /// Paths contain nested instance node IDs (groups are deliberately omitted),
+    /// which keeps the override stable when layout groups are rearranged.
+    var nestedStateOverrides: [NestedInstanceStateOverride] = []
+
+    init(sourceID: UUID, overrides: [InstanceOverride] = [], activeStateID: UUID? = nil,
+         layerVisibility: [LayerVisibilityOverride] = [],
+         nestedStateOverrides: [NestedInstanceStateOverride] = []) {
+        self.sourceID = sourceID
+        self.overrides = overrides
+        self.activeStateID = activeStateID
+        self.layerVisibility = layerVisibility
+        self.nestedStateOverrides = nestedStateOverrides
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case sourceID, overrides, activeStateID, layerVisibility, nestedStateOverrides
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        sourceID = try c.decode(UUID.self, forKey: .sourceID)
+        overrides = try c.decodeIfPresent([InstanceOverride].self, forKey: .overrides) ?? []
+        activeStateID = try c.decodeIfPresent(UUID.self, forKey: .activeStateID)
+        layerVisibility = try c.decodeIfPresent([LayerVisibilityOverride].self, forKey: .layerVisibility) ?? []
+        nestedStateOverrides = try c.decodeIfPresent([NestedInstanceStateOverride].self, forKey: .nestedStateOverrides) ?? []
+    }
+
     /// Effective visibility of a source layer in this instance: the override if
     /// one exists, otherwise the source layer's own `isVisible`.
     func isLayerVisible(_ layerID: UUID, sourceDefault: Bool) -> Bool {
@@ -1790,6 +1955,12 @@ struct ComponentInstance: Codable, Sendable {
         merged.layerVisibility = layerVisibility + state.layerVisibility
         return merged
     }
+}
+
+struct NestedInstanceStateOverride: Codable, Sendable, Equatable {
+    var instancePath: [UUID]
+    /// nil is an intentional selection of the source's Default state.
+    var stateID: UUID?
 }
 
 /// One per-instance visibility override for a source layer.
@@ -1871,6 +2042,14 @@ struct TextStyleOverride: Codable, Sendable, Equatable {
     }
 }
 
+/// The complete outline appearance stored by a component state. Color includes
+/// alpha, and an optional color lets a state remove a group background outline.
+struct StrokeStyleOverride: Codable, Sendable, Equatable {
+    var color: RGBAColor?
+    var width: CGFloat
+    var alignment: StrokeAlignment
+}
+
 /// One bounded override targeting a node inside the resolved instance.
 /// Kept as an explicit list (not a dictionary) so the JSON stays readable.
 struct InstanceOverride: Codable, Sendable {
@@ -1879,6 +2058,8 @@ struct InstanceOverride: Codable, Sendable {
         case fill(Paint)        // solid OR gradient (Paint decodes a legacy bare RGBAColor)
         case textStyle(TextStyleOverride)   // bounded per-state/instance typography
         case opacity(Double)                // whole-layer opacity (any node type)
+        case stroke(StrokeStyleOverride)    // color/alpha + width + inside/center/outside
+        case componentState(UUID?)          // state of a nested component layer
 
         var textValue: String? { if case .text(let s) = self { return s }; return nil }
         var fillValue: Paint? { if case .fill(let p) = self { return p }; return nil }
@@ -1938,7 +2119,41 @@ extension ComponentInstance {
                 }
             case .opacity(let value):
                 node.opacity = value
+            case .stroke(let stroke):
+                switch node.content {
+                case .rectangle(var shape): shape.stroke = stroke.color ?? .clear; shape.strokeWidth = stroke.width; shape.strokeAlignment = stroke.alignment; node.content = .rectangle(shape)
+                case .ellipse(var shape):   shape.stroke = stroke.color ?? .clear; shape.strokeWidth = stroke.width; shape.strokeAlignment = stroke.alignment; node.content = .ellipse(shape)
+                case .polygon(var shape):   shape.stroke = stroke.color ?? .clear; shape.strokeWidth = stroke.width; shape.strokeAlignment = stroke.alignment; node.content = .polygon(shape)
+                case .path(var shape):      shape.stroke = stroke.color ?? .clear; shape.strokeWidth = stroke.width; shape.strokeAlignment = stroke.alignment; node.content = .path(shape)
+                case .line(var shape):      shape.stroke = stroke.color ?? .clear; shape.strokeWidth = stroke.width; node.content = .line(shape)
+                case .group:
+                    if node.autoPadding != nil {
+                        node.autoPadding?.stroke = stroke.color
+                        node.autoPadding?.strokeWidth = stroke.width
+                        node.autoPadding?.strokeAlignment = stroke.alignment
+                    }
+                default: break
+                }
+            case .componentState(let stateID):
+                if case .instance(var instance) = node.content {
+                    instance.activeStateID = stateID
+                    node.content = .instance(instance)
+                }
             }
+        }
+        if case .instance(var nested) = node.content {
+            for override in nestedStateOverrides where override.instancePath.first == node.id {
+                if override.instancePath.count == 1 {
+                    nested.activeStateID = override.stateID
+                } else {
+                    let descendant = NestedInstanceStateOverride(
+                        instancePath: Array(override.instancePath.dropFirst()),
+                        stateID: override.stateID)
+                    nested.nestedStateOverrides.removeAll { $0.instancePath == descendant.instancePath }
+                    nested.nestedStateOverrides.append(descendant)
+                }
+            }
+            node.content = .instance(nested)
         }
         if case .group(var kids) = node.content {
             kids = kids

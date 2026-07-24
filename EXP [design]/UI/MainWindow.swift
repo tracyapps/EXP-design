@@ -491,6 +491,11 @@ struct TopSystemControls: View {
 
 // MARK: - Editor command menu state
 
+struct ComponentPlacementChoice: Identifiable, Hashable {
+    var id: UUID
+    var name: String
+}
+
 /// Focused state used by SwiftUI command menus to grey out actions that do not
 /// apply to the active selection. The canvas responder remains the source of
 /// behavior; this is just the visible menu contract.
@@ -517,6 +522,7 @@ struct EditorMenuModel {
     var canNewEmptyComponent: Bool
     var canEditComponent: Bool
     var canDetachComponent: Bool
+    var componentPlacementChoices: [ComponentPlacementChoice]
     var canSetComponentCategory: Bool
     var canEditRelationships: Bool
     var canAddComponentState: Bool
@@ -624,6 +630,17 @@ func makeEditorMenuModel(document: ExpDocument, app: AppState, scope: CanvasScop
         return "Add \(next.capitalized) State"
     }()
     let canAlign = selectedIDs.count >= 2 || (selectedIDs.count >= 1 && app.alignTarget == .artboard)
+    let componentPlacementChoices = model.sources
+        .filter { candidate in
+            switch scope {
+            case .document:
+                return true
+            case .source(let parentSourceID):
+                return model.canNestComponent(candidate.id, in: parentSourceID)
+            }
+        }
+        .map { ComponentPlacementChoice(id: $0.id, name: $0.name) }
+        .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
 
     return EditorMenuModel(
         hasNodes: hasNodes,
@@ -644,8 +661,11 @@ func makeEditorMenuModel(document: ExpDocument, app: AppState, scope: CanvasScop
         canNewEmptyComponent: true,
         canEditComponent: hasInstance,
         canDetachComponent: hasInstance,
+        componentPlacementChoices: componentPlacementChoices,
         canSetComponentCategory: source != nil || hasInstance,
-        canEditRelationships: source != nil && singleNode != nil && flatten(nodes).count > 1,
+        canEditRelationships: source != nil && singleNode != nil && flatten(nodes).count > 1
+            && (!(source?.a11y.role?.authoredRelationshipKinds.isEmpty ?? true)
+                || !(singleNode?.relationships.isEmpty ?? true)),
         canAddComponentState: source != nil,
         addComponentStateTitle: stateName,
         canCycleComponentState: !(source?.states.isEmpty ?? true),
@@ -675,13 +695,13 @@ func makeEditorMenuModel(document: ExpDocument, app: AppState, scope: CanvasScop
 /// window first (single-window mode), then walk the MAIN document window's
 /// responder chain explicitly. Tray windows override `canBecomeMain` to false,
 /// so `NSApp.mainWindow` is always the document window.
-func sendCanvasAction(_ selectorName: String) {
+func sendCanvasAction(_ selectorName: String, from sender: Any? = nil) {
     let sel = Selector(selectorName)
-    if NSApp.sendAction(sel, to: nil, from: nil) { return }
+    if NSApp.sendAction(sel, to: nil, from: sender) { return }
     var responder = NSApp.mainWindow?.firstResponder ?? NSApp.mainWindow
     while let r = responder {
         if r.responds(to: sel) {
-            _ = NSApp.sendAction(sel, to: r, from: nil)
+            _ = NSApp.sendAction(sel, to: r, from: sender)
             return
         }
         responder = r.nextResponder
@@ -899,6 +919,15 @@ struct RightPanel: View {
         )
     }
 
+    /// Role-valid relationship fields, plus any already-authored fields so a role
+    /// change never hides data that the designer may need to remove or retarget.
+    private var availableRelationshipKinds: [NodeRelationship.Kind] {
+        guard case .source(let sid) = scope, let node = selectedNode else { return [] }
+        let roleKinds = document.model.source(for: sid)?.a11y.role?.authoredRelationshipKinds ?? []
+        let existing = Set(node.relationships.map(\.kind))
+        return NodeRelationship.Kind.allCases.filter { roleKinds.contains($0) || existing.contains($0) }
+    }
+
     /// Document-space offset to subtract for display so a shape's X/Y read
     /// relative to its owning artboard (0 on the wall, and 0 in source scope).
     private func ownerOffset(_ keyPath: WritableKeyPath<CGRect, CGFloat>) -> CGFloat {
@@ -1029,7 +1058,6 @@ struct RightPanel: View {
                 .font(.callout)
                 .padding(.horizontal, 12)
                 .padding(.bottom, 8)
-                relationshipControls()
                 if case .group = node.content {
                     Divider()
                     autoLayoutControls()
@@ -1054,6 +1082,7 @@ struct RightPanel: View {
                 alignControls()
                 Divider()
                 effectsControls()
+                relationshipControls()
             } else if app.selectedNodeIDs.count > 1 {
                 Text("\(app.selectedNodeIDs.count) shapes selected")
                     .foregroundStyle(EXPColor.textSecondary)
@@ -1342,7 +1371,7 @@ struct RightPanel: View {
 
     @ViewBuilder
     private func relationshipControls() -> some View {
-        if case .source = scope, selectedNode != nil {
+        if case .source = scope, selectedNode != nil, !availableRelationshipKinds.isEmpty {
             let targets = relationshipTargets
             Divider()
             VStack(alignment: .leading, spacing: 8) {
@@ -1350,7 +1379,7 @@ struct RightPanel: View {
                     title: "Relationships",
                     icon: "point.3.connected.trianglepath.dotted",
                     helpBody: "Use Controls when this layer operates another layer, like a tab controlling a panel. Use Labelled By when a visible text layer gives this layer its accessible name. Use Described By for helper, hint, or error text that explains this layer.")
-                ForEach(NodeRelationship.Kind.allCases, id: \.self) { kind in
+                ForEach(availableRelationshipKinds, id: \.self) { kind in
                     HStack(spacing: 6) {
                         Text(kind.label)
                             .foregroundStyle(EXPColor.textSecondary)
@@ -1511,6 +1540,10 @@ struct RightPanel: View {
         Binding(get: { Double(selectedAutoPadding?.strokeWidth ?? 0) },
                 set: { v in mutateAP("Frame Stroke Width") { $0.strokeWidth = Swift.max(0, CGFloat(v)) } })
     }
+    private var apStrokeAlignmentBinding: Binding<StrokeAlignment> {
+        Binding(get: { selectedAutoPadding?.strokeAlignment ?? .center },
+                set: { v in mutateAP("Frame Stroke Position") { $0.strokeAlignment = v } })
+    }
 
     @ViewBuilder
     private func autoPaddingControls() -> some View {
@@ -1551,6 +1584,17 @@ struct RightPanel: View {
                         .labelsHidden().textFieldStyle(.exp)
                         .multilineTextAlignment(.trailing).monospacedDigit()
                         .frame(width: 40).numericStepping(apStrokeWidthBinding, min: 0)
+                }
+                if (selectedAutoPadding?.strokeWidth ?? 0) > 0 {
+                    HStack(spacing: 6) {
+                        Text("Position").foregroundStyle(EXPColor.textSecondary)
+                        EXPSegmented(selection: apStrokeAlignmentBinding, segments: [
+                            .init(value: .inside, label: "Inside"),
+                            .init(value: .center, label: "Middle"),
+                            .init(value: .outside, label: "Outside"),
+                        ])
+                    }
+                    .help("Place the group background outline inside, centered on, or outside its edge")
                 }
             }
         }
@@ -1939,6 +1983,7 @@ struct RightPanel: View {
             switch n.content {
             case .rectangle, .ellipse, .polygon: return true
             case .path(let ps): return ps.closed || ps.isMultiContour
+            case .group: return n.autoPadding != nil
             default: return false
             }
         }
@@ -1952,6 +1997,7 @@ struct RightPanel: View {
             case .ellipse(let s):   return s.strokeAlignment
             case .polygon(let s):   return s.strokeAlignment
             case .path(let s) where s.closed || s.isMultiContour: return s.strokeAlignment
+            case .group: return n.autoPadding?.strokeAlignment ?? .center
             default: continue
             }
         }
@@ -1966,6 +2012,7 @@ struct RightPanel: View {
                 case .ellipse(var s):   s.strokeAlignment = a; node.content = .ellipse(s)
                 case .polygon(var s):   s.strokeAlignment = a; node.content = .polygon(s)
                 case .path(var s):      s.strokeAlignment = a; node.content = .path(s)
+                case .group:            if node.autoPadding != nil { node.autoPadding?.strokeAlignment = a }
                 default: break   // lines/open paths: no interior, stays centered
                 }
             }

@@ -1,7 +1,7 @@
 # v2.0 — Interop & Handoff Plan ("the tool that lets go")
 
-**Created:** 2026-07-14 · **Status:** ACTIVE (v2.0/build 10 opened 2026-07-21;
-owner-approved direction: export/handoff first) · **Owner intent:** v2.0's headline. Traditional design
+**Created:** 2026-07-14 · **Status:** ACTIVE (v2.0.1 shipped; v2.1/build 12 Chunk I
+in progress; first two nested-component slices owner-verified 2026-07-24) · **Owner intent:** v2.0's headline. Traditional design
 software locks the design in; EXP should hand work onward — to a dev team, an
 LLM/agent, an IDE, or CodePen — and read work back in. Artboard notes +
 ARIA-role components are the multiplier: the *meaning* travels, not just
@@ -310,6 +310,16 @@ components. D/G may initially report unsupported constructs, but component-
 preserving import must not ship by silently flattening away source identity.
 Nested resolution must stay identical across canvas, auto-layout, states,
 thumbnails, SVG, semantic HTML, Handoff Packages, save/reopen, and Quick Look.
+
+**Implementation checkpoint — 2026-07-24:** placement from all component
+surfaces and direct/indirect cycle prevention are complete. Layers now separates
+instance/source identity, discloses groups and nested sources recursively, and
+offers component states at every nested level; placed-parent choices persist as
+stable nested instance-ID paths. State diffs also preserve outline color/alpha,
+width, and position, including group backgrounds. The owner verified the
+default-width Layers and Components panel hierarchy. Remaining Chunk I work is
+dependent-source deletion and the full override/public-prop/layout/detach/
+renderer/export/Quick Look/semantic-containment acceptance matrix.
 
 Semantic authoring uses the same resolved tree as useful context. Parent roles
 recommend or constrain likely owned child roles—List → List Item, Tab List → Tab,

@@ -146,6 +146,12 @@ private func sendEditorComponentCategory(_ role: AriaRole?) {
     NSApp.sendAction(NSSelectorFromString("setComponentCategoryAction:"), to: nil, from: item)
 }
 
+private func sendEditorPlaceComponent(_ sourceID: UUID) {
+    let item = NSMenuItem(title: "Place Component Instance", action: nil, keyEquivalent: "")
+    item.representedObject = sourceID.uuidString
+    NSApp.sendAction(NSSelectorFromString("placeComponentAction:"), to: nil, from: item)
+}
+
 private func sendEditorTextContentRole(_ role: TextContentRole) {
     let item = NSMenuItem(title: role.friendlyLabel, action: nil, keyEquivalent: "")
     item.representedObject = role.rawValue
@@ -239,6 +245,17 @@ private struct ObjectCommandItems: View {
                 .disabled(menu?.canCreateComponent != true)
             Button("New Empty Component") { sendEditorAction("newEmptyComponentAction:") }
                 .disabled(menu?.canNewEmptyComponent != true)
+            Menu("Place Instance") {
+                if let choices = menu?.componentPlacementChoices, !choices.isEmpty {
+                    ForEach(choices) { choice in
+                        Button(choice.name) { sendEditorPlaceComponent(choice.id) }
+                    }
+                } else {
+                    Button("No compatible components") {}
+                        .disabled(true)
+                }
+            }
+            .disabled(menu?.componentPlacementChoices.isEmpty != false)
             Button("Edit Component") { sendEditorAction("editComponentAction:") }
                 .disabled(menu?.canEditComponent != true)
             Button("Detach Component") { sendEditorAction("detachComponentAction:") }

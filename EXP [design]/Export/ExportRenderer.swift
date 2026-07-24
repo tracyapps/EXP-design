@@ -277,12 +277,21 @@ struct ExportRenderer {
             if let pad = node.autoPadding, pad.fill != nil || pad.strokeWidth > 0 {
                 let fillStr: String
                 if let p = pad.fill { fillStr = paintFillAttr(p, &defs) } else { fillStr = " fill=\"none\"" }
-                let strokeStr = (pad.strokeWidth > 0 && pad.stroke != nil) ? strokeAttr(pad.stroke!, pad.strokeWidth) : ""
-                let rx = pad.cornerRadius > 0 ? " rx=\"\(num(pad.cornerRadius))\"" : ""
                 // Background box = frame inset by the margin.
                 let bx = f.minX + pad.marginLeft, by = f.minY + pad.marginTop
                 let bw = max(0, f.width - pad.marginW), bh = max(0, f.height - pad.marginH)
-                prefix = "<rect x=\"\(num(bx))\" y=\"\(num(by))\" width=\"\(num(bw))\" height=\"\(num(bh))\"\(rx)\(fillStr)\(strokeStr)/>\n"
+                let baseRect = "<rect x=\"\(num(bx))\" y=\"\(num(by))\" width=\"\(num(bw))\" height=\"\(num(bh))\""
+                let rx = pad.cornerRadius > 0 ? " rx=\"\(num(pad.cornerRadius))\"" : ""
+                prefix = "\(baseRect)\(rx)\(fillStr)/>\n"
+                if pad.strokeWidth > 0, let stroke = pad.stroke {
+                    let delta = pad.strokeAlignment == .center ? 0
+                        : pad.strokeWidth / 2 * (pad.strokeAlignment == .inside ? 1 : -1)
+                    let sx = bx + delta, sy = by + delta
+                    let sw = max(0, bw - 2 * delta), sh = max(0, bh - 2 * delta)
+                    let sr = max(0, pad.cornerRadius - delta)
+                    let srx = sr > 0 ? " rx=\"\(num(sr))\"" : ""
+                    prefix += "<rect x=\"\(num(sx))\" y=\"\(num(sy))\" width=\"\(num(sw))\" height=\"\(num(sh))\"\(srx) fill=\"none\"\(strokeAttr(stroke, pad.strokeWidth))/>\n"
+                }
             }
             inner = prefix + children.filter { $0.isVisible }
                 .map { svgElement($0, offset: f.origin, defs: &defs) }.joined()
@@ -827,7 +836,9 @@ final class ExportRenderView: NSView {
                 let path = NSBezierPath(roundedRect: box, xRadius: pad.cornerRadius, yRadius: pad.cornerRadius)
                 if let fill = pad.fill { PaintRender.fill(fill, path: path, bounds: box, in: ctx) }
                 if pad.strokeWidth > 0, let stroke = pad.stroke {
-                    stroke.ns.setStroke(); path.lineWidth = pad.strokeWidth; path.stroke()
+                    PaintRender.strokeAligned(path, width: pad.strokeWidth,
+                                              alignment: pad.strokeAlignment,
+                                              color: stroke.ns, in: ctx)
                 }
             }
             if node.isMask {

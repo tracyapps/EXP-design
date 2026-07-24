@@ -22,6 +22,7 @@
 //
 
 import SwiftUI
+import AppKit
 import UniformTypeIdentifiers
 
 // MARK: - Model
@@ -645,6 +646,7 @@ struct ComponentsPanel: View {
 private struct ComponentStatePreviewMenu: View {
     let source: ComponentSource
     @Binding var previewStateID: UUID?
+    var compact = false
 
     private var currentName: String {
         guard let id = previewStateID,
@@ -670,9 +672,15 @@ private struct ComponentStatePreviewMenu: View {
                     }
                 }
             } label: {
-                Label(currentName, systemImage: "eye")
-                    .font(.system(size: EXPType.micro, weight: .medium))
-                    .lineLimit(1)
+                if compact {
+                    Text(currentName)
+                        .font(.system(size: EXPType.micro, weight: .medium))
+                        .lineLimit(1)
+                } else {
+                    Label(currentName, systemImage: "eye")
+                        .font(.system(size: EXPType.micro, weight: .medium))
+                        .lineLimit(1)
+                }
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
@@ -1097,27 +1105,7 @@ private struct ComponentCard: View {
     }
 
     private func createInstance() {
-        var model = document.model
-        let center: CGPoint
-        if app.viewportSize.width > 0, app.viewportSize.height > 0 {
-            let viewCenter = CGPoint(x: app.viewportSize.width / 2, y: app.viewportSize.height / 2)
-            center = CGPoint(x: (viewCenter.x - app.panOffset.x) / app.zoom,
-                             y: (viewCenter.y - app.panOffset.y) / app.zoom)
-        } else if let firstBoard = model.artboards.first {
-            center = CGPoint(x: firstBoard.frame.midX, y: firstBoard.frame.midY)
-        } else {
-            center = .zero
-        }
-        let frame = CGRect(x: center.x - source.size.width / 2,
-                           y: center.y - source.size.height / 2,
-                           width: source.size.width,
-                           height: source.size.height)
-        let node = Node(name: source.name, frame: frame,
-                        content: .instance(ComponentInstance(sourceID: source.id)))
-        model.nodes.append(node)
-        document.setModel(model, undoManager: undoManager, actionName: "Create Instance")
-        app.selectedNodeIDs = [node.id]
-        app.selectedArtboardIDs = []
+        requestComponentPlacement(source.id)
     }
 }
 
@@ -1136,10 +1124,7 @@ private struct ComponentRow: View {
     @Environment(AppState.self) private var app
 
     var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "rectangle.3.group")
-                .foregroundStyle(EXPColor.accent)
-                .frame(width: 18)
+        HStack(alignment: .top, spacing: 6) {
             VStack(alignment: .leading, spacing: 1) {
                 if isRenaming {
                     TextField("Name", text: $draft)
@@ -1150,60 +1135,33 @@ private struct ComponentRow: View {
                         .onExitCommand { isRenaming = false }   // Esc cancels
                         .onChange(of: nameFocused) { if !$1 { commitRename() } }
                 } else {
-                    Text(source.name).font(.system(size: 12, weight: .medium))
+                    Text(source.name).font(.system(size: EXPType.base, weight: .semibold))
                         .foregroundStyle(EXPColor.textPrimary)
                         .lineLimit(1)
+                        .truncationMode(.tail)
+                        .layoutPriority(1)
                 }
                 Text("\(Int(source.size.width)) × \(Int(source.size.height)) · \(source.children.count) layer\(source.children.count == 1 ? "" : "s")")
                     .font(.system(size: EXPType.micro)).foregroundStyle(EXPColor.textSecondary)
-                ComponentStatePreviewMenu(source: source, previewStateID: $previewStateID)
+                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    ComponentStatePreviewMenu(source: source,
+                                              previewStateID: $previewStateID,
+                                              compact: true)
+                    if let role = source.a11y.role {
+                        Text(role.friendlyLabel)
+                            .font(.system(size: EXPType.micro, weight: .medium))
+                            .foregroundStyle(EXPColor.textTertiary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .accessibilityLabel("Category: \(role.friendlyLabel)")
+                    }
+                }
             }
             Spacer(minLength: 0)
-            // v1.5: instance navigation. The middle badge keeps the v1.3
-            // select-all behavior; chevrons page through instances one at a time
-            // and center the canvas on the active one.
-            if instanceCount > 0 {
-                HStack(spacing: 2) {
-                    instancePagerButton("chevron.left",
-                                        help: "Previous instance",
-                                        accessibilityLabel: "Previous instance",
-                                        delta: -1)
-
-                    Button(action: selectInstances) {
-                        Text(instancePagerLabel)
-                            .font(.system(size: EXPType.micro, weight: .semibold))
-                            .monospacedDigit()
-                            .foregroundStyle(EXPColor.textSecondary)
-                            .frame(minWidth: 34, minHeight: EXPMetric.iconBtn)
-                            .background(Capsule().fill(EXPColor.rowHover))
-                            .contentShape(Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    .help(instanceCount == 1 ? "1 instance on the canvas — click to select it"
-                                             : "\(instanceCount) instances on the canvas — click to select them all")
-                    .accessibilityLabel("\(instanceCount) instance\(instanceCount == 1 ? "" : "s") on canvas. Select all.")
-
-                    instancePagerButton("chevron.right",
-                                        help: "Next instance",
-                                        accessibilityLabel: "Next instance",
-                                        delta: 1)
-                }
-                .fixedSize(horizontal: true, vertical: true)
-                .contentShape(Rectangle())
-            }
-            // Phase 19a: the category tag — a TEXT label (never color-only), read
-            // by VoiceOver as part of the row.
-            if let role = source.a11y.role {
-                Text(role.friendlyLabel)
-                    .font(.system(size: EXPType.micro, weight: .medium))
-                    .foregroundStyle(EXPColor.textSecondary)
-                    .padding(.horizontal, 5).padding(.vertical, 2)
-                    .background(Capsule().fill(EXPColor.rowHover))
-                    .lineLimit(1)
-                    .accessibilityLabel("Category: \(role.friendlyLabel)")
-            }
+            usageControl
         }
-        .padding(.horizontal, 8).padding(.vertical, 6)
+        .padding(.horizontal, 6).padding(.vertical, 6)
         .background(RoundedRectangle(cornerRadius: EXPMetric.radiusRow, style: .continuous)
             .fill(hovering ? EXPColor.rowHover : .clear))
         .contentShape(RoundedRectangle(cornerRadius: EXPMetric.radiusRow, style: .continuous))
@@ -1322,6 +1280,43 @@ private struct ComponentRow: View {
         return "×\(instanceCount)"
     }
 
+    @ViewBuilder private var usageControl: some View {
+        if instanceCount == 1 {
+            instanceCountButton
+        } else if instanceCount > 1 {
+            HStack(spacing: 0) {
+                instancePagerButton("chevron.left",
+                                    help: "Previous instance",
+                                    accessibilityLabel: "Previous instance",
+                                    delta: -1)
+                instanceCountButton
+                instancePagerButton("chevron.right",
+                                    help: "Next instance",
+                                    accessibilityLabel: "Next instance",
+                                    delta: 1)
+            }
+            .fixedSize(horizontal: true, vertical: true)
+            .contentShape(Rectangle())
+        }
+    }
+
+    private var instanceCountButton: some View {
+        Button(action: selectInstances) {
+            Text(instancePagerLabel)
+                .font(.system(size: EXPType.micro, weight: .semibold))
+                .monospacedDigit()
+                .foregroundStyle(EXPColor.textSecondary)
+                .frame(minWidth: 28, minHeight: EXPMetric.iconBtn)
+                .padding(.horizontal, 2)
+                .background(Capsule().fill(EXPColor.rowHover))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .help(instanceCount == 1 ? "1 instance on the canvas — click to select it"
+                                 : "\(instanceCount) instances on the canvas — click to select them all")
+        .accessibilityLabel("\(instanceCount) instance\(instanceCount == 1 ? "" : "s") on canvas. Select all.")
+    }
+
     private func instancePagerButton(_ systemName: String,
                                      help: String,
                                      accessibilityLabel: String,
@@ -1330,7 +1325,7 @@ private struct ComponentRow: View {
             Image(systemName: systemName)
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(instanceCount <= 1 ? EXPColor.textTertiary : EXPColor.textSecondary)
-                .frame(width: EXPMetric.iconBtn, height: EXPMetric.iconBtn)
+                .frame(width: 16, height: EXPMetric.iconBtn)
                 .contentShape(RoundedRectangle(cornerRadius: EXPMetric.radiusField, style: .continuous))
         }
         .buttonStyle(.plain)
@@ -1382,32 +1377,21 @@ private struct ComponentRow: View {
         document.setModel(model, undoManager: undoManager, actionName: "Rename Component")
     }
 
-    /// Create an instance of this component at the canvas center (or first artboard's center).
+    /// Ask the active canvas to place the instance. Routing through the canvas is
+    /// what lets the same Components-panel command target either the document or
+    /// a component source while preserving graph validation and one-step undo.
     private func createInstance() {
-        var model = document.model
-        // Place at the canvas center if there's a viewport, else at the first artboard's center.
-        let center: CGPoint
-        if app.viewportSize.width > 0, app.viewportSize.height > 0 {
-            // Reverse the pan/zoom transform to find the document point at the view center.
-            let viewCenter = CGPoint(x: app.viewportSize.width / 2, y: app.viewportSize.height / 2)
-            center = CGPoint(x: (viewCenter.x - app.panOffset.x) / app.zoom,
-                           y: (viewCenter.y - app.panOffset.y) / app.zoom)
-        } else if let firstBoard = model.artboards.first {
-            center = CGPoint(x: firstBoard.frame.midX, y: firstBoard.frame.midY)
-        } else {
-            center = .zero
-        }
-        // Create the instance node, centering its frame at the target point.
-        let inst = ComponentInstance(sourceID: source.id)
-        let size = source.size
-        let frame = CGRect(x: center.x - size.width / 2, y: center.y - size.height / 2,
-                          width: size.width, height: size.height)
-        let node = Node(name: source.name, frame: frame, content: .instance(inst))
-        model.nodes.append(node)
-        document.setModel(model, undoManager: undoManager, actionName: "Create Instance")
-        app.selectedNodeIDs = [node.id]
-        app.selectedArtboardIDs = []
+        requestComponentPlacement(source.id)
     }
+}
+
+/// Components panels may live in a dock or a separate tray window. Carry the
+/// source id through the existing multi-window canvas router rather than writing
+/// directly to document-level nodes, so a focused source editor receives it.
+private func requestComponentPlacement(_ sourceID: UUID) {
+    let item = NSMenuItem(title: "Create Instance", action: nil, keyEquivalent: "")
+    item.representedObject = sourceID.uuidString
+    sendCanvasAction("placeComponentAction:", from: item)
 }
 
 // MARK: - Reserved (placeholder) panel

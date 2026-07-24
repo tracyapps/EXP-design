@@ -707,6 +707,42 @@ follow the v1.6.1-style copy/paste release path with 2.0.1/build 11.
 
 ---
 
+## v2.1 — in progress
+
+Build 12, `MARKETING_VERSION 2.1`. The release order is deliberate: finish the
+Chunk I nested-component model gate first, then build XD/Figma import against a
+component structure that can round-trip without hidden flattening. F2 Handoff
+and the coordinated panel/tool-discoverability pass remain in this release.
+
+- [x] **Chunk I slice 1 — nested placement + graph safety.** Component instances
+      can be placed while editing another source from drag/drop, Object menu,
+      canvas context menu, or the Components panel. Every path uses the same
+      dependency graph and rejects direct/indirect cycles before mutation;
+      Layers shows nested source identity and can open the referenced source.
+      A focused headless graph check and the full signed Debug app/Quick Look
+      build pass.
+- [x] **Chunk I slice 2 — nested Layers authoring + state-safe outlines.** Instance
+      layer names are independent from source component names; component rows show
+      both identities in a compact two-line treatment and reserve source renaming
+      for an explicit context-menu action. Layers expands nested component trees
+      recursively and exposes Default/named state pickers at every component level;
+      placed-parent choices persist as stable instance-ID paths instead of mutating
+      the source. Component states now capture outline color/alpha, width, and
+      inside/middle/outside position, including auto-padding group backgrounds.
+      Relationships moved to the inspector bottom and appear only for role-relevant
+      kinds (while preserving access to already-authored relationships). Owner
+      verified the recursive hierarchy and compact default-width Layers/Components
+      presentation on 2026-07-24.
+- [ ] **Chunk I closure.** Dependent-source deletion choices, stable instance
+      paths, nested overrides/public props/states/layout/detach/export/Quick Look,
+      semantic containment guidance, and the full acceptance matrix below.
+- [ ] **Chunk G / D import.** Prove the shared importer/report pipeline with
+      offline XD rescue first, then add the sanctioned Figma REST path.
+- [ ] **F2 + panel IA.** Ship the visible Handoff surface and the coordinated
+      command/tool-discoverability pass.
+
+---
+
 ## Architecture decisions
 
 - **Language/UI:** Swift + SwiftUI for app chrome (panels, inspectors,
@@ -851,12 +887,14 @@ of other component sources as first-class children. Some recursive resolution
 machinery already exists, but this phase owns the complete authoring and data
 contract rather than treating nested instances as an incidental render case.
 
-- [ ] Let the Components panel, Object menu, context menu, and source editor place
+- [x] Let the Components panel, Object menu, context menu, and source editor place
       a component instance inside another component source. Show the nested source
       boundary/name in Layers and make Edit Component step into the correct source.
 - [ ] Add a source-dependency graph and reject direct or indirect cycles
       (`A → A`, `A → B → A`) before mutation. Deleting a referenced source must
       identify dependents and require an explicit flatten/remove choice.
+      **PARTIAL 2026-07-24:** the shared graph, placement/move guards, and focused
+      cycle tests are done; dependent-source deletion choice remains.
 - [ ] Replace ambiguous raw descendant ids with stable **instance paths** for
       nested overrides, visibility, accessible-name sources, relationships, DOM
       ids, and import reports. Two uses of the same nested source must never share
@@ -1574,8 +1612,9 @@ These refine the reskin specifics; fold each into the sub-phase noted.
 **Acceptance (whole phase):** zero raw chrome color/font literals left in the
 restyled files (all via `DesignTokens`); the running app in dark reads as the
 north-star screenshot; light is a faithful mirror; every macOS accessibility +
-appearance setting honored; no regression in keyboard/VoiceOver. Update CLAUDE.md
-"Current status" (it still says Phase 0) as part of closing this phase.
+appearance setting honored; no regression in keyboard/VoiceOver. Keep the live
+status blocks in `AGENTS.md` and `CLAUDE.md` synchronized when a release lane or
+major phase changes. **STATUS SYNCED 2026-07-24 for v2.1/build 12.**
 
 ### Phase 18 — Design language library & color workflow (✅ DONE 2026-07-10 — improvements planned)
 
@@ -2006,6 +2045,69 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-07-24 — Nested-panel owner pass + continuity-doc synchronization [app/docs]:**
+  Owner verified the revised default-width Layers and Components panels: source
+  pills expose useful text, virtual component groups disclose past the first
+  level, nested menu-item components remain state-addressable, and Components
+  list hierarchy/usage density reads correctly. Marked the Chunk I slice owner-
+  verified and synchronized live status/next-step language in `AGENTS.md`,
+  `CLAUDE.md`, this roadmap, and `V2-INTEROP-PLAN.md`. Historical v1.5/v1.6
+  release/schema references remain unchanged because they document shipped
+  milestones rather than current status. NEXT: dependent-source deletion choices
+  and the remaining Chunk I acceptance matrix, then XD/Figma import.
+
+- **2026-07-24 — Screenshot-driven Layers recursion + Components list density [app]:**
+  Followed the owner's default-width panel captures. Removed the repeated component
+  glyph from source-name pills and tightened their inset so substantially more of
+  the source name remains visible. Replaced native `DisclosureGroup` inside virtual
+  instance rows with EXP's explicit chevron/expanded-stack pattern; groups and
+  component instances now disclose recursively with predictable indentation rather
+  than stopping at the first source layer. Reworked Components list rows around the
+  correct hierarchy: prominent name first; dimensions/layer count, state, and ARIA
+  category beneath as metadata; redundant identical component icons removed; usage
+  remains actionable on the right, with the single-instance case reduced to one
+  compact count button and paging arrows reserved for multiple instances. All
+  controls retain help and VoiceOver labels. Full Debug app/thumbnail/helper build
+  succeeds. OWNER PASS 2026-07-24: verified at the default panel widths. NEXT:
+  the remaining Chunk I closure matrix.
+
+- **2026-07-24 — Nested Layers identity/state pass + state outline parity [app]:**
+  Separated placed-instance names from source component names: new placements use
+  the neutral `Instance` default, Layers shows the instance name above an accent
+  source tag, double-click renames only the instance, and source renaming is an
+  intentional `Rename Component…` context action. Expanded component rows now
+  recurse through groups and nested sources and provide a compact Default/named
+  state menu at every component level. Choices made inside a placed parent are
+  stored as stable nested-instance ID paths and resolve at arbitrary depth without
+  changing the shared source. Extended state diffs to capture/apply/export complete
+  outline appearance (color including alpha, width, alignment) and added group-
+  background outline position to the Auto Padding inspector and canvas/raster/SVG
+  renderers. Relationships now sit at the inspector bottom and are role-aware,
+  while existing authored data remains reachable after a role change. Expanded
+  `verify_nested_component_graph.sh` covers outline capture/application plus a
+  two-level nested-state resolution and JSON round-trip. Full Debug app/thumbnail/
+  helper build, semantic contract/package, SVG token bridge, and graph checks pass;
+  the package golden changed only because `design.json` now writes the new default
+  outline-position field. NEXT: dependent-source deletion and the remaining Chunk I
+  acceptance matrix before XD import.
+
+- **2026-07-24 — v2.1 opened; nested-component placement + cycle-safe graph [app]:**
+  Corrected the release sequence: code/Storybook/HTML-CSS import remains v2.2;
+  v2.1 starts with Chunk I so XD/Figma import can preserve composed components.
+  Bumped the project to 2.1/build 12. Added one shared source-dependency graph
+  (`parent → nested source`) that finds references inside groups, answers
+  transitive dependencies with a visited set, and rejects both self-nesting and
+  indirect cycles before mutation. Component placement now funnels through the
+  active canvas from the Components panel, Object ▸ Component ▸ Place Instance,
+  canvas context menus, and drag/drop; Layers drag-into-source uses the same
+  guard. Nested component rows use the live source name/accent identity and offer
+  Edit Component directly, including virtual rows under a placed instance.
+  Added `scripts/verify_nested_component_graph.sh`: direct, grouped, transitive,
+  move-into-source, and malformed-cycle checks pass. Full signed Debug app +
+  EXPThumbnail + bundled helper build succeeds with existing warnings only.
+  NEXT: finish the unchecked Chunk I deletion/instance-path/override/export
+  contract before starting the XD importer pipeline.
 
 - **2026-07-23 — Help draft 03 Text/Shapes/Paths clip set integrated [site]:**
   Reviewed twelve clean silent clips from the owner's third recording batch and
