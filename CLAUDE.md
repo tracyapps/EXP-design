@@ -87,23 +87,20 @@ EXP [design]/
 ```
 
 ## Current status
-Public **v2.0.1/build 11** is released; local development is
-**v2.1/build 12**. The native editor, Design Language, component
+Public **v2.1/build 12** is released; local development is
+**v2.2/build 13**. The native editor, Design Language, component
 states/behavior contract, semantic Handoff Package, agent-bridge spine, and
-v2.0.1 stabilization fixes are shipped. Documents save as **`.design`**
-(legacy `.exp` opens for migration).
+v2.1 nested components, canvas pages, XD/Figma import, and Handoff/panel IA are
+shipped. Documents save as **`.design`** (legacy `.exp` opens for migration).
 
-The **v2.1 feature scope is complete and owner-accepted as of 2026-07-28**:
-nested components/semantic containment, canvas pages, editable XD and sanctioned
-Figma REST import, and the unified Handoff/panel-IA pass. The default-off local
-agent bridge connected successfully through Claude Code; all six read-only tools,
-live selection refresh, client identity, and ready/off transitions passed. Debug
-app + Quick Look/helper and the focused model/import/semantic suites pass.
+The **v2.2 primary scope is Chunk E — code/component import**: rendered HTML/CSS
+to editable EXP nodes first, then Storybook after the browser-to-EXP mapping is
+proven. Start with E0's bounded contract/technical spike; reuse `InteropCodec`,
+reverse the semantic HTML contract only where valid, and expose fidelity limits
+instead of claiming arbitrary source-code or pixel-perfect round-tripping.
 
-The v2.1 release notes, website feature story, screenshot briefs, and exact build
-12 checklist are written. **Next:** run `docs/RELEASE-CHECKLIST-v2.1.md`; do not
-mark v2.1 released until archive/notarization, public Sparkle metadata, and the
-v2.0.1 → v2.1 install/relaunch proof pass. Agent capability packs and Figma
-OAuth/Keychain/Variables remain explicit non-gating follow-ups. See
+**Next:** write the rendered-HTML import contract and prove one bounded local
+HTML/CSS fixture through the browser-to-import pipeline. Agent capability packs,
+Figma OAuth/Keychain/Variables, and agent write-back remain non-gating. See
 ROADMAP.md for the authoritative checklist and newest Progress Log entry; its
 phase statuses feed the public site via `website/scripts/sync-content.mjs`.

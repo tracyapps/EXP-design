@@ -859,11 +859,46 @@ and the coordinated panel/tool-discoverability pass remain in this release.
       stories remain; Design Language copy now reflects colors, gradients, type
       styles, categories, and token/CSS/JSON handoff. Final Design Language and
       optional replacement feature graphics can land without changing the story.
-- [ ] **Final release gate.** Run the complete v2.1 Release build/script matrix,
+- [x] **Final release gate.** Run the complete v2.1 Release build/script matrix,
       repeat the condensed owner smoke test, archive/notarize, byte-verify the
       shipping zip, generate/publish Sparkle metadata, prove the public
       v2.0.1 → v2.1 install/relaunch path, and only then announce. Exact commands:
-      `docs/RELEASE-CHECKLIST-v2.1.md`.
+      `docs/RELEASE-CHECKLIST-v2.1.md`. COMPLETE 2026-07-29: v2.1/build 12 is
+      tagged and public; the signed appcast and release-notes page are checked in,
+      and the owner confirms the release shipped.
+
+---
+
+## v2.2 — in development
+
+Build 13, `MARKETING_VERSION 2.2`. Primary scope is **Chunk E — code/component
+import**: reconstruct editable EXP documents from rendered HTML/CSS first, then
+layer Storybook ingestion on the proven browser-to-EXP mapping. Reuse the semantic
+HTML contract in reverse, resolve layout and computed styles in a browser engine,
+and preserve the import pipeline's visible fidelity reporting; do not imply
+arbitrary source-code or pixel-perfect round-tripping.
+
+- [ ] **E0 — rendered-HTML import contract + technical spike.** Define the
+      supported input boundary, browser-engine isolation, DOM/computed-style
+      payload, resource/privacy rules, cancellation/size limits, semantic-role
+      reverse mapping, and fidelity-report categories. Prove one bounded local
+      HTML/CSS fixture end to end before committing to the full importer surface.
+- [ ] **E1 — editable HTML/CSS import.** Map rendered boxes, text, images,
+      paint, borders, effects, stacking, and supported layout into native EXP
+      pages/artboards/nodes through `InteropCodec`, with one undo step and an
+      honest on-demand Import Report for every approximation or omission.
+- [ ] **E2 — Storybook import.** Ingest a static/local Storybook build only
+      after E1 is stable; create per-story artboards and preserve story metadata
+      such as args as structured notes. Render to DOM first—never pretend a
+      React AST directly describes pixels.
+- [ ] **Supporting v2.2 polish.** Complete the already-scoped font-picker
+      navigation/filtering work (FEAT-008) when it fits the importer lane without
+      displacing Chunk E. Other open backlog items remain candidates, not implicit
+      v2.2 release gates.
+
+Figma OAuth/Keychain/Variables, host-specific agent capability packs, and agent
+write-back remain separately scoped follow-ups; opening v2.2 does not silently
+promote them into release gates.
 
 ---
 
@@ -1811,7 +1846,7 @@ restyled files (all via `DesignTokens`); the running app in dark reads as the
 north-star screenshot; light is a faithful mirror; every macOS accessibility +
 appearance setting honored; no regression in keyboard/VoiceOver. Keep the live
 status blocks in `AGENTS.md` and `CLAUDE.md` synchronized when a release lane or
-major phase changes. **STATUS SYNCED 2026-07-24 for v2.1/build 12.**
+major phase changes. **STATUS SYNCED 2026-07-29 for v2.2/build 13.**
 
 ### Phase 18 — Design language library & color workflow (✅ DONE 2026-07-10 — improvements planned)
 
@@ -2244,6 +2279,16 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-07-29 — v2.1 shipped; v2.2/build 13 development opened [release/docs]:**
+  Closed the v2.1 final release gate after the owner confirmed shipment; the
+  repository already carries the annotated `v2.1` tag plus the public build-12
+  Sparkle metadata and release-notes page. Bumped every app and Quick Look build
+  configuration to `MARKETING_VERSION 2.2` / `CURRENT_PROJECT_VERSION 13`, opened
+  the v2.2 lane around Chunk E code/component import, and synchronized the live
+  status docs. NEXT: E0—write the rendered-HTML import contract and prove one
+  bounded local HTML/CSS fixture through the browser-to-InteropCodec path before
+  expanding into the full importer or Storybook.
 
 - **2026-07-29 — v2.1 website screenshot direction implemented [site]:**
   Replaced the older homepage product capture with the populated v2.1 workspace;

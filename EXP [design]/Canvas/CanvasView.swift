@@ -1746,6 +1746,11 @@ final class CanvasNSView: NSView {
     @objc func distributeHorizontallyAction(_ s: Any?) { distribute(horizontal: true) }
     @objc func distributeVerticallyAction(_ s: Any?)   { distribute(horizontal: false) }
 
+    /// Tidying board PLACEMENT is a genuinely different idea from aligning things
+    /// to each other — it's Finder's "Clean Up", not Align — so it stays its own
+    /// command. Align and distribute above deliberately do NOT fork; see `align(_:)`.
+    @objc func cleanUpArtboardsAction(_ s: Any?) { cleanUpArtboards() }
+
     /// The rect alignment is measured against: the selection's bounding box, or —
     /// when "Align to" is Artboard — the board the selection sits in.
     private func alignReference(_ frames: [CGRect]) -> CGRect {
@@ -1829,6 +1834,14 @@ final class CanvasNSView: NSView {
 
     private func align(_ edge: SelectionTransform.AlignEdge) {
         guard let app else { return }
+        // ONE align command. Boards and nodes are separate collections underneath,
+        // but nobody thinks of aligning boards as a different verb from aligning
+        // layers, so the same command routes to whichever is selected. Selecting a
+        // board clears the node selection, so this test is unambiguous.
+        if app.selectedNodeIDs.isEmpty && !app.selectedArtboardIDs.isEmpty {
+            alignArtboards(edge)
+            return
+        }
         // Aligning to the selection needs 2+ (one item is a no-op); aligning to the
         // artboard works on a single item (e.g. center one thing on the board).
         let minCount = app.alignTarget == .artboard ? 1 : 2
@@ -1853,6 +1866,10 @@ final class CanvasNSView: NSView {
     /// extremes fixed). Needs 3+.
     private func distribute(horizontal: Bool) {
         guard let app else { return }
+        if app.selectedNodeIDs.isEmpty && !app.selectedArtboardIDs.isEmpty {
+            distributeArtboards(horizontal: horizontal)
+            return
+        }
         let documentSpace = selectionLevel(for: app.selectedNodeIDs) == .mixed
         let items = alignmentItems(documentSpace: documentSpace)
         guard items.count >= 3 else { return }
@@ -1863,6 +1880,123 @@ final class CanvasNSView: NSView {
                               documentSpace: documentSpace, to: &nodes)
         commitNodes(nodes, actionName: "Distribute")
         needsDisplay = true
+    }
+
+    // MARK: Artboard placement (align / distribute / clean up)
+
+    /// Move whole boards by per-board offsets, carrying whatever sits on them.
+    ///
+    /// Two things here are easy to get wrong. Node ownership is by CONTAINMENT, so
+    /// the owner map has to be built BEFORE anything moves — read it afterwards and
+    /// a board that already slid away will claim (or abandon) the wrong nodes. And
+    /// rounding is done once, on the board's landing origin, then the SAME delta is
+    /// applied to its children: round them independently and contents drift up to a
+    /// point away from the board they belong to.
+    private func moveArtboards(_ offsets: [UUID: CGPoint], actionName: String) {
+        guard let document, !isSourceScope else { return }
+
+        var deltas: [UUID: CGPoint] = [:]
+        for board in currentArtboards {
+            guard let offset = offsets[board.id] else { continue }
+            let landed = CGPoint(x: (board.frame.origin.x + offset.x).rounded(),
+                                 y: (board.frame.origin.y + offset.y).rounded())
+            let delta = CGPoint(x: landed.x - board.frame.origin.x,
+                                y: landed.y - board.frame.origin.y)
+            if delta.x != 0 || delta.y != 0 { deltas[board.id] = delta }
+        }
+        guard !deltas.isEmpty else { return }
+
+        var owned: [UUID: [UUID]] = [:]
+        for node in currentNodes {
+            if let owner = owningArtboard(of: node.frame)?.id, deltas[owner] != nil {
+                owned[owner, default: []].append(node.id)
+            }
+        }
+
+        let baseline = document.model
+        withActivePage { page in
+            for i in page.artboards.indices {
+                guard let d = deltas[page.artboards[i].id] else { continue }
+                page.artboards[i].frame.origin.x += d.x
+                page.artboards[i].frame.origin.y += d.y
+            }
+        }
+        for (boardID, nodeIDs) in owned {
+            guard let d = deltas[boardID] else { continue }
+            for id in nodeIDs {
+                updateNode(id) {
+                    $0.frame.origin = CGPoint(x: $0.frame.origin.x + d.x,
+                                              y: $0.frame.origin.y + d.y)
+                }
+            }
+        }
+        document.registerUndo(restoring: baseline, undoManager: undoManager, actionName: actionName)
+        needsDisplay = true
+    }
+
+    private var selectedArtboards: [Artboard] {
+        guard let app else { return [] }
+        return currentArtboards.filter { app.selectedArtboardIDs.contains($0.id) }
+    }
+
+    /// Boards always align to the SELECTION's bounding box. There is no enclosing
+    /// board to align a board to, so `alignTarget` deliberately doesn't apply.
+    private func alignArtboards(_ edge: SelectionTransform.AlignEdge) {
+        let boards = selectedArtboards
+        guard boards.count >= 2 else { return }
+        let reference = boards.dropFirst().reduce(boards[0].frame) { $0.union($1.frame) }
+        moveArtboards(
+            SelectionTransform.alignmentOffsets(boards.map { ($0.id, $0.frame) },
+                                                edge: edge, reference: reference),
+            actionName: "Align Artboards")
+    }
+
+    private func distributeArtboards(horizontal: Bool) {
+        let boards = selectedArtboards
+        guard boards.count >= 3 else { return }
+        moveArtboards(
+            SelectionTransform.distributionOffsets(boards.map { ($0.id, $0.frame) },
+                                                   horizontal: horizontal),
+            actionName: "Distribute Artboards")
+    }
+
+    /// Tidy placement WITHOUT discarding where things are. Boards are clustered into
+    /// the rows they already roughly form, each row keeps its left-to-right order,
+    /// and the set keeps its top-left origin — so the canvas you remember is the
+    /// canvas you get back, just square. Nothing is sorted or renumbered.
+    private func cleanUpArtboards() {
+        let boards = selectedArtboards
+        guard boards.count >= 2 else { return }
+
+        let gap = AppPreferences.artboardSpacingValue
+        // Same row when tops are closer than half the shortest board: tolerant
+        // enough for hand-placed boards, tight enough not to merge two real rows.
+        let tolerance = max(24, (boards.map(\.frame.height).min() ?? 0) / 2)
+
+        var rows: [[Artboard]] = []
+        for board in boards.sorted(by: { $0.frame.minY < $1.frame.minY }) {
+            if let last = rows.indices.last, let top = rows[last].first?.frame.minY,
+               abs(board.frame.minY - top) <= tolerance {
+                rows[last].append(board)
+            } else {
+                rows.append([board])
+            }
+        }
+
+        let originX = boards.map(\.frame.minX).min() ?? 0
+        var y = boards.map(\.frame.minY).min() ?? 0
+        var offsets: [UUID: CGPoint] = [:]
+
+        for row in rows {
+            var x = originX
+            let ordered = row.sorted { $0.frame.minX < $1.frame.minX }
+            for board in ordered {
+                offsets[board.id] = CGPoint(x: x - board.frame.minX, y: y - board.frame.minY)
+                x += board.frame.width + gap
+            }
+            y += (ordered.map(\.frame.height).max() ?? 0) + gap
+        }
+        moveArtboards(offsets, actionName: "Clean Up Artboards")
     }
 
     // MARK: Path-point overlay (anchors + handles)
@@ -2070,11 +2204,87 @@ final class CanvasNSView: NSView {
         needsDisplay = true
     }
 
-    private func resetZoom() {
+    /// "Zoom to Fit" — and it now actually fits.
+    ///
+    /// This used to be `zoom = 1.0` followed by `fitContent()`, which only CENTERS.
+    /// It never scaled anything. On any document whose boards span more than a
+    /// screen at 100%, centering on the midpoint lands you in the gap BETWEEN
+    /// boards — which is exactly why the command reliably dumped you in blank
+    /// canvas when you were already lost.
+    private func zoomToFit() {
         guard let app else { return }
-        app.zoom = 1.0
-        fitContent()
-        scheduleCameraPersistenceIfReady()
+        let content = fittableContent()
+        guard content.width > 0, content.height > 0 else {
+            // Genuinely nothing on the page. Still land somewhere predictable
+            // rather than leaving the camera wherever the user got lost.
+            app.viewportSize = bounds.size
+            app.zoom = 1
+            app.panOffset = CGPoint(x: bounds.midX, y: bounds.midY)
+            scheduleCameraPersistenceIfReady()
+            needsDisplay = true
+            return
+        }
+        fitViewport(to: content, maximumZoom: 1)
+    }
+
+    /// Everything worth finding on this page. `contentBounds` unions ARTBOARDS
+    /// only, but loose artwork parked out on the wall is precisely what you're
+    /// hunting for when you're lost, so it counts as content too.
+    private func fittableContent() -> CGRect {
+        if isSourceScope { return sourceBoundsRect() ?? .zero }
+        var rect = CGRect.null
+        if let document {
+            let boards = document.model.contentBounds(on: activePageID)
+            if boards.width > 0 || boards.height > 0 { rect = boards }
+        }
+        for node in currentNodes {
+            rect = rect.isNull ? node.frame : rect.union(node.frame)
+        }
+        return rect.isNull ? .zero : rect
+    }
+
+    /// Document-space bounds of whatever is selected — boards if any, else nodes.
+    /// Node bounds come from `alignmentItems(documentSpace:)` because a nested
+    /// node's own `frame` is PARENT-local and would point at the wrong place.
+    private func selectionBounds() -> CGRect {
+        guard let app else { return .null }
+        var rect = CGRect.null
+        if !app.selectedArtboardIDs.isEmpty {
+            for board in currentArtboards where app.selectedArtboardIDs.contains(board.id) {
+                rect = rect.isNull ? board.frame : rect.union(board.frame)
+            }
+            return rect
+        }
+        for item in alignmentItems(documentSpace: true) {
+            rect = rect.isNull ? item.bounds : rect.union(item.bounds)
+        }
+        return rect
+    }
+
+    /// Bring a rectangle on screen WITHOUT yanking the zoom around: if it's already
+    /// fully visible, do nothing; if it fits at the current zoom, just pan; only
+    /// zoom out when it genuinely can't fit. Losing your zoom level is its own kind
+    /// of being lost, so this never zooms in.
+    private func revealInViewport(_ rect: CGRect) {
+        guard let app, !rect.isNull, rect.width > 0, rect.height > 0 else { return }
+        app.viewportSize = bounds.size
+        if let visible = app.visibleDocumentRect, visible.contains(rect) { return }
+
+        let inset: CGFloat = (app.showRulers && !isSourceScope) ? rulerThickness : 0
+        let padding: CGFloat = 48
+        let availableWidth = max(1, bounds.width - inset - padding * 2)
+        let availableHeight = max(1, bounds.height - inset - padding * 2)
+
+        if rect.width * app.zoom <= availableWidth && rect.height * app.zoom <= availableHeight {
+            let cx = inset + (bounds.width - inset) / 2
+            let cy = inset + (bounds.height - inset) / 2
+            app.panOffset = CGPoint(x: cx - rect.midX * app.zoom,
+                                    y: cy - rect.midY * app.zoom)
+            scheduleCameraPersistenceIfReady()
+            needsDisplay = true
+        } else {
+            fitViewport(to: rect, maximumZoom: app.zoom)
+        }
     }
 
     /// Put a newly imported region visibly in front of the designer. Importers
@@ -6136,7 +6346,9 @@ final class CanvasNSView: NSView {
             switch event.charactersIgnoringModifiers {
             case "=", "+": zoom(by: 1.25, anchor: viewCenter); return
             case "-", "_": zoom(by: 0.8,  anchor: viewCenter); return
-            case "0":      resetZoom();                        return
+            case "0":      zoomActualAction(nil);              return   // matches View ▸ Actual Size
+            case "1":      zoomToFit();                        return   // matches View ▸ Zoom to Fit
+            case "2":      centerSelectionAction(nil);         return
             case "d":      duplicate();                        return
             case "g":      group();                            return   // ⌘G
             case "G":      ungroup();                           return   // ⇧⌘G
@@ -8918,7 +9130,11 @@ final class CanvasNSView: NSView {
         needsDisplay = true
     }
 
-    @objc func fitToScreen(_ sender: Any?) { resetZoom() }
+    @objc func fitToScreen(_ sender: Any?) { zoomToFit() }
+
+    /// Bring the selection on screen. Deliberately "center", not "zoom to" — it
+    /// preserves your zoom unless the selection can't fit at it.
+    @objc func centerSelectionAction(_ sender: Any?) { revealInViewport(selectionBounds()) }
     @objc func zoomInAction(_ sender: Any?) {
         app?.viewportSize = bounds.size
         app?.zoomIn()
@@ -10304,7 +10520,25 @@ final class CanvasNSView: NSView {
                 needsDisplay = true
             }
             add(menu, "Rename", #selector(renameArtboardAction(_:)))
+            add(menu, "Center in View", #selector(centerSelectionAction(_:)))
             add(menu, "Round to Pixel", #selector(roundToPixelAction(_:)))
+            if (app?.selectedArtboardIDs.count ?? 0) >= 2 {
+                menu.addItem(.separator())
+                let arrangeItem = NSMenuItem(title: "Align & Distribute", action: nil, keyEquivalent: "")
+                let sub = NSMenu()
+                add(sub, "Align Left", #selector(alignLeftAction(_:)))
+                add(sub, "Align Horizontal Centers", #selector(alignHCenterAction(_:)))
+                add(sub, "Align Right", #selector(alignRightAction(_:)))
+                add(sub, "Align Top", #selector(alignTopAction(_:)))
+                add(sub, "Align Vertical Centers", #selector(alignVCenterAction(_:)))
+                add(sub, "Align Bottom", #selector(alignBottomAction(_:)))
+                sub.addItem(.separator())
+                add(sub, "Distribute Horizontally", #selector(distributeHorizontallyAction(_:)))
+                add(sub, "Distribute Vertically", #selector(distributeVerticallyAction(_:)))
+                arrangeItem.submenu = sub
+                menu.addItem(arrangeItem)
+                add(menu, "Clean Up", #selector(cleanUpArtboardsAction(_:)))
+            }
             menu.addItem(.separator())
             add(menu, "Cut", #selector(cut(_:)))
             add(menu, "Copy", #selector(copy(_:)))
@@ -10543,9 +10777,17 @@ extension CanvasNSView: NSMenuItemValidation {
         case #selector(alignLeftAction(_:)), #selector(alignHCenterAction(_:)), #selector(alignRightAction(_:)),
              #selector(alignTopAction(_:)), #selector(alignVCenterAction(_:)), #selector(alignBottomAction(_:)):
             let n = app?.selectedNodeIDs.count ?? 0
+            // No nodes selected → the same command is aligning BOARDS. See align(_:).
+            if n == 0 { return !isSourceScope && (app?.selectedArtboardIDs.count ?? 0) >= 2 }
             return n >= 2 || (n >= 1 && app?.alignTarget == .artboard)
         case #selector(distributeHorizontallyAction(_:)), #selector(distributeVerticallyAction(_:)):
-            return (app?.selectedNodeIDs.count ?? 0) >= 3
+            let n = app?.selectedNodeIDs.count ?? 0
+            if n == 0 { return !isSourceScope && (app?.selectedArtboardIDs.count ?? 0) >= 3 }
+            return n >= 3
+        case #selector(cleanUpArtboardsAction(_:)):
+            return !isSourceScope && (app?.selectedArtboardIDs.count ?? 0) >= 2
+        case #selector(centerSelectionAction(_:)):
+            return hasNodes || hasArtboards
         case #selector(selectAll(_:)):
             return !currentNodes.isEmpty || (!isSourceScope && !currentArtboards.isEmpty)
         case #selector(deselectAllAction(_:)):

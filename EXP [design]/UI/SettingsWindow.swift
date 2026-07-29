@@ -36,6 +36,7 @@ enum AppPreferences {
     static let accentOverride      = "exp.pref.accentOverride"      // String "#RRGGBB"; ABSENT = follow macOS system accent (default)
     static let performanceMode     = "exp.pref.performanceMode"     // String (CanvasPerformanceMode raw), default "balanced"
     static let statesBarCompact    = "exp.pref.statesBarCompact"    // Bool, default false (extended chip row)
+    static let artboardSpacing     = "exp.pref.artboardSpacing"     // Double (points), default 160
     static let requestedSettingsPane = "exp.settings.requestedPane" // String (SettingsPane raw); "" = none. Lets a window jump Settings to a pane.
 
     // Defaults (kept next to the keys so AppState and Settings agree).
@@ -47,6 +48,17 @@ enum AppPreferences {
     static let defaultRestoreLayout       = true
     static let defaultTextBoxTrim         = "capBaseline"
     static let defaultPerformanceMode     = "balanced"
+    static let defaultArtboardSpacing: Double = 160
+}
+
+extension AppPreferences {
+    /// Gap left between artboards when a new board is added and when Clean Up
+    /// re-flows a page. Read straight from UserDefaults so AppKit callers
+    /// (CanvasNSView) and `@AppStorage` views can never disagree about the value.
+    static var artboardSpacingValue: CGFloat {
+        CGFloat(UserDefaults.standard.object(forKey: artboardSpacing) as? Double
+                ?? defaultArtboardSpacing)
+    }
 }
 
 // MARK: - Pane catalogue (add a case + a view to grow Settings)
@@ -234,6 +246,8 @@ private struct CanvasSettingsPane: View {
         AppPreferences.defaultGridSubdivisions
     @AppStorage(AppPreferences.performanceMode) private var performanceModeRaw =
         AppPreferences.defaultPerformanceMode
+    @AppStorage(AppPreferences.artboardSpacing) private var artboardSpacing =
+        AppPreferences.defaultArtboardSpacing
 
     /// Typed bridge over the stored raw string (falls back to Balanced).
     private var performanceMode: Binding<AppState.CanvasPerformanceMode> {
@@ -262,6 +276,23 @@ private struct CanvasSettingsPane: View {
                           footnote: "These set the defaults for new windows. The View menu still toggles them per window.") {
                 Toggle("Smart guides (snap to other elements\u{2019} edges & centres)", isOn: $smartGuides)
                 Toggle("Show the selection bounding box on shapes", isOn: $showSelectionBounds)
+            }
+
+            SettingsGroup("Artboards",
+                          footnote: "The gap left beside a new artboard, and the spacing Arrange \u{25B8} Artboards \u{25B8} Clean Up uses when it tidies a page.") {
+                LabeledContent("Spacing between artboards") {
+                    HStack(spacing: 8) {
+                        Slider(value: $artboardSpacing, in: 40...400, step: 10)
+                            .frame(maxWidth: 220)
+                        Text("\(Int(artboardSpacing)) pt")
+                            .monospacedDigit()
+                            .frame(width: 48, alignment: .trailing)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Spacing between artboards")
+                .accessibilityValue("\(Int(artboardSpacing)) points")
             }
 
             SettingsGroup("Grid") {

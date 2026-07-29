@@ -38,20 +38,18 @@ EXP [design]/
 ```
 
 ## Current status
-Public **v2.0.1/build 11** is released. Development is on **v2.1/build 12**.
+Public **v2.1/build 12** is released. Development is on **v2.2/build 13**.
 The core native editor, component states/behavior contract, semantic Handoff
-Package, agent-bridge spine, and the v2.0.1 stabilization fixes are shipped.
+Package, agent-bridge spine, nested components, canvas pages, editable XD/Figma
+import, and unified Handoff/panel IA are shipped.
 
-The **v2.1 feature scope is complete and owner-accepted as of 2026-07-28**:
-nested components/semantic containment, canvas pages, editable XD and sanctioned
-Figma REST import, and the unified Handoff/panel-IA pass. The default-off local
-agent bridge connected successfully through Claude Code; all six read-only tools,
-live selection refresh, client identity, and ready/off transitions passed. Focused
-suites and the signed Debug app + Quick Look/helper security matrix pass.
+The **v2.2 primary scope is Chunk E — code/component import**: rendered HTML/CSS
+to editable EXP nodes first, then Storybook on the proven mapping. Start with the
+bounded E0 contract/technical spike in ROADMAP.md; reuse `InteropCodec`, reverse
+the semantic HTML mapping where valid, and report every fidelity limit honestly.
 
-The v2.1 release notes, website feature story, screenshot briefs, and exact build
-12 checklist are written. **Next:** run `docs/RELEASE-CHECKLIST-v2.1.md`; do not
-mark v2.1 released until archive/notarization, public Sparkle metadata, and the
-v2.0.1 → v2.1 install/relaunch proof pass. Agent capability packs and Figma
-OAuth/Keychain/Variables remain explicit non-gating follow-ups.
+**Next:** E0—document the supported rendered-HTML boundary and prove one local
+HTML/CSS fixture through the browser-to-import pipeline. Agent capability packs,
+Figma OAuth/Keychain/Variables, and agent write-back remain explicit non-gating
+follow-ups.
 See ROADMAP.md for the authoritative checklist and newest Progress Log entry.

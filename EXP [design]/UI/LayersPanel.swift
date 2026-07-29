@@ -60,6 +60,10 @@ struct LayersPanel: View {
     /// recycles a row, which is why the old behavior was intermittent.
     @State private var expandedNested: Set<[UUID]> = []
     @State private var collapsedSections: Set<String> = []   // collapsed artboard/Wall sections
+    /// Anchor for Shift-range selection of ARTBOARD sections. Deliberately separate
+    /// from `app.selectionAnchorID`, which anchors node rows — one field holding
+    /// either kind of id would let a node anchor a board range and vice versa.
+    @State private var artboardAnchorID: UUID?
     @State private var draggingID: UUID?           // layer being dragged
     @State private var dropIndicator: LayerDropIndicator?   // where it will land
 
@@ -195,20 +199,42 @@ struct LayersPanel: View {
                         }
                     } header: {
                         let active = group.id == activeSectionID
+                        // A section id is the artboard's UUID string; the Wall and
+                        // source sections have no board behind them, so they stay
+                        // inert text and can never read as selected.
+                        let boardID = UUID(uuidString: group.id)
+                        // Two DIFFERENT signals, deliberately not merged:
+                        //  · active   — this section owns the current LAYER selection
+                        //  · selected — the BOARD itself is selected
+                        // `activeSectionID` cannot carry `selected`, because it
+                        // resolves through `app.selectedArtboardID`, the SINGLE-
+                        // selection accessor that returns nil unless exactly one
+                        // board is selected. That is why multi-selected boards lit
+                        // up on the canvas but showed nothing in the panel.
+                        let selected = boardID.map { app.selectedArtboardIDs.contains($0) } ?? false
                         HStack(spacing: 6) {
                             // Clear (not absent) when inactive so the title never
                             // shifts; the border simply reveals on the active board.
                             Rectangle()
-                                .fill(active ? LayersActiveStyle.tint : Color.clear)
+                                .fill(active || selected ? LayersActiveStyle.tint : Color.clear)
                                 .frame(width: LayersActiveStyle.borderWidth)
                                 .frame(maxHeight: .infinity)
-                            Text(group.title)
-                                .font(.system(size: EXPType.small, weight: active ? .medium : .regular))
-                                .foregroundStyle(active ? EXPColor.accent : EXPColor.textSecondary)
+                                .accessibilityHidden(true)
+                            if let boardID {
+                                artboardHeaderName(group.title, id: boardID,
+                                                   active: active, selected: selected,
+                                                   expanded: sectionExpanded(group.id))
+                            } else {
+                                Text(group.title)
+                                    .font(.system(size: EXPType.small, weight: active ? .medium : .regular))
+                                    .foregroundStyle(active ? EXPColor.accent : EXPColor.textSecondary)
+                                    .accessibilityLabel(group.title)
+                            }
                             Spacer(minLength: 0)
                         }
-                        .accessibilityElement(children: .combine)
-                        .accessibilityLabel(active ? "\(group.title), active artboard" : group.title)
+                        // Same row highlight a selected LAYER row gets, so a selected
+                        // board reads the same as everything else in the panel.
+                        .background(selected ? EXPColor.rowSelected : Color.clear)
                     }
                 }
             }
@@ -288,6 +314,150 @@ struct LayersPanel: View {
         }
         walk(scopeNodes)
         return ids
+    }
+
+    // MARK: Artboard section header — the name is a real control
+
+    /// The artboard name in a section header behaves like the board itself: click
+    /// selects it (the same selection a canvas marquee around the whole board
+    /// gives you), double-click also brings it into view, right-click exposes the
+    /// board's commands.
+    ///
+    /// The gestures are attached to the NAME, not the whole header row, on purpose:
+    /// a tap gesture across the header would swallow the List's own disclosure
+    /// chevron. Expand/Collapse is in the context menu as a second route anyway.
+    @ViewBuilder
+    private func artboardHeaderName(_ title: String, id: UUID, active: Bool, selected: Bool,
+                                    expanded: Binding<Bool>) -> some View {
+        Text(title)
+            .font(.system(size: EXPType.small, weight: (active || selected) ? .medium : .regular))
+            .foregroundStyle((active || selected) ? EXPColor.accent : EXPColor.textSecondary)
+            .contentShape(Rectangle())
+            .onTapGesture(count: 2) { revealArtboard(id) }
+            .onTapGesture { selectArtboardSection(id) }
+            .contextMenu { artboardHeaderMenu(id: id, expanded: expanded) }
+            .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+            .accessibilityLabel(active ? "\(title), active artboard" : title)
+            .accessibilityHint("Selects this artboard. Command-click adds or removes it, "
+                + "Shift-click selects the range, double-click also brings it into view.")
+    }
+
+    /// Select an artboard section honouring the click's modifiers, mirroring how
+    /// node rows behave (`selectNested`): ⌘ toggles this board, ⇧ extends from the
+    /// anchor across the displayed section order, a plain click replaces. Modifiers
+    /// come from `NSEvent.modifierFlags` because a SwiftUI tap gesture doesn't carry
+    /// them — same approach the node rows already use.
+    private func selectArtboardSection(_ id: UUID) {
+        let flags = NSEvent.modifierFlags
+        app.selectedNodeIDs = []
+
+        if flags.contains(.command) {
+            if app.selectedArtboardIDs.contains(id) { app.selectedArtboardIDs.remove(id) }
+            else { app.selectedArtboardIDs.insert(id) }
+            artboardAnchorID = id
+            return
+        }
+
+        let ordered = orderedArtboardSectionIDs
+        // Selecting a board on the CANVAS leaves no panel anchor, so fall back to
+        // the selected board nearest the top of the list. Without this, Shift-click
+        // after a canvas selection would silently behave like a plain click.
+        let anchor = artboardAnchorID ?? ordered.first { app.selectedArtboardIDs.contains($0) }
+        if flags.contains(.shift), let anchor, anchor != id,
+           let a = ordered.firstIndex(of: anchor), let b = ordered.firstIndex(of: id) {
+            app.selectedArtboardIDs.formUnion(ordered[min(a, b)...max(a, b)])
+            return
+        }
+
+        selectArtboardOnly(id)
+    }
+
+    /// Artboard sections in displayed order. Wall and source sections have no board
+    /// id behind them, so they can't take part in a range.
+    private var orderedArtboardSectionIDs: [UUID] {
+        groups.compactMap { UUID(uuidString: $0.id) }
+    }
+
+    /// Unconditional single-board selection — for menu actions, which must not read
+    /// whatever modifier key happens to be down when the item fires.
+    private func selectArtboardOnly(_ id: UUID) {
+        app.selectedNodeIDs = []
+        app.selectedArtboardIDs = [id]
+        artboardAnchorID = id
+    }
+
+    /// Mirrors the canvas right-click rule: a board already part of a multi-board
+    /// selection keeps that selection, so Duplicate or Center in View acts on all of
+    /// them instead of silently collapsing to the one you happened to right-click.
+    private func selectArtboardForCommand(_ id: UUID) {
+        if app.selectedArtboardIDs.contains(id) {
+            app.selectedNodeIDs = []
+        } else {
+            selectArtboardOnly(id)
+        }
+    }
+
+    /// Select AND bring on screen. `centerSelectionAction:` keeps the current zoom
+    /// unless the board can't fit at it, so this never yanks the camera scale.
+    private func revealArtboard(_ id: UUID) {
+        selectArtboardForCommand(id)
+        sendCanvasAction("centerSelectionAction:")
+    }
+
+    @ViewBuilder
+    private func artboardHeaderMenu(id: UUID, expanded: Binding<Bool>) -> some View {
+        Button("Select Artboard") { selectArtboardOnly(id) }
+        Button("Center in View") { revealArtboard(id) }
+        Divider()
+        Button("Rename\u{2026}") {
+            // The rename field is drawn ON the board, so bring it on screen first
+            // or the user is typing into something they can't see.
+            // Rename targets one board, so this one always narrows to it.
+            selectArtboardOnly(id)
+            sendCanvasAction("centerSelectionAction:")
+            sendCanvasAction("renameArtboardAction:")
+        }
+        Button("Duplicate") {
+            selectArtboardForCommand(id)
+            sendCanvasAction("duplicateArtboardsAction:")
+        }
+        Button("Copy") {
+            selectArtboardForCommand(id)
+            sendCanvasAction("copy:")
+        }
+        let destinations = scope == .document
+            ? document.model.pages.filter { $0.id != document.model.pageID(resolving: app.activeCanvasPageID) }
+            : []
+        if !destinations.isEmpty {
+            Divider()
+            Menu("Move to Page") {
+                ForEach(destinations, id: \.id) { page in
+                    Button(page.name) { transferArtboard(id, to: page.id, duplicate: false) }
+                }
+            }
+            Menu("Duplicate to Page") {
+                ForEach(destinations, id: \.id) { page in
+                    Button(page.name) { transferArtboard(id, to: page.id, duplicate: true) }
+                }
+            }
+        }
+        Divider()
+        Button(expanded.wrappedValue ? "Collapse Section" : "Expand Section") {
+            expanded.wrappedValue.toggle()
+        }
+        Divider()
+        Button("Delete") {
+            selectArtboardForCommand(id)
+            sendCanvasAction("delete:")
+        }
+    }
+
+    private func transferArtboard(_ id: UUID, to pageID: UUID, duplicate: Bool) {
+        selectArtboardOnly(id)
+        sendCanvasAction(duplicate ? "duplicateSelectionToPageAction:" : "moveSelectionToPageAction:",
+                         from: CanvasPageTransferRequest(pageID: pageID,
+                                                         nodeIDs: [],
+                                                         artboardIDs: [id]))
     }
 
     /// Expanded/collapsed binding for one section (keyed by artboard id / "wall").
@@ -1527,7 +1697,7 @@ private struct LayerRow: View {
         DispatchQueue.main.async {
             nameFocused = true
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                NSApp.sendAction(NSSelectorFromString("selectAll:"), to: nil, from: nil)
+                sendCanvasAction("selectAll:")
             }
         }
     }

@@ -1,7 +1,7 @@
 # v2.0 — Interop & Handoff Plan ("the tool that lets go")
 
-**Created:** 2026-07-14 · **Status:** ACTIVE (v2.0.1 shipped; v2.1/build 12
-feature scope owner-accepted on 2026-07-28; release preparation remains) ·
+**Created:** 2026-07-14 · **Status:** ACTIVE (v2.1/build 12 shipped 2026-07-29;
+v2.2/build 13 opened with Chunk E code/component import as its primary scope) ·
 **Owner intent:** v2.0's headline. Traditional design
 software locks the design in; EXP should hand work onward — to a dev team, an
 LLM/agent, an IDE, or CodePen — and read work back in. Artboard notes +

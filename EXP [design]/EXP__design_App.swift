@@ -118,9 +118,11 @@ struct EXP__design_App: App {
         .windowResizability(.contentMinSize)
     }
 
-    /// Send an action up the responder chain to whichever canvas is focused.
+    /// Route through the shared dispatcher rather than hitting the responder chain
+    /// directly — see `sendCanvasAction` for why the chain alone silently drops
+    /// actions when focus is in a panel.
     private func send(_ selectorName: String) {
-        NSApp.sendAction(NSSelectorFromString(selectorName), to: nil, from: nil)
+        sendCanvasAction(selectorName)
     }
 
 }
@@ -153,19 +155,19 @@ private func sendEditorComponentCategory(_ role: AriaRole?) {
     let item = NSMenuItem(title: role?.friendlyLabel ?? "Uncategorized",
                           action: nil, keyEquivalent: "")
     item.representedObject = role?.rawValue
-    NSApp.sendAction(NSSelectorFromString("setComponentCategoryAction:"), to: nil, from: item)
+    sendCanvasAction("setComponentCategoryAction:", from: item)
 }
 
 private func sendEditorPlaceComponent(_ sourceID: UUID) {
     let item = NSMenuItem(title: "Place Component Instance", action: nil, keyEquivalent: "")
     item.representedObject = sourceID.uuidString
-    NSApp.sendAction(NSSelectorFromString("placeComponentAction:"), to: nil, from: item)
+    sendCanvasAction("placeComponentAction:", from: item)
 }
 
 private func sendEditorTextContentRole(_ role: TextContentRole) {
     let item = NSMenuItem(title: role.friendlyLabel, action: nil, keyEquivalent: "")
     item.representedObject = role.rawValue
-    NSApp.sendAction(NSSelectorFromString("setTextContentRoleAction:"), to: nil, from: item)
+    sendCanvasAction("setTextContentRoleAction:", from: item)
 }
 
 private struct FileCommandItems: View {
@@ -425,6 +427,12 @@ private struct ArrangeCommandItems: View {
             Button("Vertically") { sendEditorAction("distributeVerticallyAction:") }
         }
         .disabled(menu?.canDistribute != true)
+        Divider()
+        // Align and Distribute above already cover artboards — same command, routed
+        // by what's selected. Clean Up is the one genuinely different idea (tidy
+        // PLACEMENT, the way Finder's Clean Up does), so it keeps its own item.
+        Button("Clean Up") { sendEditorAction("cleanUpArtboardsAction:") }
+            .disabled(menu?.canCleanUpArtboards != true)
     }
 }
 
@@ -444,6 +452,9 @@ private struct ViewCommandItems: View {
         Button("Zoom to Fit") { sendEditorAction("fitToScreen:") }
             .keyboardShortcut("1", modifiers: .command)
             .disabled(menu == nil)
+        Button("Center Selection in View") { sendEditorAction("centerSelectionAction:") }
+            .keyboardShortcut("2", modifiers: .command)
+            .disabled(menu?.hasAnySelection != true)
         Divider()
         Button("Toggle Selection Bounds") { sendEditorAction("toggleSelectionBounds:") }
             .keyboardShortcut("b", modifiers: [.command, .shift])

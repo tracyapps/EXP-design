@@ -31,8 +31,8 @@ struct ToolsStrip: View {
     /// (via the responder chain) and leave the current tool as-is.
     private func select(_ tool: Tool) {
         switch tool {
-        case .image:     NSApp.sendAction(Selector(("placeImageAction:")), to: nil, from: nil)
-        case .component: NSApp.sendAction(Selector(("newEmptyComponentAction:")), to: nil, from: nil)
+        case .image:     sendCanvasAction("placeImageAction:")
+        case .component: sendCanvasAction("newEmptyComponentAction:")
         default:         app.tool = tool
         }
     }

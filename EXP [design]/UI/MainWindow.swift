@@ -390,7 +390,9 @@ struct MainWindow: View {
         var model = document.model
         guard let pageIndex = model.pageIndex(for: app.activeCanvasPageID) else { return }
         let page = model.pages[pageIndex]
-        let originX = page.artboards.isEmpty ? 0 : model.contentBounds(on: page.id).maxX + 100
+        let originX = page.artboards.isEmpty
+            ? 0
+            : model.contentBounds(on: page.id).maxX + AppPreferences.artboardSpacingValue
         let artboard = Artboard(
             name: "\(name) \(page.artboards.count + 1)",
             frame: CGRect(x: originX, y: 0, width: width, height: height)
@@ -547,7 +549,7 @@ private struct CanvasPageTab: View {
                     .frame(minWidth: 72, maxWidth: 180)
                     .focused($focused)
                     .onSubmit(commitRename)
-                    .onExitCommand { editing = false }
+                    .onExitCommand { editing = false }   // Esc cancels (discard)
                     .onChange(of: focused) { _, value in if !value, editing { commitRename() } }
             } else {
                 Button(action: select) {
@@ -558,6 +560,12 @@ private struct CanvasPageTab: View {
                         .frame(height: 25)
                 }
                 .buttonStyle(.plain)
+                // Double-click renames, matching a Layers row. `simultaneousGesture`
+                // rather than `onTapGesture`: the Button consumes taps, so a plain
+                // tap gesture never fires here. Running alongside means a
+                // double-click also switches to the page, which is what you want —
+                // you can't sensibly rename a page you aren't looking at.
+                .simultaneousGesture(TapGesture(count: 2).onEnded { beginRename() })
             }
         }
         .foregroundStyle(isActive ? EXPColor.accent : EXPColor.textSecondary)
@@ -575,10 +583,17 @@ private struct CanvasPageTab: View {
             Divider()
             Button("Delete Page", role: .destructive, action: delete).disabled(!canDelete)
         }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Canvas page \(page.name)")
-        .accessibilityValue(isActive ? "Selected" : "Not selected")
-        .help(isActive ? "Current canvas page" : "Switch to \(page.name)")
+        // While editing, the field must stay its own element — combining children
+        // over a TextField hides the text from VoiceOver as you type.
+        .accessibilityElement(children: editing ? .contain : .combine)
+        .accessibilityLabel(editing ? "Page name" : "Canvas page \(page.name)")
+        .accessibilityValue(editing ? "" : (isActive ? "Selected" : "Not selected"))
+        // Double-click is a mouse-only affordance, so name the same action for
+        // assistive technology instead of leaving the context menu as the only route.
+        .accessibilityAction(named: "Rename", beginRename)
+        .help(editing ? "Press Return to rename, Escape to cancel"
+                      : (isActive ? "Current canvas page — double-click to rename"
+                                  : "Switch to \(page.name) — double-click to rename"))
     }
 
     private func beginRename() {
@@ -754,8 +769,11 @@ struct EditorMenuModel {
     var canEyedropper: Bool
 
     var canTypeActions: Bool
+    /// Align/Distribute are ONE command for boards and nodes alike — CanvasNSView
+    /// routes by what's selected — so these flags cover both cases.
     var canAlign: Bool
     var canDistribute: Bool
+    var canCleanUpArtboards: Bool
     var canExportSelectedArtboards: Bool
     var canExportAllArtboards: Bool
     var canRevealSelectionInLayers: Bool
@@ -879,7 +897,9 @@ func makeEditorMenuModel(document: ExpDocument, app: AppState, scope: CanvasScop
             || !source.anchoredRelationships.isEmpty
         return carries || rootCarries
     }()
-    let canAlign = selectedIDs.count >= 2 || (selectedIDs.count >= 1 && app.alignTarget == .artboard)
+    let canAlign = selectedIDs.isEmpty
+        ? app.selectedArtboardIDs.count >= 2
+        : (selectedIDs.count >= 2 || app.alignTarget == .artboard)
     let componentPlacementChoices = model.sources
         .filter { candidate in
             switch scope {
@@ -935,7 +955,10 @@ func makeEditorMenuModel(document: ExpDocument, app: AppState, scope: CanvasScop
         canEyedropper: hasNodes,
         canTypeActions: isSingleText,
         canAlign: canAlign,
-        canDistribute: selectedIDs.count >= 3,
+        canDistribute: selectedIDs.isEmpty
+            ? app.selectedArtboardIDs.count >= 3
+            : selectedIDs.count >= 3,
+        canCleanUpArtboards: app.selectedArtboardIDs.count >= 2,
         canExportSelectedArtboards: !app.selectedArtboardIDs.isEmpty,
         canExportAllArtboards: !(model.page(for: app.activeCanvasPageID)?.artboards.isEmpty ?? true),
         canRevealSelectionInLayers: hasNodes
@@ -946,25 +969,64 @@ func makeEditorMenuModel(document: ExpDocument, app: AppState, scope: CanvasScop
 /// back through the document's undo-aware funnel, so the shape/artboard moves
 /// or resizes and the change is a single undo step. The canvas, reading the
 /// same document, redraws automatically.
-/// Send a canvas action wherever the canvas actually is. `sendAction(to: nil)`
-/// only walks the KEY window's responder chain — in multi-window mode a click
-/// on a panel button makes the PANEL key, the chain dead-ends there, and the
-/// action never reaches the canvas (the "align/distribute do nothing" bug; the
-/// selection was never lost, the message just had no route). Try the key
-/// window first (single-window mode), then walk the MAIN document window's
-/// responder chain explicitly. Tray windows override `canBecomeMain` to false,
-/// so `NSApp.mainWindow` is always the document window.
-func sendCanvasAction(_ selectorName: String, from sender: Any? = nil) {
+/// Deliver a canvas action wherever the canvas actually is. This has now been the
+/// cause of TWO rounds of "the command is enabled but does nothing," so the whole
+/// problem is written down here.
+///
+/// Enablement and dispatch use different mechanisms and can disagree. Menu items
+/// are SwiftUI `Button`s gated by `.focusedSceneValue(\.editorMenu)`, which is
+/// SCENE-scoped — it stays live while focus moves between the canvas, Layers, and
+/// the Inspector, so items keep looking enabled. Dispatch goes through
+/// `NSApp.sendAction(to: nil)`, which only walks a responder chain. Two ways that
+/// chain misses the canvas:
+///
+/// 1. ACROSS WINDOWS. Clicking a floating panel button makes the PANEL key, so the
+///    key window's chain dead-ends there. Fixed earlier by also trying the main
+///    window; tray windows override `canBecomeMain` to false, so `NSApp.mainWindow`
+///    is reliably the document window.
+/// 2. WITHIN ONE WINDOW. Click a Layers row or an Inspector control and the canvas
+///    is a SIBLING subtree of whatever now holds focus — never on the chain, which
+///    only runs UPWARD from the first responder. The old fallback walked upward
+///    too, so it could not help. Whether a command worked came down to what you had
+///    clicked last, which is why it looked random and would not reproduce.
+///
+/// So: responder chain first (cheapest, and correct whenever the canvas has focus),
+/// then search DOWN the key and main windows' view trees. Only those two windows —
+/// never every window — so a command can't leak into a different document.
+/// `validateMenuItem` isn't consulted on the direct-target path, which is fine: the
+/// SwiftUI `.disabled` gate already ran and every action guards its own
+/// preconditions anyway.
+@discardableResult
+func sendCanvasAction(_ selectorName: String, from sender: Any? = nil) -> Bool {
     let sel = Selector(selectorName)
-    if NSApp.sendAction(sel, to: nil, from: sender) { return }
-    var responder = NSApp.mainWindow?.firstResponder ?? NSApp.mainWindow
-    while let r = responder {
-        if r.responds(to: sel) {
-            _ = NSApp.sendAction(sel, to: r, from: sender)
-            return
-        }
-        responder = r.nextResponder
+    if NSApp.sendAction(sel, to: nil, from: sender) { return true }
+
+    var tried: [NSWindow] = []
+    for window in [NSApp.keyWindow, NSApp.mainWindow].compactMap({ $0 })
+    where !tried.contains(where: { $0 === window }) {
+        tried.append(window)
+        guard let root = window.contentView,
+              let target = canvasDescendant(of: root, responding: sel) else { continue }
+        if NSApp.sendAction(sel, to: target, from: sender) { return true }
     }
+
+    // An action with nowhere to land is a wiring bug. It used to leave no trace at
+    // all, which is exactly why these were unreproducible — now it is on the record.
+    DiagnosticLog.shared.log("[EXP command] no target for \(selectorName) "
+        + "— key=\(NSApp.keyWindow?.title ?? "nil") main=\(NSApp.mainWindow?.title ?? "nil")")
+    return false
+}
+
+/// Breadth-first, so a direct child of the content view (the canvas) wins over some
+/// deeply nested control that happens to answer the same selector.
+private func canvasDescendant(of root: NSView, responding sel: Selector) -> NSView? {
+    var queue = root.subviews
+    while !queue.isEmpty {
+        let view = queue.removeFirst()
+        if view.responds(to: sel) { return view }
+        queue.append(contentsOf: view.subviews)
+    }
+    return nil
 }
 
 private struct InspectorSectionTitle: View {
@@ -1597,6 +1659,8 @@ struct RightPanel: View {
                     .font(.callout)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(12)
+                Divider()
+                alignControls(.artboards)
             } else if selectedArtboard != nil {
                 VStack(alignment: .leading, spacing: 8) {
                     InspectorSectionTitle(title: "Artboard", icon: "rectangle.dashed")
@@ -2869,21 +2933,31 @@ struct RightPanel: View {
             .accessibilityHint("Applies \(title.lowercased()) to the current selection")
     }
 
-    @ViewBuilder private func alignControls() -> some View {
-        let count = app.selectedNodeIDs.count
-        let alignOK = count >= 2 || app.alignTarget == .artboard
+    /// What the Align section is pointed at. The BUTTONS and the selectors behind
+    /// them are identical either way — CanvasNSView routes one align command by
+    /// selection — this only changes which count gates them and whether the
+    /// node-only "To" scope row appears.
+    enum AlignSubject { case nodes, artboards }
+
+    @ViewBuilder private func alignControls(_ subject: AlignSubject = .nodes) -> some View {
+        let count = subject == .artboards ? app.selectedArtboardIDs.count : app.selectedNodeIDs.count
+        let alignOK = subject == .artboards ? count >= 2 : (count >= 2 || app.alignTarget == .artboard)
         VStack(alignment: .leading, spacing: 8) {
             InspectorSectionTitle(title: "Align", icon: "align.horizontal.left").padding(.top, 4)
 
             // "Relative to" scope on its own labeled row — a segmented control, so
             // it reads as a mode toggle and can't be confused with the icon buttons.
-            HStack(spacing: 8) {
-                Text("To").foregroundStyle(EXPColor.textSecondary)
-                EXPSegmented(selection: alignTargetBinding, segments: [
-                    .init(value: .selection, label: "Selection"),
-                    .init(value: .artboard, label: "Artboard"),
-                ])
-                .help("Align relative to the selection's bounds or the artboard")
+            // Omitted for boards: a board has no enclosing board to align to, and a
+            // dead mode toggle is worse than no toggle.
+            if subject == .nodes {
+                HStack(spacing: 8) {
+                    Text("To").foregroundStyle(EXPColor.textSecondary)
+                    EXPSegmented(selection: alignTargetBinding, segments: [
+                        .init(value: .selection, label: "Selection"),
+                        .init(value: .artboard, label: "Artboard"),
+                    ])
+                    .help("Align relative to the selection's bounds or the artboard")
+                }
             }
 
             // Align edges/centers.
@@ -2904,6 +2978,19 @@ struct RightPanel: View {
                 alignOpButton("arrow.left.and.right", "Distribute horizontal spacing", "distributeHorizontallyAction:", enabled: count >= 3)
                 alignOpButton("arrow.up.and.down", "Distribute vertical spacing", "distributeVerticallyAction:", enabled: count >= 3)
                 Spacer()
+            }
+
+            // Clean Up is a different idea from aligning things to each other, so it
+            // sits apart — and it only exists for boards.
+            if subject == .artboards {
+                Divider()
+                HStack(spacing: 6) {
+                    Button("Clean Up") { sendCanvasAction("cleanUpArtboardsAction:") }
+                        .buttonStyle(.exp(.secondary))
+                        .disabled(count < 2)
+                        .help("Tidy the selected artboards into even rows, keeping their rough placement and order")
+                    Spacer()
+                }
             }
         }
         .font(.callout)
