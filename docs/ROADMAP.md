@@ -801,7 +801,7 @@ follow the v1.6.1-style copy/paste release path with 2.0.1/build 11.
 
 ---
 
-## v2.1 — feature complete; release preparation
+## v2.1 — released (2026-07-29)
 
 Build 12, `MARKETING_VERSION 2.1`. The release order is deliberate: finish the
 Chunk I nested-component model gate first, then build XD/Figma import against a
