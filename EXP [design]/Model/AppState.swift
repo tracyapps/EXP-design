@@ -707,6 +707,11 @@ enum Tool: Hashable {
     case text
     case image       // action tool: opens the importer (reverts to select)
     case component   // action tool: makes an empty component + opens its editor
+    /// Draw an artboard directly on the canvas — click for a default board, drag for
+    /// exact bounds. Complements (does not replace) the New Artboard menu: that one
+    /// places a preset size off to the side, this one draws a board AROUND work that
+    /// is already there.
+    case artboard
 
     var symbolName: String {
         switch self {
@@ -721,6 +726,10 @@ enum Tool: Hashable {
         case .text:      return "character.textbox"
         case .image:     return "photo.fill"
         case .component: return "square.on.square.squareshape.controlhandles"
+        // Viewfinder, not a rectangle — a board is a frame you put work inside, not
+        // another shape. The New Artboard menu button uses the same symbol so the
+        // two routes read as one idea.
+        case .artboard:  return "plus.viewfinder"
         }
     }
 
@@ -737,6 +746,7 @@ enum Tool: Hashable {
         case .text:      return "Text"
         case .image:     return "Place Image"
         case .component: return "New Component"
+        case .artboard:  return "Artboard"
         }
     }
 
@@ -754,6 +764,10 @@ enum Tool: Hashable {
         case .text:      return "T"
         case .image:     return "\u{21E7}\u{2318}P"
         case .component: return ""
+        // F, following Figma's Frame tool. A would match Sketch and XD, but A is
+        // already Edit Points here (the Illustrator convention) — ⇧A is wired as an
+        // alias in the canvas keyDown for that muscle memory.
+        case .artboard:  return "F"
         }
     }
 }

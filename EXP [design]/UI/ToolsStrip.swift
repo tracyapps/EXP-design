@@ -20,11 +20,16 @@ import SwiftUI
 struct ToolsStrip: View {
     @Environment(AppState.self) private var app
 
-    /// Tools grouped by purpose, separated by a hairline: selection · shapes · make.
+    /// Tools grouped by purpose, separated by a hairline:
+    /// selection · shapes · make · structure.
+    ///
+    /// Artboard sits alone at the bottom on purpose. It draws a CONTAINER, not a
+    /// shape, and grouping it with the shape tools would imply otherwise.
     private let toolGroups: [[Tool]] = [
         [.pan, .select, .node],
         [.rectangle, .ellipse, .polygon, .line, .pen],
-        [.text, .image, .component]
+        [.text, .image, .component],
+        [.artboard]
     ]
 
     /// Mode tools set `app.tool`; the two ACTION tools fire their canvas action

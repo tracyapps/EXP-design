@@ -166,6 +166,10 @@ final class CanvasNSView: NSView {
     /// so a Set of these can track the node tool's multi-point selection.
     struct PointAddress: Hashable { let contour: Int; let index: Int }
 
+    /// Default board for a bare click with the artboard tool — the same size the
+    /// New Artboard menu's primary action places.
+    private static let defaultDrawnArtboardSize = CGSize(width: 375, height: 667)
+
     private enum DragMode {
         case none
         case hand
@@ -181,6 +185,9 @@ final class CanvasNSView: NSView {
         case resizeSelection(handle: Handle, original: CGRect)
         case rotateSelection(centerDoc: CGPoint, startAngle: Double)
         case draw(id: UUID, originDoc: CGPoint)
+        // Artboard tool. Separate from `.draw` because a board is NOT a node: it
+        // lives on the page, so it writes through `withActivePage`, not `withNodes`.
+        case drawArtboard(id: UUID, originDoc: CGPoint)
         case drawLine(id: UUID, startDoc: CGPoint)
         case lineEndpoint(id: UUID, movingStart: Bool, fixedDoc: CGPoint)
         case penHandle(nodeID: UUID, anchorIndex: Int)     // pen: drag the new anchor's handles
@@ -3567,6 +3574,7 @@ final class CanvasNSView: NSView {
         case .rotate(let id, _, _, _):          return [id]
         case .resizeSelection, .rotateSelection: return Set(selectionDragBaseline.keys)
         case .draw(let id, _):                  return [id]
+        case .drawArtboard:                     return []   // a board is not a node
         case .drawLine(let id, _):              return [id]
         case .lineEndpoint(let id, _, _):       return [id]
         case .penHandle(let nodeID, _):         return [nodeID]
@@ -6239,7 +6247,7 @@ final class CanvasNSView: NSView {
                 if let n = node(hover.leafID), penAddable(n) { return Self.addPointCursor }
             }
             return .crosshair
-        case .rectangle, .ellipse, .polygon, .line:
+        case .rectangle, .ellipse, .polygon, .line, .artboard:
             return .crosshair
         case .pan:
             return .openHand
@@ -6365,6 +6373,13 @@ final class CanvasNSView: NSView {
         if !event.modifierFlags.contains(.command),
            !event.modifierFlags.contains(.control),
            !event.modifierFlags.contains(.option) {
+            // ⇧A is Sketch's and XD's Artboard shortcut. Plain A is Edit Points here
+            // (Illustrator's Direct Selection), so the alias goes on ⇧A rather than
+            // stealing a key that already means something.
+            if event.modifierFlags.contains(.shift),
+               event.charactersIgnoringModifiers?.lowercased() == "a" {
+                setTool(.artboard); return
+            }
             switch event.charactersIgnoringModifiers?.lowercased() {
             case "h": setTool(.pan);       return
             case "v": setTool(.select);    return
@@ -6375,6 +6390,7 @@ final class CanvasNSView: NSView {
             case "l": setTool(.line);      return
             case "p": setTool(.pen);       return
             case "t": setTool(.text);      return
+            case "f": setTool(.artboard);  return   // Figma's Frame key
             case "i": eyedropToSelection(); return   // sample → apply to selection
             default: break
             }
@@ -6494,6 +6510,27 @@ final class CanvasNSView: NSView {
             app.selectedNodeIDs = [newNode.id]
             gestureUndoName = "Draw Line"
             dragMode = .drawLine(id: newNode.id, startDoc: startDoc)
+            needsDisplay = true
+            return
+        }
+
+        // Artboard tool: draw a board anywhere on the page. Click = default size at
+        // the click point, drag = exact bounds.
+        //
+        // The point of the tool is drawing a board AROUND work that already exists,
+        // and note what that gets for free: node ownership is by CONTAINMENT, so any
+        // artwork the new board encloses is adopted immediately — no move, no
+        // reparent step. Component-source scope has no artboards, so it falls through.
+        if app.tool == .artboard, !isSourceScope {
+            dragBaseline = document.model
+            let originDoc = viewToDoc(p)
+            let board = Artboard(name: "Artboard \(currentArtboards.count + 1)",
+                                 frame: CGRect(origin: originDoc, size: .zero))
+            withActivePage { $0.artboards.append(board) }
+            app.selectedNodeIDs = []
+            app.selectedArtboardIDs = [board.id]
+            gestureUndoName = "Draw Artboard"
+            dragMode = .drawArtboard(id: board.id, originDoc: originDoc)
             needsDisplay = true
             return
         }
@@ -6775,6 +6812,19 @@ final class CanvasNSView: NSView {
             didEdit = true
             needsDisplay = true
 
+        case .drawArtboard(let id, let originDoc):
+            var cur = viewToDoc(p)
+            var org = originDoc
+            if !bypassSnap { cur = pxSnap(cur); org = pxSnap(org) }
+            withActivePage { page in
+                guard let i = page.artboards.firstIndex(where: { $0.id == id }) else { return }
+                page.artboards[i].frame = CGRect(x: min(org.x, cur.x), y: min(org.y, cur.y),
+                                                 width: abs(cur.x - org.x),
+                                                 height: abs(cur.y - org.y))
+            }
+            didEdit = true
+            needsDisplay = true
+
         case .nodes(let startDoc, let origins):
             let now = viewToDoc(p)
             var dx = now.x - startDoc.x, dy = now.y - startDoc.y
@@ -7041,6 +7091,19 @@ final class CanvasNSView: NSView {
         case .draw(let id, _):
             updateNode(id) {
                 if $0.frame.width < 3 || $0.frame.height < 3 { $0.frame.size = CGSize(width: 100, height: 100) }
+            }
+            registerUndoForGesture()
+            app?.tool = .select
+            refreshCursor()
+
+        case .drawArtboard(let id, _):
+            // A bare click lands the same default the New Artboard menu's primary
+            // action uses, so the two routes agree on what "an artboard" means.
+            withActivePage { page in
+                guard let i = page.artboards.firstIndex(where: { $0.id == id }) else { return }
+                if page.artboards[i].frame.width < 3 || page.artboards[i].frame.height < 3 {
+                    page.artboards[i].frame.size = Self.defaultDrawnArtboardSize
+                }
             }
             registerUndoForGesture()
             app?.tool = .select

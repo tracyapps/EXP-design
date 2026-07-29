@@ -139,6 +139,7 @@ struct PaintEditor: View {
                 Text("Pos").foregroundStyle(EXPColor.textSecondary).font(.callout)
                 TextField("", value: stopPositionBinding(idx), format: .number.precision(.fractionLength(0)))
                     .textFieldStyle(.exp).frame(width: 52).multilineTextAlignment(.trailing)
+                    .numericStepping(stopPositionBinding(idx), min: 0, max: 100)
                 Text("%").foregroundStyle(EXPColor.textSecondary)
                 Spacer()
             }
@@ -150,6 +151,10 @@ struct PaintEditor: View {
                 Slider(value: angleBinding, in: 0...360)
                 TextField("", value: angleBinding, format: .number.precision(.fractionLength(0)))
                     .textFieldStyle(.exp).frame(width: 48).multilineTextAlignment(.trailing)
+                    // No min/max on purpose: clamping would stop the arrows dead at
+                    // 0 and 360. Unclamped, stepping past either end falls through
+                    // to the wrapping setter below and comes out the other side.
+                    .numericStepping(angleBinding)
                 Text("°").foregroundStyle(EXPColor.textSecondary)
             }
         }
@@ -176,9 +181,25 @@ struct PaintEditor: View {
                 g.stops[i].position = min(1, max(0, v / 100)); gradientBinding.wrappedValue = g }
         )
     }
+    /// Angle is kept in 0..<360, wrapping rather than clamping, so:
+    ///  · typing -45 stores 315 instead of a value the 0...360 slider can't show
+    ///  · typing 400 stores 40
+    ///  · arrow-stepping down from 0 wraps to 359 instead of stopping
+    /// The GETTER wraps too, so a legacy or imported gradient holding a negative
+    /// angle displays correctly without rewriting the document to fix it.
     private var angleBinding: Binding<Double> {
-        Binding(get: { gradientBinding.wrappedValue.angle },
-                set: { var g = gradientBinding.wrappedValue; g.angle = $0; gradientBinding.wrappedValue = g })
+        Binding(
+            get: {
+                let a = gradientBinding.wrappedValue.angle.truncatingRemainder(dividingBy: 360)
+                return a < 0 ? a + 360 : a
+            },
+            set: { v in
+                let wrapped = v.truncatingRemainder(dividingBy: 360)
+                var g = gradientBinding.wrappedValue
+                g.angle = wrapped < 0 ? wrapped + 360 : wrapped
+                gradientBinding.wrappedValue = g
+            }
+        )
     }
 
     private func deleteStop(_ id: UUID) {

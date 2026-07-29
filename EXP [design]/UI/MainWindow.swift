@@ -169,14 +169,14 @@ struct MainWindow: View {
                 } label: { Text(preset.menuLabel) }
             }
         } label: {
-            Label("New Artboard", systemImage: "plus.rectangle").labelStyle(.iconOnly)
+            Label("New Artboard", systemImage: "plus.viewfinder").labelStyle(.iconOnly)
         } primaryAction: {
             addArtboard(width: 375, height: 667, name: "Artboard")
         }
         .menuIndicator(.visible)
         .menuStyle(.borderlessButton)
         .fixedSize()
-        .help("New artboard (⇧⌘N for default; use the menu for sizes)")
+        .help("New artboard (⇧⌘N for default; use the menu for sizes). Press F to draw one on the canvas instead.")
         .keyboardShortcut("n", modifiers: [.command, .shift])
     }
 
@@ -1672,8 +1672,8 @@ struct RightPanel: View {
                         DimField(label: "Y", value: artboardBinding(\.origin.y, action: "Move Artboard"))
                     }
                     HStack(spacing: 8) {
-                        DimField(label: "W", value: artboardBinding(\.size.width, action: "Resize Artboard"))
-                        DimField(label: "H", value: artboardBinding(\.size.height, action: "Resize Artboard"))
+                        DimField(label: "W", value: artboardBinding(\.size.width, action: "Resize Artboard"), min: 0)
+                        DimField(label: "H", value: artboardBinding(\.size.height, action: "Resize Artboard"), min: 0)
                     }
                     Divider()
                     PaintWell(label: "Background", paint: artboardBackgroundBinding, supportsOpacity: false)
@@ -1777,8 +1777,8 @@ struct RightPanel: View {
                 DimField(label: "Y", value: y)
             }
             HStack(spacing: 8) {
-                DimField(label: "W", value: w)
-                DimField(label: "H", value: h)
+                DimField(label: "W", value: w, min: 0)
+                DimField(label: "H", value: h, min: 0)
             }
         }
         .font(.callout)
@@ -1897,8 +1897,13 @@ struct RightPanel: View {
         Binding(
             get: { app.pointSelectionRotation },
             set: { newValue in
+                // Delta comes from the value BEFORE wrapping, so the turn actually
+                // applied is exactly what was asked for; only the stored/displayed
+                // value wraps. Matches `nodeRotationBinding` and the gradient angle:
+                // type -45 and get 315, step down from 0 and get 359.
                 let delta = newValue - app.pointSelectionRotation
-                app.pointSelectionRotation = newValue
+                let wrapped = newValue.truncatingRemainder(dividingBy: 360)
+                app.pointSelectionRotation = wrapped < 0 ? wrapped + 360 : wrapped
                 app.applyPointRotation?(delta)
             }
         )
@@ -3774,7 +3779,7 @@ struct RightPanel: View {
                     .textFieldStyle(.exp)
                     .frame(width: 56)
                     .multilineTextAlignment(.trailing)
-                    .numericStepping(strokeWidthBinding, min: 1)
+                    .numericStepping(strokeWidthBinding, min: 0)
                 Spacer()
             }
             ColorWell(label: "Color", color: strokeColorBinding)
@@ -4659,6 +4664,9 @@ private struct InspectorIconButton: View {
 private struct DimField: View {
     let label: String
     @Binding var value: Double
+    /// Lower bound for arrow stepping. X/Y are deliberately unbounded — a negative
+    /// coordinate is valid — but W/H pass 0, because a negative size is not.
+    var min: Double? = nil
 
     var body: some View {
         HStack(spacing: 4) {
@@ -4675,7 +4683,7 @@ private struct DimField: View {
                 .multilineTextAlignment(.trailing)
                 .monospacedDigit()
                 .frame(maxWidth: .infinity)
-                .numericStepping($value)
+                .numericStepping($value, min: min)
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(label)
@@ -4730,7 +4738,9 @@ private struct InstanceTextRow: View {
 /// Arrow-key stepping for any numeric field: ↑/↓ = ±1, ⇧ = ±10, ⌥ = ±0.1, and
 /// holding the key **accelerates** (key-repeat grows the step). Attach to a
 /// focused `TextField` bound to the same value.
-private struct NumericStepping: ViewModifier {
+/// Arrow-key stepping for a numeric field: ±1, ⇧±10, ⌥±0.1, with key-repeat
+/// acceleration. Internal, NOT private — see the `View` extension below.
+struct NumericStepping: ViewModifier {
     @Binding var value: Double
     var min: Double? = nil
     var max: Double? = nil
@@ -4767,7 +4777,11 @@ private struct NumericStepping: ViewModifier {
     }
 }
 
-private extension View {
+// Internal, not `private`. This was file-private, which quietly meant every
+// numeric field OUTSIDE MainWindow.swift had no arrow-key stepping at all — not an
+// oversight at each call site but a visibility wall. The gradient Angle and stop
+// Position fields in PaintEditor.swift were the visible symptom.
+extension View {
     func numericStepping(_ value: Binding<Double>, min: Double? = nil, max: Double? = nil) -> some View {
         modifier(NumericStepping(value: value, min: min, max: max))
     }
