@@ -802,8 +802,10 @@ function DownloadHero() {
           </a>
         </div>
         <p className="download-note">
-          There is no auto-updater yet. The email list is only for EXP [design]
-          product and release updates, and it will not be sold.
+          EXP uses Sparkle for updates: it asks before enabling automatic checks,
+          and Check for Updates… is always available from the app menu. The email
+          list is only for EXP [design] product and release updates, and it will
+          not be sold.
         </p>
       </div>
       <div className="download-preview" aria-label="EXP tester build preview">
