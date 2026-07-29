@@ -50,6 +50,16 @@
 				</array>
 			</dict>
 		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>tapps.exp-design.nodes</string>
+			<key>UTTypeDescription</key>
+			<string>EXP Design Layers</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.json</string>
+			</array>
+		</dict>
 	</array>
 	<!--
 	  Sparkle auto-updates (Phase 20). SUFeedURL is the self-hosted appcast on

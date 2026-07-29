@@ -28,7 +28,7 @@ private enum NestedComponentGraphCheck {
              content: .instance(ComponentInstance(sourceID: sourceID)))
     }
 
-    static func main() {
+    static func main() throws {
         let aID = UUID(uuidString: "00000000-0000-0000-0000-00000000000A")!
         let bID = UUID(uuidString: "00000000-0000-0000-0000-00000000000B")!
         let cID = UUID(uuidString: "00000000-0000-0000-0000-00000000000C")!
@@ -96,6 +96,32 @@ private enum NestedComponentGraphCheck {
         require(appliedShape.strokeWidth == 6 && appliedShape.strokeAlignment == .outside
                     && appliedShape.stroke.a == 0.4,
                 "captured outline did not resolve back onto the state")
+
+        // Whole-layer blend mode is state-local appearance, not a base edit.
+        var blendEdited = baseShape
+        blendEdited.blendMode = .multiply
+        let capturedBlend = ComponentStateEditing.capture(
+            base: [baseShape], edited: [blendEdited], state: ComponentState(name: "pressed"))
+        require(capturedBlend.base[0].blendMode == .normal,
+                "state blend mode leaked into the shared base")
+        require(capturedBlend.state.overrides.count == 1,
+                "blend-mode change should produce one bounded state override")
+        guard case .blendMode(let capturedMode) = capturedBlend.state.overrides[0].value else {
+            fputs("FAIL: blend-mode change was not captured as a state override\n", stderr)
+            exit(1)
+        }
+        require(capturedMode == .multiply,
+                "the selected blend mode was not preserved in the state diff")
+        let appliedBlend = ComponentStateEditing.applied(capturedBlend.base,
+                                                          state: capturedBlend.state)
+        require(appliedBlend[0].blendMode == .multiply,
+                "captured blend mode did not resolve back onto the state")
+        let blendData = try JSONEncoder().encode(capturedBlend.state)
+        let decodedBlend = try JSONDecoder().decode(ComponentState.self, from: blendData)
+        guard case .blendMode(.multiply)? = decodedBlend.overrides.first?.value else {
+            fputs("FAIL: state blend mode did not round-trip through JSON\n", stderr)
+            exit(1)
+        }
 
         // A placed A instance can choose C's state through A -> B -> group -> C,
         // and that path-scoped choice must survive document JSON round-tripping.
@@ -191,8 +217,11 @@ private enum NestedComponentGraphCheck {
         require(after.nodes[0].frame == first.frame,
                 "flattening must not move the layer")
         require(firstChildren.count == 2, "the flatten should keep both source layers")
-        require(firstChildren[0].frame.minX == 100 && firstChildren[0].frame.minY == 100,
-                "flattened children must be offset into the instance's position")
+        require(firstChildren[0].frame.minX == 0 && firstChildren[0].frame.minY == 0,
+                "flattened children must remain local to the replacement group")
+        require(after.nodes[0].frame.minX + firstChildren[0].frame.minX == 100
+                    && after.nodes[0].frame.minY + firstChildren[0].frame.minY == 100,
+                "replacement group and child must compose to the original canvas position")
         guard case .group(let wrapperChildren) = after.nodes[1].content,
               case .group = wrapperChildren[0].content else {
             fputs("FAIL: an instance nested in a group did not flatten\n", stderr)
@@ -401,8 +430,126 @@ private enum NestedComponentGraphCheck {
         cyclicGroup.autoLayout = row
         _ = cyclic.reflowed([cyclicGroup])
 
+        // A layer duplicated from inside a group must remain a child of THAT group;
+        // the enclosing group itself must not be duplicated. This is the shared
+        // insertion rule used by both canvas Command-D and Layers-row Duplicate.
+        let nestedA = Node(name: "Nested A",
+                           frame: CGRect(x: 2, y: 3, width: 10, height: 10),
+                           content: .rectangle(RectangleShape()))
+        let nestedB = Node(name: "Nested B",
+                           frame: CGRect(x: 20, y: 3, width: 10, height: 10),
+                           content: .rectangle(RectangleShape()))
+        let enclosingGroup = Node(
+            name: "Enclosing group", frame: CGRect(x: 100, y: 100, width: 40, height: 20),
+            content: .group(children: [nestedA, nestedB]))
+        let outside = Node(name: "Outside", frame: .zero,
+                           content: .rectangle(RectangleShape()))
+        let nestedDuplication = Document.duplicatingNodes(
+            [nestedB.id], in: [enclosingGroup, outside])
+        require(nestedDuplication.nodes.count == 2,
+                "duplicating a nested layer must not duplicate its enclosing group")
+        require(nestedDuplication.nodes[0].id == enclosingGroup.id,
+                "the original enclosing group identity should remain unchanged")
+        guard case .group(let duplicatedChildren) = nestedDuplication.nodes[0].content else {
+            fputs("FAIL: nested-layer duplication removed the enclosing group\n", stderr)
+            exit(1)
+        }
+        require(duplicatedChildren.count == 3,
+                "the nested copy should be inserted inside the same group")
+        require(duplicatedChildren[1].id == nestedB.id
+                    && duplicatedChildren[2].id == nestedDuplication.copiedIDs.first,
+                "the nested copy should sit immediately beside its original")
+        require(duplicatedChildren[2].frame.origin
+                    == CGPoint(x: nestedB.frame.minX + 10, y: nestedB.frame.minY + 10),
+                "the nested copy offset must remain in its group's local coordinates")
+        let ancestorAndChild = Document.duplicatingNodes(
+            [enclosingGroup.id, nestedB.id], in: [enclosingGroup, outside])
+        require(ancestorAndChild.copiedIDs.count == 1
+                    && ancestorAndChild.nodes.count == 3,
+                "a selected child must not be copied twice with its selected ancestor")
+        guard case .group(let copiedGroupChildren) = ancestorAndChild.nodes[1].content else {
+            fputs("FAIL: selected group did not duplicate as a group\n", stderr)
+            exit(1)
+        }
+        require(copiedGroupChildren.count == 2,
+                "duplicating a selected group should copy its subtree exactly once")
+
+        // Duplicating a component means a new SOURCE, not another instance. Every
+        // source-local identity and reference must move together while existing
+        // instances keep pointing at the original definition.
+        let labelID = UUID()
+        let panelID = UUID()
+        let originalStateID = UUID()
+        let originalRelationshipID = UUID()
+        let label = Node(id: labelID, name: "Label", frame: .zero,
+                         content: .rectangle(RectangleShape()))
+        let panel = Node(id: panelID, name: "Panel", frame: .zero,
+                         content: .rectangle(RectangleShape()))
+        var originalSource = ComponentSource(
+            name: "Working component", size: CGSize(width: 40, height: 40),
+            children: [label, panel],
+            a11y: A11ySemantics(
+                role: .button,
+                accessibleNameLayerID: labelID,
+                rootRelationships: [NodeRelationship(kind: .controls,
+                                                      targetID: panelID)]),
+            states: [ComponentState(
+                id: originalStateID, name: "hover",
+                overrides: [InstanceOverride(targetNodeID: panelID,
+                                              value: .opacity(0.5))])],
+            anchoredRelationships: [AnchoredRelationship(
+                id: originalRelationshipID, kind: .labelledby,
+                subject: RelationshipEndpoint(nodeID: labelID),
+                target: RelationshipEndpoint(nodeID: panelID))])
+        originalSource.children[0].relationships = [
+            NodeRelationship(kind: .controls, targetID: panelID)
+        ]
+        let placedOriginal = instance(originalSource.id, name: "Existing use")
+        let sourceDoc = Document(artboards: [], nodes: [placedOriginal],
+                                 sources: [originalSource])
+        guard let duplication = sourceDoc.duplicatingComponentSource(originalSource.id),
+              let copiedSource = duplication.document.source(for: duplication.sourceID),
+              let copiedLabel = copiedSource.children.first(where: { $0.name == "Label" }),
+              let copiedPanel = copiedSource.children.first(where: { $0.name == "Panel" }) else {
+            fputs("FAIL: component source duplication did not produce a copy\n", stderr)
+            exit(1)
+        }
+        require(copiedSource.id != originalSource.id
+                    && copiedSource.name == "Working component copy",
+                "the duplicated component needs an independent source id and copy name")
+        require(copiedLabel.id != labelID && copiedPanel.id != panelID,
+                "duplicated source children must receive fresh ids")
+        require(copiedSource.a11y.accessibleNameLayerID == copiedLabel.id,
+                "the copied component's accessible-name layer was not remapped")
+        require(copiedSource.a11y.rootRelationships.first?.targetID == copiedPanel.id,
+                "the copied component-root relationship was not remapped")
+        require(copiedSource.states.first?.id != originalStateID
+                    && copiedSource.states.first?.overrides.first?.targetNodeID == copiedPanel.id,
+                "the copied component state identity or target was not remapped")
+        require(copiedSource.anchoredRelationships.first?.id != originalRelationshipID
+                    && copiedSource.anchoredRelationships.first?.subject.nodeID == copiedLabel.id
+                    && copiedSource.anchoredRelationships.first?.target.nodeID == copiedPanel.id,
+                "the copied anchored relationship did not get fresh, remapped identity")
+        require(copiedLabel.relationships.first?.targetID == copiedPanel.id,
+                "the copied legacy relationship target was not remapped")
+        guard case .instance(let stillOriginal) = duplication.document.nodes[0].content else {
+            fputs("FAIL: existing component instance disappeared during source duplication\n", stderr)
+            exit(1)
+        }
+        require(stillOriginal.sourceID == originalSource.id,
+                "duplicating a source must not retarget existing instances")
+        guard let secondDuplication = duplication.document
+            .duplicatingComponentSource(originalSource.id),
+              let secondCopy = secondDuplication.document.source(for: secondDuplication.sourceID)
+        else {
+            fputs("FAIL: second component duplication failed\n", stderr)
+            exit(1)
+        }
+        require(secondCopy.name == "Working component copy 2",
+                "repeated component copies should receive distinct readable names")
+
         print("ok: existing malformed cycles terminate safely")
-        print("ok: component states capture complete outline appearance")
+        print("ok: component states capture outline + blend appearance")
         print("ok: deep nested component state paths resolve and round-trip")
         print("ok: deleting a source flattens every use without losing work")
         print("ok: flattened uses keep identity and stay id-unique")
@@ -413,5 +560,7 @@ private enum NestedComponentGraphCheck {
         print("ok: auto layout sizes instances from resolved bounds (BUG-007)")
         print("ok: nested re-hugged widths reach the parent layout")
         print("ok: layout on a cyclic legacy document terminates")
+        print("ok: nested-layer duplication stays inside its original group")
+        print("ok: component duplication creates an independent, fully remapped source")
     }
 }

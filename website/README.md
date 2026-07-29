@@ -26,3 +26,6 @@ See `DEPLOYMENT.md` for the Vercel setup.
 - `public/assets/exp-canvas-workbench.png` is the current product screenshot.
 - `docs/exp-website-concept.png` is the generated visual concept used as the
   first implementation reference.
+- `docs/FEATURE-ASSET-BRIEFS.md` describes the component, import/handoff, and
+  Design Language images planned for the v2.1 homepage refresh. CSS concept
+  visuals keep those sections complete until the final graphics replace them.

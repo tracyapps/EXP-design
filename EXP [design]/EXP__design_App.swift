@@ -136,7 +136,17 @@ private struct ARIARolesGuideCommand: View {
 }
 
 private func sendEditorAction(_ selectorName: String) {
-    NSApp.sendAction(NSSelectorFromString(selectorName), to: nil, from: nil)
+    sendCanvasAction(selectorName)
+}
+
+private func sendEditorPageTransfer(_ pageID: UUID,
+                                    duplicate: Bool,
+                                    nodeIDs: Set<UUID>,
+                                    artboardIDs: Set<UUID>) {
+    sendCanvasAction(duplicate ? "duplicateSelectionToPageAction:" : "moveSelectionToPageAction:",
+                     from: CanvasPageTransferRequest(pageID: pageID,
+                                                     nodeIDs: nodeIDs,
+                                                     artboardIDs: artboardIDs))
 }
 
 private func sendEditorComponentCategory(_ role: AriaRole?) {
@@ -167,6 +177,12 @@ private struct FileCommandItems: View {
             .disabled(menu == nil)
         Button("Import PDF…") { sendEditorAction("importPDFAction:") }
             .disabled(menu == nil)
+        Button("Import Adobe XD…") { sendEditorAction("importXDAction:") }
+            .disabled(menu == nil)
+        Button("Import Figma File…") { sendEditorAction("importFigmaAction:") }
+            .disabled(menu == nil)
+        Button("Show Last Import Report…") { sendEditorAction("showLastImportReportAction:") }
+            .disabled(menu == nil)
         Divider()
         Button("Export Selected Artboard(s)…") { sendEditorAction("exportSelectedArtboard:") }
             .keyboardShortcut("e", modifiers: [.command, .shift])
@@ -174,6 +190,10 @@ private struct FileCommandItems: View {
         Button("Export All Artboards…") { sendEditorAction("exportAllArtboards:") }
             .disabled(menu?.canExportAllArtboards != true)
         Button("Export Handoff Package…") { sendEditorAction("exportHandoffPackage:") }
+            .disabled(menu == nil)
+        Button("Export Semantic HTML…") { sendEditorAction("exportSemanticHTMLAction:") }
+            .disabled(menu == nil)
+        Button("Export Design Tokens…") { sendEditorAction("exportDesignTokensAction:") }
             .disabled(menu == nil)
     }
 }
@@ -185,6 +205,26 @@ private struct EditCommandItems: View {
         Button("Duplicate") { sendEditorAction("duplicateSelection:") }
             .keyboardShortcut("d", modifiers: .command)
             .disabled(menu?.canDuplicate != true)
+        Menu("Move to Page") {
+            ForEach(menu?.pageTransferChoices ?? []) { page in
+                Button(page.name) {
+                    sendEditorPageTransfer(page.id, duplicate: false,
+                                           nodeIDs: menu?.selectedNodeIDs ?? [],
+                                           artboardIDs: menu?.selectedArtboardIDs ?? [])
+                }
+            }
+        }
+        .disabled(menu?.hasAnySelection != true || menu?.pageTransferChoices.isEmpty != false)
+        Menu("Duplicate to Page") {
+            ForEach(menu?.pageTransferChoices ?? []) { page in
+                Button(page.name) {
+                    sendEditorPageTransfer(page.id, duplicate: true,
+                                           nodeIDs: menu?.selectedNodeIDs ?? [],
+                                           artboardIDs: menu?.selectedArtboardIDs ?? [])
+                }
+            }
+        }
+        .disabled(menu?.hasAnySelection != true || menu?.pageTransferChoices.isEmpty != false)
         Button("Deselect All") { sendEditorAction("deselectAllAction:") }
             .keyboardShortcut("a", modifiers: [.command, .shift])
             .disabled(menu?.hasAnySelection != true)
@@ -258,8 +298,14 @@ private struct ObjectCommandItems: View {
             .disabled(menu?.componentPlacementChoices.isEmpty != false)
             Button("Edit Component") { sendEditorAction("editComponentAction:") }
                 .disabled(menu?.canEditComponent != true)
+            Button("Duplicate Component") { sendEditorAction("duplicateComponentSourceAction:") }
+                .disabled(menu?.canDuplicateComponent != true)
             Button("Detach Component") { sendEditorAction("detachComponentAction:") }
                 .disabled(menu?.canDetachComponent != true)
+            Button(menu?.deleteComponentTitle ?? "Delete Component", role: .destructive) {
+                sendEditorAction("deleteComponentSourceAction:")
+            }
+            .disabled(menu?.canDeleteComponent != true)
             Divider()
             Button(menu?.addComponentStateTitle ?? "Add Component State") {
                 sendEditorAction("addComponentStateAction:")

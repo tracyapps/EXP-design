@@ -10,6 +10,7 @@
 import Foundation
 import Darwin
 import AppKit
+import Observation
 
 enum AgentBridgeLocation {
     static let enabledDefaultsKey = "exp.agentBridge.enabled"
@@ -26,38 +27,87 @@ enum AgentBridgeLocation {
 }
 
 @MainActor
+@Observable
 final class AgentBridgeController {
     static let shared = AgentBridgeController()
 
-    private var server: AgentSocketServer?
-    private var terminationObserver: NSObjectProtocol?
+    @ObservationIgnored private var server: AgentSocketServer?
+    @ObservationIgnored private var terminationObserver: NSObjectProtocol?
+
+    private(set) var isRunning = false
+    private(set) var connectionCount = 0
+    private(set) var clientName: String?
+    private(set) var lastError: String?
+
+    var isEnabled: Bool {
+        UserDefaults.standard.bool(forKey: AgentBridgeLocation.enabledDefaultsKey)
+    }
 
     private init() {}
 
+    func setEnabled(_ enabled: Bool) {
+        UserDefaults.standard.set(enabled, forKey: AgentBridgeLocation.enabledDefaultsKey)
+        if enabled { start() } else { stop() }
+    }
+
     func startIfEnabled() {
-        guard server == nil,
-              UserDefaults.standard.bool(forKey: AgentBridgeLocation.enabledDefaultsKey) else { return }
+        guard isEnabled else { return }
+        start()
+    }
+
+    private func start() {
+        guard server == nil else { return }
+        lastError = nil
         do {
-            let socketServer = try AgentSocketServer(socketURL: AgentBridgeLocation.socketURL()) {
-                request, reply in
-                Task { @MainActor in reply(AgentMCPRouter.handle(request)) }
-            }
+            let socketServer = try AgentSocketServer(
+                socketURL: AgentBridgeLocation.socketURL(),
+                connectionsChanged: { count in
+                    Task { @MainActor in
+                        let bridge = AgentBridgeController.shared
+                        bridge.connectionCount = count
+                        if count == 0 { bridge.clientName = nil }
+                    }
+                },
+                handler: { request, reply in
+                    Task { @MainActor in
+                        if let name = Self.initializingClientName(in: request) {
+                            AgentBridgeController.shared.clientName = name
+                        }
+                        reply(AgentMCPRouter.handle(request))
+                    }
+                })
             server = socketServer
+            isRunning = true
             terminationObserver = NotificationCenter.default.addObserver(
                 forName: NSApplication.willTerminateNotification, object: nil, queue: .main
             ) { [weak self] _ in
                 MainActor.assumeIsolated { self?.stop() }
             }
         } catch {
+            lastError = error.localizedDescription
+            isRunning = false
             DiagnosticLog.shared.log("Agent bridge did not start: \(error.localizedDescription)")
         }
     }
 
-    private func stop() {
+    func stop() {
         server?.stop()
         server = nil
+        isRunning = false
+        connectionCount = 0
+        clientName = nil
         if let terminationObserver { NotificationCenter.default.removeObserver(terminationObserver) }
         terminationObserver = nil
+    }
+
+    private static func initializingClientName(in request: Data) -> String? {
+        guard let json = try? JSONSerialization.jsonObject(with: request) as? [String: Any],
+              json["method"] as? String == "initialize",
+              let params = json["params"] as? [String: Any],
+              let client = params["clientInfo"] as? [String: Any],
+              let name = client["name"] as? String,
+              !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return name
     }
 }
 
@@ -178,23 +228,24 @@ private enum AgentMCPRouter {
                 return toolText(orientation(document: context.document, sourceURL: context.sourceURL))
             case "list_artboards":
                 guard arguments.isEmpty else { return toolError("list_artboards accepts no arguments") }
-                let summaries = context.document.artboards.map {
+                let summaries = context.document.allArtboards.map {
                     ["id": $0.id.uuidString, "name": $0.name]
                 }
                 return toolJSON(["artboards": summaries])
             case "get_artboard":
                 guard arguments.count == 1, let raw = arguments["id"] as? String,
                       let id = UUID(uuidString: raw) else { return toolError("get_artboard requires one valid UUID string named id") }
-                guard let artboard = context.document.artboards.first(where: { $0.id == id }) else {
+                guard let artboard = context.document.allArtboards.first(where: { $0.id == id }),
+                      let page = context.document.page(containingArtboard: id) else {
                     return toolError("No artboard exists with id \(raw)")
                 }
-                let nodes = context.document.nodes.filter {
-                    context.document.owningArtboard(of: $0.frame)?.id == id
+                let nodes = page.nodes.filter {
+                    context.document.owningArtboard(of: $0.frame, on: page.id)?.id == id
                 }
                 return toolJSON(["artboard": try jsonObject(artboard), "nodes": try jsonObject(nodes)])
             case "get_selection":
                 guard arguments.isEmpty else { return toolError("get_selection accepts no arguments") }
-                let artboards = context.document.artboards.filter { context.app.selectedArtboardIDs.contains($0.id) }
+                let artboards = context.document.allArtboards.filter { context.app.selectedArtboardIDs.contains($0.id) }
                 let nodes = context.app.selectedNodeIDs.compactMap { findNode($0, in: context.document)?.node }
                 return toolJSON(["artboards": try jsonObject(artboards), "nodes": try jsonObject(nodes)])
             case "get_node":
@@ -233,7 +284,7 @@ private enum AgentMCPRouter {
             }
             return nil
         }
-        if let found = walk(document.nodes, scope: "document", sourceID: nil) { return found }
+        if let found = walk(document.allNodes, scope: "document", sourceID: nil) { return found }
         for source in document.sources {
             if let found = walk(source.children, scope: "componentSource", sourceID: source.id) { return found }
         }
@@ -285,6 +336,7 @@ private enum AgentMCPRouter {
 /// and client buffer; only parsed requests cross to the main-actor router.
 private nonisolated final class AgentSocketServer: @unchecked Sendable {
     typealias Handler = @Sendable (Data, @escaping @Sendable (Data?) -> Void) -> Void
+    typealias ConnectionsChanged = @Sendable (Int) -> Void
 
     private struct Client {
         var readSource: any DispatchSourceRead
@@ -295,13 +347,16 @@ private nonisolated final class AgentSocketServer: @unchecked Sendable {
 
     private let socketURL: URL
     private let handler: Handler
+    private let connectionsChanged: ConnectionsChanged
     private let queue = DispatchQueue(label: "app.expdesign.agent-bridge")
     private var listener: Int32 = -1
     private var listenerSource: (any DispatchSourceRead)?
     private var clients: [Int32: Client] = [:]
 
-    init(socketURL: URL, handler: @escaping Handler) throws {
+    init(socketURL: URL, connectionsChanged: @escaping ConnectionsChanged,
+         handler: @escaping Handler) throws {
         self.socketURL = socketURL
+        self.connectionsChanged = connectionsChanged
         self.handler = handler
         try start()
     }
@@ -318,6 +373,7 @@ private nonisolated final class AgentSocketServer: @unchecked Sendable {
                 Darwin.close(fd)
             }
             clients.removeAll()
+            connectionsChanged(0)
             if listener >= 0 { Darwin.close(listener); listener = -1 }
             unlink(socketURL.path)
         }
@@ -393,6 +449,7 @@ private nonisolated final class AgentSocketServer: @unchecked Sendable {
             source.setCancelHandler {}
             clients[fd] = Client(readSource: source)
             source.resume()
+            connectionsChanged(clients.count)
         }
     }
 
@@ -461,6 +518,7 @@ private nonisolated final class AgentSocketServer: @unchecked Sendable {
         client.readSource.cancel()
         client.writeSource?.cancel()
         Darwin.close(fd)
+        connectionsChanged(clients.count)
     }
 
     private func posixError(_ operation: String) -> NSError {

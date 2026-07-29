@@ -25,6 +25,10 @@ import CoreGraphics
 
 enum SelectionTransform {
 
+    enum AlignEdge {
+        case left, hCenter, right, top, vCenter, bottom
+    }
+
     // MARK: Bounds
 
     /// The axis-aligned document-space bounds a node occupies on screen. For a
@@ -66,6 +70,72 @@ enum SelectionTransform {
         var u: CGRect?
         for n in nodes { let b = visualBounds(n); u = u?.union(b) ?? b }
         return u
+    }
+
+    // MARK: Align & distribute
+
+    /// Translation deltas that align already-resolved visual bounds to `reference`.
+    /// The caller chooses the shared coordinate space (a group's local space or
+    /// document space), then writes each delta back through that node's parent.
+    /// Keeping this math pure prevents nested canvas and inspector paths from
+    /// quietly drifting back to top-level-only frame indexing.
+    static func alignmentOffsets(_ items: [(id: UUID, bounds: CGRect)],
+                                 edge: AlignEdge, reference: CGRect) -> [UUID: CGPoint] {
+        var result: [UUID: CGPoint] = [:]
+        for item in items {
+            let dx: CGFloat
+            let dy: CGFloat
+            switch edge {
+            case .left:
+                dx = reference.minX - item.bounds.minX; dy = 0
+            case .hCenter:
+                dx = reference.midX - item.bounds.midX; dy = 0
+            case .right:
+                dx = reference.maxX - item.bounds.maxX; dy = 0
+            case .top:
+                dx = 0; dy = reference.minY - item.bounds.minY
+            case .vCenter:
+                dx = 0; dy = reference.midY - item.bounds.midY
+            case .bottom:
+                dx = 0; dy = reference.maxY - item.bounds.maxY
+            }
+            result[item.id] = CGPoint(x: dx, y: dy)
+        }
+        return result
+    }
+
+    /// Translation deltas that equalize the gaps between visual bounds while
+    /// keeping the two outer items fixed. Negative gaps are intentional when the
+    /// selection is too tight and the items must overlap evenly.
+    static func distributionOffsets(_ items: [(id: UUID, bounds: CGRect)],
+                                    horizontal: Bool) -> [UUID: CGPoint] {
+        guard items.count >= 3 else { return [:] }
+        let sorted = items.sorted {
+            horizontal ? $0.bounds.minX < $1.bounds.minX
+                       : $0.bounds.minY < $1.bounds.minY
+        }
+        let span: CGFloat
+        let used: CGFloat
+        if horizontal {
+            span = sorted.last!.bounds.maxX - sorted.first!.bounds.minX
+            used = sorted.reduce(0) { $0 + $1.bounds.width }
+        } else {
+            span = sorted.last!.bounds.maxY - sorted.first!.bounds.minY
+            used = sorted.reduce(0) { $0 + $1.bounds.height }
+        }
+        let gap = (span - used) / CGFloat(sorted.count - 1)
+        var cursor = horizontal ? sorted.first!.bounds.minX : sorted.first!.bounds.minY
+        var result: [UUID: CGPoint] = [:]
+        for item in sorted {
+            if horizontal {
+                result[item.id] = CGPoint(x: cursor - item.bounds.minX, y: 0)
+                cursor += item.bounds.width + gap
+            } else {
+                result[item.id] = CGPoint(x: 0, y: cursor - item.bounds.minY)
+                cursor += item.bounds.height + gap
+            }
+        }
+        return result
     }
 
     /// How far a node's outline paints beyond its geometry frame. Inside strokes

@@ -15,6 +15,7 @@ docs/*
 !docs/BACKLOG.md
 !docs/HANDOFF-SCHEMA.md
 !docs/RELEASE-CHECKLIST.md
+!docs/RELEASE-CHECKLIST-v2.1.md
 !docs/ROADMAP.md
 !docs/V2-INTEROP-PLAN.md
 !docs/SEMANTIC-HTML-CONTRACT.md

@@ -31,7 +31,7 @@ struct ArtboardNotesOverlay: View {
     var body: some View {
         GeometryReader { _ in
             ZStack(alignment: .topLeading) {
-                ForEach(document.model.artboards) { artboard in
+                ForEach(document.model.page(for: app.activeCanvasPageID)?.artboards ?? []) { artboard in
                     let p = labelAnchor(artboard)
 
                     NotesButton(hasNotes: !artboard.notes.isEmpty,
@@ -65,11 +65,15 @@ struct ArtboardNotesOverlay: View {
 
     private func notesBinding(_ id: UUID) -> Binding<String> {
         Binding(
-            get: { document.model.artboards.first { $0.id == id }?.notes ?? "" },
+            get: {
+                document.model.page(for: app.activeCanvasPageID)?.artboards
+                    .first { $0.id == id }?.notes ?? ""
+            },
             set: { newValue in
-                guard let i = document.model.artboards.firstIndex(where: { $0.id == id }) else { return }
                 var model = document.model
-                model.artboards[i].notes = newValue
+                guard let pageIndex = model.pageIndex(for: app.activeCanvasPageID),
+                      let i = model.pages[pageIndex].artboards.firstIndex(where: { $0.id == id }) else { return }
+                model.pages[pageIndex].artboards[i].notes = newValue
                 document.setModel(model, undoManager: undoManager, actionName: "Edit Notes")
             }
         )

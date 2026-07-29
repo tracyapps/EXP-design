@@ -26,6 +26,32 @@
 import Foundation
 import CoreGraphics
 
+// MARK: - Canvas page
+
+/// One independent infinite canvas inside an EXP document. Pages are peers of
+/// the canvas, not entries in the layer tree: each owns its own artboards, wall
+/// layers, guides, and root relationships, while component sources and the
+/// Design Language remain shared by the whole document.
+struct CanvasPage: Identifiable, Codable, Sendable {
+    var id: UUID
+    var name: String
+    var artboards: [Artboard]
+    var nodes: [Node]
+    var guides: [Guide]
+    var anchoredRelationships: [AnchoredRelationship]
+
+    init(id: UUID = UUID(), name: String = "Page 1",
+         artboards: [Artboard] = [], nodes: [Node] = [], guides: [Guide] = [],
+         anchoredRelationships: [AnchoredRelationship] = []) {
+        self.id = id
+        self.name = name
+        self.artboards = artboards
+        self.nodes = nodes
+        self.guides = guides
+        self.anchoredRelationships = anchoredRelationships
+    }
+}
+
 // MARK: - Document
 
 /// The whole design file: its artboards plus the library of component sources
@@ -36,8 +62,8 @@ struct Document: Codable, Sendable {
     /// Public file-schema marker for future interop/handoff readers. This is
     /// distinct from `formatVersion`, which tracks internal model migrations.
     /// History: 1 = v1.4 baseline; 2 = v1.6 component contract (states,
-    /// relationships, public override props).
-    static let currentSchemaVersion = 2
+    /// relationships, public override props); 3 = document-level canvas pages.
+    static let currentSchemaVersion = 3
 
     /// The schema version this in-memory document was DECODED from (kept for
     /// diagnostics), or the current version for new documents. Encoding always
@@ -46,52 +72,91 @@ struct Document: Codable, Sendable {
 
     /// Bumped when the on-disk shape changes. v2 moved shapes out of artboards
     /// into the document-level `nodes` list (the "wall" model).
-    var formatVersion: Int = 2
+    var formatVersion: Int = 3
 
-    /// The canvases the user designs on. Artboards are just named frames now —
-    /// they don't own their shapes; ownership is derived geometrically.
-    var artboards: [Artboard]
+    /// Browser-tab-like canvas workspaces. Only the active page participates in
+    /// rendering, hit-testing, Layers, and selection; shared libraries stay at
+    /// document scope.
+    var pages: [CanvasPage]
 
-    /// EVERY shape lives here, in document coordinates, in z-order (first =
-    /// back). Whether a shape "belongs to" an artboard — and therefore crops to
-    /// it — is computed live from the >50%-overlap rule (see `owningArtboard`),
-    /// not stored. Shapes not >50% inside any artboard live on the "wall".
-    var nodes: [Node]
+    /// Compatibility accessors for older call sites and import/export helpers.
+    /// They address the first page. Interactive surfaces use the page-id helpers
+    /// below, so switching tabs never leaks inactive content into the canvas.
+    var artboards: [Artboard] {
+        get { pages.first?.artboards ?? [] }
+        set { ensureFirstPage(); pages[0].artboards = newValue }
+    }
+    var nodes: [Node] {
+        get { pages.first?.nodes ?? [] }
+        set { ensureFirstPage(); pages[0].nodes = newValue }
+    }
 
     /// Reusable component definitions. An instance node refers to one of these
     /// by `id` — the reference-based heart of the model. Empty until Phase 4.
     var sources: [ComponentSource]
 
     /// Ruler guides (document coordinates), persisted with the file like Photoshop.
-    var guides: [Guide]
+    var guides: [Guide] {
+        get { pages.first?.guides ?? [] }
+        set { ensureFirstPage(); pages[0].guides = newValue }
+    }
 
     /// The document-local design language: named colors/gradients + recent paints
     /// that travel with the file. Empty until the user saves swatches (Phase 18).
     var designLanguage: DesignLanguage = DesignLanguage()
 
+    /// Relationships anchored at the DOCUMENT root — the fallback anchor for two
+    /// top-level nodes that share no group. Authoring never creates one of these
+    /// (the neighborhood rule requires a group), but migration can, so the case
+    /// exists rather than silently dropping a legacy link. FEAT-012 chunk I-b.
+    var anchoredRelationships: [AnchoredRelationship] {
+        get { pages.first?.anchoredRelationships ?? [] }
+        set { ensureFirstPage(); pages[0].anchoredRelationships = newValue }
+    }
+
     init(artboards: [Artboard] = Document.starter,
          nodes: [Node] = [],
          sources: [ComponentSource] = [],
          guides: [Guide] = [],
-         designLanguage: DesignLanguage = DesignLanguage()) {
-        self.artboards = artboards
-        self.nodes = nodes
+         designLanguage: DesignLanguage = DesignLanguage(),
+         anchoredRelationships: [AnchoredRelationship] = [],
+         pageID: UUID = UUID()) {
+        self.pages = [CanvasPage(id: pageID, artboards: artboards, nodes: nodes, guides: guides,
+                                 anchoredRelationships: anchoredRelationships)]
         self.sources = sources
-        self.guides = guides
         self.designLanguage = designLanguage
     }
 
     // Custom decode so files saved before `guides` existed still open.
-    enum CodingKeys: String, CodingKey { case schemaVersion, formatVersion, artboards, nodes, sources, guides, designLanguage }
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion, formatVersion, pages, artboards, nodes, sources, guides,
+             designLanguage, anchoredRelationships
+    }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         schemaVersion = try c.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
         formatVersion = try c.decodeIfPresent(Int.self, forKey: .formatVersion) ?? 2
-        artboards = try c.decode([Artboard].self, forKey: .artboards)
-        nodes = try c.decode([Node].self, forKey: .nodes)
+        if let decodedPages = try c.decodeIfPresent([CanvasPage].self, forKey: .pages),
+           !decodedPages.isEmpty {
+            pages = decodedPages
+        } else {
+            let legacyArtboards = try c.decode([Artboard].self, forKey: .artboards)
+            let legacyNodes = try c.decode([Node].self, forKey: .nodes)
+            let legacyGuides = try c.decodeIfPresent([Guide].self, forKey: .guides) ?? []
+            let legacyAnchors = ((try? c.decodeIfPresent([AnchoredRelationship].self,
+                                                         forKey: .anchoredRelationships)) ?? nil) ?? []
+            pages = [CanvasPage(artboards: legacyArtboards, nodes: legacyNodes,
+                                guides: legacyGuides,
+                                anchoredRelationships: legacyAnchors)]
+        }
         sources = try c.decodeIfPresent([ComponentSource].self, forKey: .sources) ?? []
-        guides = try c.decodeIfPresent([Guide].self, forKey: .guides) ?? []
         designLanguage = try c.decodeIfPresent(DesignLanguage.self, forKey: .designLanguage) ?? DesignLanguage()
+        // FEAT-012 chunk I-b. Derive the anchored form for anything still stored
+        // the old way. Deliberately ADDITIVE: the legacy arrays are left intact and
+        // still encoded, so a wrong migration is recoverable instead of destroying
+        // a document the first time it is saved. Nothing reads the anchored form
+        // until chunk I-d, so this is invisible at runtime.
+        migrateRelationshipsToAnchors()
     }
 
     // Custom encode so a re-saved older file upgrades its declared schema
@@ -99,19 +164,48 @@ struct Document: Codable, Sendable {
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(Document.currentSchemaVersion, forKey: .schemaVersion)
-        try c.encode(formatVersion, forKey: .formatVersion)
-        try c.encode(artboards, forKey: .artboards)
-        try c.encode(nodes, forKey: .nodes)
+        try c.encode(3, forKey: .formatVersion)
+        try c.encode(pages, forKey: .pages)
         try c.encode(sources, forKey: .sources)
-        try c.encode(guides, forKey: .guides)
         try c.encode(designLanguage, forKey: .designLanguage)
+    }
+
+    private mutating func ensureFirstPage() {
+        if pages.isEmpty { pages = [CanvasPage()] }
+    }
+
+    /// Resolve stale/session-only ids safely after open, delete, or undo.
+    func pageID(resolving requested: UUID?) -> UUID? {
+        if let requested, pages.contains(where: { $0.id == requested }) { return requested }
+        return pages.first?.id
+    }
+
+    func pageIndex(for requested: UUID?) -> Int? {
+        guard let id = pageID(resolving: requested) else { return nil }
+        return pages.firstIndex { $0.id == id }
+    }
+
+    func page(for requested: UUID?) -> CanvasPage? {
+        guard let index = pageIndex(for: requested) else { return nil }
+        return pages[index]
+    }
+
+    func page(containingArtboard id: UUID) -> CanvasPage? {
+        pages.first { page in page.artboards.contains { $0.id == id } }
+    }
+
+    var allArtboards: [Artboard] { pages.flatMap(\.artboards) }
+    var allNodes: [Node] { pages.flatMap(\.nodes) }
+
+    func contentBounds(on pageID: UUID?) -> CGRect {
+        guard let boards = page(for: pageID)?.artboards, let first = boards.first else { return .zero }
+        return boards.dropFirst().reduce(first.frame) { $0.union($1.frame) }
     }
 
     /// Bounding box enclosing every artboard, in document coordinates. Used to
     /// center / fit the view.
     var contentBounds: CGRect {
-        guard let first = artboards.first else { return .zero }
-        return artboards.dropFirst().reduce(first.frame) { $0.union($1.frame) }
+        contentBounds(on: pages.first?.id)
     }
 
     /// Look up a component source by id (used when resolving an instance).
@@ -150,6 +244,483 @@ struct Document: Codable, Sendable {
         return referencedSourceIDs(in: source.children)
     }
 
+    /// Whether `node` — or any roled component nested inside it — can carry a
+    /// relationship. Lives on the model so the inspector, the Object menu, and the
+    /// canvas context menu all answer from ONE place; they used to each carry their
+    /// own copy of this test, which is how a menu item and a panel drift apart.
+    ///
+    /// Roles do not inherit, so a layer qualifies only through its OWN role, or by
+    /// containing something that has one.
+    func hasRelationshipParticipant(in node: Node, depth: Int = 0) -> Bool {
+        guard depth < 8 else { return false }
+        if let role = roleForExport(of: node),
+           !role.authoredRelationshipKinds.isEmpty { return true }
+        if !node.relationships.isEmpty { return true }
+        switch node.content {
+        case .group(let children):
+            return children.contains { hasRelationshipParticipant(in: $0, depth: depth + 1) }
+        case .instance(let instance):
+            guard let source = source(for: instance.sourceID) else { return false }
+            return source.children.contains { hasRelationshipParticipant(in: $0, depth: depth + 1) }
+        default:
+            return false
+        }
+    }
+
+    /// The role emitted on the element hosting this node. Only a component instance
+    /// carries one; every other layer exports as a plain container.
+    func roleForExport(of node: Node) -> AriaRole? {
+        if case .instance(let instance) = node.content {
+            return source(for: instance.sourceID)?.a11y.role
+        }
+        return nil
+    }
+
+    // MARK: - Relationship anchors (FEAT-012 chunk I-b)
+
+    /// Ancestor group ids for `id` within `nodes`, OUTERMOST first.
+    /// Empty means the node sits directly in the scope root; nil means not found.
+    private static func ancestorGroups(of id: UUID, in nodes: [Node],
+                                       trail: [UUID] = []) -> [UUID]? {
+        for node in nodes {
+            if node.id == id { return trail }
+            if case .group(let children) = node.content,
+               let found = ancestorGroups(of: id, in: children, trail: trail + [node.id]) {
+                return found
+            }
+        }
+        return nil
+    }
+
+    /// The nearest group containing BOTH nodes, or nil when the only thing
+    /// containing both is the scope root itself (a component source, or the
+    /// document).
+    ///
+    /// Only GROUPS are considered, and component instances are opaque on purpose:
+    /// a legacy relationship could only ever address a sibling, so it never
+    /// crossed an instance boundary, and treating instances as containers here
+    /// would invent nesting the stored data does not have.
+    static func nearestCommonAncestorGroup(of a: UUID, and b: UUID,
+                                           in nodes: [Node]) -> UUID? {
+        guard let left = ancestorGroups(of: a, in: nodes),
+              let right = ancestorGroups(of: b, in: nodes) else { return nil }
+        var shared: UUID?
+        for (x, y) in zip(left, right) {
+            guard x == y else { break }
+            shared = x
+        }
+        return shared
+    }
+
+    /// Drop anchored relationships naming any of `ids` at EITHER end.
+    ///
+    /// Only for an EXPLICIT delete. That is not the silent loss BUG-012 was about:
+    /// the designer removed the layer, a link to something that no longer exists is
+    /// meaningless, and one undo restores both together. What must never happen is
+    /// discarding a link whose ends both still exist — which is why this takes a
+    /// specific id set rather than "prune anything that does not currently resolve."
+    /// A mid-edit tree can be briefly unresolvable, and a general sweep would eat
+    /// real work.
+    static func removingAnchors(referencing ids: Set<UUID>,
+                                in list: [AnchoredRelationship]) -> [AnchoredRelationship] {
+        list.filter { relationship in
+            let touched = Set(relationship.subject.path + relationship.target.path)
+            return touched.isDisjoint(with: ids)
+        }
+    }
+
+    /// Same, applied through a whole subtree.
+    static func removingAnchors(referencing ids: Set<UUID>, in nodes: inout [Node]) {
+        for i in nodes.indices {
+            nodes[i].anchoredRelationships =
+                removingAnchors(referencing: ids, in: nodes[i].anchoredRelationships)
+            if case .group(var children) = nodes[i].content {
+                removingAnchors(referencing: ids, in: &children)
+                nodes[i].content = .group(children: children)
+            }
+        }
+    }
+
+    /// Rewrite one endpoint through an id map. Ids NOT in the map are left alone,
+    /// which is what makes this correct rather than merely convenient: a source
+    /// child id is stable across every placement and must never be renamed, and a
+    /// link that genuinely points OUTSIDE the copied subtree should keep pointing
+    /// outside it.
+    static func remapped(_ endpoint: RelationshipEndpoint,
+                         map: [UUID: UUID]) -> RelationshipEndpoint {
+        RelationshipEndpoint(
+            instanceChain: endpoint.instanceChain.map { map[$0] ?? $0 },
+            nodeID: map[endpoint.nodeID] ?? endpoint.nodeID)
+    }
+
+    /// Rewrite every anchored relationship in `node`'s subtree through `map`.
+    ///
+    /// Copying a group has to relink to the COPY. Without this, a duplicated group
+    /// keeps entries naming the ORIGINAL's nodes — so the copy either shows nothing
+    /// or, worse, quietly describes the original's structure. The designer's mental
+    /// model is a relative link ("this tab opens the panel next to it"), and
+    /// anchoring already expresses that; this is the step that carries it through
+    /// duplication. BUG-010.
+    static func remappingAnchors(_ node: Node, map: [UUID: UUID]) -> Node {
+        var copy = node
+        copy.anchoredRelationships = copy.anchoredRelationships.map {
+            AnchoredRelationship(id: $0.id,
+                                 kind: $0.kind,
+                                 subject: remapped($0.subject, map: map),
+                                 target: remapped($0.target, map: map))
+        }
+        if case .group(let children) = copy.content {
+            copy.content = .group(children: children.map { remappingAnchors($0, map: map) })
+        }
+        return copy
+    }
+
+    /// Clone one layer subtree for Duplicate / copy-paste, assigning fresh node
+    /// AND relationship ids and retargeting relationships whose destinations live
+    /// inside the copied subtree. Component-instance override ids are deliberately
+    /// left alone: they address the referenced source, which is not being copied.
+    static func duplicatingNode(_ node: Node) -> Node {
+        var map: [UUID: UUID] = [:]
+        let fresh = reidentifyingForCopy(node, map: &map)
+        return remappingCopiedReferences(fresh, map: map)
+    }
+
+    static func duplicatingNodesForTransfer(_ nodes: [Node]) -> [Node] {
+        duplicatingNodesForTransferWithMap(nodes).nodes
+    }
+
+    static func duplicatingNodesForTransferWithMap(_ nodes: [Node])
+        -> (nodes: [Node], idMap: [UUID: UUID]) {
+        var map: [UUID: UUID] = [:]
+        let fresh = nodes.map { reidentifyingForCopy($0, map: &map) }
+        return (fresh.map { remappingCopiedReferences($0, map: map) }, map)
+    }
+
+    /// Deep-copy an entire canvas page. Building one shared id map before the
+    /// rewrite preserves relationships between separate top-level layers rather
+    /// than leaving the duplicate pointed back at the original page.
+    static func duplicatingPage(_ page: CanvasPage, named name: String) -> CanvasPage {
+        var map: [UUID: UUID] = [:]
+        let freshNodes = page.nodes.map { reidentifyingForCopy($0, map: &map) }
+        let nodes = freshNodes.map { remappingCopiedReferences($0, map: map) }
+        let anchors = page.anchoredRelationships.map {
+            AnchoredRelationship(kind: $0.kind,
+                                 subject: remapped($0.subject, map: map),
+                                 target: remapped($0.target, map: map))
+        }
+        let artboards = page.artboards.map { original -> Artboard in
+            var copy = original
+            copy.id = UUID()
+            return copy
+        }
+        let guides = page.guides.map { original -> Guide in
+            var copy = original
+            copy.id = UUID()
+            return copy
+        }
+        return CanvasPage(name: name, artboards: artboards, nodes: nodes,
+                          guides: guides, anchoredRelationships: anchors)
+    }
+
+    /// Duplicate selected layers beside their originals in the SAME parent array.
+    /// A nested child therefore stays inside its group; selecting that child never
+    /// clones the enclosing group. If an ancestor and descendant are both present
+    /// in `ids`, the ancestor owns the copied subtree and the child is not copied a
+    /// second time. Shared by canvas Command-D and the Layers row action.
+    static func duplicatingNodes(_ ids: Set<UUID>, in nodes: [Node],
+                                 offset: CGPoint = CGPoint(x: 10, y: 10))
+        -> (nodes: [Node], copiedIDs: [UUID]) {
+        guard !ids.isEmpty else { return (nodes, []) }
+        var result = nodes
+        var copiedIDs: [UUID] = []
+
+        func duplicate(in siblings: inout [Node]) {
+            var index = 0
+            while index < siblings.count {
+                if ids.contains(siblings[index].id) {
+                    var copy = duplicatingNode(siblings[index])
+                    copy.frame.origin.x += offset.x
+                    copy.frame.origin.y += offset.y
+                    siblings.insert(copy, at: index + 1)
+                    copiedIDs.append(copy.id)
+                    // Skip both the original and its copy. In particular, do not
+                    // descend into a selected group and duplicate a selected child
+                    // a second time.
+                    index += 2
+                    continue
+                }
+                if case .group(var children) = siblings[index].content {
+                    duplicate(in: &children)
+                    siblings[index].content = .group(children: children)
+                }
+                index += 1
+            }
+        }
+
+        duplicate(in: &result)
+        return (result, copiedIDs)
+    }
+
+    /// First pass for a copy. The complete map must exist before relationships are
+    /// rewritten because one sibling may point at a sibling visited later.
+    private static func reidentifyingForCopy(_ node: Node,
+                                             map: inout [UUID: UUID]) -> Node {
+        var copy = node
+        copy.id = UUID()
+        map[node.id] = copy.id
+        if case .group(let children) = copy.content {
+            copy.content = .group(children: children.map {
+                reidentifyingForCopy($0, map: &map)
+            })
+        }
+        return copy
+    }
+
+    /// Second pass for a copy: retarget both the current anchored form and the
+    /// backwards-compatible subject-stored form. New relationship ids avoid two
+    /// independently editable copies sharing identity in exported diagnostics.
+    private static func remappingCopiedReferences(_ node: Node,
+                                                   map: [UUID: UUID]) -> Node {
+        var copy = node
+        copy.relationships = copy.relationships.map {
+            NodeRelationship(kind: $0.kind, target: remapped($0.target, map: map))
+        }
+        copy.anchoredRelationships = copy.anchoredRelationships.map {
+            AnchoredRelationship(kind: $0.kind,
+                                 subject: remapped($0.subject, map: map),
+                                 target: remapped($0.target, map: map))
+        }
+        if case .group(let children) = copy.content {
+            copy.content = .group(children: children.map {
+                remappingCopiedReferences($0, map: map)
+            })
+        }
+        return copy
+    }
+
+    /// Duplicate a component DEFINITION, not one of its placed instances. The new
+    /// source is completely independent: source/layer/state/relationship ids are
+    /// fresh, while references to OTHER component sources remain live references.
+    /// Returns nil when the requested source does not exist.
+    func duplicatingComponentSource(_ sourceID: UUID)
+        -> (document: Document, sourceID: UUID)? {
+        guard let index = sources.firstIndex(where: { $0.id == sourceID }) else {
+            return nil
+        }
+
+        let original = sources[index]
+        var copy = original
+        copy.id = UUID()
+        copy.name = duplicateSourceName(original.name)
+
+        var map: [UUID: UUID] = [original.id: copy.id]
+        copy.children = original.children.map {
+            Self.reidentifyingForCopy($0, map: &map)
+        }.map {
+            Self.remappingCopiedReferences($0, map: map)
+        }
+
+        copy.a11y.accessibleNameLayerID = original.a11y.accessibleNameLayerID.map {
+            map[$0] ?? $0
+        }
+        copy.a11y.rootRelationships = original.a11y.rootRelationships.map {
+            NodeRelationship(kind: $0.kind,
+                             target: Self.remapped($0.target, map: map))
+        }
+        copy.states = original.states.map { state in
+            var state = state
+            state.id = UUID()
+            state.overrides = state.overrides.map {
+                InstanceOverride(targetNodeID: map[$0.targetNodeID] ?? $0.targetNodeID,
+                                 value: $0.value)
+            }
+            state.layerVisibility = state.layerVisibility.map {
+                LayerVisibilityOverride(layerID: map[$0.layerID] ?? $0.layerID,
+                                        isVisible: $0.isVisible)
+            }
+            return state
+        }
+        copy.anchoredRelationships = original.anchoredRelationships.map {
+            AnchoredRelationship(kind: $0.kind,
+                                 subject: Self.remapped($0.subject, map: map),
+                                 target: Self.remapped($0.target, map: map))
+        }
+
+        var result = self
+        result.sources.insert(copy, at: index + 1)
+        return (result, copy.id)
+    }
+
+    /// Finder-style copy naming, with a stable suffix when copies already exist.
+    private func duplicateSourceName(_ name: String) -> String {
+        let root = name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "Component" : name
+        let used = Set(sources.map { $0.name.lowercased() })
+        let first = "\(root) copy"
+        guard used.contains(first.lowercased()) else { return first }
+        var number = 2
+        while used.contains("\(first) \(number)".lowercased()) { number += 1 }
+        return "\(first) \(number)"
+    }
+
+    /// Rewrite every legacy, subject-stored relationship into the anchored form.
+    ///
+    /// ADDITIVE BY DESIGN. `Node.relationships` and `A11ySemantics.rootRelationships`
+    /// are left exactly as they were and are still encoded, so this cannot destroy
+    /// a document even if it is wrong — and nothing READS the anchored form until
+    /// chunk I-d, so a mistake here cannot change what the app draws or exports
+    /// either. Idempotent: an anchor already holding a matching entry is left
+    /// alone, so open/save cycles do not accumulate duplicates.
+    ///
+    /// Everything below works on local copies and writes back at the end, so no
+    /// call reads a stored property while another writes it.
+    mutating func migrateRelationshipsToAnchors() {
+        for index in sources.indices {
+            var anchored = sources[index].anchoredRelationships
+            var children = sources[index].children
+            let scope = children
+
+            // The component's OWN links. The subject is the element hosting the
+            // instance; the source id stands for it.
+            for relationship in sources[index].a11y.rootRelationships {
+                Self.add(AnchoredRelationship(
+                            kind: relationship.kind,
+                            subject: RelationshipEndpoint(nodeID: sources[index].id),
+                            target: relationship.target),
+                         to: &anchored)
+            }
+
+            Self.collectLegacy(in: scope, scope: scope,
+                               rootAnchored: &anchored, groupAnchors: &children)
+            sources[index].children = children
+            sources[index].anchoredRelationships = anchored
+        }
+
+        for index in pages.indices {
+            var pageAnchored = pages[index].anchoredRelationships
+            var pageNodes = pages[index].nodes
+            let pageScope = pageNodes
+            Self.collectLegacy(in: pageScope, scope: pageScope,
+                               rootAnchored: &pageAnchored, groupAnchors: &pageNodes)
+            pages[index].nodes = pageNodes
+            pages[index].anchoredRelationships = pageAnchored
+        }
+    }
+
+    /// Walk one scope, placing each legacy relationship on its nearest common
+    /// ancestor group, or on the scope root when the two ends share no group.
+    private static func collectLegacy(in nodes: [Node], scope: [Node],
+                                      rootAnchored: inout [AnchoredRelationship],
+                                      groupAnchors: inout [Node]) {
+        for node in nodes {
+            for relationship in node.relationships {
+                let entry = AnchoredRelationship(
+                    kind: relationship.kind,
+                    subject: RelationshipEndpoint(nodeID: node.id),
+                    target: relationship.target)
+                if let groupID = nearestCommonAncestorGroup(
+                    of: node.id, and: relationship.target.nodeID, in: scope) {
+                    addToGroup(entry, groupID: groupID, in: &groupAnchors)
+                } else {
+                    add(entry, to: &rootAnchored)
+                }
+            }
+            if case .group(let children) = node.content {
+                collectLegacy(in: children, scope: scope,
+                              rootAnchored: &rootAnchored, groupAnchors: &groupAnchors)
+            }
+        }
+    }
+
+    /// Identity for de-duplication is (kind, subject, target) — NOT `id`, which is
+    /// freshly minted on every migration run and would defeat the check.
+    private static func matches(_ a: AnchoredRelationship,
+                                _ b: AnchoredRelationship) -> Bool {
+        a.kind == b.kind && a.subject == b.subject && a.target == b.target
+    }
+
+    private static func add(_ entry: AnchoredRelationship,
+                            to list: inout [AnchoredRelationship]) {
+        guard !list.contains(where: { matches($0, entry) }) else { return }
+        list.append(entry)
+    }
+
+    private static func addToGroup(_ entry: AnchoredRelationship, groupID: UUID,
+                                   in nodes: inout [Node]) {
+        for i in nodes.indices {
+            if nodes[i].id == groupID {
+                guard !nodes[i].anchoredRelationships.contains(where: { matches($0, entry) })
+                else { return }
+                nodes[i].anchoredRelationships.append(entry)
+                return
+            }
+            if case .group(var children) = nodes[i].content {
+                addToGroup(entry, groupID: groupID, in: &children)
+                nodes[i].content = .group(children: children)
+            }
+        }
+    }
+
+    // MARK: - Relationship endpoints (FEAT-012 chunk I-a)
+
+    /// Walk an endpoint's path down from a set of anchor children and return the
+    /// node it addresses, or nil when the path no longer resolves.
+    ///
+    /// Each step of `instanceChain` must name a component INSTANCE in the tree at
+    /// that level; the walk then continues into that instance's resolved children,
+    /// which is the same tree the canvas draws and the exporter emits. Plain groups
+    /// are transparent — they are structure, not identity, so a path never has to
+    /// mention them and stays stable when someone regroups.
+    ///
+    /// Depth is capped for the same reason the dependency walker caps it: a
+    /// damaged or legacy document may already contain a cycle, and this must
+    /// terminate rather than recurse forever.
+    /// As `resolveEndpoint(_:in:)`, but an endpoint naming `anchorID` resolves to
+    /// the anchor itself rather than to one of its children. That is how a
+    /// component's OWN relationships are expressed: the element carrying the role
+    /// is the one hosting the instance, which is the anchor, not anything under it.
+    /// Returns nil for the anchor case when the caller wants a child node, so
+    /// callers must check `endpoint.nodeID == anchorID` when that distinction
+    /// matters.
+    func endpointNamesAnchor(_ endpoint: RelationshipEndpoint,
+                             anchorID: UUID) -> Bool {
+        endpoint.isDirect && endpoint.nodeID == anchorID
+    }
+
+    func resolveEndpoint(_ endpoint: RelationshipEndpoint,
+                         in anchorChildren: [Node]) -> Node? {
+        func find(_ id: UUID, in nodes: [Node]) -> Node? {
+            for node in nodes {
+                if node.id == id { return node }
+                // Descend through groups only. Stepping into an instance without
+                // an explicit chain entry would make two different paths resolve
+                // to the same node, which is precisely the ambiguity this type
+                // exists to remove.
+                if case .group(let children) = node.content,
+                   let found = find(id, in: children) { return found }
+            }
+            return nil
+        }
+
+        var level = anchorChildren
+        var depth = 0
+        for instanceID in endpoint.instanceChain {
+            guard depth < 24 else { return nil }
+            depth += 1
+            guard let host = find(instanceID, in: level),
+                  case .instance(let instance) = host.content else { return nil }
+            level = resolvedChildren(of: instance)
+        }
+        return find(endpoint.nodeID, in: level)
+    }
+
+    /// True when an endpoint still addresses something. Used to report a broken
+    /// link instead of silently dropping it.
+    func endpointResolves(_ endpoint: RelationshipEndpoint,
+                          in anchorChildren: [Node]) -> Bool {
+        resolveEndpoint(endpoint, in: anchorChildren) != nil
+    }
+
     /// Whether `sourceID` already reaches `targetID` through one or more nested
     /// component references. The visited set makes this total even for a damaged
     /// or legacy document that already contains a cycle.
@@ -185,9 +756,209 @@ struct Document: Codable, Sendable {
         }
     }
 
+    // MARK: Deleting a component source (v2.1 / Chunk I)
+
+    /// Every component source that references `sourceID`, directly or through
+    /// another source. Deleting a source edits all of these, so the panels,
+    /// menu validation, and the headless check ask this one question instead of
+    /// each growing its own walker.
+    func sourcesDepending(on sourceID: UUID) -> [UUID] {
+        sources.map(\.id).filter { $0 != sourceID && source($0, dependsOn: sourceID) }
+    }
+
+    /// How many instances of `sourceID` exist on the canvas and inside other
+    /// sources, at any depth. Deleting a source rewrites exactly this many
+    /// layers, so this is the number any warning copy or report should quote.
+    func instanceCount(of sourceID: UUID) -> Int {
+        func count(_ nodes: [Node]) -> Int {
+            nodes.reduce(0) { total, node in
+                switch node.content {
+                case .instance(let instance):
+                    return total + (instance.sourceID == sourceID ? 1 : 0)
+                case .group(let children):
+                    return total + count(children)
+                default:
+                    return total
+                }
+            }
+        }
+        return pages.reduce(0) { $0 + count($1.nodes) }
+            + sources.reduce(0) { $0 + count($1.children) }
+    }
+
+    /// Fresh ids for one flattened subtree, recording old -> new so an ancestor
+    /// instance's `nestedStateOverrides` paths can be re-rooted. Ids INSIDE a
+    /// `.instance` are deliberately untouched: those paths address that nested
+    /// source's own children, which this edit does not renumber.
+    private func reidentified(_ node: Node, map: inout [UUID: UUID]) -> Node {
+        var copy = node
+        copy.id = UUID()
+        map[node.id] = copy.id
+        if case .group(let children) = copy.content {
+            copy.content = .group(children: children.map { reidentified($0, map: &map) })
+        }
+        return copy
+    }
+
+    /// Turn one instance node into an ordinary group of what it was drawing.
+    /// The node KEEPS its id, name, frame, opacity, rotation, effects, blend
+    /// mode, flips, mask flags, relationships, lock, and visibility — only
+    /// `content` changes — so everything that addressed this layer (visibility
+    /// overrides, relationships, Layers selection/expansion) keeps working.
+    /// Children come from the same `resolvedChildren` the canvas draws and the
+    /// Detach command bakes, so the flatten is visually a no-op.
+    private func flattened(_ node: Node, instance: ComponentInstance,
+                           idMap: inout [UUID: UUID]) -> Node {
+        var copy = node
+        let children = resolvedChildren(of: instance).map { child -> Node in
+            reidentified(child, map: &idMap)
+        }
+        copy.content = .group(children: children)
+        // `resolvedChildren` are source-local, and the replacement group keeps the
+        // instance's frame. Group rendering adds that frame as the child offset.
+        // Adding it here as well moved every child TWICE, often completely off the
+        // visible canvas — which made source deletion look as if it removed every
+        // instance even though the layers still existed in the model (BUG-014).
+        // The flattened children were re-identified, so anything anchored inside
+        // them must follow — same reasoning as BUG-010.
+        copy = Self.remappingAnchors(copy, map: idMap)
+
+        // Carry the COMPONENT ROOT's relationships onto the group that replaces
+        // this instance, retargeted through the same id map the children were
+        // renumbered with — otherwise deleting a source would silently strand
+        // links that were part of the component contract.
+        //
+        // Naming is deliberately NOT carried: the group has no role, and
+        // `aria-labelledby` is prohibited on a roleless (generic) element.
+        // `aria-controls` / `aria-describedby` are global properties and stay
+        // valid, so those survive. Same distinction as the exporter — see
+        // BACKLOG BUG-008.
+        if let source = source(for: instance.sourceID) {
+            for relationship in source.a11y.rootRelationships
+            where !relationship.kind.isProhibitedWithoutRole {
+                guard let mapped = idMap[relationship.targetID] else { continue }
+                copy.relationships.append(
+                    NodeRelationship(kind: relationship.kind, targetID: mapped))
+            }
+        }
+        return copy
+    }
+
+    /// Replace every instance of `sourceID` in `nodes`, at any depth, with a
+    /// plain group. Instances of OTHER sources are left as instances — including
+    /// ones nested inside the flattened content, which arrive from
+    /// `resolvedChildren` already carrying the state they were displaying.
+    private func flatteningInstances(of sourceID: UUID, in nodes: [Node],
+                                     idMap: inout [UUID: UUID],
+                                     dissolved: inout Set<UUID>) -> [Node] {
+        nodes.map { node -> Node in
+            switch node.content {
+            case .instance(let instance) where instance.sourceID == sourceID:
+                dissolved.insert(node.id)
+                return flattened(node, instance: instance, idMap: &idMap)
+            case .group(let children):
+                var copy = node
+                copy.content = .group(children: flatteningInstances(
+                    of: sourceID, in: children, idMap: &idMap, dissolved: &dissolved))
+                return copy
+            default:
+                return node
+            }
+        }
+    }
+
+    /// Re-root nested state selections that pointed through a now-dissolved
+    /// instance. A selection FOR the dissolved instance is dropped (a plain
+    /// group has no states to select); a selection for something nested BELOW it
+    /// moves onto that layer's new id, so a state chosen two levels down is not
+    /// silently lost. Paths that never touched the deleted source are untouched.
+    private func repairingStatePaths(in nodes: [Node], dissolved: Set<UUID>,
+                                     idMap: [UUID: UUID]) -> [Node] {
+        nodes.map { node -> Node in
+            var copy = node
+            switch copy.content {
+            case .instance(var instance):
+                instance.nestedStateOverrides = instance.nestedStateOverrides.compactMap {
+                    override -> NestedInstanceStateOverride? in
+                    guard let head = override.instancePath.first,
+                          dissolved.contains(head) else { return override }
+                    let rest = override.instancePath.dropFirst()
+                    guard let next = rest.first, let mapped = idMap[next] else { return nil }
+                    return NestedInstanceStateOverride(
+                        instancePath: [mapped] + rest.dropFirst(),
+                        stateID: override.stateID)
+                }
+                // Nested VALUE overrides follow exactly the same rule (FEAT-017).
+                // Not doing this here is the BUG-010 mistake one level over: a
+                // dissolved instance renumbers the layers beneath it, and a path
+                // running through it would otherwise address nothing while looking
+                // perfectly valid. An override FOR the dissolved instance itself is
+                // dropped, since the plain group that replaces it has no source to
+                // override against.
+                instance.nestedOverrides = instance.nestedOverrides.compactMap {
+                    override -> NestedInstanceOverride? in
+                    guard let head = override.instancePath.first,
+                          dissolved.contains(head) else { return override }
+                    let rest = override.instancePath.dropFirst()
+                    guard let next = rest.first, let mapped = idMap[next] else { return nil }
+                    return NestedInstanceOverride(
+                        instancePath: [mapped] + rest.dropFirst(),
+                        targetNodeID: idMap[override.targetNodeID] ?? override.targetNodeID,
+                        value: override.value)
+                }
+                copy.content = .instance(instance)
+            case .group(let children):
+                copy.content = .group(children: repairingStatePaths(
+                    in: children, dissolved: dissolved, idMap: idMap))
+            default:
+                break
+            }
+            return copy
+        }
+    }
+
+    /// Delete a component source, leaving every place it was used looking
+    /// exactly as it did: each instance becomes an ordinary group of the layers
+    /// it was drawing, wherever it lived — the canvas, inside a group, or inside
+    /// another component source. Nothing disappears from the document, and
+    /// components nested below the deleted one survive as live instances.
+    /// Returns a new document; the caller owns the single undo step.
+    func deletingComponentSource(_ sourceID: UUID) -> Document {
+        guard source(for: sourceID) != nil else { return self }
+        var idMap: [UUID: UUID] = [:]
+        var dissolved: Set<UUID> = []
+        var result = self
+        for index in result.pages.indices {
+            result.pages[index].nodes = flatteningInstances(
+                of: sourceID, in: result.pages[index].nodes,
+                idMap: &idMap, dissolved: &dissolved)
+        }
+        for index in result.sources.indices {
+            result.sources[index].children = flatteningInstances(
+                of: sourceID, in: result.sources[index].children,
+                idMap: &idMap, dissolved: &dissolved)
+        }
+        if !dissolved.isEmpty {
+            for index in result.pages.indices {
+                result.pages[index].nodes = repairingStatePaths(
+                    in: result.pages[index].nodes, dissolved: dissolved, idMap: idMap)
+            }
+            for index in result.sources.indices {
+                result.sources[index].children = repairingStatePaths(
+                    in: result.sources[index].children, dissolved: dissolved, idMap: idMap)
+            }
+        }
+        result.sources.removeAll { $0.id == sourceID }
+        return result
+    }
+
     /// A source behaves as a dynamic component when its top level is exactly one
     /// managed frame (typical button/tag components). More complex sources keep
     /// SVG-style stable viewBox bounds.
+    /// Deliberately uses the PURE engine: this asks a structural question — is
+    /// the top level exactly one managed group — and the answer cannot change
+    /// with instance sizes. Resolving instances here would recurse on every
+    /// layout for no difference in result.
     func sourceUsesManagedBounds(_ source: ComponentSource) -> Bool {
         managedRootBounds(in: AutoLayoutEngine.reflowed(source.children)) != nil
     }
@@ -200,7 +971,66 @@ struct Document: Codable, Sendable {
         return root.frame
     }
 
-    private func resolvedLayout(of inst: ComponentInstance) -> (children: [Node], bounds: CGRect)? {
+    /// Instance resolution recurses through nested components. The source graph
+    /// is kept acyclic (Chunk I), but a damaged or legacy file may already
+    /// contain a cycle — the dependency walker above is explicitly total for
+    /// that case, and so is this: past the cap, instances keep their stored
+    /// frames instead of recursing forever.
+    static let maxInstanceResolveDepth = 24
+
+    /// Give every component instance in `nodes` its REAL size before layout runs.
+    ///
+    /// An instance's size is a function of its source plus this instance's
+    /// overrides and state — not of its stored frame. `AutoLayoutEngine` is a
+    /// pure `[Node] -> [Node]` with no document, so it cannot look a source up
+    /// and leaves `.instance` nodes untouched. Without this pass an instance
+    /// DRAWS at one size (every canvas path uses `resolvedSize(of:)`) and is
+    /// LAID OUT at another (its stale stored frame), so an overridden label
+    /// grows over its siblings instead of pushing them along. That was BUG-007.
+    func instanceSized(_ nodes: [Node], depth: Int = 0) -> [Node] {
+        // Identity fast path: most trees hold no instances, and rebuilding them
+        // on every reflow would cost more than the walk saves.
+        guard depth < Document.maxInstanceResolveDepth,
+              nodes.contains(where: Document.containsInstance) else { return nodes }
+        return nodes.map { node -> Node in
+            var copy = node
+            switch node.content {
+            case .instance(let instance):
+                if let layout = resolvedLayout(of: instance, depth: depth + 1),
+                   layout.bounds.width > 0, layout.bounds.height > 0 {
+                    copy.frame.size = layout.bounds.size
+                }
+            case .group(let children):
+                copy.content = .group(children: instanceSized(children, depth: depth))
+            default:
+                break
+            }
+            return copy
+        }
+    }
+
+    private static func containsInstance(_ node: Node) -> Bool {
+        switch node.content {
+        case .instance: return true
+        case .group(let kids): return kids.contains(where: containsInstance)
+        default: return false
+        }
+    }
+
+    /// Reflow that knows how big component instances actually are. Every caller
+    /// holding a document should use THIS rather than `AutoLayoutEngine.reflowed`
+    /// directly; the pure engine entry point remains for contexts with no
+    /// document (the thumbnail extension) and for structure-only checks.
+    func reflowed(_ nodes: [Node]) -> [Node] {
+        reflowed(nodes, depth: 0)
+    }
+
+    private func reflowed(_ nodes: [Node], depth: Int) -> [Node] {
+        AutoLayoutEngine.reflowed(instanceSized(nodes, depth: depth))
+    }
+
+    private func resolvedLayout(of inst: ComponentInstance,
+                                depth: Int = 0) -> (children: [Node], bounds: CGRect)? {
         guard let source = source(for: inst.sourceID) else { return nil }
         // Fold in the instance's selected state (nil = base) before resolving, so
         // an instance placed on the wall can display any of the source's states.
@@ -210,10 +1040,15 @@ struct Document: Codable, Sendable {
         let resolved = source.children
             .filter { eff.isLayerVisible($0.id, sourceDefault: $0.isVisible) }
             .map { eff.applyingOverrides(to: $0) }
+            // FEAT-017 chunk J-b. Hand each nested instance the overrides addressed
+            // to it, BEFORE the reflow below — so a re-hug measures the overridden
+            // content rather than the source's original, which is the same ordering
+            // mistake BUG-007 was about.
+            .map { Self.pushingNestedOverrides(eff.nestedOverrides, into: $0) }
         // Re-hug auto-layout / auto-padding frames for THIS instance's overrides.
         // (AutoLayoutEngine.swift must be a member of BOTH the app AND the
         // EXPThumbnail targets, or this won't compile — do not stub this out.)
-        let laid = AutoLayoutEngine.reflowed(resolved)
+        let laid = reflowed(resolved, depth: depth)
         let bounds = sourceUsesManagedBounds(source)
             ? (managedRootBounds(in: laid) ?? source.bounds)
             : source.bounds
@@ -227,6 +1062,57 @@ struct Document: Codable, Sendable {
             shifted = shifted.map { var n = $0; n.frame.origin.x -= o.x; n.frame.origin.y -= o.y; return n }
         }
         return (shifted, bounds)
+    }
+
+    /// Push an instance's nested overrides one level down, onto the nested instance
+    /// each one addresses.
+    ///
+    /// This is the whole of J-b, and it is deliberately one level: an override whose
+    /// path is `[a]` becomes an ORDINARY override on `a`, and one whose path is
+    /// `[a, b]` becomes a nested override on `a` with the head stripped. `a` then
+    /// resolves through this same function, so arbitrary depth falls out of the
+    /// recursion that already exists rather than needing its own walk.
+    ///
+    /// Appended LAST on purpose. `applyingOverrides` applies in order with the later
+    /// value winning, so a nested override from the outer placement beats whatever
+    /// the source baked in — which is what "override" has to mean, and what makes
+    /// reset (drop the entry) fall back to the nearest source value for free.
+    ///
+    /// Groups are descended but never named: a path contains instance ids only, so
+    /// a nested instance sitting inside a layout group is still reachable and stays
+    /// reachable when that group is rearranged. Same rule as relationship endpoints.
+    ///
+    /// An override with an EMPTY path matches nothing here, since no node id equals
+    /// nil. That is the `isAddressable` contract from J-a holding by construction
+    /// rather than by a filter someone could later remove.
+    static func pushingNestedOverrides(_ overrides: [NestedInstanceOverride],
+                                       into node: Node) -> Node {
+        guard !overrides.isEmpty else { return node }
+        var copy = node
+        switch copy.content {
+        case .instance(var nested):
+            for override in overrides where override.instancePath.first == node.id {
+                let rest = Array(override.instancePath.dropFirst())
+                if rest.isEmpty {
+                    nested.overrides.append(
+                        InstanceOverride(targetNodeID: override.targetNodeID,
+                                         value: override.value))
+                } else {
+                    nested.nestedOverrides.append(
+                        NestedInstanceOverride(instancePath: rest,
+                                               targetNodeID: override.targetNodeID,
+                                               value: override.value))
+                }
+            }
+            copy.content = .instance(nested)
+        case .group(let children):
+            copy.content = .group(children: children.map {
+                pushingNestedOverrides(overrides, into: $0)
+            })
+        default:
+            break
+        }
+        return copy
     }
 
     /// The fully-resolved children to draw for an instance: the source's children
@@ -261,10 +1147,14 @@ struct Document: Codable, Sendable {
     /// nil if it's on the wall. Rule: an artboard owns the shape when it covers
     /// MORE THAN HALF of the shape's area; ties broken by largest coverage.
     func owningArtboard(of frame: CGRect) -> Artboard? {
+        owningArtboard(of: frame, on: pages.first?.id)
+    }
+
+    func owningArtboard(of frame: CGRect, on pageID: UUID?) -> Artboard? {
         let area = frame.width * frame.height
         guard area > 0 else { return nil }
         var best: (artboard: Artboard, coverage: CGFloat)?
-        for artboard in artboards {
+        for artboard in page(for: pageID)?.artboards ?? [] {
             let overlap = artboard.frame.intersection(frame)
             guard !overlap.isNull else { continue }
             let coverage = overlap.width * overlap.height
@@ -404,6 +1294,11 @@ struct Node: Identifiable, Codable, Sendable {
     /// per-side padding and can draw its own background (the button/tag surface).
     /// Independent of `autoLayout` — either, both, or neither.
     var autoPadding: AutoPadding? = nil
+    /// Keeps an item in its parent's coordinate space without making it one of the
+    /// parent's auto-layout stack items. Figma calls this absolute positioning;
+    /// it is also how an enclosing surface can remain behind a row of controls
+    /// without consuming a row slot of its own.
+    var isAbsoluteInAutoLayout: Bool = false
     /// Mirror flags, applied at draw time about the frame's center (like rotation).
     /// A flip is a render transform so it works uniformly for images, text, paths,
     /// and groups without rewriting their geometry.
@@ -422,6 +1317,15 @@ struct Node: Identifiable, Codable, Sendable {
     /// Export maps these to attributes like `aria-controls` / `aria-labelledby`;
     /// the app stores ids only, never interaction implementation code.
     var relationships: [NodeRelationship] = []
+    /// Relationships ANCHORED at this node, meaningful only when it is a `.group`.
+    /// The group is the nearest container holding both ends, so each end is stored
+    /// as a path relative to it. See `AnchoredRelationship` and BACKLOG FEAT-012.
+    ///
+    /// FEAT-012 chunk I-b: this is populated by migration and by future authoring,
+    /// but NOTHING reads it yet — the exporter still reads `relationships` until
+    /// chunk I-d switches the read path over. Keeping the legacy array intact and
+    /// still written means a bad migration is recoverable rather than destructive.
+    var anchoredRelationships: [AnchoredRelationship] = []
     /// Which overridable fields on this node are public component props for
     /// downstream codegen / Storybook args. A false value keeps the override local
     /// to EXP; a true value advertises it as part of the source's public contract.
@@ -432,9 +1336,11 @@ struct Node: Identifiable, Codable, Sendable {
          isLocked: Bool = false, rotation: Double = 0, opacity: Double = 1,
          effects: [Effect] = [], blendMode: BlendMode = .normal,
          autoLayout: AutoLayout? = nil, autoPadding: AutoPadding? = nil,
+         isAbsoluteInAutoLayout: Bool = false,
          flipH: Bool = false, flipV: Bool = false,
          isMask: Bool = false, isMaskShape: Bool = false,
          relationships: [NodeRelationship] = [],
+         anchoredRelationships: [AnchoredRelationship] = [],
          publicProps: PublicOverrideProps = PublicOverrideProps(),
          content: NodeContent) {
         self.id = id; self.name = name; self.frame = frame
@@ -442,9 +1348,12 @@ struct Node: Identifiable, Codable, Sendable {
         self.rotation = rotation; self.opacity = opacity
         self.effects = effects; self.blendMode = blendMode
         self.autoLayout = autoLayout; self.autoPadding = autoPadding
+        self.isAbsoluteInAutoLayout = isAbsoluteInAutoLayout
         self.flipH = flipH; self.flipV = flipV
         self.isMask = isMask; self.isMaskShape = isMaskShape
-        self.relationships = relationships; self.publicProps = publicProps
+        self.relationships = relationships
+        self.anchoredRelationships = anchoredRelationships
+        self.publicProps = publicProps
         self.content = content
     }
 
@@ -453,8 +1362,8 @@ struct Node: Identifiable, Codable, Sendable {
     // Codable would throw on a missing key.
     enum CodingKeys: String, CodingKey {
         case id, name, frame, isVisible, isLocked, rotation, opacity, effects, blendMode
-        case autoLayout, autoPadding, flipH, flipV, isMask, isMaskShape
-        case relationships, publicProps, content
+        case autoLayout, autoPadding, isAbsoluteInAutoLayout, flipH, flipV, isMask, isMaskShape
+        case relationships, anchoredRelationships, publicProps, content
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -469,13 +1378,57 @@ struct Node: Identifiable, Codable, Sendable {
         blendMode = try c.decodeIfPresent(BlendMode.self, forKey: .blendMode) ?? .normal
         autoLayout = try c.decodeIfPresent(AutoLayout.self, forKey: .autoLayout)
         autoPadding = try c.decodeIfPresent(AutoPadding.self, forKey: .autoPadding)
+        isAbsoluteInAutoLayout = try c.decodeIfPresent(Bool.self,
+                                                       forKey: .isAbsoluteInAutoLayout) ?? false
         flipH = try c.decodeIfPresent(Bool.self, forKey: .flipH) ?? false
         flipV = try c.decodeIfPresent(Bool.self, forKey: .flipV) ?? false
         isMask = try c.decodeIfPresent(Bool.self, forKey: .isMask) ?? false
         isMaskShape = try c.decodeIfPresent(Bool.self, forKey: .isMaskShape) ?? false
-        relationships = (try? c.decodeIfPresent([NodeRelationship].self, forKey: .relationships)) ?? []
+        relationships = ((try? c.decodeIfPresent([NodeRelationship].self, forKey: .relationships)) ?? nil) ?? []
+        anchoredRelationships = ((try? c.decodeIfPresent([AnchoredRelationship].self,
+                                                         forKey: .anchoredRelationships)) ?? nil) ?? []
         publicProps = try c.decodeIfPresent(PublicOverrideProps.self, forKey: .publicProps) ?? PublicOverrideProps()
         content = try c.decode(NodeContent.self, forKey: .content)
+    }
+}
+
+/// A relationship stored at its ANCHOR — the nearest node containing BOTH ends —
+/// rather than on the subject.
+///
+/// This is the shape FEAT-012 exists to reach. A relationship kept on the subject
+/// node breaks the moment the subject lives inside a component: everything stored
+/// in a source applies to every PLACEMENT of that source, so all placements would
+/// point at the same target. Anchoring it above both ends fixes that by
+/// construction — place the anchor twice and each copy resolves its own ends,
+/// with no cross-placement leak and no colliding DOM ids.
+///
+/// `subject` may name the anchor ITSELF (for a component's own relationships,
+/// where the element carrying the role is the one hosting the instance). That is
+/// not a special case in the data — it is just an endpoint whose `nodeID` is the
+/// anchor's — and `Document.resolveEndpoint(_:in:anchorID:)` handles it.
+struct AnchoredRelationship: Identifiable, Codable, Equatable, Sendable {
+    var id = UUID()
+    var kind: NodeRelationship.Kind
+    /// The end that CARRIES the attribute (the tab, in `tab -> controls -> panel`).
+    var subject: RelationshipEndpoint
+    /// The end the attribute POINTS AT (the panel).
+    var target: RelationshipEndpoint
+
+    init(id: UUID = UUID(), kind: NodeRelationship.Kind,
+         subject: RelationshipEndpoint, target: RelationshipEndpoint) {
+        self.id = id
+        self.kind = kind
+        self.subject = subject
+        self.target = target
+    }
+
+    enum CodingKeys: String, CodingKey { case id, kind, subject, target }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        kind = try c.decode(NodeRelationship.Kind.self, forKey: .kind)
+        subject = try c.decode(RelationshipEndpoint.self, forKey: .subject)
+        target = try c.decode(RelationshipEndpoint.self, forKey: .target)
     }
 }
 
@@ -484,12 +1437,59 @@ struct Node: Identifiable, Codable, Sendable {
 /// A typed id-to-id relationship from one node to another. These are the behavior
 /// leg of the component contract: ARIA role + relationships imply the WAI-APG
 /// interaction pattern on export, without storing brittle JS in the design file.
+/// Where one end of a relationship points.
+///
+/// A layer inside a component has no single identity — it exists once per
+/// PLACEMENT, and the DOM id the exporter mints for it is composed from the
+/// instance chain above it. A raw node id can therefore only ever name the first
+/// placement, which is how two uses of the same component collide. An endpoint is
+/// a PATH instead: the instance nodes to descend through, outermost first, then
+/// the addressed node.
+///
+///     RelationshipEndpoint(nodeID: panelInstance)                    // a sibling
+///     RelationshipEndpoint(instanceChain: [tabBar], nodeID: tabOne)  // inside a placed component
+///
+/// FEAT-012 chunk I-a. This type exists BEFORE anything uses the chain, on
+/// purpose: every relationship written today has an empty chain and behaves
+/// exactly as it did, so the type can land and be verified without moving any
+/// storage. See BACKLOG FEAT-012 for the full plan and for why widening the
+/// target picker is NOT the fix this replaces.
+struct RelationshipEndpoint: Codable, Equatable, Hashable, Sendable {
+    /// Component-instance nodes to descend through, OUTERMOST FIRST.
+    /// Empty means the addressed node is a plain sibling within the anchor.
+    var instanceChain: [UUID] = []
+    /// The node actually being addressed. Non-optional by construction, so an
+    /// endpoint can never be malformed the way a bare `[UUID]` path could.
+    var nodeID: UUID
+
+    init(instanceChain: [UUID] = [], nodeID: UUID) {
+        self.instanceChain = instanceChain
+        self.nodeID = nodeID
+    }
+
+    /// Full path, innermost LAST — the form the exporter and the id minter want.
+    var path: [UUID] { instanceChain + [nodeID] }
+
+    /// True when there is nothing to descend through.
+    var isDirect: Bool { instanceChain.isEmpty }
+
+    enum CodingKeys: String, CodingKey { case instanceChain, nodeID }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        instanceChain = try c.decodeIfPresent([UUID].self, forKey: .instanceChain) ?? []
+        nodeID = try c.decode(UUID.self, forKey: .nodeID)
+    }
+}
+
 struct NodeRelationship: Identifiable, Codable, Equatable, Sendable {
     enum Kind: String, Codable, Sendable, CaseIterable {
         case controls
         case labelledby
         case describedby
 
+        /// Internal/technical name. Used for undo action names and diagnostics —
+        /// NOT as an inspector label. See `friendlyLabel(for:)`; FEAT-011 is
+        /// explicit that no ARIA attribute name appears as a primary label.
         var label: String {
             switch self {
             case .controls:    return "Controls"
@@ -505,24 +1505,129 @@ struct NodeRelationship: Identifiable, Codable, Equatable, Sendable {
             case .describedby: return "aria-describedby"
             }
         }
+
+        /// Plain-language PRIMARY label, phrased for the role when we know it
+        /// (FEAT-011). The emitted attribute never changes — only the words. The
+        /// literal attribute stays discoverable in the help tip and the handoff,
+        /// so the mapping is learnable rather than hidden.
+        ///
+        /// Wording is checked against the WAI-APG pattern for each role so a
+        /// rename can never make the field WRONG: a tab controls its panel, a
+        /// tabpanel is named by its tab.
+        func friendlyLabel(for role: AriaRole?) -> String {
+            switch self {
+            case .controls:
+                switch role {
+                case .tab:            return "Opens this panel"
+                case .button, .link:  return "Opens or changes"
+                case .menuitem, .option: return "Opens or changes"
+                default:              return "Operates"
+                }
+            case .labelledby:
+                switch role {
+                case .tabpanel:                 return "Named by its tab"
+                case .dialog, .alertdialog:     return "Named by its title"
+                default:                        return "Gets its name from"
+                }
+            case .describedby:
+                switch role {
+                case .textbox, .searchbox, .checkbox, .radio, .switch,
+                     .slider, .spinbutton:      return "Helper or error text"
+                default:                        return "Extra explanation"
+                }
+            }
+        }
+
+        /// Help-tip body. Explains the relationship in designer terms and names
+        /// the attribute LAST, so someone who wants the ARIA token can find it
+        /// without it being the thing they must decode first.
+        func friendlyHelp(for role: AriaRole?) -> String {
+            switch self {
+            case .controls:
+                let lead = role == .tab
+                    ? "Point this at the panel this tab shows."
+                    : "Point this at the layer this one opens, closes, or changes."
+                return lead + " Exported as \(ariaAttribute)."
+            case .labelledby:
+                let lead = role == .tabpanel
+                    ? "Point this at the tab that names this panel."
+                    : "Point this at the visible text a screen reader should read as this layer\u{2019}s name."
+                return lead + " Exported as \(ariaAttribute)."
+            case .describedby:
+                return "Point this at hint, helper, or error text. A screen reader reads it AFTER the name, as extra explanation \u{2014} not as the name itself. Exported as \(ariaAttribute)."
+            }
+        }
+
+        /// True when ARIA PROHIBITS this property on an element that carries no
+        /// role — i.e. one that exports as a plain `<div>` with the implicit
+        /// `generic` role.
+        ///
+        /// Only naming is prohibited there: "Because the generic role is
+        /// nameless, the aria-labelledby and aria-label attributes are
+        /// prohibited" (MDN, generic role; WAI-ARIA 1.2 5.2.5 Prohibited States
+        /// and Properties). `aria-controls` and `aria-describedby` are GLOBAL
+        /// properties, valid on every role — they are merely POINTLESS on a
+        /// nameless container, which is a quality judgment, not a conformance
+        /// one. Do not conflate the two: the UI must not tell anyone that a
+        /// description is invalid when it is not.
+        /// Verified 2026-07-24 against MDN / WAI-ARIA 1.2 — see BACKLOG BUG-008,
+        /// which also records what was NOT verified.
+        var isProhibitedWithoutRole: Bool { self == .labelledby }
     }
 
     var id = UUID()
     var kind: Kind
-    var targetID: UUID
+    var target: RelationshipEndpoint
 
-    init(id: UUID = UUID(), kind: Kind, targetID: UUID) {
-        self.id = id
-        self.kind = kind
-        self.targetID = targetID
+    /// Compatibility accessor for every call site that predates FEAT-012.
+    /// Those all address a sibling by raw id — an endpoint with an empty chain —
+    /// so this stays exact for them, and for a deeper endpoint it returns the
+    /// addressed node, which is the right answer for anything asking "what does
+    /// this point AT." Writing through it resets the chain, because a raw id
+    /// cannot express one; that is deliberate, not a lossy accident.
+    var targetID: UUID {
+        get { target.nodeID }
+        set { target = RelationshipEndpoint(nodeID: newValue) }
     }
 
-    enum CodingKeys: String, CodingKey { case id, kind, targetID }
+    init(id: UUID = UUID(), kind: Kind, target: RelationshipEndpoint) {
+        self.id = id
+        self.kind = kind
+        self.target = target
+    }
+
+    init(id: UUID = UUID(), kind: Kind, targetID: UUID) {
+        self.init(id: id, kind: kind, target: RelationshipEndpoint(nodeID: targetID))
+    }
+
+    enum CodingKeys: String, CodingKey { case id, kind, targetID, target }
+
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
         kind = try c.decode(Kind.self, forKey: .kind)
-        targetID = try c.decode(UUID.self, forKey: .targetID)
+        // `target` is the v2.1 form; `targetID` is every file written before it,
+        // where a relationship could only ever address a sibling. A legacy id
+        // becomes an endpoint with an empty instance chain, which resolves and
+        // exports identically — so old documents are not merely readable, they
+        // behave the same.
+        if let endpoint = try c.decodeIfPresent(RelationshipEndpoint.self, forKey: .target) {
+            target = endpoint
+        } else {
+            target = RelationshipEndpoint(nodeID: try c.decode(UUID.self, forKey: .targetID))
+        }
+    }
+
+    /// Writes BOTH forms. `targetID` is redundant for anything this build reads,
+    /// but it keeps a v2.1 file openable by a v2.0 build — which degrades to the
+    /// sibling behavior rather than failing to decode the document at all. Cheap
+    /// insurance; drop it only once no shipped build reads `targetID`.
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(kind, forKey: .kind)
+        try c.encode(target, forKey: .target)
+        try c.encode(target.nodeID, forKey: .targetID)
     }
 }
 
@@ -617,13 +1722,14 @@ struct AutoPadding: Codable, Equatable, Sendable {
     var stroke: RGBAColor? = nil
     var strokeWidth: CGFloat = 0
     var strokeAlignment: StrokeAlignment = .center
+    var strokePattern: StrokePattern = .solid
 
     init() {}
 
     enum CodingKeys: String, CodingKey {
         case paddingTop, paddingRight, paddingBottom, paddingLeft
         case marginTop, marginRight, marginBottom, marginLeft
-        case fill, cornerRadius, stroke, strokeWidth, strokeAlignment
+        case fill, cornerRadius, stroke, strokeWidth, strokeAlignment, strokePattern
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -640,6 +1746,18 @@ struct AutoPadding: Codable, Equatable, Sendable {
         stroke = try c.decodeIfPresent(RGBAColor.self, forKey: .stroke)
         strokeWidth = try c.decodeIfPresent(CGFloat.self, forKey: .strokeWidth) ?? 0
         strokeAlignment = try c.decodeIfPresent(StrokeAlignment.self, forKey: .strokeAlignment) ?? .center
+        strokePattern = try c.decodeIfPresent(StrokePattern.self, forKey: .strokePattern) ?? .solid
+    }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(paddingTop, forKey: .paddingTop); try c.encode(paddingRight, forKey: .paddingRight)
+        try c.encode(paddingBottom, forKey: .paddingBottom); try c.encode(paddingLeft, forKey: .paddingLeft)
+        try c.encode(marginTop, forKey: .marginTop); try c.encode(marginRight, forKey: .marginRight)
+        try c.encode(marginBottom, forKey: .marginBottom); try c.encode(marginLeft, forKey: .marginLeft)
+        try c.encodeIfPresent(fill, forKey: .fill); try c.encode(cornerRadius, forKey: .cornerRadius)
+        try c.encodeIfPresent(stroke, forKey: .stroke); try c.encode(strokeWidth, forKey: .strokeWidth)
+        try c.encode(strokeAlignment, forKey: .strokeAlignment)
+        if strokePattern != .solid { try c.encode(strokePattern, forKey: .strokePattern) }
     }
 
     var marginW: CGFloat { marginLeft + marginRight }
@@ -946,6 +2064,22 @@ enum StrokeAlignment: String, Codable, Sendable, CaseIterable {
     }
 }
 
+/// Reusable outline rhythm for lines, open paths, closed-shape borders, and
+/// auto-padding group backgrounds. Presets intentionally stay semantic instead
+/// of persisting device-specific dash arrays, so dots remain round and readable
+/// when stroke width or export scale changes.
+enum StrokePattern: String, Codable, Sendable, CaseIterable {
+    case solid, dashed, dotted
+
+    var label: String {
+        switch self {
+        case .solid: return "Solid"
+        case .dashed: return "Dash"
+        case .dotted: return "Dot"
+        }
+    }
+}
+
 /// `strokeWidth == 0` means no stroke (matches a plain filled shape). Custom
 /// decoders default the newer stroke fields so older files still open.
 struct RectangleShape: Codable, Sendable {
@@ -954,9 +2088,14 @@ struct RectangleShape: Codable, Sendable {
     var stroke: RGBAColor = .black
     var strokeWidth: CGFloat = 0
     var strokeAlignment: StrokeAlignment = .center
+    var strokePattern: StrokePattern = .solid
     /// Per-corner radii (v1.3). nil = uniform `cornerRadius` (the default,
     /// simple case). Setting the plain Corner field clears this back to nil.
     var cornerRadii: CornerRadii? = nil
+
+    enum CodingKeys: String, CodingKey {
+        case fill, cornerRadius, stroke, strokeWidth, strokeAlignment, strokePattern, cornerRadii
+    }
 
     /// The four radii actually in effect (uniform expands to all corners).
     var effectiveRadii: CornerRadii { cornerRadii ?? CornerRadii(all: cornerRadius) }
@@ -968,10 +2107,12 @@ struct RectangleShape: Codable, Sendable {
 
     init(fill: Paint = .white, cornerRadius: CGFloat = 0,
          stroke: RGBAColor = .black, strokeWidth: CGFloat = 0,
-         strokeAlignment: StrokeAlignment = .center, cornerRadii: CornerRadii? = nil) {
+         strokeAlignment: StrokeAlignment = .center, strokePattern: StrokePattern = .solid,
+         cornerRadii: CornerRadii? = nil) {
         self.fill = fill; self.cornerRadius = cornerRadius
         self.stroke = stroke; self.strokeWidth = strokeWidth
-        self.strokeAlignment = strokeAlignment; self.cornerRadii = cornerRadii
+        self.strokeAlignment = strokeAlignment; self.strokePattern = strokePattern
+        self.cornerRadii = cornerRadii
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -980,7 +2121,16 @@ struct RectangleShape: Codable, Sendable {
         stroke = try c.decodeIfPresent(RGBAColor.self, forKey: .stroke) ?? .black
         strokeWidth = try c.decodeIfPresent(CGFloat.self, forKey: .strokeWidth) ?? 0
         strokeAlignment = try c.decodeIfPresent(StrokeAlignment.self, forKey: .strokeAlignment) ?? .center
+        strokePattern = try c.decodeIfPresent(StrokePattern.self, forKey: .strokePattern) ?? .solid
         cornerRadii = try c.decodeIfPresent(CornerRadii.self, forKey: .cornerRadii)
+    }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(fill, forKey: .fill); try c.encode(cornerRadius, forKey: .cornerRadius)
+        try c.encode(stroke, forKey: .stroke); try c.encode(strokeWidth, forKey: .strokeWidth)
+        try c.encode(strokeAlignment, forKey: .strokeAlignment)
+        if strokePattern != .solid { try c.encode(strokePattern, forKey: .strokePattern) }
+        try c.encodeIfPresent(cornerRadii, forKey: .cornerRadii)
     }
 }
 
@@ -989,11 +2139,16 @@ struct EllipseShape: Codable, Sendable {
     var stroke: RGBAColor = .black
     var strokeWidth: CGFloat = 0
     var strokeAlignment: StrokeAlignment = .center
+    var strokePattern: StrokePattern = .solid
+
+    enum CodingKeys: String, CodingKey {
+        case fill, stroke, strokeWidth, strokeAlignment, strokePattern
+    }
 
     init(fill: Paint = .white, stroke: RGBAColor = .black, strokeWidth: CGFloat = 0,
-         strokeAlignment: StrokeAlignment = .center) {
+         strokeAlignment: StrokeAlignment = .center, strokePattern: StrokePattern = .solid) {
         self.fill = fill; self.stroke = stroke; self.strokeWidth = strokeWidth
-        self.strokeAlignment = strokeAlignment
+        self.strokeAlignment = strokeAlignment; self.strokePattern = strokePattern
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -1001,6 +2156,13 @@ struct EllipseShape: Codable, Sendable {
         stroke = try c.decodeIfPresent(RGBAColor.self, forKey: .stroke) ?? .black
         strokeWidth = try c.decodeIfPresent(CGFloat.self, forKey: .strokeWidth) ?? 0
         strokeAlignment = try c.decodeIfPresent(StrokeAlignment.self, forKey: .strokeAlignment) ?? .center
+        strokePattern = try c.decodeIfPresent(StrokePattern.self, forKey: .strokePattern) ?? .solid
+    }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(fill, forKey: .fill); try c.encode(stroke, forKey: .stroke)
+        try c.encode(strokeWidth, forKey: .strokeWidth); try c.encode(strokeAlignment, forKey: .strokeAlignment)
+        if strokePattern != .solid { try c.encode(strokePattern, forKey: .strokePattern) }
     }
 }
 
@@ -1014,12 +2176,17 @@ struct PolygonShape: Codable, Sendable {
     var strokeWidth: CGFloat = 0
 
     var strokeAlignment: StrokeAlignment = .center
+    var strokePattern: StrokePattern = .solid
+
+    enum CodingKeys: String, CodingKey {
+        case sides, fill, stroke, strokeWidth, strokeAlignment, strokePattern
+    }
 
     init(sides: Int = 3, fill: Paint = .white, stroke: RGBAColor = .black, strokeWidth: CGFloat = 0,
-         strokeAlignment: StrokeAlignment = .center) {
+         strokeAlignment: StrokeAlignment = .center, strokePattern: StrokePattern = .solid) {
         self.sides = Swift.min(25, Swift.max(3, sides))
         self.fill = fill; self.stroke = stroke; self.strokeWidth = strokeWidth
-        self.strokeAlignment = strokeAlignment
+        self.strokeAlignment = strokeAlignment; self.strokePattern = strokePattern
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -1028,6 +2195,14 @@ struct PolygonShape: Codable, Sendable {
         stroke = try c.decodeIfPresent(RGBAColor.self, forKey: .stroke) ?? .black
         strokeWidth = try c.decodeIfPresent(CGFloat.self, forKey: .strokeWidth) ?? 0
         strokeAlignment = try c.decodeIfPresent(StrokeAlignment.self, forKey: .strokeAlignment) ?? .center
+        strokePattern = try c.decodeIfPresent(StrokePattern.self, forKey: .strokePattern) ?? .solid
+    }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(sides, forKey: .sides); try c.encode(fill, forKey: .fill)
+        try c.encode(stroke, forKey: .stroke); try c.encode(strokeWidth, forKey: .strokeWidth)
+        try c.encode(strokeAlignment, forKey: .strokeAlignment)
+        if strokePattern != .solid { try c.encode(strokePattern, forKey: .strokePattern) }
     }
 
     /// Vertices (point-up) inscribed in `rect`, in that rect's coordinate space.
@@ -1049,6 +2224,28 @@ struct LineShape: Codable, Sendable {
     var end: CGPoint
     var stroke: RGBAColor = .black
     var strokeWidth: CGFloat = 2
+    var strokePattern: StrokePattern = .solid
+
+    enum CodingKeys: String, CodingKey { case start, end, stroke, strokeWidth, strokePattern }
+    init(start: CGPoint, end: CGPoint, stroke: RGBAColor = .black,
+         strokeWidth: CGFloat = 2, strokePattern: StrokePattern = .solid) {
+        self.start = start; self.end = end; self.stroke = stroke
+        self.strokeWidth = strokeWidth; self.strokePattern = strokePattern
+    }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        start = try c.decode(CGPoint.self, forKey: .start)
+        end = try c.decode(CGPoint.self, forKey: .end)
+        stroke = try c.decodeIfPresent(RGBAColor.self, forKey: .stroke) ?? .black
+        strokeWidth = try c.decodeIfPresent(CGFloat.self, forKey: .strokeWidth) ?? 2
+        strokePattern = try c.decodeIfPresent(StrokePattern.self, forKey: .strokePattern) ?? .solid
+    }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(start, forKey: .start); try c.encode(end, forKey: .end)
+        try c.encode(stroke, forKey: .stroke); try c.encode(strokeWidth, forKey: .strokeWidth)
+        if strokePattern != .solid { try c.encode(strokePattern, forKey: .strokePattern) }
+    }
 }
 
 /// One anchor of a path, in the node's LOCAL space (relative to frame.origin).
@@ -1074,7 +2271,12 @@ struct PathShape: Codable, Sendable {
     var stroke: RGBAColor = .black
     var strokeWidth: CGFloat = 2
     var strokeAlignment: StrokeAlignment = .center
+    var strokePattern: StrokePattern = .solid
     var contours: [[PathPoint]]? = nil
+
+    enum CodingKeys: String, CodingKey {
+        case points, closed, fill, stroke, strokeWidth, strokeAlignment, strokePattern, contours
+    }
 
     /// Alignment is only meaningful on a closed outline; open paths render center.
     var effectiveStrokeAlignment: StrokeAlignment {
@@ -1083,10 +2285,12 @@ struct PathShape: Codable, Sendable {
 
     init(points: [PathPoint], closed: Bool = false, fill: Paint = .white,
          stroke: RGBAColor = .black, strokeWidth: CGFloat = 2,
-         strokeAlignment: StrokeAlignment = .center, contours: [[PathPoint]]? = nil) {
+         strokeAlignment: StrokeAlignment = .center, strokePattern: StrokePattern = .solid,
+         contours: [[PathPoint]]? = nil) {
         self.points = points; self.closed = closed; self.fill = fill
         self.stroke = stroke; self.strokeWidth = strokeWidth
-        self.strokeAlignment = strokeAlignment; self.contours = contours
+        self.strokeAlignment = strokeAlignment; self.strokePattern = strokePattern
+        self.contours = contours
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -1096,7 +2300,16 @@ struct PathShape: Codable, Sendable {
         stroke = try c.decodeIfPresent(RGBAColor.self, forKey: .stroke) ?? .black
         strokeWidth = try c.decodeIfPresent(CGFloat.self, forKey: .strokeWidth) ?? 2
         strokeAlignment = try c.decodeIfPresent(StrokeAlignment.self, forKey: .strokeAlignment) ?? .center
+        strokePattern = try c.decodeIfPresent(StrokePattern.self, forKey: .strokePattern) ?? .solid
         contours = try c.decodeIfPresent([[PathPoint]].self, forKey: .contours)
+    }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(points, forKey: .points); try c.encode(closed, forKey: .closed)
+        try c.encode(fill, forKey: .fill); try c.encode(stroke, forKey: .stroke)
+        try c.encode(strokeWidth, forKey: .strokeWidth); try c.encode(strokeAlignment, forKey: .strokeAlignment)
+        if strokePattern != .solid { try c.encode(strokePattern, forKey: .strokePattern) }
+        try c.encodeIfPresent(contours, forKey: .contours)
     }
 
     /// Anchors for a rounded rectangle in LOCAL space (v1.3 — fixes "convert
@@ -1403,15 +2616,24 @@ struct ComponentSource: Identifiable, Codable, Sendable {
     /// Defaults empty so every schemaVersion-1 file opens unchanged.
     var states: [ComponentState] = []
 
+    /// Relationships anchored at the SOURCE — links between this component's own
+    /// children, and the component's own links where the subject names the source
+    /// itself. The source is the outermost anchor available inside a component;
+    /// anything needing a wider one belongs on a group out in the document.
+    /// FEAT-012 chunk I-b. Not read yet; see `Node.anchoredRelationships`.
+    var anchoredRelationships: [AnchoredRelationship] = []
+
     /// The component's viewBox — what an instance renders, like an SVG viewBox.
     var bounds: CGRect { CGRect(origin: origin, size: size) }
 
     init(id: UUID = UUID(), name: String, origin: CGPoint = .zero,
          size: CGSize, children: [Node], a11y: A11ySemantics = A11ySemantics(),
-         states: [ComponentState] = []) {
+         states: [ComponentState] = [],
+         anchoredRelationships: [AnchoredRelationship] = []) {
         self.id = id; self.name = name; self.origin = origin
         self.size = size; self.children = children; self.a11y = a11y
         self.states = states
+        self.anchoredRelationships = anchoredRelationships
     }
 
     init(from decoder: Decoder) throws {
@@ -1423,6 +2645,8 @@ struct ComponentSource: Identifiable, Codable, Sendable {
         children = try c.decode([Node].self, forKey: .children)
         a11y = try c.decodeIfPresent(A11ySemantics.self, forKey: .a11y) ?? A11ySemantics()
         states = try c.decodeIfPresent([ComponentState].self, forKey: .states) ?? []
+        anchoredRelationships = ((try? c.decodeIfPresent([AnchoredRelationship].self,
+                                                         forKey: .anchoredRelationships)) ?? nil) ?? []
     }
 }
 
@@ -1440,20 +2664,41 @@ struct A11ySemantics: Codable, Equatable, Sendable {
     var role: AriaRole?
     /// Which child layer supplies the accessible name (wired now, no UI yet).
     var accessibleNameLayerID: UUID?
+
+    /// Relationships authored on the COMPONENT ROOT (BUG-008, v2.1).
+    ///
+    /// `role` is emitted on the element hosting the INSTANCE, not on anything
+    /// inside the source — so the element that actually carries the role was
+    /// never selectable from inside the component, and there was no conformant
+    /// place to author the component's own links. These live here, on the
+    /// source, so they are part of the component CONTRACT: every instance
+    /// emits them, and two uses of the same component cannot drift apart.
+    ///
+    /// Targets are node ids inside this source's own children — resolved
+    /// per-instance at export, so each instance points at its own copy.
+    var rootRelationships: [NodeRelationship] = []
+
     // TODO(explore later): required/expressible states per role (aria-checked,
     // aria-selected, …), modeled once a component-state system exists.
 
-    init(role: AriaRole? = nil, accessibleNameLayerID: UUID? = nil) {
+    init(role: AriaRole? = nil, accessibleNameLayerID: UUID? = nil,
+         rootRelationships: [NodeRelationship] = []) {
         self.role = role
         self.accessibleNameLayerID = accessibleNameLayerID
+        self.rootRelationships = rootRelationships
     }
 
-    enum CodingKeys: String, CodingKey { case role, accessibleNameLayerID }
+    enum CodingKeys: String, CodingKey {
+        case role, accessibleNameLayerID, rootRelationships
+    }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         // Unknown future tokens decode to nil instead of failing the document.
         role = (try? c.decodeIfPresent(AriaRole.self, forKey: .role)) ?? nil
         accessibleNameLayerID = try c.decodeIfPresent(UUID.self, forKey: .accessibleNameLayerID)
+        // Absent in every file written before v2.1 — decode to empty, never fail.
+        rootRelationships = ((try? c.decodeIfPresent([NodeRelationship].self,
+                                                     forKey: .rootRelationships)) ?? nil) ?? []
     }
 }
 
@@ -1485,8 +2730,13 @@ enum AriaRole: String, Codable, Sendable, CaseIterable {
     // Composite — widgets made of parts.
     case tablist, tab, tabpanel, menu, menubar, menuitem, listbox, option,
          radiogroup, toolbar, dialog, alertdialog, alert
+    // Composite — hierarchical and tabular widgets (v2.1 Chunk I containment).
+    case tree, treeitem, grid
     // Structure — document structure.
     case heading, list, listitem, img, figure, table, separator, group
+    // Structure — table/grid parts, so authored tables can own real rows and
+    // cells instead of being reported as an unmet `tableStructure` requirement.
+    case row, cell, columnheader, rowheader
 
     /// Designer-friendly display name. Shown in every picker/tag; the raw ARIA
     /// token is what's stored.
@@ -1524,6 +2774,13 @@ enum AriaRole: String, Codable, Sendable, CaseIterable {
         case .dialog:        return "Dialog / Modal"
         case .alertdialog:   return "Alert Dialog"
         case .alert:         return "Alert / Banner Message"
+        case .tree:          return "Tree"
+        case .treeitem:      return "Tree Item"
+        case .grid:          return "Grid (Interactive Table)"
+        case .row:           return "Table Row"
+        case .cell:          return "Table Cell"
+        case .columnheader:  return "Column Header"
+        case .rowheader:     return "Row Header"
         case .heading:       return "Heading"
         case .list:          return "List"
         case .listitem:      return "List Item"
@@ -1571,6 +2828,13 @@ enum AriaRole: String, Codable, Sendable, CaseIterable {
         case .dialog:        return "A window/modal layered over the page that expects interaction."
         case .alertdialog:   return "A dialog that interrupts with something urgent and needs a response."
         case .alert:         return "An important inline message that appears without user action — errors, warnings. Not clickable."
+        case .tree:          return "A hierarchy you can expand and collapse — a file tree or nested nav. Each entry is a Tree Item."
+        case .treeitem:      return "One entry inside a Tree. It can hold a nested Tree of its own children."
+        case .grid:          return "A table you navigate and interact with cell by cell. For data you only read, use Table."
+        case .row:           return "One horizontal row inside a Table or Grid. Its cells go inside it."
+        case .cell:          return "One piece of data inside a Table Row. If it labels the whole column or row, use a header instead."
+        case .columnheader:  return "A cell that labels its entire column."
+        case .rowheader:     return "A cell that labels its entire row — usually the first cell in it."
         case .heading:       return "A section title (h1–h6 territory)."
         case .list:          return "The container of a bulleted/numbered set. Each entry is a List Item."
         case .listitem:      return "One entry inside a List."
@@ -1592,11 +2856,39 @@ enum AriaRole: String, Codable, Sendable, CaseIterable {
              .slider, .spinbutton, .progressbar, .tooltip:
             return .widget
         case .tablist, .tab, .tabpanel, .menu, .menubar, .menuitem, .listbox,
-             .option, .radiogroup, .toolbar, .dialog, .alertdialog, .alert:
+             .option, .radiogroup, .toolbar, .dialog, .alertdialog, .alert,
+             .tree, .treeitem, .grid:
             return .composite
         case .heading, .list, .listitem, .img, .figure, .table, .separator,
-             .group:
+             .group, .row, .cell, .columnheader, .rowheader:
             return .structure
+        }
+    }
+
+    /// What the FAR end of a relationship is normally expected to BE, given this
+    /// role on the near end. Empty means the pattern imposes no expectation, which
+    /// is the honest answer for most combinations.
+    ///
+    /// This drives ADVICE, never errors. Pointing somewhere unexpected produces
+    /// valid markup — it is only likely to be a mistake, and a reader downstream
+    /// (a developer, or a model writing component code) would otherwise get a
+    /// plausible-but-wrong structure with nothing flagging it.
+    ///
+    /// Verified against the WAI-APG Tabs pattern, 2026-07-24
+    /// (https://www.w3.org/WAI/ARIA/apg/patterns/tabs/):
+    ///   "Each element with role `tab` has the property `aria-controls` referring
+    ///    to its associated `tabpanel` element."
+    ///   "Each element with role `tabpanel` has the property `aria-labelledby`
+    ///    referring to its associated `tab` element."
+    /// Only entries with a citation like that belong here. Do NOT add a pairing
+    /// because it feels right — an advisory that fires on correct work is worse
+    /// than no advisory at all.
+    func expectedRelationshipTargetRoles(
+        for kind: NodeRelationship.Kind) -> [AriaRole] {
+        switch (self, kind) {
+        case (.tab, .controls):        return [.tabpanel]
+        case (.tabpanel, .labelledby): return [.tab]
+        default:                       return []
         }
     }
 
@@ -1610,7 +2902,7 @@ enum AriaRole: String, Codable, Sendable, CaseIterable {
             return [.controls, .labelledby, .describedby]
         case .navigation, .search, .form, .region, .tablist, .tabpanel, .menu,
              .menubar, .listbox, .radiogroup, .toolbar, .dialog, .alertdialog,
-             .group:
+             .group, .tree, .treeitem, .grid:
             return [.labelledby, .describedby]
         default:
             return []
@@ -1622,6 +2914,189 @@ enum AriaRole: String, Codable, Sendable, CaseIterable {
         AriaCategory.allCases.map { cat in
             (cat, AriaRole.allCases.filter { $0.ariaCategory == cat })
         }
+    }
+    // MARK: Semantic containment (v2.1 / Chunk I)
+
+    /// The roles this container is expected to OWN directly, in ARIA's
+    /// "required owned elements" sense. Empty means the role imposes no
+    /// expectation on its children, which is the honest answer for most roles —
+    /// only containers whose meaning depends on their parts appear here.
+    var expectedChildRoles: [AriaRole] {
+        switch self {
+        case .list:       return [.listitem]
+        case .tablist:    return [.tab]
+        case .menu:       return [.menuitem]
+        case .menubar:    return [.menuitem]
+        case .listbox:    return [.option]
+        case .radiogroup: return [.radio]
+        case .tree:       return [.treeitem]
+        case .treeitem:   return [.treeitem]
+        case .table:      return [.row]
+        case .grid:       return [.row]
+        case .row:        return [.cell, .columnheader, .rowheader]
+        default:          return []
+        }
+    }
+
+    /// The containers this role must sit inside to mean anything, in ARIA's
+    /// "required context" sense. A role with an empty list is legal anywhere,
+    /// so EXP stays quiet about it rather than inventing structure rules.
+    /// `radio` is deliberately absent: a lone radio outside a group is poor
+    /// practice but not invalid, so it earns a recommendation, never a warning.
+    var requiredParentRoles: [AriaRole] {
+        switch self {
+        case .listitem:                          return [.list]
+        case .tab:                               return [.tablist]
+        case .menuitem:                          return [.menu, .menubar]
+        case .option:                            return [.listbox]
+        case .treeitem:                          return [.tree, .treeitem]
+        case .row:                               return [.table, .grid]
+        case .cell, .columnheader, .rowheader:   return [.row]
+        default:                                 return []
+        }
+    }
+
+    /// Plain-language sentence naming what this container expects to contain.
+    /// nil when the role expects nothing in particular.
+    var containmentGuidance: String? {
+        let expected = expectedChildRoles
+        guard !expected.isEmpty else { return nil }
+        let names = expected.map(\.friendlyLabel)
+        let list: String
+        switch names.count {
+        case 1:  list = names[0]
+        case 2:  list = "\(names[0]) or \(names[1])"
+        default: list = names.dropLast().joined(separator: ", ") + ", or " + names[names.count - 1]
+        }
+        return "A \(friendlyLabel) expects the components inside it to be \(list)."
+    }
+
+    /// Picker sections with the container's expected child roles promoted to a
+    /// leading "Recommended" group. The full role list always follows, in its
+    /// normal order: a recommendation narrows the path of least resistance, it
+    /// never removes a choice the designer is entitled to make.
+    static func sections(recommendedFor parentRole: AriaRole?) -> [AriaRoleSection] {
+        let recommended = parentRole?.expectedChildRoles ?? []
+        var result: [AriaRoleSection] = []
+        if !recommended.isEmpty {
+            result.append(AriaRoleSection(title: "Recommended here",
+                                          roles: recommended,
+                                          isRecommendation: true))
+        }
+        for group in AriaRole.grouped() where !group.roles.isEmpty {
+            result.append(AriaRoleSection(title: group.category.label,
+                                          roles: group.roles,
+                                          isRecommendation: false))
+        }
+        return result
+    }
+}
+
+
+/// One section of a role picker. `isRecommendation` marks the promoted group so
+/// each surface can label it consistently without re-deriving the rules.
+struct AriaRoleSection: Identifiable, Sendable {
+    var title: String
+    var roles: [AriaRole]
+    var isRecommendation: Bool
+    var id: String { title }
+}
+
+/// What EXP has to say about a component's role given where it is placed.
+/// Advice is ADVICE: nothing here ever rewrites an authored role, and EXP never
+/// invents `aria-owns` to paper over a structure the designer did not build.
+struct AriaContainmentAdvice: Equatable, Sendable {
+    enum Kind: Equatable, Sendable {
+        /// The parent expects particular children and this one is uncategorized.
+        case suggestion
+        /// The child's role requires a container this parent is not.
+        case invalidOwnership
+        /// The parent expects particular children and has none of them yet.
+        case containerHasNoExpectedChildren
+    }
+
+    var kind: Kind
+    var parentRole: AriaRole
+    /// Roles worth offering first. Never applied automatically.
+    var recommended: [AriaRole]
+    var message: String
+
+    /// Warnings are things a screen-reader user would actually trip over.
+    /// Suggestions are help, and must never be styled as errors.
+    var isWarning: Bool { kind == .invalidOwnership }
+}
+
+extension Document {
+    /// Advice for a component placed directly inside a component whose role is
+    /// `parentRole`. Deliberately quiet: a parent with no ownership expectation,
+    /// or a child already carrying an expected role, produces nothing at all.
+    /// A child carrying an unrelated-but-legal role (a decorative Group inside a
+    /// List, say) also produces nothing — EXP only warns when the child's own
+    /// role DEMANDS a container this parent is not, which is the case a screen
+    /// reader genuinely mis-announces.
+    func containmentAdvice(forChildRole childRole: AriaRole?,
+                           inParentRole parentRole: AriaRole?) -> AriaContainmentAdvice? {
+        guard let parentRole else { return nil }
+        let expected = parentRole.expectedChildRoles
+
+        if let childRole {
+            let required = childRole.requiredParentRoles
+            if !required.isEmpty, !required.contains(parentRole) {
+                let wanted = required.map(\.friendlyLabel).joined(separator: " or ")
+                return AriaContainmentAdvice(
+                    kind: .invalidOwnership,
+                    parentRole: parentRole,
+                    recommended: expected,
+                    message: "\(childRole.friendlyLabel) has to be inside a \(wanted), "
+                        + "but this is a \(parentRole.friendlyLabel). Assistive technology "
+                        + "will not announce it as a \(childRole.friendlyLabel) here.")
+            }
+            return nil
+        }
+
+        guard !expected.isEmpty, let guidance = parentRole.containmentGuidance else { return nil }
+        return AriaContainmentAdvice(
+            kind: .suggestion,
+            parentRole: parentRole,
+            recommended: expected,
+            message: guidance)
+    }
+
+    /// Advice for the CONTAINER itself: it expects specific children and none of
+    /// its directly nested components carry an expected role yet. This is the
+    /// authoring-time form of the `listStructure` / `tableStructure` gaps the
+    /// semantic exporter reports, surfaced while it is still cheap to fix.
+    func containmentAdvice(forSource sourceID: UUID) -> AriaContainmentAdvice? {
+        guard let source = source(for: sourceID),
+              let role = source.a11y.role,
+              let guidance = role.containmentGuidance else { return nil }
+        let expected = role.expectedChildRoles
+        var nestedRoles: [AriaRole] = []
+        var sawNestedComponent = false
+        func walk(_ nodes: [Node]) {
+            for node in nodes {
+                switch node.content {
+                case .instance(let instance):
+                    sawNestedComponent = true
+                    if let nested = self.source(for: instance.sourceID)?.a11y.role {
+                        nestedRoles.append(nested)
+                    }
+                case .group(let children):
+                    walk(children)
+                default:
+                    break
+                }
+            }
+        }
+        walk(source.children)
+        // Nothing nested yet is an empty component, not a mistake.
+        guard sawNestedComponent,
+              !nestedRoles.contains(where: { expected.contains($0) }) else { return nil }
+        return AriaContainmentAdvice(
+            kind: .containerHasNoExpectedChildren,
+            parentRole: role,
+            recommended: expected,
+            message: guidance + " None of the components inside it carry that role yet.")
     }
 }
 
@@ -1677,20 +3152,23 @@ struct ComponentState: Identifiable, Codable, Sendable {
 /// exist because editing has different needs:
 ///  - `applied` never FILTERS hidden layers (the Layers panel and node
 ///    structure must stay intact while a state is shown), and
-///  - `capture` splits an edited tree back into (base, state diff): text and
-///    fill changes become the state's overrides — the InstanceOverride
+///  - `capture` splits an edited tree back into (base, state diff): appearance
+///    changes become the state's overrides — the InstanceOverride
 ///    vocabulary — while everything else (geometry, structure, adds, deletes,
 ///    effects) belongs to the BASE shared by all states.
 enum ComponentStateEditing {
 
-    /// Source children with `state`'s text/fill/visibility overrides applied for
+    /// Source children with `state`'s appearance/visibility overrides applied for
     /// editing. Overridden text is re-measured (like instance rendering) so the
     /// label shows at its overridden size; layers are never filtered out, so the
     /// Layers panel can still show and re-toggle hidden state layers.
-    static func applied(_ children: [Node], state: ComponentState,
-                        reflow: Bool = false) -> [Node] {
-        let applied = children.map { apply($0, state: state) }
-        return reflow ? AutoLayoutEngine.reflowed(applied) : applied
+    ///
+    /// This deliberately does NOT reflow. It has no document, so reflowing here
+    /// would lay component instances out from their stale stored frames — the
+    /// BUG-007 defect. Callers that want laid-out nodes wrap the result in
+    /// `Document.reflowed(_:)`, which sizes instances first.
+    static func applied(_ children: [Node], state: ComponentState) -> [Node] {
+        children.map { apply($0, state: state) }
     }
 
     private static func apply(_ node: Node, state: ComponentState) -> Node {
@@ -1716,6 +3194,8 @@ enum ComponentStateEditing {
                 }
             case .opacity(let value):
                 node.opacity = value
+            case .blendMode(let value):
+                node.blendMode = value
             case .stroke(let stroke):
                 setStroke(stroke, on: &node)
             case .componentState(let stateID):
@@ -1736,6 +3216,7 @@ enum ComponentStateEditing {
     ///  - text differing from base → state text override; the base keeps its
     ///    own text AND frame size (override size is re-measured on application).
     ///  - fill differing from base → state fill override; base keeps its paint.
+    ///  - opacity/blend mode differing from base → state appearance overrides.
     ///  - visibility differing from base → state layerVisibility override.
     ///  - everything else passes through to the base. New nodes join the base;
     ///    overrides for deleted nodes are pruned.
@@ -1796,6 +3277,14 @@ enum ComponentStateEditing {
                     overrides.append(InstanceOverride(targetNodeID: n.id,
                                                       value: .opacity(n.opacity)))
                     n.opacity = b.opacity
+                }
+                // Blend mode is whole-layer appearance just like opacity. Keep it
+                // in the active state's diff so changing Hover/Pressed/etc. never
+                // leaks into Default or sibling states (BUG-015).
+                if n.blendMode != b.blendMode {
+                    overrides.append(InstanceOverride(targetNodeID: n.id,
+                                                      value: .blendMode(n.blendMode)))
+                    n.blendMode = b.blendMode
                 }
                 if let editedStroke = stroke(of: n), let baseStroke = stroke(of: b),
                    editedStroke != baseStroke {
@@ -1861,30 +3350,31 @@ enum ComponentStateEditing {
 
     private static func stroke(of node: Node) -> StrokeStyleOverride? {
         switch node.content {
-        case .rectangle(let s): return StrokeStyleOverride(color: s.stroke, width: s.strokeWidth, alignment: s.strokeAlignment)
-        case .ellipse(let s):   return StrokeStyleOverride(color: s.stroke, width: s.strokeWidth, alignment: s.strokeAlignment)
-        case .polygon(let s):   return StrokeStyleOverride(color: s.stroke, width: s.strokeWidth, alignment: s.strokeAlignment)
-        case .path(let s):      return StrokeStyleOverride(color: s.stroke, width: s.strokeWidth, alignment: s.effectiveStrokeAlignment)
-        case .line(let s):      return StrokeStyleOverride(color: s.stroke, width: s.strokeWidth, alignment: .center)
+        case .rectangle(let s): return StrokeStyleOverride(color: s.stroke, width: s.strokeWidth, alignment: s.strokeAlignment, pattern: s.strokePattern)
+        case .ellipse(let s):   return StrokeStyleOverride(color: s.stroke, width: s.strokeWidth, alignment: s.strokeAlignment, pattern: s.strokePattern)
+        case .polygon(let s):   return StrokeStyleOverride(color: s.stroke, width: s.strokeWidth, alignment: s.strokeAlignment, pattern: s.strokePattern)
+        case .path(let s):      return StrokeStyleOverride(color: s.stroke, width: s.strokeWidth, alignment: s.effectiveStrokeAlignment, pattern: s.strokePattern)
+        case .line(let s):      return StrokeStyleOverride(color: s.stroke, width: s.strokeWidth, alignment: .center, pattern: s.strokePattern)
         case .group:
             guard let pad = node.autoPadding else { return nil }
-            return StrokeStyleOverride(color: pad.stroke, width: pad.strokeWidth, alignment: pad.strokeAlignment)
+            return StrokeStyleOverride(color: pad.stroke, width: pad.strokeWidth, alignment: pad.strokeAlignment, pattern: pad.strokePattern)
         default: return nil
         }
     }
 
     private static func setStroke(_ stroke: StrokeStyleOverride, on node: inout Node) {
         switch node.content {
-        case .rectangle(var s): s.stroke = stroke.color ?? .clear; s.strokeWidth = stroke.width; s.strokeAlignment = stroke.alignment; node.content = .rectangle(s)
-        case .ellipse(var s):   s.stroke = stroke.color ?? .clear; s.strokeWidth = stroke.width; s.strokeAlignment = stroke.alignment; node.content = .ellipse(s)
-        case .polygon(var s):   s.stroke = stroke.color ?? .clear; s.strokeWidth = stroke.width; s.strokeAlignment = stroke.alignment; node.content = .polygon(s)
-        case .path(var s):      s.stroke = stroke.color ?? .clear; s.strokeWidth = stroke.width; s.strokeAlignment = stroke.alignment; node.content = .path(s)
-        case .line(var s):      s.stroke = stroke.color ?? .clear; s.strokeWidth = stroke.width; node.content = .line(s)
+        case .rectangle(var s): s.stroke = stroke.color ?? .clear; s.strokeWidth = stroke.width; s.strokeAlignment = stroke.alignment; s.strokePattern = stroke.pattern ?? .solid; node.content = .rectangle(s)
+        case .ellipse(var s):   s.stroke = stroke.color ?? .clear; s.strokeWidth = stroke.width; s.strokeAlignment = stroke.alignment; s.strokePattern = stroke.pattern ?? .solid; node.content = .ellipse(s)
+        case .polygon(var s):   s.stroke = stroke.color ?? .clear; s.strokeWidth = stroke.width; s.strokeAlignment = stroke.alignment; s.strokePattern = stroke.pattern ?? .solid; node.content = .polygon(s)
+        case .path(var s):      s.stroke = stroke.color ?? .clear; s.strokeWidth = stroke.width; s.strokeAlignment = stroke.alignment; s.strokePattern = stroke.pattern ?? .solid; node.content = .path(s)
+        case .line(var s):      s.stroke = stroke.color ?? .clear; s.strokeWidth = stroke.width; s.strokePattern = stroke.pattern ?? .solid; node.content = .line(s)
         case .group:
             if node.autoPadding != nil {
                 node.autoPadding?.stroke = stroke.color
                 node.autoPadding?.strokeWidth = stroke.width
                 node.autoPadding?.strokeAlignment = stroke.alignment
+                node.autoPadding?.strokePattern = stroke.pattern ?? .solid
             }
         default: break
         }
@@ -1914,18 +3404,28 @@ struct ComponentInstance: Codable, Sendable {
     /// which keeps the override stable when layout groups are rearranged.
     var nestedStateOverrides: [NestedInstanceStateOverride] = []
 
+    /// Value overrides for layers inside NESTED components (FEAT-017). Stored here,
+    /// on the outermost placed instance, so two placements of the same component can
+    /// carry different nested content without either touching the shared source.
+    /// Chunk J-a: this is storage only — nothing resolves it yet, which is what
+    /// makes it safe to land ahead of the resolution work in J-b.
+    var nestedOverrides: [NestedInstanceOverride] = []
+
     init(sourceID: UUID, overrides: [InstanceOverride] = [], activeStateID: UUID? = nil,
          layerVisibility: [LayerVisibilityOverride] = [],
-         nestedStateOverrides: [NestedInstanceStateOverride] = []) {
+         nestedStateOverrides: [NestedInstanceStateOverride] = [],
+         nestedOverrides: [NestedInstanceOverride] = []) {
         self.sourceID = sourceID
         self.overrides = overrides
         self.activeStateID = activeStateID
         self.layerVisibility = layerVisibility
         self.nestedStateOverrides = nestedStateOverrides
+        self.nestedOverrides = nestedOverrides
     }
 
     enum CodingKeys: String, CodingKey {
         case sourceID, overrides, activeStateID, layerVisibility, nestedStateOverrides
+        case nestedOverrides
     }
 
     init(from decoder: Decoder) throws {
@@ -1935,6 +3435,9 @@ struct ComponentInstance: Codable, Sendable {
         activeStateID = try c.decodeIfPresent(UUID.self, forKey: .activeStateID)
         layerVisibility = try c.decodeIfPresent([LayerVisibilityOverride].self, forKey: .layerVisibility) ?? []
         nestedStateOverrides = try c.decodeIfPresent([NestedInstanceStateOverride].self, forKey: .nestedStateOverrides) ?? []
+        // Absent in every file written before v2.1 — decode to empty, never fail.
+        nestedOverrides = ((try? c.decodeIfPresent([NestedInstanceOverride].self,
+                                                   forKey: .nestedOverrides)) ?? nil) ?? []
     }
 
     /// Effective visibility of a source layer in this instance: the override if
@@ -1961,6 +3464,49 @@ struct NestedInstanceStateOverride: Codable, Sendable, Equatable {
     var instancePath: [UUID]
     /// nil is an intentional selection of the source's Default state.
     var stateID: UUID?
+}
+
+/// An override applied to a layer inside a NESTED component (FEAT-017 chunk J-a).
+///
+/// `InstanceOverride` addresses a bare `targetNodeID` resolved against the
+/// instance's own source children, so a layer one level further down — a tab
+/// inside a placed tab bar — has no address at all. That is why a component's
+/// nested content could not be varied per placement, and why the owner kept
+/// having to fork a component instead of reusing it.
+///
+/// The fix follows a precedent already in this file rather than inventing one:
+/// `NestedInstanceStateOverride` addresses nested instances by `instancePath` and
+/// is stored on the OUTERMOST placed instance. This is the same idea applied to
+/// VALUES instead of state selection, reusing `InstanceOverride.Value` unchanged
+/// so no new vocabulary appears and every existing consumer already understands
+/// the payload.
+///
+/// `instancePath` contains nested INSTANCE node ids, outermost first; groups are
+/// deliberately omitted, which keeps an override stable when layout groups are
+/// rearranged. An empty path would address the instance's own children, which
+/// `overrides` already covers — so an empty path is meaningless here and
+/// resolution ignores it rather than guessing.
+///
+/// HAZARD, learned the hard way from BUG-010: duplication and flatten MUST remap
+/// these paths through their id map, exactly as anchored relationships required.
+/// `Document.remappingAnchors` is the model to copy. This gets forgotten; the
+/// headless checks in chunk J-e exist to catch it.
+struct NestedInstanceOverride: Codable, Sendable {
+    /// Nested instance node ids to descend through, OUTERMOST first.
+    var instancePath: [UUID]
+    /// The layer inside the innermost nested source that this overrides.
+    var targetNodeID: UUID
+    var value: InstanceOverride.Value
+
+    init(instancePath: [UUID], targetNodeID: UUID, value: InstanceOverride.Value) {
+        self.instancePath = instancePath
+        self.targetNodeID = targetNodeID
+        self.value = value
+    }
+
+    /// Addresses nothing resolvable. Kept as an explicit question rather than a
+    /// silent filter so callers have to decide what to do about it.
+    var isAddressable: Bool { !instancePath.isEmpty }
 }
 
 /// One per-instance visibility override for a source layer.
@@ -2048,6 +3594,9 @@ struct StrokeStyleOverride: Codable, Sendable, Equatable {
     var color: RGBAColor?
     var width: CGFloat
     var alignment: StrokeAlignment
+    /// Optional so v2.0/v2.1 documents whose state override predates stroke
+    /// patterns continue to decode as a solid outline.
+    var pattern: StrokePattern? = nil
 }
 
 /// One bounded override targeting a node inside the resolved instance.
@@ -2058,6 +3607,7 @@ struct InstanceOverride: Codable, Sendable {
         case fill(Paint)        // solid OR gradient (Paint decodes a legacy bare RGBAColor)
         case textStyle(TextStyleOverride)   // bounded per-state/instance typography
         case opacity(Double)                // whole-layer opacity (any node type)
+        case blendMode(BlendMode)           // whole-layer compositing mode (any node type)
         case stroke(StrokeStyleOverride)    // color/alpha + width + inside/center/outside
         case componentState(UUID?)          // state of a nested component layer
 
@@ -2065,6 +3615,7 @@ struct InstanceOverride: Codable, Sendable {
         var fillValue: Paint? { if case .fill(let p) = self { return p }; return nil }
         var textStyleValue: TextStyleOverride? { if case .textStyle(let o) = self { return o }; return nil }
         var opacityValue: Double? { if case .opacity(let v) = self { return v }; return nil }
+        var blendModeValue: BlendMode? { if case .blendMode(let v) = self { return v }; return nil }
     }
     var targetNodeID: UUID
     var value: Value
@@ -2119,18 +3670,21 @@ extension ComponentInstance {
                 }
             case .opacity(let value):
                 node.opacity = value
+            case .blendMode(let value):
+                node.blendMode = value
             case .stroke(let stroke):
                 switch node.content {
-                case .rectangle(var shape): shape.stroke = stroke.color ?? .clear; shape.strokeWidth = stroke.width; shape.strokeAlignment = stroke.alignment; node.content = .rectangle(shape)
-                case .ellipse(var shape):   shape.stroke = stroke.color ?? .clear; shape.strokeWidth = stroke.width; shape.strokeAlignment = stroke.alignment; node.content = .ellipse(shape)
-                case .polygon(var shape):   shape.stroke = stroke.color ?? .clear; shape.strokeWidth = stroke.width; shape.strokeAlignment = stroke.alignment; node.content = .polygon(shape)
-                case .path(var shape):      shape.stroke = stroke.color ?? .clear; shape.strokeWidth = stroke.width; shape.strokeAlignment = stroke.alignment; node.content = .path(shape)
-                case .line(var shape):      shape.stroke = stroke.color ?? .clear; shape.strokeWidth = stroke.width; node.content = .line(shape)
+                case .rectangle(var shape): shape.stroke = stroke.color ?? .clear; shape.strokeWidth = stroke.width; shape.strokeAlignment = stroke.alignment; shape.strokePattern = stroke.pattern ?? .solid; node.content = .rectangle(shape)
+                case .ellipse(var shape):   shape.stroke = stroke.color ?? .clear; shape.strokeWidth = stroke.width; shape.strokeAlignment = stroke.alignment; shape.strokePattern = stroke.pattern ?? .solid; node.content = .ellipse(shape)
+                case .polygon(var shape):   shape.stroke = stroke.color ?? .clear; shape.strokeWidth = stroke.width; shape.strokeAlignment = stroke.alignment; shape.strokePattern = stroke.pattern ?? .solid; node.content = .polygon(shape)
+                case .path(var shape):      shape.stroke = stroke.color ?? .clear; shape.strokeWidth = stroke.width; shape.strokeAlignment = stroke.alignment; shape.strokePattern = stroke.pattern ?? .solid; node.content = .path(shape)
+                case .line(var shape):      shape.stroke = stroke.color ?? .clear; shape.strokeWidth = stroke.width; shape.strokePattern = stroke.pattern ?? .solid; node.content = .line(shape)
                 case .group:
                     if node.autoPadding != nil {
                         node.autoPadding?.stroke = stroke.color
                         node.autoPadding?.strokeWidth = stroke.width
                         node.autoPadding?.strokeAlignment = stroke.alignment
+                        node.autoPadding?.strokePattern = stroke.pattern ?? .solid
                     }
                 default: break
                 }

@@ -81,7 +81,49 @@ enum AutoLayoutEngine {
         // Order items by their CURRENT position along the axis (not array/z-order),
         // so layout matches the canvas arrangement and dragging one past another
         // reorders the stack. Ties keep array order.
-        let indexed = children.enumerated().filter { $0.element.isVisible }
+        // Absolute children retain their authored frame and do not consume a
+        // stack slot. This is essential for imported frame surfaces and Figma's
+        // `layoutPositioning: ABSOLUTE` children: counting a full-width background
+        // as item zero shifts every real item by the background's entire width.
+        // Files imported before this flag existed still contain the synthesized
+        // enclosing `Background` layer. Infer that narrow legacy case by geometry
+        // so reopening an existing import fixes its layout without requiring the
+        // designer to import the whole Figma file again.
+        let enclosingBackgroundID = backgroundChildIndex(in: children).map { children[$0].id }
+        // Some already-saved imports have gone through the old broken reflow once:
+        // their real items now begin at exactly `Background.max + gap`, so the
+        // background no longer geometrically encloses them. Recognize that precise
+        // fingerprint as well, allowing those documents to repair on next layout.
+        let previouslyStackedBackgroundID: UUID? = {
+            guard node.autoPadding != nil,
+                  let candidate = children.first(where: {
+                      $0.isVisible && $0.name.caseInsensitiveCompare("Background") == .orderedSame
+                  }), backgroundStyle(of: candidate) != nil else { return nil }
+            let peers = children.filter { $0.isVisible && $0.id != candidate.id }
+            guard let firstPeer = peers.min(by: {
+                let a = horizontal ? $0.frame.minX : $0.frame.minY
+                let b = horizontal ? $1.frame.minX : $1.frame.minY
+                return a < b
+            }) else { return nil }
+            let backgroundEnd = horizontal ? candidate.frame.maxX : candidate.frame.maxY
+            let peerStart = horizontal ? firstPeer.frame.minX : firstPeer.frame.minY
+            let tolerance = max(0.5, abs(al.gap) * 0.01)
+            return abs(peerStart - (backgroundEnd + al.gap)) <= tolerance ? candidate.id : nil
+        }()
+        let legacyBackgroundID = enclosingBackgroundID ?? previouslyStackedBackgroundID
+        let indexed = children.enumerated().filter {
+            $0.element.isVisible
+                && !$0.element.isAbsoluteInAutoLayout
+                && $0.element.id != legacyBackgroundID
+        }
+        let hasExplicitAbsoluteItems = children.contains {
+            $0.isVisible && $0.isAbsoluteInAutoLayout
+        }
+        let hasNonStackItems = hasExplicitAbsoluteItems || legacyBackgroundID != nil
+        // A node already damaged by the old pass has a doubled/expanded stored
+        // frame. Let the repaired flow determine its size; all other absolute
+        // cases keep the correctly imported outer frame as their minimum.
+        let preserveImportedOuterSize = hasExplicitAbsoluteItems || enclosingBackgroundID != nil
         let items = indexed.sorted { a, b in
             let pa = horizontal ? a.element.frame.minX : a.element.frame.minY
             let pb = horizontal ? b.element.frame.minX : b.element.frame.minY
@@ -91,6 +133,7 @@ enum AutoLayoutEngine {
 
         guard !items.isEmpty else {
             var n = node
+            if hasNonStackItems { return n }
             let w = horizontal ? padPrimaryStart + padPrimaryEnd : padCrossStart + padCrossEnd
             let h = horizontal ? padCrossStart + padCrossEnd : padPrimaryStart + padPrimaryEnd
             n.frame.size = CGSize(width: max(1, w), height: max(1, h))
@@ -102,7 +145,7 @@ enum AutoLayoutEngine {
         let totalChildren = primarySizes.reduce(0, +)
         let n = items.count
 
-        let framePrimary: CGFloat
+        var framePrimary: CGFloat
         switch al.distribution {
         case .packed:
             let content = totalChildren + al.gap * CGFloat(max(0, n - 1))
@@ -111,7 +154,15 @@ enum AutoLayoutEngine {
             framePrimary = max(primarySize(node.frame.size),
                                padPrimaryStart + totalChildren + padPrimaryEnd)
         }
-        let frameCross = padCrossStart + maxCross + padCrossEnd
+        var frameCross = padCrossStart + maxCross + padCrossEnd
+
+        // Figma absolute children commonly describe a fixed frame surface. Keep
+        // that imported outer size while arranging the flow children within it;
+        // the stack can still grow when edited content needs more room.
+        if preserveImportedOuterSize {
+            framePrimary = max(framePrimary, primarySize(node.frame.size))
+            frameCross = max(frameCross, crossSize(node.frame.size))
+        }
 
         var primaryPos: [CGFloat] = []
         switch al.distribution {

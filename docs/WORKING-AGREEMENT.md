@@ -44,3 +44,31 @@ This project may be worked on from several places. They share these docs:
 - Tech honesty is non-negotiable: never imply a capability exists when it
   doesn't (e.g. don't pretend Claude can auto-resume or reach the local
   filesystem from chat).
+
+## Accessibility decisions are verified, not remembered
+
+Owner instruction, 2026-07-24, and it OVERRIDES the owner's own requests:
+
+> "our decisions need to be verified against the official documentation even if
+> I ask for the wrong thing by accident"
+
+So, for any change touching ARIA roles, states, properties, relationships,
+semantic HTML mapping, or accessible naming:
+
+1. **Check the spec before writing code** — WAI-ARIA 1.2, ARIA in HTML, the
+   ARIA Authoring Practices Guide (APG) for pattern shape, and WCAG 2.1 AA for
+   the conformance requirement. Do not answer from memory; these details are
+   easy to half-remember and expensive to ship wrong.
+2. **Push back when the request is wrong.** If the owner asks for behavior the
+   spec contradicts, say so plainly and cite the source. This has already paid
+   off once: "a tab panel shouldn't have labelled by" was a reasonable-sounding
+   request, but `tabpanel` + `aria-labelledby` is the canonical APG tabs pattern
+   and removing it would have broken the export contract.
+3. **Record the citation in the backlog entry**, not just the conclusion, so the
+   next session can re-check the reasoning instead of re-deriving it.
+4. **Say what was NOT verified.** Partial verification is fine; silently
+   implying full verification is not.
+5. **Name the standard precisely.** The ADA does not specify ARIA. The technical
+   standards are WCAG 2.1 AA (DOJ Title II rule, Section 508, EN 301 549) plus
+   WAI-ARIA 1.2 and ARIA in HTML. Docs and UI copy should say those rather than
+   "ADA compliant."

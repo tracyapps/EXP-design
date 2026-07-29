@@ -127,3 +127,49 @@ extension ButtonStyle where Self == EXPButtonStyle {
         EXPButtonStyle(variant: variant)
     }
 }
+
+// MARK: - Compact panel action button ======================================
+
+/// The dense secondary action used inside dock panels. Dialogs keep the larger
+/// `EXPButtonStyle`; repeated panel actions use the same 24pt control height and
+/// mini label rhythm as Design Language and the panel toolbars.
+struct EXPCompactButtonStyle: ButtonStyle {
+    var fillsWidth = false
+
+    func makeBody(configuration: Configuration) -> Body {
+        Body(configuration: configuration, fillsWidth: fillsWidth)
+    }
+
+    internal struct Body: View {
+        let configuration: ButtonStyleConfiguration
+        let fillsWidth: Bool
+        @State private var hovering = false
+
+        var body: some View {
+            configuration.label
+                .font(.system(size: EXPType.mini, weight: .medium))
+                .foregroundStyle(EXPColor.textPrimary)
+                .padding(.horizontal, 9)
+                .frame(maxWidth: fillsWidth ? .infinity : nil,
+                       minHeight: EXPMetric.controlH,
+                       maxHeight: EXPMetric.controlH,
+                       alignment: fillsWidth ? .leading : .center)
+                .background(configuration.isPressed ? EXPColor.rowActive
+                            : (hovering ? EXPColor.rowHover : EXPColor.surfaceField),
+                            in: RoundedRectangle(cornerRadius: EXPMetric.radiusButton,
+                                                 style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: EXPMetric.radiusButton, style: .continuous)
+                    .strokeBorder(EXPColor.borderGlass, lineWidth: EXPMetric.strokeHairline))
+                .scaleEffect(configuration.isPressed ? 0.985 : 1)
+                .onHover { hovering = $0 }
+                .animation(EXPMotion.fast, value: hovering)
+                .animation(EXPMotion.fast, value: configuration.isPressed)
+        }
+    }
+}
+
+extension ButtonStyle where Self == EXPCompactButtonStyle {
+    static func expCompact(fillsWidth: Bool = false) -> EXPCompactButtonStyle {
+        EXPCompactButtonStyle(fillsWidth: fillsWidth)
+    }
+}

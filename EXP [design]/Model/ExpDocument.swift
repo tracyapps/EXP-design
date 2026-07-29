@@ -127,7 +127,7 @@ final class ExpDocument: ReferenceFileDocument {
             }
             nodes = result
         }
-        fix(&doc.nodes)
+        for index in doc.pages.indices { fix(&doc.pages[index].nodes) }
         for i in doc.sources.indices { fix(&doc.sources[i].children) }
     }
 
@@ -148,7 +148,7 @@ final class ExpDocument: ReferenceFileDocument {
                 }
             }
         }
-        strip(&doc.nodes)
+        for index in doc.pages.indices { strip(&doc.pages[index].nodes) }
         for i in doc.sources.indices { strip(&doc.sources[i].children) }
     }
 

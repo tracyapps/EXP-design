@@ -38,6 +38,7 @@ enum PanelID: String, CaseIterable, Identifiable, Codable, Sendable {
     case properties
     case designLanguage
     case components
+    case handoff
 
     var id: String { rawValue }
 
@@ -48,6 +49,7 @@ enum PanelID: String, CaseIterable, Identifiable, Codable, Sendable {
         case .properties: return "Properties"
         case .designLanguage: return "Design Language"
         case .components: return "Components"
+        case .handoff: return "Handoff"
         }
     }
 
@@ -58,13 +60,14 @@ enum PanelID: String, CaseIterable, Identifiable, Codable, Sendable {
         case .properties: return "slider.horizontal.3"
         case .designLanguage: return "swatchpalette"
         case .components: return "rectangle.3.group"
+        case .handoff: return "shippingbox"
         }
     }
 
     /// False = reserved slot with placeholder content (Color, for now).
     var implemented: Bool {
         switch self {
-        case .layers, .properties, .components, .designLanguage: return true
+        case .layers, .properties, .components, .designLanguage, .handoff: return true
         }
     }
 }
@@ -114,7 +117,8 @@ struct Workspace: Codable, Sendable {
             right: DockColumn(groups: [
                 PanelGroup([.properties]),
                 PanelGroup([.components]),
-                PanelGroup([.designLanguage])
+                PanelGroup([.designLanguage]),
+                PanelGroup([.handoff])
             ], width: 332)   // wide enough for the full align/distribute row
         )
     }
@@ -466,6 +470,7 @@ func panelContent(_ id: PanelID, document: ExpDocument) -> some View {
     case .properties: RightPanel(document: document, showsTitle: false, showsZoom: false)
     case .components: ComponentsPanel(document: document)
     case .designLanguage: DesignLanguagePanel(document: document)
+    case .handoff: HandoffPanel(document: document)
     }
 }
 
@@ -992,6 +997,7 @@ private struct ComponentCard: View {
             .disabled(instanceCount == 0)
         Divider()
         Button("Open in Editor", action: open)
+        Button("Duplicate Component", action: duplicateComponent)
         Button("Rename", action: beginRename)
         Menu("Preview State") {
             Button {
@@ -1048,7 +1054,7 @@ private struct ComponentCard: View {
                 if case .group(let kids) = node.content { walk(kids) }
             }
         }
-        walk(document.model.nodes)
+        walk(document.model.page(for: app.activeCanvasPageID)?.nodes ?? [])
         return ids
     }
     private var instanceCount: Int { instanceIDs.count }
@@ -1088,20 +1094,11 @@ private struct ComponentCard: View {
     }
 
     private func deleteComponent() {
-        let sid = source.id
-        var model = document.model
-        model.sources.removeAll { $0.id == sid }
-        func strip(_ nodes: inout [Node]) {
-            nodes.removeAll { if case .instance(let i) = $0.content { return i.sourceID == sid }; return false }
-            for idx in nodes.indices {
-                if case .group(var kids) = nodes[idx].content {
-                    strip(&kids); nodes[idx].content = .group(children: kids)
-                }
-            }
-        }
-        strip(&model.nodes)
-        for i in model.sources.indices { strip(&model.sources[i].children) }
-        document.setModel(model, undoManager: undoManager, actionName: "Delete Component")
+        deleteComponentSource(source.id)
+    }
+
+    private func duplicateComponent() {
+        duplicateComponentSource(source.id)
     }
 
     private func createInstance() {
@@ -1177,6 +1174,7 @@ private struct ComponentRow: View {
                 .disabled(instanceCount == 0)
             Divider()
             Button("Open in Editor", action: open)
+            Button("Duplicate Component", action: duplicateComponent)
             Button("Rename", action: beginRename)
             Menu("Set Category") {
                 Button {
@@ -1208,23 +1206,12 @@ private struct ComponentRow: View {
         .help("Double-click to rename · click to open “\(source.name)”")
     }
 
-    /// Delete this component source and every instance of it (recursing into groups
-    /// + other sources), in one undo step.
     private func deleteComponent() {
-        let sid = source.id
-        var model = document.model
-        model.sources.removeAll { $0.id == sid }
-        func strip(_ nodes: inout [Node]) {
-            nodes.removeAll { if case .instance(let i) = $0.content { return i.sourceID == sid }; return false }
-            for idx in nodes.indices {
-                if case .group(var kids) = nodes[idx].content {
-                    strip(&kids); nodes[idx].content = .group(children: kids)
-                }
-            }
-        }
-        strip(&model.nodes)
-        for i in model.sources.indices { strip(&model.sources[i].children) }
-        document.setModel(model, undoManager: undoManager, actionName: "Delete Component")
+        deleteComponentSource(source.id)
+    }
+
+    private func duplicateComponent() {
+        duplicateComponentSource(source.id)
     }
 
     private func beginRename() {
@@ -1255,7 +1242,7 @@ private struct ComponentRow: View {
                 }
             }
         }
-        walk(document.model.nodes, origin: .zero)
+        walk(document.model.page(for: app.activeCanvasPageID)?.nodes ?? [], origin: .zero)
         return refs
     }
     private var instanceIDs: [UUID] { instanceRefs.map(\.id) }
@@ -1394,6 +1381,25 @@ private func requestComponentPlacement(_ sourceID: UUID) {
     sendCanvasAction("placeComponentAction:", from: item)
 }
 
+/// Delete a component source from a Components panel, which may live in a dock
+/// or a separate tray window. Like component placement, this carries the source
+/// id through the canvas router rather than editing the document here, so the
+/// `@objc` action on the canvas stays the one implementation of the behavior and
+/// the grid and list rows can never drift apart.
+private func deleteComponentSource(_ sourceID: UUID) {
+    let item = NSMenuItem(title: "Delete Component", action: nil, keyEquivalent: "")
+    item.representedObject = sourceID.uuidString
+    sendCanvasAction("deleteComponentSourceAction:", from: item)
+}
+
+/// Duplicate the source definition itself (not a placed instance). The canvas
+/// action owns id remapping, undo, and opening the new component editor.
+private func duplicateComponentSource(_ sourceID: UUID) {
+    let item = NSMenuItem(title: "Duplicate Component", action: nil, keyEquivalent: "")
+    item.representedObject = sourceID.uuidString
+    sendCanvasAction("duplicateComponentSourceAction:", from: item)
+}
+
 // MARK: - Reserved (placeholder) panel
 
 // MARK: - Window menu (multi-window panels + single-window docks)
@@ -1410,7 +1416,7 @@ struct WindowMenuModel {
     var toggleLeft: () -> Void
     var toggleRight: () -> Void
     /// The panels listed in the menu, in order.
-    static let panelOrder: [PanelID] = [.layers, .properties, .components, .designLanguage]
+    static let panelOrder: [PanelID] = [.layers, .properties, .components, .designLanguage, .handoff]
 }
 
 private struct WindowMenuKey: FocusedValueKey { typealias Value = WindowMenuModel }

@@ -566,7 +566,53 @@ with the design. Full chunk breakdown, risks, and release mapping live in
           Firefox/WebKit accessibility-tree, keyboard-focus, light/dark,
           increased-contrast, geometry, overflow, console, and visual checks
           pass; W3C Nu reports no errors. Full app + Quick Look build passes.
-- [ ] **Chunk D — Figma import** (REST API path first; .fig best-effort later) — v2.1
+- [x] **Chunk D — Figma import** (REST API path first; .fig best-effort later) — v2.1
+  - [x] **D1 sanctioned REST first slice:** File ▸ Import Figma File accepts a
+        normal Figma URL or file key plus a personal access token scoped to
+        `file_content:read`; the token stays memory-only and is sent only to
+        `api.figma.com`. The cancellable client fetches `GET /v1/files/:key` with
+        vector paths plus image-fill resources. Every Figma canvas becomes an EXP
+        page tab; top-level frames become artboards; editable frames/groups,
+        rectangles, ellipses, polygons, lines, vectors, rich text, gradients,
+        shadows/blur, images, auto layout, named paint/type styles, and local
+        component sources/instances map through one report and one undo step.
+        A deterministic two-page fixture, existing XD/page/semantic suites, and
+        the full signed Debug app/Quick Look/helper build pass on 2026-07-28.
+  - [x] **D2 live API + visual acceptance:** owner-import representative small,
+        multi-page, component-heavy, image-heavy, and large files; verify page/tab
+        names, cancel, one-step undo, save/reopen, report-on-demand, and exact
+        editable geometry. Close mixed text, image crop/container, masks/clips,
+        component properties/variants/remote sources, advanced auto-layout sizing,
+        unsupported node/effect types, rate-limit/error UX, and performance findings
+        from those real responses. DONE 2026-07-28: the owner accepted the live
+        REST importer as a solid first implementation after repeated side-by-side
+        checks and editable cleanup. Advanced Figma constructs that cannot yet map
+        exactly remain honest report items rather than silent fidelity claims;
+        extreme-document performance stays in its planned dedicated phase.
+    - [x] **D2a first live-file fidelity correction:** Figma TEXT-node fills now
+          supply base run color instead of silently falling back to black;
+          `size` is reconstructed inside the already-rotated absolute bounding box
+          so line/vector/icon rotation is applied once; open vector geometry stays
+          open; Figma dash arrays map to editable Solid/Dash/Dot stroke patterns;
+          and a group containing Figma mask siblings becomes an active EXP mask
+          group. Stroke patterns are authorable on lines, paths, shape borders,
+          group backgrounds, and multi-selection, remain state/instance-aware,
+          save compatibly, and render through canvas, PDF/PNG, SVG, and semantic
+          HTML/CSS. Owner visually accepted the corrected re-import on 2026-07-28.
+    - [x] **D2b absolute children in auto layout:** Figma
+          `layoutPositioning: ABSOLUTE` now survives as an editable node trait and
+          frame surfaces never consume a stack slot. Auto layout keeps absolute
+          artwork in its authored coordinates, preserves the imported outer frame,
+          and arranges only participating children. A narrow geometry/spacing
+          compatibility inference repairs already-saved imports whose enclosing
+          `Background` was previously counted as item zero (the button-content and
+          color-swatch shift). The focused fixture covers new and legacy imports;
+          owner visually confirmed the correction on 2026-07-28.
+  - [ ] **D3 auth/tokens follow-up (deferred; not a v2.1 gate):** decide whether repeated imports merit an
+        explicit Keychain opt-in or full OAuth. Keep memory-only PAT entry as the
+        privacy-safe baseline. Figma's reusable Variables endpoint is Enterprise-
+        restricted; import bound rendered values now and add variable-to-Design-
+        Language mapping only when an eligible fixture/account can prove it.
 - [ ] **Chunk E — Code/Storybook/HTML-CSS import** — v2.2
 - [ ] **Chunk F — Agent Bridge** (EXP as a LOCAL MCP server the designer's own
       agent connects to; opt-in, OFF by default; stdio helper + Unix socket;
@@ -580,8 +626,29 @@ with the design. Full chunk breakdown, risks, and release mapping live in
         DONE 2026-07-22; full signed app/helper build, unavailable-app behavior,
         real front-document artboard/node/selection/token reads, dual orientation
         access, multi-megabyte framing, permissions, and clean shutdown passed.
-  - [ ] **F2 — Handoff panel + visible opt-in/setup (v2.1).**
-    - [ ] **Agent capability packs / skills:** after the F1 tool contract has
+  - [x] **F2 — Handoff panel + visible opt-in/setup (v2.1).**
+    - [x] **Implementation:** one dockable/floating Handoff panel now owns
+          Export (current/selected and all artboards), Package (Handoff Package,
+          standalone semantic HTML, and DTCG tokens), and Agent. Agent access
+          remains off by default; enabling starts the existing current-user local
+          socket immediately, reports ready/connected/error state and client name,
+          labels the contract read-only, supplies Claude Code/Claude Desktop/
+          generic stdio setup snippets, and offers a connected-selection prompt.
+          File-menu export paths remain additive. The universal signed Debug app,
+          helper/entitlement/security matrix, importer/page/nested-component/
+          semantic HTML/package suites, and deterministic package goldens pass
+          2026-07-28.
+    - [x] **Owner acceptance:** visually exercise the panel docked and detached,
+          resize/collapse it, export each artifact, connect a shipping MCP client,
+          verify live identity/read-only/off behavior, and check keyboard order,
+          VoiceOver, light/dark, increased contrast, and reduced transparency.
+          OWNER VERIFIED 2026-07-28: the complete panel/appearance/assistive-
+          technology matrix passed; Claude Code connected through the generated
+          user-scope setup, exposed all six read-only tools, returned live document
+          and changing-selection data, reported client identity in EXP, and cleanly
+          returned to ready/off states on disconnect and disable.
+    - [ ] **Agent capability packs / skills (deferred; not a v2.1 gate):** after
+          the F1 tool contract has
           survived real-client compatibility testing, publish one canonical EXP
           usage guide plus thin host-specific packages for Codex, Claude, and
           other worthwhile MCP clients. Each teaches summaries-first use of the
@@ -592,7 +659,7 @@ with the design. Full chunk breakdown, risks, and release mapping live in
           never be required to connect. Version/test each wrapper against the
           shared contract so agent-specific instructions cannot silently drift.
   - [ ] **F3 — separately consented, undo-safe write-back (v2.3+).**
-- [ ] **Panel IA + tool-discoverability pass** — v2.1, coordinated with F2 so
+- [x] **Panel IA + tool-discoverability pass** — v2.1, coordinated with F2 so
       the new Handoff panel joins an intentional system rather than becoming one
       more destination. Inventory every shipped command and reorganize docked/
       floating panels by workflow; give Pathfinder/vector operations, alignment/
@@ -601,9 +668,36 @@ with the design. Full chunk breakdown, risks, and release mapping live in
       menu, context-menu, and keyboard paths (a panel is never the only path),
       remove stale/duplicate placements, and verify resizing, collapse/detach,
       keyboard traversal, VoiceOver order, and system appearance/contrast.
-- [ ] **Chunk G — XD import** (.xd = frozen ZIP-of-JSON; rides the same
+      IMPLEMENTED 2026-07-28: Handoff is a first-class PanelID in default docks,
+      fresh floating trays, persisted-layout migration, and Window menu routing;
+      selection-aware Vector controls now expose Convert to Path, Outline Stroke,
+      and all four Pathfinder operations directly in Properties. Existing visible
+      Align/Distribute, component state/semantic, Components, Design Language,
+      File/Object/Arrange/context-menu, and keyboard routes were retained. Owner
+      visual/assistive-technology acceptance passed 2026-07-28; owner also
+      accepted the compact neutral Handoff action style as consistent with the
+      other panels.
+- [x] **Chunk G — XD import** (.xd = frozen ZIP-of-JSON; rides the same
       InteropCodec pipeline; proves importers before Figma) — v2.1
-- [ ] **Chunk I — Nested components + semantic containment** — v2.1 model gate
+  - [x] **Shared codec + offline first slice:** bounded/cancellable ZIP reader,
+        AGC scene-tree mapping, native File-menu import, one-step undo, progress,
+        and a visible/copyable fidelity report. Real-corpus structural check
+        passes all 11 owner-supplied packages (644 artboards) on 2026-07-28.
+  - [x] **Core editable mapping:** artboards, groups, primitive/vector paths,
+        rich text runs, opacity/visibility/blend/rotation, solid/gradient paint,
+        strokes/corners, lazily embedded raster/pattern resources, named document
+        colors/gradients, and prototype links as artboard notes. Approximations
+        and unsupported content are reported.
+  - [x] **Visual-fidelity closure:** owner visually accepted representative XD
+        imports on 2026-07-28 as looking correct and remaining editable as
+        expected. Image resources, line/group geometry, text bounds/overflow and
+        tracking, placement visibility/collision, quiet success UX, and on-demand
+        reports were closed against the supplied corpus. XD-only constructs that
+        cannot be reconstructed are honestly approximated or flattened into
+        editable EXP content and remain visible in the Import Report. The corpus
+        contains no character-style library fixture, so that unproven optional
+        mapping is recorded rather than blocking the rescue importer.
+- [x] **Chunk I — Nested components + semantic containment** — v2.1 model gate
       before component-preserving Figma/XD import: cycle-safe source dependencies,
       instance-path overrides/ids, recursive authoring/detach/export, and
       context-aware ARIA child-role recommendations (List → List Item, etc.).
@@ -707,7 +801,7 @@ follow the v1.6.1-style copy/paste release path with 2.0.1/build 11.
 
 ---
 
-## v2.1 — in progress
+## v2.1 — feature complete; release preparation
 
 Build 12, `MARKETING_VERSION 2.1`. The release order is deliberate: finish the
 Chunk I nested-component model gate first, then build XD/Figma import against a
@@ -732,18 +826,75 @@ and the coordinated panel/tool-discoverability pass remain in this release.
       Relationships moved to the inspector bottom and appear only for role-relevant
       kinds (while preserving access to already-authored relationships). Owner
       verified the recursive hierarchy and compact default-width Layers/Components
-      presentation on 2026-07-24.
-- [ ] **Chunk I closure.** Dependent-source deletion choices, stable instance
-      paths, nested overrides/public props/states/layout/detach/export/Quick Look,
-      semantic containment guidance, and the full acceptance matrix below.
-- [ ] **Chunk G / D import.** Prove the shared importer/report pipeline with
-      offline XD rescue first, then add the sanctioned Figma REST path.
-- [ ] **F2 + panel IA.** Ship the visible Handoff surface and the coordinated
-      command/tool-discoverability pass.
+      presentation on 2026-07-24. State-local layer blend modes joined the same
+      bounded appearance-diff path on 2026-07-27 (BUG-015).
+- [x] **Chunk I closure.** Dependent-source deletion is owner-verified after
+      BUG-014's double-offset fix (see Phase 4.1); stable instance paths, nested overrides/public props/states/layout/detach/
+      export/Quick Look, semantic containment guidance, and the full acceptance
+      matrix below are complete. Focused graph/relationship/semantic/package/SVG
+      suites and the full signed Debug app + Quick Look/helper build passed on
+      2026-07-27; the owner passed the complete end-to-end matrix on 2026-07-28.
+- [x] **Chunk G XD import.** Shared importer/report pipeline and offline XD
+      rescue are implemented and owner-accepted across representative real files.
+- [x] **Chunk D Figma import.** The sanctioned REST importer maps Figma pages to
+      EXP canvas tabs and passed owner live-file visual/editability acceptance on
+      2026-07-28. OAuth/Keychain and Enterprise Variables remain deferred choices,
+      not v2.1 first-implementation gates.
+- [x] **Canvas pages acceptance.** Browser-tab-like canvas pages are now the
+      document boundary for large imports and future Figma page mapping. Verify
+      tab add/rename/deep-duplicate/reorder/delete + undo; independent camera,
+      guides, Layers, and selection per page; move/duplicate-to-page from both
+      context and Edit menus for single/multiple layers, a nested child, and
+      single/multiple artboards with their owned content; save/reopen and legacy
+      one-page migration. Component sources and Design Language stay shared.
+- [x] **F2 + panel IA.** The visible Handoff surface, coordinated command/tool-
+      discoverability pass, complete owner UI/assistive-technology matrix, and a
+      live Claude Code MCP connection using all six read-only tools passed on
+      2026-07-28. Host-specific capability packs remain an optional deferred
+      enhancement, not a v2.1 release gate.
+- [x] **Release story + documentation.** `RELEASE-NOTES-v2.1.md`, the exact
+      build-12 release checklist, refreshed public feature architecture/copy,
+      current tester-feature feed, and component/import-handoff asset briefs are
+      aligned with the owner-accepted scope. Existing multi-window and contrast
+      stories remain; Design Language copy now reflects colors, gradients, type
+      styles, categories, and token/CSS/JSON handoff. Final Design Language and
+      optional replacement feature graphics can land without changing the story.
+- [ ] **Final release gate.** Run the complete v2.1 Release build/script matrix,
+      repeat the condensed owner smoke test, archive/notarize, byte-verify the
+      shipping zip, generate/publish Sparkle metadata, prove the public
+      v2.0.1 → v2.1 install/relaunch path, and only then announce. Exact commands:
+      `docs/RELEASE-CHECKLIST-v2.1.md`.
 
 ---
 
 ## Architecture decisions
+
+- **EXP is a fidelity tool, not a prototyping tool.** Owner statement 2026-07-24,
+  recorded because it settles a whole class of future arguments: *"i never set out
+  to make EXP a prototyping tool... i don't think design tools should focus on
+  prototyping since it's done much more efficiently in code."* EXP is ONE PIECE of
+  a designer's toolkit. The job, in order:
+  1. **Read a component in accurately, losing no important data.**
+  2. **Export it back out at the same fidelity.**
+  3. Let the designer make real design tweaks in between.
+  4. Hand the result to a developer — or to a model that writes accessible
+     component code from it — with the semantics intact.
+  What this rules IN: anything that improves what survives a round trip. Semantic
+  export, the Handoff Package, notes, ARIA roles and relationships, component
+  states AS DESCRIBED VARIANTS, importer fidelity reports.
+  What this rules OUT: interaction wiring, state machines, transitions, click-through
+  playback, anything whose value is "watch it behave." If a feature's payoff is a
+  simulation rather than an artifact someone downstream can use, it does not belong.
+  Practical test when a decision is unclear: **does this make the exported artifact
+  more faithful, or does it just make the canvas more impressive?** Build the first.
+  This also decides structure questions. When two ways of modelling the same design
+  exist, prefer the one that ROUND-TRIPS statically over the one that only makes
+  sense while the tool is running it — e.g. three tabpanels with visibility
+  toggling (what the DOM actually contains, exports as-is) over one panel whose
+  identity changes with an active state (only meaningful inside EXP).
+  Component states are HANDOFF DATA describing variants, never a playback engine.
+  That distinction is the one most likely to erode; hold it.
+
 
 - **Language/UI:** Swift + SwiftUI for app chrome (panels, inspectors,
   menus) because declarative UI suits how you think. AppKit/Core Graphics
@@ -890,33 +1041,79 @@ contract rather than treating nested instances as an incidental render case.
 - [x] Let the Components panel, Object menu, context menu, and source editor place
       a component instance inside another component source. Show the nested source
       boundary/name in Layers and make Edit Component step into the correct source.
-- [ ] Add a source-dependency graph and reject direct or indirect cycles
+- [x] Add a source-dependency graph and reject direct or indirect cycles
       (`A → A`, `A → B → A`) before mutation. Deleting a referenced source must
-      identify dependents and require an explicit flatten/remove choice.
-      **PARTIAL 2026-07-24:** the shared graph, placement/move guards, and focused
-      cycle tests are done; dependent-source deletion choice remains.
-- [ ] Replace ambiguous raw descendant ids with stable **instance paths** for
+      identify dependents and resolve them without losing work.
+      **DONE; OWNER VERIFIED 2026-07-27** — the owner
+      confirmed that deleting a source still appeared to remove every canvas use.
+      BUG-014 found that the preserving flatten did exist, but it offset each child
+      by the instance origin before putting it in a group that applied the same
+      origin again. The work was present but drawn elsewhere. Children now remain
+      source-local; the focused check asserts the composed canvas position so it
+      cannot bless the same mistake again. The owner confirmed deletion now keeps
+      every placed use visible and in position. NOT a Chunk I blocker:
+      the delete is undoable and the model work below does not depend on it, so
+      import and instance-path work proceeds ahead of this. Implementation: the shared graph, placement/move guards, and focused cycle
+      tests shipped first. Dependent-source deletion is now closed by
+      `Document.deletingComponentSource(_:)` — deleting a source deletes the
+      SOURCE, not the work: every instance of it becomes an ordinary group of
+      exactly what it was drawing, on the canvas, inside groups, and inside other
+      sources. The owner chose this single behavior over a flatten/remove prompt
+      so a destructive branch can never be picked by accident. Instances keep
+      their node id, name, frame, opacity, rotation, effects, blend mode, flips,
+      mask flags, relationships, and lock state; components nested below the
+      deleted one survive as live instances carrying the state they displayed;
+      flattened subtrees are re-identified so two uses never share ids; and
+      `nestedStateOverrides` paths that ran through the dissolved instance
+      re-root onto the surviving nested instance instead of being dropped.
+- [x] Replace ambiguous raw descendant ids with stable **instance paths** for
       nested overrides, visibility, accessible-name sources, relationships, DOM
       ids, and import reports. Two uses of the same nested source must never share
       override identity or emitted ids.
-- [ ] Define nested override inheritance deliberately: parent instances may expose
+      DESIGN SETTLED 2026-07-24 — see BACKLOG **FEAT-012** for the decision and the
+      five-chunk plan (I-a path type → I-b anchored storage + migration → I-c
+      authoring UI → I-d export → I-e checks). The rule: **a relationship lives at
+      the nearest node containing BOTH of its ends, and addresses each end by
+      instance path.** Chunk I-d is what actually closes THIS box, because
+      `SemanticHTMLIdentity.nodeDOMID(_:instanceID:)` currently carries a single
+      instance id and therefore collides at nesting depth 2+.
+- [x] Define nested override inheritance deliberately: parent instances may expose
       selected public props from nested children; source edits flow through unless
-      overridden; reset returns to the nearest source value. States, auto-layout,
+      overridden; reset returns to the nearest source value.
+      DESIGN SETTLED 2026-07-24 — see BACKLOG **FEAT-017** for the decision and the
+      five-chunk plan (J-a type+storage → J-b resolution → J-c inspector →
+      J-d export/handoff → J-e checks). Follows the `NestedInstanceStateOverride`
+      precedent already in the model: path-addressed, stored on the OUTERMOST placed
+      instance, reusing `InstanceOverride.Value` unchanged. States, auto-layout,
       bounds, clipping, thumbnails, duplicate/copy-paste, detach, SVG, semantic
       HTML, Handoff Package, and Quick Look all resolve the same tree.
-- [ ] Add **context-aware ARIA role authoring** from semantic containment. A parent
+- [x] Add **context-aware ARIA role authoring** from semantic containment. A parent
       List recommends/filters children toward List Item; Tab List → Tab; Menu /
       Menu Bar → Menu Item variants; Radio Group → Radio; List Box → Option;
       Tree → Tree Item; Table/Grid → Row and Cell/Header roles. Show a concise
       explanation and warn on invalid ownership without silently changing an
       authored role or inventing `aria-owns`.
-- [ ] Semantic export uses the same resolved nesting: native containment where
+      DONE 2026-07-24 (needs owner build + run): added the seven roles the rule
+      set needed — Tree, Tree Item, Grid, Table Row, Table Cell, Column Header,
+      Row Header — with friendly labels, blurbs, categories, and semantic-HTML
+      mappings. `AriaRole.expectedChildRoles` / `requiredParentRoles` hold the
+      ownership rules; `Document.containmentAdvice(forChildRole:inParentRole:)`
+      advises a child from where it sits and `containmentAdvice(forSource:)`
+      advises the container. Deliberately quiet by design: a parent with no
+      ownership expectation, a correctly authored child, a legal-but-unrelated
+      child (a decorative Group inside a List), and an empty container all
+      produce NOTHING. The only warning is the case a screen reader genuinely
+      mis-announces — a child whose role requires a container this parent is not.
+      `radio` carries no required parent on purpose, so a lone radio is
+      recommended into a Radio Group but never flagged as an error. Nothing is
+      ever auto-applied and no `aria-owns` is invented.
+- [x] Semantic export uses the same resolved nesting: native containment where
       possible, instance-qualified relationships, deterministic reading order,
       and structured fidelity issues for incompatible or ambiguous ownership.
-- [ ] Acceptance: nest one reusable component twice inside a parent, override each
+- [x] Acceptance: nest one reusable component twice inside a parent, override each
       independently, edit both source levels, save/reopen, detach/export/import,
       and receive correct role recommendations with no cycles, duplicate ids,
-      cross-instance override leakage, or hidden flattening.
+      cross-instance override leakage, or hidden flattening. OWNER PASS 2026-07-28.
 
 ### Phase 5 — Export ✅ DONE
 _`Export/ExportRenderer.swift` (rendering) + `Export/ExportPanels.swift` (the
@@ -2009,9 +2206,11 @@ font import → Phase 9, shadows → Phase 10._
       two paths still assume top-level: resize/rotate **handles** are hidden for nested
       items (move-only), and inline **text editing** of a nested text node isn't
       positioned yet (double-click only drills/selects it). Revisit when needed.
-- [ ] **Align/distribute on nested selections** — still operate on top-level
-      `currentNodes` only (Session 62 made duplicate/copy/cut/paste/delete/order
-      nested-aware; align would need absolute-frame math + recursive write-back).
+- [x] **Align/distribute on nested selections** — recursively resolves selected
+      children, aligns siblings in their shared parent-local space, and lifts
+      mixed-parent / Align-to-Artboard bounds into document space with inverse-
+      transformed write-back through rotated or flipped ancestors. Closed during
+      Figma D2 live cleanup on 2026-07-28.
 - [ ] **Inspector "Align" row layout** — the Align-to dropdown sits too close to the
       distribute buttons; owner mis-clicked distribute when reaching for the dropdown.
       Separate/regroup them (and revisit overall panel layout) in the panels phase.
@@ -2045,6 +2244,1392 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-07-29 — v2.1 website screenshot direction implemented [site]:**
+  Replaced the older homepage product capture with the populated v2.1 workspace;
+  replaced the component concept diagram with an overlapping real-product pair
+  that shows both the nested-component system and a readable editor detail; paired
+  the Design Language working panel with its CSS palette-import flow; and added the
+  ARIA guide overview/detail pair beneath the existing three plain-language
+  accessibility principles. The import + handoff workflow diagram remains in place
+  by design, as does the text-led “accessible thinking” story. The near-duplicate
+  empty-properties workspace and the more sparsely composed Link-vs-Button image
+  were intentionally left unused. Updated the durable asset brief with the chosen
+  files and rationale. Responsive layouts and the production Vite build pass.
+
+- **2026-07-29 — Active Layers artboard rail spans expanded component trees [layers/UI]:**
+  Screenshot review exposed a visual seam in the active-artboard accent rail:
+  ordinary editable rows painted their own rail segment, while the virtual source
+  layers disclosed beneath a placed component used a separate row implementation
+  with no segment. The rail now belongs to each top-level outline subtree and is
+  overlaid once across its complete disclosed height, so groups, component layers,
+  and deeper nested component disclosures cannot interrupt it. Concrete rows keep
+  a clear layout slot for alignment, and the independent selected-layer bar is
+  unchanged. The signed universal Debug app, thumbnail, and bundled helper build
+  passes; owner visual verification remains.
+
+- **2026-07-28 — v2.1 release story, website features, and release docs aligned [site]:**
+  Reframed the public feature story around the two large release cycles: the
+  three-tab overview now leads with the native canvas, understandable nested
+  components, and accessibility by intent; dedicated component and import/handoff
+  sections explain source/state/override structure and EXP's open-workflow role;
+  Design Language copy now includes type styles and standards-based handoff; the
+  existing multi-window and contrast stories remain; and a separate accessibility-
+  at-the-core section explains plain-language guidance, semantic meaning, and the
+  honest testing boundary. Added durable image briefs for the owner's component,
+  import/handoff, and refreshed Design Language graphics. Created v2.1/build 12
+  release notes plus an exact archive/notarize/Sparkle/GitHub/site/update checklist,
+  and synchronized the generated tester feature feed with nested components,
+  pages, XD/Figma import, and Handoff. Public accessibility claims were checked
+  against WAI-ARIA 1.2 (roles, states, properties, relationships, and names), the
+  WAI-ARIA APG's “a role is a promise”/real implementation testing boundary, and
+  WCAG 2.1 SC 1.4.3 contrast guidance. This verifies the wording and its refusal
+  to claim automatic conformance; it does not re-test a downstream product built
+  from exported HTML. NEXT: owner supplies final screenshots as desired, then run
+  `docs/RELEASE-CHECKLIST-v2.1.md`.
+
+- **2026-07-28 — F2 Handoff + panel IA owner acceptance complete:**
+  Owner passed the remaining docked/detached, resize/collapse, export/package,
+  keyboard/VoiceOver, system-appearance/contrast/transparency, and compact action-
+  styling checks. The panel-generated user-scope Claude Code setup connected to
+  the shipping bundled `exp-mcp` helper; `/mcp` exposed all six read-only tools,
+  orientation/artboard/node/token reads returned correctly, changing the EXP
+  selection produced fresh selection data, EXP displayed the connected client,
+  and disconnect/disable returned through ready to off cleanly. F2 and the panel
+  IA pass are closed for v2.1. Agent capability packs remain a separately scoped,
+  optional follow-up and are not a release gate.
+
+- **2026-07-28 — Handoff panel action rhythm aligned with the panel system:**
+  Owner review found the initial large lime dialog buttons too prominent beside
+  EXP's dense dock controls. Handoff export/package/copy actions now use one
+  reusable compact panel style shared with Design Language: 24pt height, mini
+  medium labels, semantic neutral field/border/hover/pressed tokens, consistent
+  full-width rows, and leading action icons. Accent remains reserved for active
+  state and connection feedback. Focused Debug app build and `git diff --check`
+  pass.
+
+- **2026-07-28 — F2 Handoff + panel/tool IA implementation ready for owner acceptance:**
+  Added Handoff as a full dockable/floating/persisted panel with Export, Package,
+  and Agent sections. Existing PNG/JPEG/PDF/SVG flows are surfaced without losing
+  File-menu access; standalone semantic HTML/CSS and DTCG-token exports join the
+  complete `.exph` package. The default-off local agent bridge can now be enabled
+  and stopped live, reports readiness/errors/connection count/client identity,
+  shows an explicit read-only badge and privacy boundary, provides Claude Code,
+  Claude Desktop, generic stdio, and helper-path setup text, and supplies a
+  connected-selection prompt affordance. Properties now gives Convert to Path,
+  Outline Stroke, and selection-aware Pathfinder a visible home while preserving
+  Object/context routes. Figma, all 11 XD packages, canvas pages, nested component
+  graph, semantic HTML contract/package, deterministic goldens, `git diff --check`,
+  and a signed universal Debug app/helper/Quick Look security matrix pass. Docked/
+  detached visual behavior and the keyboard/VoiceOver/system-appearance matrix
+  remain explicitly pending owner acceptance before F2/Panel IA are checked off.
+
+- **2026-07-28 — Figma REST first implementation owner acceptance:**
+  After live side-by-side review across pages, local components, text, images,
+  masks, stroke patterns, rotated lines, nested alignment, buttons, auto-layout
+  backgrounds, and color swatches, the owner called the editable Figma importer
+  a solid first implementation. D2 live API/visual acceptance is closed. Honest
+  report items remain for advanced constructs EXP cannot reconstruct exactly;
+  OAuth/Keychain is still an explicit D3 product choice, and extreme-document
+  performance remains deferred to its dedicated optimization phase rather than
+  being mixed into importer acceptance.
+
+- **2026-07-28 — Figma D2 absolute auto-layout child correction:**
+  The owner-provided side-by-side and saved `figma-import-test.design` isolated
+  the repeated horizontal offset: an enclosing Background was being counted as
+  the first auto-layout item, so every real child moved by exactly the background
+  width plus the configured gap. `Node` now persists Figma's absolute-in-layout
+  intent; generated frame surfaces and `layoutPositioning: ABSOLUTE` children are
+  excluded from stacking while retaining their authored coordinates. When such
+  children exist, the imported outer frame remains the minimum layout size. A
+  compatibility inference recognizes both enclosing legacy backgrounds and the
+  exact already-stacked `Background.max + gap` fingerprint, so reopening the
+  current test import can repair the button contents and swatch row without a
+  mandatory reimport. The Figma fixture proves generated surfaces, explicit
+  absolute children, and legacy repair. Focused Figma, all 11 real XD packages,
+  canvas-page isolation, `git diff --check`, and the complete signed Debug app/
+  helper/Quick Look build pass. OWNER VERIFIED 2026-07-28: buttons and other
+  affected auto-layout content now look substantially better.
+
+- **2026-07-28 — Figma D2 nested alignment + canonical line geometry:**
+  Live cleanup exposed two related geometry gaps. Align/distribute still indexed
+  only the top-level node array, so selected siblings inside a group passed UI
+  validation but were silently skipped. The commands now resolve selections
+  recursively, use the shared parent coordinate space for siblings, and use
+  document-space visual bounds plus inverse transformed write-back for mixed
+  parents and Align-to-Artboard (including rotated/flipped ancestors). Figma
+  LINE nodes now normalize to one horizontal editable segment plus their true
+  transform rotation; when reusable `size` is absent, vertical bounds become an
+  exact vertical line instead of a false diagonal across the stroke's thin
+  bounding box. `relativeTransform` is the canonical angle when supplied. The
+  fixture proves dotted-line retention, missing-size vertical lines, and matrix
+  rotation; focused Figma verification and the full signed Debug app/helper/
+  Quick Look build pass. OWNER VERIFIED 2026-07-28: re-imported line geometry
+  looks substantially better and distribute now works within the selected group;
+  this correction is signed off. Broader Figma D2 acceptance remains open for
+  any other live-file inconsistencies.
+
+- **2026-07-28 — Figma D2a live visual-fidelity correction [text/rotation/strokes/masks]:**
+  The owner's first side-by-side live import exposed three deterministic mapper
+  errors: TEXT paint was read only from TypeStyle even though Figma keeps the base
+  paint on the text node; rotated `absoluteBoundingBox` dimensions were treated as
+  unrotated dimensions and rotated again; and `strokeDashes` were discarded. Text
+  now inherits node fills before rich-run overrides, geometry uses Figma's
+  unrotated `size` centered on the returned post-transform box, and vector paths
+  preserve open/closed status. Added a backward-compatible semantic StrokePattern
+  (`solid`/`dashed`/`dotted`) across lines, paths, rectangle/ellipse/polygon borders,
+  auto-padding group backgrounds, component stroke overrides, canvas/raster/SVG/
+  semantic HTML export, and accessible single/multi inspector controls. Figma
+  dash arrays infer Dash vs Dot, and groups with marked mask siblings now activate
+  EXP clipping instead of leaving the mask relationship inert. The focused Figma
+  fixture now proves node-level text color, once-only rotation, unrotated size, and
+  dotted-line mapping; Figma/XD/page/semantic suites and the complete signed Debug
+  app + Quick Look/helper build pass. OWNER NEXT: rebuild, re-import the same Figma
+  file into a clean document, and compare the colored text, grid/rules, slightly
+  rotated icon, and masked portrait layers; then send the new report/screenshots
+  for the next D2 gap.
+
+- **2026-07-28 — Chunk D1 sanctioned Figma REST importer [interop/Figma/pages]:**
+  Started Figma import on the accepted shared codec/report and canvas-page model.
+  File ▸ Import Figma File now takes a Figma URL/key and a PAT with
+  `file_content:read`; privacy copy is explicit, the credential is memory-only,
+  never logged, and attached only to `api.figma.com` requests (never signed image
+  CDN URLs). The cancellable client handles current file/image endpoints, bounded
+  responses, access/not-found/rate-limit errors, path geometry, and image bytes.
+  The defensive mapper creates one EXP tab per Figma canvas and editable artboards,
+  nested containers, core shapes/vectors/text, gradients, images, effects, stack
+  layout, named Design Language paint/type styles, and local component sources/
+  placements. Unsupported fidelity is aggregated in the shared on-demand report;
+  bound Variables are called out because Figma restricts their read endpoint to
+  Enterprise accounts. Import appends uniquely named pages, focuses the first
+  result, and is one undo step. A no-network two-page fixture proves pages, geometry,
+  images, local components, styles, and URL parsing; XD, pages, semantic package,
+  and full signed Debug app/Quick Look/helper checks pass. OWNER NEXT: create/use a
+  PAT with `file_content:read`, import one small multi-page file first, then exercise
+  the D2 real-file matrix above and send the Import Report for the first fidelity
+  gap. Official API contract checked 2026-07-28: `GET /v1/files/:key?geometry=paths`
+  is Tier 1; image fills come from `GET /v1/files/:key/images`.
+
+- **2026-07-28 — XD importer owner acceptance complete [Chunk G/import]:**
+  Owner confirmed the XD imports look good and remain editable as expected, and
+  explicitly accepted closing the XD importer. Chunk G is complete: the shared
+  offline codec, bounded package decoding, native editable mapping, large-corpus
+  structural proof, visibility/placement behavior, corrected text geometry and
+  tracking, embedded images/lines/groups, one-step merge, quiet success UX, and
+  report-on-demand workflow are all in place. Known XD-only constructs continue
+  to use explicit reportable approximations instead of pretending at exact source
+  semantics; the absent character-style fixture remains documented but does not
+  block the accepted rescue workflow. NEXT: Chunk D, using the same codec/report
+  contract and mapping Figma document pages directly to the accepted canvas tabs.
+
+- **2026-07-28 — Canvas pages owner acceptance complete [pages/tabs]:**
+  Owner confirmed the browser-tab page workflow now feels done after the clipped,
+  stable fast-pan tab chrome and transfer-focused destination camera follow-ups.
+  Page creation/management, independent page cameras/content, single and multiple
+  layer/artboard Move/Duplicate to Page paths, and destination reveal are accepted.
+  The Canvas pages acceptance gate is closed; this is now the document boundary
+  available to XD/Figma import mapping and later large-document performance work.
+  NEXT: return to Chunk G visual-fidelity closure, then the sanctioned Figma REST
+  importer can map source document pages directly onto this model.
+
+- **2026-07-28 — Cross-page transfers reveal their result [canvas/pages]:**
+  Owner confirmed the fast-pan tab isolation is much better and that moving more
+  artboards between pages works, but the destination restored an unrelated old
+  camera and required hunting across the wall. Move/Duplicate to Page now carries
+  the transferred result bounds into the page-switch funnel: one artboard/layer is
+  centered at no more than 100%, while a multi-selection zooms out only enough to
+  show the complete moved set with padding. That focused camera becomes the page's
+  remembered position; ordinary tab switches still restore their prior cameras.
+  Page switches also discard any stale pan snapshot before drawing the destination.
+  Full Debug app/Quick Look/helper build and focused canvas-page checks pass.
+  OWNER NEXT: move one distant artboard, several nearby artboards, and a layer
+  selection to an already-visited page; each destination should open directly on
+  the transferred work, and switching away/back should return to that view.
+
+- **2026-07-28 — Page-tab chrome isolated from fast-pan canvas [canvas/UI]:**
+  Owner's large-document screenshot showed the entire tab strip flickering away
+  during wall panning, with artwork temporarily composited through its frame. This
+  was not tab-color transparency: the AppKit canvas's oversized pan/zoom halo
+  backing could transiently composite above the adjacent SwiftUI tab sibling.
+  The native canvas is now explicitly layer-backed and masks drawing to its own
+  bounds; the SwiftUI representable is clipped as a second boundary, and the
+  opaque tab strip has its own foreground compositing group. Static and fast-pan
+  pixels therefore cannot enter page chrome. The full Debug app/Quick Look/helper
+  build and focused canvas-page check pass. OWNER NEXT: repeat the 5% fast-pan
+  test in `perf-test-2-1.design` and confirm the tabs, labels, background, and
+  bottom divider remain completely stable through pan and settle.
+
+- **2026-07-28 — Multi-selection page-transfer retarget fix [canvas/Layers/menus]:**
+  Owner found Move to Page acting on only one item from a multi-selection. The
+  transfer algorithm already handled multiple roots; the loss happened earlier,
+  while an AppKit/SwiftUI contextual menu was tracking and the Layers List could
+  retarget the clicked row before the submenu action fired. Canvas, exact-row
+  Layers, and Edit-menu transfer requests now carry a snapshot of the complete
+  selected layer/artboard id sets. The shared move/duplicate path consumes that
+  snapshot, while a context click outside the selection still intentionally
+  targets only the clicked row. Full Debug app/Quick Look/helper build and focused
+  canvas-page/nested-component checks pass. OWNER NEXT: select three sibling layers
+  (including across artboard/Wall sections), move them together from Layers
+  right-click, then undo and repeat from Edit and the canvas context menu; repeat
+  once with Duplicate to Page and with two selected artboards.
+
+- **2026-07-28 — Browser-style canvas pages + cross-page transfer [canvas/model/import]:**
+  Added first-class canvas pages as tabs above the canvas rather than mixing them
+  into Layers. Each page owns artboards, wall layers, guides, root relationships,
+  and a remembered camera; rendering, hit testing, selection, Layers, inspector,
+  notes, export, Quick Look, and the Agent Bridge resolve through the active page,
+  while component sources and Design Language remain shared document resources.
+  Tabs support add, inline rename, deep duplicate, left/right reorder, and guarded
+  delete with undo. Edit-menu and exact-row/canvas context-menu submenus now move
+  or duplicate the current single/multiple layer selection—including a selected
+  child without its enclosing group—or single/multiple selected artboards with
+  their owned content to any other page. Moves preserve identity, duplicates remap
+  the full subtree, and internal root relationships follow safely without creating
+  invalid cross-page links. Schema/format v3 saves pages explicitly; v1/v2 files
+  migrate into one `Page 1`. Focused page migration/deep-copy, nested component,
+  relationship, semantic contract/package, and real XD import checks pass; the
+  signed Debug app, Quick Look extension, and helper build succeeds. This creates
+  the intended boundary for sanctioned Figma page mapping and lets inactive pages
+  avoid canvas/Layers work, while deeper large-document performance tuning remains
+  its own later phase. OWNER NEXT: run the Canvas pages acceptance matrix above.
+
+- **2026-07-28 — Quiet XD success + report-on-demand + tracking units [import/UX/text]:**
+  Owner verified the TextKit overflow/box and temporary-pan cursor fixes, then
+  confirmed the imported XD artwork is otherwise visually strong and that the
+  automatic success report reads like an error. Successful/approximated imports
+  now reveal the artwork without a modal. File > Show Last Import Report preserves
+  the complete selectable/copyable diagnostic on demand; an automatic warning is
+  reserved for imports with actual unsupported or errored content. Adobe's XD API
+  confirms `charSpacing` is stored in thousandths of the font size, so the importer
+  now converts it to EXP's absolute-point tracking (`-20` at 20pt → `-0.4pt`) rather
+  than exaggerating it to `-20pt`. The keyboard-shortcuts corpus regression now
+  asserts negative tracking survives but remains normalized below 5pt; the full
+  11-package corpus and Debug app/helper/Quick Look build pass. OWNER NEXT:
+  confirm a clean XD import has no popup, inspect the report from File on demand,
+  and spot-check one previously over-tight negative-tracking label.
+
+- **2026-07-28 — Text overflow truth + temporary-pan cursor recovery [text/canvas/XD]:**
+  Owner screenshot exposed hundreds of false red overset badges on imported XD
+  point text and a Select cursor visually stuck as Pan. Text sizing had two
+  competing models: auto bounds forced a `1.3 × font-size` minimum and wrapped
+  bounds added three bottom points, while canvas drawing used TextKit. Removed
+  those artificial pads. Fixed-box overflow now reuses the exact cached TextKit
+  container that draws the layer and shows `+` only when non-whitespace characters
+  were actually excluded—not for font leading, descender space, or trailing blank
+  lines. XD mapping now preserves `positioned` as auto text, uses exact stored
+  area-text width/height, and keeps auto-height text width while estimating only
+  its missing height. Temporary Space-pan now observes key-up anywhere in EXP and
+  clears on app deactivation, covering focus changes that previously stranded the
+  hand cursor while Select was active. A 120-point TextKit probe confirms all
+  glyphs fit a 156-point imported line box; focused XD corpus check and the full
+  Debug app/helper/Quick Look build pass. OWNER NEXT: reimport
+  `keyboardshortcuts.xd` (the badge cloud should be gone), verify a genuinely
+  clipped fixed text box still gets one badge, compare auto-box bottom bounds,
+  and release Space after moving focus to a panel/window to confirm cursor recovery.
+
+- **2026-07-28 — XD import visibility/report follow-up [import/canvas]:**
+  The owner confirmed `keyboardshortcuts.xd` decoded but appeared not to open.
+  The report was a successful import; imported boards were intentionally placed
+  beside existing work but the viewport stayed on the old location. Import now
+  selects and fits the first imported artboard immediately, including ruler-aware
+  centering and camera persistence. The completion dialog now explicitly says
+  the import succeeded and that fidelity details are informational rather than a
+  failure. Follow-up inspection confirmed the three source artboards do not
+  overlap, but found that collision spacing ignored XD pasteboard layers (58 in
+  `keyboardshortcuts.xd`); placement bounds now include every imported and existing
+  wall layer, preventing repeated imports from colliding with off-board content.
+  Debug app/helper/Quick Look build succeeds. OWNER NEXT: reimport
+  `keyboardshortcuts.xd` and confirm its first artboard is visible after dismissing
+  the report; Undo should still remove the whole import in one step.
+
+- **2026-07-28 — Chunk G XD importer first slice + real corpus proof [interop/import]:**
+  Added the shared `InteropCodec` read/write/cancellation/progress/report contract
+  and the first offline Adobe XD codec. File > Import Adobe XD decodes the frozen
+  ZIP/AGC package away from the main thread, offers cancellable native progress,
+  places imported artboards to the right of existing work in one undo step, merges
+  Design Language assets by value, and always presents a selectable/copyable
+  Import Report. The mapper preserves editable artboards/groups, primitive and SVG
+  vector geometry, rich text runs, core appearance, document-library colors and
+  gradients (including authored names), embedded image resources, and prototype
+  links as notes; repeated fidelity findings aggregate with occurrence counts.
+  Line-only AGC geometry is derived from its endpoints, and repeated placements
+  share lazily decoded image bytes instead of reinflating the resource. The ZIP reader bounds entry
+  count/size and rejects encryption, ZIP64, unsupported compression, CRC/size
+  corruption, and unusable artwork. A headless corpus runner decoded all 11 owner-
+  supplied packages—644 artboards and 82,096 recursively counted layers—with
+  finite native geometry; the full Debug app/helper/Quick Look build succeeds.
+  Current reports intentionally call out image crop/container clipping, masks/
+  effects, approximated text geometry/transforms, and component groups flattened
+  without source/state identity. No character-style library assets exist in this
+  corpus, so that mapping remains unproven rather than being claimed complete.
+  OWNER NEXT: visually compare `UX-suppliment-slides.xd` first, then a richer file;
+  verify progress/cancel, one-step undo, report copy, and save/reopen. NEXT CODE:
+  close the reported image-crop/mask/component/text fidelity gaps before Figma REST.
+
+- **2026-07-28 — Chunk I owner acceptance complete [nested components/semantics/export]:**
+  Owner ran the remaining end-to-end matrix and confirmed every case passes: two
+  placements keep independent nested overrides; source edits inherit correctly and
+  reset returns to the nearest source value; duplicate and detach stay independent;
+  save/reopen and Quick Look preserve the resolved result; Handoff export keeps
+  unique nested ids, instance-qualified relationships, and advertised Component
+  Props; semantic-containment recommendations remain correct without rewriting
+  authored roles. Chunk I — nested components + semantic containment — is closed.
+  NEXT: Chunk G/D, beginning with the shared importer/report pipeline and offline
+  XD rescue before the sanctioned Figma REST path.
+
+- **2026-07-27 — Chunk I headless/build closure + semantic golden repair [model/export/tests]:**
+  Resumed after a one-off, non-reproducible beachball; the captured process was in
+  a 100% CPU SwiftUI layout loop, but the exact build and large-document stress
+  cases did not reproduce it, so no speculative production change was made. The
+  Chunk I verification sweep then found two real test gaps: the nested semantic
+  resolver check could not compile because its target helper was file-private, and
+  the deterministic Handoff fixture still authored relationships through the
+  retired legacy node array. Exposed the resolver to the module, migrated the
+  fixture to canonical source/root anchors, and fixed root-anchored fidelity issues
+  so they name the relationship subject rather than an arbitrary first artboard
+  layer. Reviewed the complete golden diff: HTML/CSS and relationship output remain
+  byte-for-byte stable; the intended changes are anchored data in `design.json`
+  and the new README Component Props section. Anchored relationships, nested graph,
+  semantic contract/package, and SVG suites pass; the full signed Debug app,
+  Quick Look extension, and bundled helper build succeeds with existing warnings.
+  Official WAI-ARIA 1.2/APG checks reconfirmed the existing relationship semantics;
+  this pass changed diagnostics and test storage, not ARIA behavior.
+  OWNER NEXT: run the short end-to-end Chunk I matrix—two placements with distinct
+  nested overrides; source-edit inheritance + reset; duplicate and detach; save/
+  reopen + Quick Look; Handoff export with unique nested ids, relationships, and
+  Component Props; then confirm containment recommendations on the same document.
+
+- **2026-07-27 — BUG-016 + FEAT-018 owner-verified and closed [layers/components]:**
+  Owner confirmed the corrected exact-row layer context menu, nested child-only
+  duplication, layer copy/paste, and independent Duplicate Component workflow all
+  look and behave correctly. BUG-016 and FEAT-018 are now closed.
+
+- **2026-07-27 — BUG-016 nested context-menu + clipboard UTI follow-up [layers/plist]:**
+  Owner reported the first layer-duplication pass still failed and supplied a log
+  repeating that `tapps.exp-design.nodes` was not exported. The missing Info.plist
+  declaration was real and is now fixed (`public.json` conformance); the processed
+  Debug app plist contains both the document and layer clipboard types. A live UI
+  reproduction found the deeper nested-row failure: the shared model correctly
+  inserted a child inside its group, but SwiftUI hoisted context menus from the
+  recursively rendered child rows to the enclosing native List cell, so clicking
+  the child still ran the GROUP row's command. Layer rows now use a pointer-only,
+  exact-row AppKit context-menu surface; the SwiftUI menu remains for keyboard and
+  accessibility invocation. In a fresh isolated Debug app, two rectangles were
+  grouped, the first child was right-clicked, and Duplicate produced one unchanged
+  group containing three rectangles with the new child selected. Command-C/V also
+  produced a new layer. The Components-row Duplicate Component path was also run
+  live and opened `Component 1 copy` in its source editor. Focused graph checks
+  and the full unsigned Debug app + Quick Look/helper build pass; built plist
+  verification confirms the UTI export.
+  OWNER NEXT: repeat child Duplicate and Layers-focused Command-C/V in the normal
+  Xcode run, where the console should no longer repeat the custom-type warning.
+
+- **2026-07-27 — BUG-016 layer clipboard focus + FEAT-018 component-source duplication [layers/components/model]:**
+  Owner found that selecting a Layers row left Command-C / Command-V inert and
+  asked for Duplicate on every layer's right-click menu. Root cause was focus, not
+  serialization: the canvas already owns a working JSON clipboard, but the focused
+  SwiftUI List is outside its responder chain — the same gap Layers already worked
+  around for Delete and arrow nudging. Layers now registers native Copy/Paste
+  commands backed by that exact payload, routes Paste through the canvas placement
+  engine, and exposes Copy + Duplicate on every editable row. Canvas clicks also
+  reclaim keyboard focus from the last-used panel. Duplicate is recursive,
+  selection-aware, and undoable. After the owner's clarification, the sibling-
+  insertion rule also moved into the shared model path: duplicating a layer nested
+  in a group inserts only that layer beside its original inside the same group; the
+  enclosing group is not duplicated. A focused regression proves the containment
+  and the ancestor+child no-double-copy case. The shared clone path freshens
+  relationship ids and remaps both anchored and legacy targets.
+
+  Added the deliberately separate **Duplicate Component** command to Components
+  list/grid rows, instance context menus, and Object ▸ Component. It creates and
+  opens a NEW source (`Name copy`, then `copy 2`) rather than placing another
+  instance. All source-local layer/state/relationship identities and targets are
+  remapped; nested references to other sources stay live; existing instances stay
+  attached to the original. The focused graph check covers the full remap and copy
+  naming, and passes. Full unsigned Debug build of app + Quick Look/helper succeeds
+  with existing warnings only. OWNER NEXT: verify layer Duplicate and Copy/Paste
+  from both canvas and focused Layers list, including a nested layer and source
+  editor; then duplicate a stateful/nested component, edit the copy, and confirm the
+  original plus existing instances do not change.
+
+- **2026-07-27 — sixth-test handoff package audit [export/handoff]:**
+  Audited the owner's fresh `sixth-test.exph` directly. All seven manifest hashes
+  match; the package contains 3 artboards, 9 components, 974 design nodes, and 3
+  semantic HTML pages. Every emitted DOM id is unique per page and all seven ARIA
+  id references resolve. Nested tab-label overrides remain independent across two
+  placements, depth-3 instance paths produce distinct DOM ids, and BUG-015's Hover
+  override reaches CSS as `mix-blend-mode: color-dodge` while the source base stays
+  Normal. The fidelity report is also doing its job: it reports the deliberately
+  incomplete tab semantics (missing selected state/controls/name), orphaned
+  relationships, unexpected target roles, and the three-tabs/one-panel advisory
+  instead of inventing values or silently dropping data. Cross-checked the tab
+  expectations against the W3C WAI-ARIA APG tabs pattern. One acceptance gap remains
+  in this fixture: no layer has a public Text or Fill prop enabled, so the README's
+  positive public-prop advertisement path is present but not actually exercised.
+
+- **2026-07-27 — BUG-014 and BUG-015 owner-verified [components/state]:**
+  Owner confirmed both fixes in the app. Deleting a component source now preserves
+  its placed uses as in-position ordinary groups instead of apparently removing
+  them, closing the dependent-source deletion portion of Chunk I. Layer blend-mode
+  changes now remain specific to Default/Hover/Pressed rather than leaking through
+  the shared component base. Both backlog entries are done; the source-dependency
+  graph/deletion roadmap box is checked.
+
+- **2026-07-27 — v2.1 bug verification sweep + two state/component fixes [components/state/export]:**
+  Owner verified BUG-007, BUG-008, BUG-009, BUG-010, BUG-011, BUG-012, and
+  BUG-013, plus the font picker's blank-row/scroll-to-current fix. Their backlog
+  statuses are now done. Dependent-source deletion was the exception: deleting a
+  source still appeared to remove every placed use. BUG-014 found the preserving
+  model work was present, but `flattened` converted source-local children to
+  document coordinates while retaining the instance frame; group rendering then
+  added that frame again. The layers were drawn at twice their intended offset,
+  often off-canvas. Children now stay local to the replacement group, and the
+  focused regression asserts the composed document coordinate instead of blessing
+  the bad pre-offset frame. Owner also found BUG-015: changing a layer Blend Mode
+  while editing a component state leaked into Default and every sibling state.
+  Blend mode now joins opacity/fill/type/outline in `InstanceOverride.Value`;
+  capture keeps the base pristine, state/instance resolution reapplies it, JSON
+  round-trips it, and semantic HTML's parallel resolver carries it into
+  `mix-blend-mode`. `verify_nested_component_graph.sh` passes all graph, deletion,
+  layout, state, containment, and round-trip checks. Full unsigned Debug build of
+  app + Quick Look/helper succeeds with existing warnings only. OWNER NEXT: verify
+  source deletion does not move any use, including one nested in another source;
+  verify Default/Hover/Pressed can hold different layer blend modes through
+  save/reopen and a placed instance.
+
+- **2026-07-24 — Font picker: blank rows above the selection on first open [inspector]:**
+  Owner reported the rows ABOVE the selected font showing as empty space until a
+  real scroll brought them in. Cause is the `LazyVStack`: it only builds the rows it
+  believes are visible, and the `onAppear` scroll ran BEFORE the popover had been
+  laid out, so the container had no meaningful size and the surrounding rows were
+  never built. Fixed by scrolling twice — once immediately, then again on the next
+  main-queue turn, after layout, when the visible window is actually known. The
+  second call has a comment explaining itself, because a duplicated-looking line is
+  exactly what a future reader would tidy away and silently reintroduce the bug.
+  Kept the `LazyVStack` rather than switching to `VStack`: a few hundred rows each
+  rendering in a CUSTOM FACE is real work, and this panel is where PERF rounds 8
+  and 10 found the ~6.2s hangs. Trading a laziness bug for a known performance
+  hazard would have been the wrong direction.
+  Owner feedback worth recording as a design decision rather than a compliment: the
+  shorter popover "scrolls better with more control" than the old full-length menu,
+  so the fixed 320pt height stays deliberate rather than arbitrary.
+  Logged two more FEAT-008 ideas from the owner for v2.2 — type-to-jump and a
+  search field — noting that with "Fonts used" and "Recent fonts" that makes FOUR
+  filters over ONE list, not four controls.
+
+- **2026-07-24 — FEAT-008(a): the font picker opens on the font you are using [inspector]:**
+  Owner asked whether the typeface work was a future version or could ride along.
+  It was logged for v2.2, but the entry had already noted (a) as independent and
+  cheap, so it came forward on its own while (b) "Fonts used" and (c) "Recent
+  fonts" stay with the panel pass — v2.1 is already carrying two model gates and
+  did not need more surface area.
+  The obvious implementation was a SwiftUI `Picker`, which gives scroll-to-selection
+  and a checkmark for nothing. Rejected after looking at what the control is FOR:
+  the existing menus render every family set in its own face, Picker menu items do
+  not reliably honour a custom font, and quietly losing the previews to gain free
+  scrolling would have been a bad trade in a design tool. `UI/FontFamilyPicker.swift`
+  is a popover + `ScrollViewReader` instead, which keeps the previews and scrolls to
+  the applied face on open. One shared view now replaces both call sites, so the
+  single-text and multi-selection pickers cannot drift apart the way the two
+  copies could.
+  Small decisions recorded because they are the difference between "works" and
+  "feels right": it scrolls with a `.center` anchor rather than `.top`, since
+  picking a sibling face is the usual next move and you want the neighbours
+  visible; the checkmark column is reserved whether ticked or not, so names stay
+  aligned and the list does not jitter as the selection moves; a multi-selection
+  shows a fixed label and ticks nothing, which is honest about there being no
+  single value rather than picking one arbitrarily; and the System row is keyed on
+  an EMPTY family to match the model's meaning of `fontName == ""` instead of
+  inventing a family literally named System.
+  It is also the home for the rest of FEAT-008 — "Fonts used" and "Recent fonts"
+  are filters over this list, not another control.
+  NEEDS OWNER BUILD. `UI/FontFamilyPicker.swift` is a NEW file and must be added to
+  the app target (app only — the thumbnail extension has no inspector).
+
+- **2026-07-24 — FEAT-017 chunk J-e: the acceptance matrix; nested overrides complete [scripts]:**
+  DETACH turned out to need no code. It bakes `resolvedChildren`, which J-b already
+  covers, so a nested override survives into the detached tree by construction —
+  and the nested components below stay live instances carrying what they displayed,
+  matching how source deletion already behaves. Verified rather than assumed, with
+  the check kept as a regression guard, because "it works for free" is the kind of
+  claim that stops being true silently.
+  Four acceptance checks: a duplicate starts identical and then diverges without
+  touching the original — both halves matter, since copying must preserve
+  appearance AND editing must not leak; detach bakes the resolved value rather than
+  snapping back to source; deleting a component source leaves no override holding
+  an unusable path; and the whole DOCUMENT round-trips through save and reopen,
+  which is the file the owner actually keeps rather than the single instance J-a
+  covered.
+  `AnchoredRelationshipCheck` now runs 17 cases spanning FEAT-012 (anchored
+  relationships), FEAT-016 (the advisory table) and FEAT-017 (nested overrides).
+  All five J chunks are written. Between them, the two big Chunk I model gates are
+  closed: a relationship can cross a component boundary and resolve per placement,
+  and a component's nested content can be varied per placement — which is what the
+  owner originally could not do and what pushed them toward forking components.
+  NEEDS OWNER BUILD + RUN.
+
+- **2026-07-24 — FEAT-017 chunk J-d: nested overrides reach the export [export/handoff]:**
+  Checked what already worked before changing anything, which was worth doing: SVG,
+  PDF, and the canvas needed NO change at all, because they route through
+  `resolvedChildren` and J-b had already covered them.
+  Semantic HTML was the exception, and for an instructive reason.
+  `semanticHTMLResolvedChildren` is a PARALLEL resolver — it deliberately keeps
+  hidden layers so it can emit `hidden`, which is precisely why it does not call
+  `resolvedChildren` — and it therefore missed J-b's push-down in complete silence.
+  The canvas showed the overridden label; the exported HTML showed the source's.
+  For a fidelity tool that divergence is the worst possible bug, because both halves
+  look right on their own. Same call added, same position, before the reflow.
+  The duplication is the hazard rather than the logic, so
+  `checkSemanticResolverSeesNestedOverrides` now fails loudly if the two resolvers
+  ever drift again — the check exists because I only found this by reading, not
+  because anything reported it.
+  `publicProps` is now advertised. It had been on `Node` for a long time and
+  appeared NOWHERE in the handoff package, so a reader — a developer, or the model
+  the owner wants writing component code — had to infer a component's API by
+  reading the raw model tree, which is exactly the guessing a handoff exists to
+  prevent. The README gains a "Component Props" section listing every field marked
+  public, including those on layers inside nested components, addressed by the same
+  path shape used everywhere else in this work (groups add no step: structure, not
+  identity). Its stored meaning is preserved rather than quietly repurposed into
+  permissions — false keeps an override EXP-local, true declares it part of the
+  public contract, and this reports that declaration without gating anything.
+  `verify_anchored_relationships.sh` now also compiles ColorMath, DesignLanguageIO
+  and the exporter so the new check can run headlessly.
+  NEEDS OWNER BUILD + RUN. Worth re-exporting the tabs file: two placements with
+  different labels should now produce two pages whose text actually differs, and the
+  README should list any public props.
+  NEXT: J-e — the acceptance matrix (duplicate, detach, delete-source, save/reopen,
+  Quick Look) and the remaining checks.
+
+- **2026-07-24 — Override fields now show what the canvas shows [inspector]:**
+  Owner: *"the default text in there [should] match what is shown in the canvas."*
+  Right, and the panel was wrong twice over. It read values from the RAW source
+  tree, so it missed both the overrides a nested instance already carries inside its
+  parent source — a tab bar setting its three tabs to "one", "two", "three" — and
+  any active STATE. The field said one thing while the canvas said another, which
+  for a fidelity tool is the wrong way round.
+  Rows now display the RESOLVED node. That fixes the flat case too, which had the
+  same state-related mismatch and nobody had noticed.
+  `hasOverride` still comes from the STORED entry, on purpose: "what does this show"
+  and "has this been changed HERE" are genuinely different questions, and answering
+  both from the resolved value would have made the reset button appear whenever a
+  parent source had customised something — offering to reset a change the designer
+  never made at this level.
+  Resolution runs ONCE per body evaluation, keyed by distinct PATH so each nested
+  component resolves once rather than once per leaf. Doing it inside `overrideRow`
+  would have been the obvious shape and the wrong one: a computed resolve inside a
+  `ForEach` is exactly what caused the ~6.2s inspector hangs in PERF rounds 8 and
+  10. The comment says so at the point where someone would be tempted to move it.
+  NEEDS OWNER BUILD.
+  NEXT: J-d — export and handoff.
+
+- **2026-07-24 — FEAT-017 chunk J-c: nested layers appear in the Overrides panel [inspector]:**
+  Owner reported an "Overrides" header with nothing under it. Checked before
+  assuming a regression, and it was not one: `overridableChildren` recursed into
+  groups but stopped dead at `.instance`, so a component whose children are all
+  components — a tab bar made of tab components — had no overridable leaves to show.
+  Nothing was broken. There was simply no ADDRESS for a layer one level down, which
+  is the whole reason FEAT-017 exists; J-a and J-b built the address and the
+  resolution, and this chunk is where it becomes reachable.
+  `overridableTargets` replaces the old helper, returning
+  `(instancePath, node, componentName)` and descending into nested components as
+  well as groups. Rows group under the nested LAYER's name rather than the source's:
+  three tabs from one component are told apart by "one", "two", "three", not by the
+  component they all share, and grouping by source would have produced one
+  indistinguishable pile. Order follows first appearance so the blocks match the
+  component's own layer order instead of an alphabetical shuffle.
+  The flat case keeps its existing bindings entirely untouched — only a nested
+  target routes through `nestedOverrides` — so nothing that already worked changes
+  shape, and the diff stays reviewable. Reset remains the absence of an entry, which
+  J-b's precedence rule already makes fall back to the nearest source value.
+  Also fixed the smaller thing the owner actually complained about: when there is
+  genuinely nothing to override, the section now says so rather than rendering a
+  heading over empty space. A header with nothing under it reads as a bug even when
+  the answer is "there is nothing here," and that is worth one line of copy.
+  NEEDS OWNER BUILD. This is the one to try on the real file: place the tab bar
+  twice, give each placement different tab labels, confirm the source is untouched
+  and the two placements stay independent.
+  NEXT: J-d — export and handoff, so those overrides reach the HTML and `publicProps`
+  advertises which nested fields are real props.
+
+- **2026-07-24 — FEAT-017 chunk J-b: nested overrides resolve [model]:**
+  The load-bearing chunk, and it turned out small — which is the point of having
+  put the type in first. `pushingNestedOverrides(_:into:)` hands each nested
+  instance the overrides addressed to it, inside `resolvedLayout` and BEFORE the
+  reflow. That ordering is the whole trap: a re-hug has to measure the OVERRIDDEN
+  content, not the source's original, which is precisely what BUG-007 got wrong in
+  the sizing path.
+  It works one level only, on purpose. A path `[a]` becomes an ordinary override on
+  `a`; `[a, b]` becomes a nested override on `a` with the head stripped, and `a`
+  then resolves through the same function — so arbitrary depth falls out of
+  recursion that already existed rather than needing its own walk. Overrides are
+  appended LAST, so the outer placement beats whatever the source baked in, which is
+  what "override" has to mean AND makes reset free: drop the entry and the nearest
+  source value returns. There is no separate reset mechanism to keep in sync.
+  Groups are descended but never named, same rule as relationship endpoints, so
+  rearranging a layout group cannot break an override. An empty path matches nothing
+  by construction, because no node id equals nil — J-a's `isAddressable` contract
+  holding structurally rather than through a filter someone could later delete.
+  CHECKED RATHER THAN ASSUMED: the instance cache needs no change.
+  `instanceResolveCache` keys on top-level instance node ids, which are unique, and
+  nested instances already fall through to a fresh resolve — the existing comment
+  says why. Nested overrides live on the top-level instance, so the key is already
+  right, and override edits happen outside a drag where the normal
+  `resolveGeneration` clear runs. Worth recording that this was verified, since
+  "add a cache key" would have been a plausible and entirely unnecessary change.
+  Three checks added, all on the shape the owner actually wanted and could not
+  build: a nested override reaching a layer two components down, the OTHER placement
+  staying untouched, reset falling back to the source, and two layers of grouping
+  not blocking the push-down.
+  NEEDS OWNER BUILD. Nested overrides now affect drawing and export, but nothing
+  authors one yet — J-c adds the UI, so until then the feature is reachable only
+  from the checks.
+  NEXT: chunk J-c — the inspector, mirroring the participants pattern from
+  FEAT-012's I-c that worked well: a block per nested child, reached from an
+  ancestor rather than by selecting something unselectable.
+
+- **2026-07-24 — FEAT-017 chunk J-a: nested override storage [model]:**
+  `NestedInstanceOverride` is `instancePath` + `targetNodeID` + an
+  `InstanceOverride.Value` reused UNCHANGED, stored as
+  `ComponentInstance.nestedOverrides` on the outermost placed instance. Reusing the
+  existing value vocabulary matters more than it sounds: text, fill, textStyle,
+  opacity, stroke, and componentState all keep working with every consumer that
+  already understands them, so J-b has to teach the model where to look and nothing
+  else. Tolerant decode, so pre-v2.1 files open unaffected. Storage only — nothing
+  resolves it yet, which is the same property that made FEAT-012's I-a safe to land
+  ahead of a build.
+  `isAddressable` exists so the empty-path case is an explicit question rather than
+  a silent filter: an empty path would address the instance's own children, which
+  plain `overrides` already covers, and J-b must not quietly guess at it.
+  CORRECTED a claim the design made yesterday, by checking instead of assuming. The
+  plan said duplication AND flatten must remap these paths. Duplication does NOT:
+  `instancePath` names nested instance nodes living inside the SOURCE, and cloning a
+  placed node never renames source-internal ids — which is exactly why
+  `nestedStateOverrides` has always survived cloning untouched. Flatten DOES, since
+  dissolving a source re-identifies the resolved children a path runs through, so
+  the repair went into `repairingStatePaths` beside the state repair already there,
+  `targetNodeID` included. The backlog now says this precisely, because a wrong
+  hazard note is worse than no note — it sends the next person to patch code that
+  was already correct.
+  Three checks added: JSON round-trip, a legacy instance with no key decoding to
+  empty, and the empty-path rule.
+  NEEDS OWNER BUILD. Run `scripts/verify_anchored_relationships.sh`; it now covers
+  FEAT-012, the FEAT-016 advisory table, and J-a.
+  NEXT: chunk J-b — resolution. The load-bearing one: every draw, hit-test,
+  thumbnail, SVG, semantic HTML, Handoff, and Quick Look path already funnels
+  through `resolvedChildren`, so getting it right there makes the rest follow.
+
+- **2026-07-24 — FEAT-016 advisory checks written; FEAT-017 nested overrides designed [export/docs]:**
+  FEAT-016 closes the gap the owner's own export exposed: every requirement passed,
+  yet the tabpanel was named by a layer inside ITSELF and three tabs shared one
+  panel, and the package said nothing about either. `SemanticHTMLFidelityIssue`
+  gains an `.advisory` category, kept deliberately separate from
+  `.semanticRequirement` — a reader must be able to tell "a rule was broken" from
+  "this is legal but probably not what you meant," and flattening the two makes a
+  report either alarmist or ignorable. The Handoff README names all three.
+  `AriaRole.expectedRelationshipTargetRoles(for:)` holds the pairings and holds only
+  pairings with a citation in the doc comment — two today, both quoted from the
+  WAI-APG Tabs pattern. Everything else returns empty ON PURPOSE, because an
+  advisory that fires on correct work is worse than no advisory at all, and the new
+  `checkAdvisoryTableIsNarrow` asserts emptiness for `describedby`, `tablist`, and
+  `button` so nobody quietly adds a pairing that merely feels right. The
+  shared-panel advisory says plainly that nothing is invalid, since no prohibition
+  was found — the entry records that as NOT VERIFIED rather than implying it.
+  Then designed FEAT-017, the last big Chunk I model item and the one the owner has
+  hit again and again: they cannot vary a nested component's content per placement,
+  which is what pushed them toward forking components instead of reusing one.
+  Root cause is the same shape FEAT-012 already solved — `InstanceOverride`
+  addresses a BARE node id, so a nested instance's children are unreachable. The
+  design follows a precedent ALREADY in the model rather than inventing one:
+  `NestedInstanceStateOverride` is path-addressed and stored on the outermost placed
+  instance, and nested overrides are that idea applied to values, reusing
+  `InstanceOverride.Value` unchanged so no new vocabulary appears.
+  One thing settled explicitly to stop it being re-litigated: `publicProps` is NOT a
+  permission gate. Its own doc says false keeps an override local and true
+  ADVERTISES it in the public contract, so every field stays overridable at any
+  depth and publicProps keeps deciding only what handoff advertises.
+  Also carried forward from FEAT-012's scars: duplication and flatten MUST remap
+  nested override paths through the id map, exactly as BUG-010 required for
+  relationships. That is written into J-a's notes and J-e's checks because it is
+  precisely the kind of thing that gets forgotten twice.
+  NEEDS OWNER BUILD for FEAT-016. FEAT-017 is design only; nothing built.
+  NEXT: FEAT-017 chunk J-a.
+
+- **2026-07-24 — FEAT-012 complete through I-e; headless checks green [verification]:**
+  `verify_anchored_relationships.sh` prints "all checks passed". All six invariants
+  hold: groups transparent to paths, duplicate independence (the BUG-010 regression
+  guard), delete precision, ungroup hoisting, depth-2 DOM id uniqueness with
+  depth-1 output unchanged, and migration lossless AND idempotent. Because the
+  script compiles Paint + Document + AutoLayoutEngine + SemanticHTMLContract
+  headlessly, this also confirms the model layer builds — the cheapest signal
+  available on this side of the split, where there is no Swift toolchain.
+  All five chunks I-a…I-e are written. What anchored relationships were FOR is now
+  demonstrated on the owner's own file: a tab nested inside a placed component
+  controlling a sibling component, exported with correct, non-colliding,
+  chain-composed ids.
+  STILL NEEDS AN APP BUILD to confirm in practice: BUG-012 (orphaned relationships
+  now reported instead of vanishing), BUG-013 (selecting the group that holds both
+  ends now yields an anchor), and the ungroup/delete repair.
+
+- **2026-07-24 — FEAT-012 chunk I-e: anchors survive ungroup and delete, with checks [model/canvas/scripts]:**
+  The repair half was the urgent part and the reason this chunk jumped the queue.
+  `ungroup()` replaced a group node with its children and took its
+  `anchoredRelationships` with it — authored semantics destroyed by an ordinary
+  edit, silently. Same failure mode as BUG-012, a different door, and ungrouping is
+  not an exotic action.
+  Entries now HOIST to whatever still contains both ends: the enclosing group if
+  there is one, otherwise the scope root through a new
+  `commitNodes(appendingRootAnchors:)` so the whole edit stays ONE undo step rather
+  than splitting into two. No endpoint needs rewriting, because a path names
+  component instances only and never groups — which also means GROUPING needs no
+  repair whatsoever. That is a real dividend of the path design rather than luck,
+  so it now has a check guarding it.
+  Explicit DELETE drops relationships naming the removed subtree at either end,
+  collected across the whole subtree so deleting a group clears links to layers
+  inside it too. Keyed to a specific id set on purpose, NOT "prune anything that
+  does not currently resolve" — a tree can be briefly unresolvable mid-edit and a
+  general sweep would quietly eat real work, which is the exact thing this line of
+  work exists to prevent. Dropping on an explicit delete is not that: the designer
+  removed the layer, and one undo restores the layer and its links together.
+  Added `scripts/AnchoredRelationshipCheck.swift` and
+  `verify_anchored_relationships.sh`, following the existing headless-check pattern.
+  Six cases, each tied to something that actually went wrong or would be
+  catastrophic if it regressed: groups transparent to paths, duplicate independence
+  (BUG-010), delete precision, ungroup hoisting, depth-2 id uniqueness WITH depth-1
+  output unchanged, and migration being both lossless and idempotent.
+  KNOWN GAPS, recorded rather than papered over: dragging a node OUT of its anchor's
+  subtree still strands the link — it now reports as orphaned instead of vanishing,
+  which is the half that matters — and an orphaned entry is still invisible in the
+  UI, findable only by reading the file.
+  NEEDS OWNER BUILD + RUN, along with BUG-012 and BUG-013. Run
+  `scripts/verify_anchored_relationships.sh` first; it should print all checks
+  passed before the app is worth launching.
+
+- **2026-07-24 — Cross-component relationships confirmed working in a real export [export/verification]:**
+  Owner's second test (`tab-test3.exph`) wraps the tab bar and the panel in ONE
+  component, and the exported `second-page` HTML settles several open questions at
+  once. All three tabs carry `aria-controls` resolving EXACTLY to the panel's id,
+  so anchored storage, participant authoring, and I-d's export path work end to end
+  on real data — cross-component links are no longer theoretical.
+  Better: the ids are `exp-<wrapper>-<tabrow>-<tab>` — THREE chain segments. That
+  is chunk I-d's collision fix proving itself on a real file. Before it, a tab
+  nested two levels deep minted a single-instance id, and two placements of the
+  wrapper would have produced duplicate DOM ids for their tabs.
+  The owner's remaining confusions both have answers rather than bugs behind them:
+  - "In a group it did not work, in a component it did." That is BUG-013, already
+    fixed but AFTER this build — `relationshipAnchor` asked for the selection's
+    ENCLOSING group, so selecting the group that held both ends looked for that
+    group's parent and found nothing. Worth re-testing after a rebuild.
+  - "Only one panel to choose from." Correct, and structural: the three "panels"
+    are three hidden text layers inside ONE tabpanel component, revealed by
+    component states. There is genuinely only one roled panel to point at.
+  - 282 `aria-hidden` attributes are all `<svg class="exp-path-svg" aria-hidden="true"
+    focusable="false">` on decorative path art (the logo). That is CORRECT practice,
+    not a defect — decorative SVG should be hidden from assistive technology and
+    removed from the tab sequence. Recorded so it is not "fixed" later by mistake.
+  Logged FEAT-016 from what the export did NOT say. Every requirement passed, yet
+  the panel is labelled by a text layer inside ITSELF rather than by a tab, and all
+  three tabs control the same panel — both things a reviewer would flag and neither
+  mentioned anywhere in the package, because EXP asks only whether a relationship
+  RESOLVES, never whether it points at the right KIND of thing. Under the fidelity
+  principle that matters more than it looks: this package goes to a developer or a
+  model that writes component code from it, so a link pointing at a
+  plausible-but-wrong element yields plausible-but-wrong code with no warning. The
+  entry cites the APG for the tabpanel case and explicitly marks the shared-panel
+  case as NOT verified against any prohibition, so nobody upgrades advice into an
+  error without evidence.
+
+- **2026-07-24 — Read a real export; found silent relationship loss and a dead-end anchor [export/inspector]:**
+  Owner exported a tabs file and reported the roles present but the relationships
+  missing, assuming cross-component links still were not possible. Reading the
+  actual `.exph` package told a different and more useful story.
+  What WORKS, confirmed end to end: the `tab-content` source's component-root
+  relationship (subject naming the source itself) resolved and emitted correctly as
+  `aria-labelledby` on the `<section role="tabpanel">`, with a chain-composed id.
+  So anchored storage, source-anchor resolution, and I-d's export path are all
+  functioning on real data.
+  What was BROKEN: the `tabs` source held three authored relationships whose
+  subject was node `658A38F8…`, which exists nowhere — not in the document, not in
+  the export. They produced no attribute, no fidelity issue, and no trace. The
+  exporter validated only the TARGET against `availableDOMIDs`; a subject that
+  resolved to a DOM id nothing would ever emit simply went unclaimed. Filed and
+  fixed as BUG-012, raising an `orphanedRelationship` issue instead. P1 despite
+  being narrow, because silent loss is the one failure mode a FIDELITY tool cannot
+  have — under today's principle, anything that cannot be represented must be
+  reported, never quietly discarded.
+  Also fixed, BUG-013: `relationshipAnchor` asked for the selection's ENCLOSING
+  group, so selecting the very group holding the tab bar and the panel looked for
+  that group's parent, found none, and produced no anchor — a dead end with nothing
+  on screen to explain it. A selected group is now the anchor itself; groups carry
+  no role, are never participants, and selecting a container is exactly the request
+  to work inside it. This also corrects an earlier claim in the backlog that
+  selecting the enclosing group showed every participant — true only when that
+  group happened to be nested inside another one.
+  DIAGNOSIS, not a code bug: the reason the panel was never in the picker is that
+  the owner was authoring inside the TABS COMPONENT EDITOR, where the anchor is the
+  source and the panel is out of scope by construction. A tab's link to its panel
+  crosses the component boundary, so it can only be authored from OUTSIDE — select
+  the tab row on the canvas, where each nested tab appears as its own participant.
+  That is the second time this has bitten; it is a discoverability problem, now
+  recorded against the panel-IA work rather than treated as a one-off.
+  Noted, not changed: the tabpanel is currently labelled by a layer INSIDE itself
+  rather than by its tab. Valid markup, but the APG pairs a panel with its tab.
+  The owner's call, not the tool's, so it stays advisory.
+  NEEDS OWNER BUILD + RUN.
+
+- **2026-07-24 — FEAT-012 chunk I-d: export reads anchors, and DOM ids carry the whole instance chain [export]:**
+  Under the fidelity principle recorded earlier today this is the point of the whole
+  chunk plan, not its last step — the exported artifact is the product.
+  `nodeDOMID(_:chain:)` now composes an id from the entire instance chain, outermost
+  first, instead of a single instance id that COLLIDED at nesting depth 2: two
+  placements of the same component inside a third minted identical ids for their
+  children. Depth-1 output is unchanged, so existing exports keep their ids and only
+  the previously-broken cases move. `render`, `collectDOMIDs`, and BOTH CSS emitters
+  carry the chain now. The CSS half is easy to overlook and matters as much: a
+  selector minted from a single instance id stops matching its element at depth 2,
+  which would have been a silent styling bug rather than a loud one. That closes the
+  roadmap's "replace ambiguous raw descendant ids with stable instance paths" box.
+  Relationships are now read from ANCHORS. `anchoredAttributes(...)` resolves one
+  anchor's entries into attributes keyed by the DOM id of the element that must
+  CARRY each one — relationships are stored on the anchor but belong on the subject,
+  so that translation is the whole job — and `render` hands the map down for
+  descendants to look themselves up in. Anchors encountered on the way: the document
+  root, any group holding entries, and every component source (whose entries include
+  the component's OWN links, where the subject names the source and stands for the
+  element hosting this instance). Both ends resolve against the current instance's
+  copies, so two placements can never cross-link.
+  Deliberately reading ONLY the anchored form: emitting both would let a stale
+  legacy entry resurrect an attribute the designer had deleted. Nothing is lost,
+  since migration writes an anchored twin at decode — and the now-dead legacy
+  `relationshipAttributes` was deleted rather than left sitting there, so there is
+  exactly one read path instead of two that can disagree.
+  The BUG-008 conformance rule moved to the point of EMISSION, which is the only
+  place the host's role is known: `aria-labelledby` on a roleless element is dropped
+  with a `prohibitedRelationship` issue, while `aria-controls` and `aria-describedby`
+  are emitted, because they are global and valid there. The comment says not to
+  collapse those into one rule.
+  NEEDS OWNER BUILD + RUN. This is the first build where the tabs work should reach
+  the HTML: export the artboard and check each tab carries `aria-controls` pointing
+  at its panel, each panel carries `aria-labelledby` pointing at its tab, and a
+  duplicated group's two copies use distinct, non-colliding ids.
+  NEXT: chunk I-e — headless checks for depth-2 ids, duplicate independence, anchor
+  repair on regroup/ungroup/delete (deferred out of I-b), and unresolved-endpoint
+  reporting.
+
+- **2026-07-24 — Guiding principle recorded: EXP is a fidelity tool, not a prototyping tool [docs/direction]:**
+  Owner, unprompted and worth quoting: *"i never set out to make EXP a prototyping
+  tool... i don't think design tools should focus on prototyping since it's done
+  much more efficiently in code."* EXP is ONE PIECE of a designer's toolkit — read a
+  component in without losing data, let the designer tweak it, export at the same
+  fidelity, hand it to a developer or to a model that writes accessible component
+  code from it. Added to CLAUDE.md as the second guiding principle and stated in
+  full under ROADMAP → Architecture decisions, because it settles a whole class of
+  future arguments rather than one decision.
+  The test it gives: does this make the exported ARTIFACT more faithful, or does it
+  just make the canvas more impressive? Build the first. It rules in semantic
+  export, the Handoff Package, notes, roles and relationships, importer fidelity
+  reports, and component states AS DESCRIBED VARIANTS. It rules out interaction
+  wiring, state machines, transitions, and click-through playback.
+  It also decides structure questions, which is where it earns its keep: when two
+  models of the same design exist, prefer the one that ROUND-TRIPS STATICALLY over
+  the one that only makes sense while EXP is running it. That independently
+  confirms the tabs conclusion reached from the APG an hour earlier — three
+  tabpanels with visibility toggling, not one panel whose identity changes with an
+  active state — which is a good sign the principle is real rather than a slogan.
+  Consequences taken immediately: FEAT-013 re-scoped (per-state relationships are
+  HANDOFF DATA about variants, which is in scope; they are not a playback engine,
+  which is not) and BUG-011 filed at P3 explicitly BECAUSE it is a verification
+  convenience that does not touch the exported artifact. Component states being
+  handoff data and never a playback engine is flagged as the distinction most
+  likely to erode.
+  Owner also called the tabs file what it is: a test case, not a goal — "the most
+  important part is to accurately be able to read in a tab component, and not lose
+  any important data, to be able to export it out with the same fidelity."
+  So the acceptance bar for the whole FEAT-012 line moves from "can you author it"
+  to "does it survive the round trip."
+  NEXT: chunk I-d — export. Under this principle it is no longer the last step of
+  the chunk plan, it is the point of it.
+
+- **2026-07-24 — FEAT-012 chunk I-c: relationships are authored against the anchor, not the selection [inspector/model]:**
+  The inspector used to author "the selected node's relationships." It now authors
+  the ANCHOR's, and shows a block per PARTICIPANT — anything roled the selection can
+  reach: the selection itself, the component root in source scope, and every roled
+  component nested inside the selection. That last part is the whole point of the
+  chunk: it makes ONE TAB inside a placed Tab Bar authorable even though it cannot
+  be selected on the canvas or in Layers, which is exactly what was blocking the
+  owner's tabs file.
+  `relationshipEndpoints` builds the pickable ends. Groups stay transparent — a path
+  never names one, so a link survives regrouping — and component instances
+  contribute themselves plus ONLY their roled descendants. That restriction is
+  deliberate rather than a shortcut: an unroled layer inside a component is that
+  component's private business, and linking to one from outside couples two
+  components at a level that breaks the moment either is edited, whereas a
+  component's roled parts are its public semantic surface and the only thing ARIA
+  has any use for from out here. It also keeps the list short, which the
+  neighborhood rule exists to protect. A target that no longer resolves stays
+  SELECTABLE as "Missing layer" rather than quietly reverting to None, so a broken
+  link can be seen and fixed instead of disappearing.
+  `Document.hasRelationshipParticipant(in:)` now backs the Object-menu item, the
+  canvas context menu, and the inspector. All three had been carrying their own
+  copy of "can this thing carry a relationship," which is precisely the arrangement
+  that lets a menu item and a panel disagree; there is one answer now.
+  Caught while writing: `let kinds = kinds(for:authored:)` inside `allParticipants`
+  would have shadowed the method with a local array, and the compiler would have
+  tried to call the array as a function. Renamed, with the reason in a comment so
+  it does not come back.
+  NOT YET, and worth knowing before testing: export still reads the legacy
+  `Node.relationships`, so links authored this way persist and round-trip but do
+  NOT appear in exported HTML until chunk I-d. Verify I-c on authoring and
+  persistence — including placing the same group twice and confirming the two
+  copies do not share targets.
+  NEEDS OWNER BUILD + RUN.
+  NEXT: chunk I-d — resolve endpoint paths to emitted DOM ids and switch the
+  exporter's read path over, which also closes the roadmap's stable-instance-paths
+  box since `nodeDOMID` still carries a single instance id.
+
+- **2026-07-24 — Layers: nested expansion hoisted out of private state; inner layers open their component [chrome/layers]:**
+  Two owner reports, and the first one had a cause worth writing down. Expanding a
+  component "sometimes" left a stale row height — a scrollbar that corrected itself
+  once you scrolled. `InstanceLayerRow` kept its disclosure in a private
+  `@State var expanded`, and every layer inside a component lives in ONE `List`
+  row, so a nested row expanding changed the outer row's height without `List`
+  ever being told to re-measure its cached value. The private state also explains
+  the "sometimes": expansion reset whenever SwiftUI recycled a row. Hoisted it to
+  `LayersPanel.expandedNested`, keyed by a per-PLACEMENT path rather than a node id
+  — the same source child appears under every placement of its component, so an
+  id-keyed set would have expanded them all together. The key is a NEW
+  `rowKeyPath`, deliberately not the existing `instancePath`: that one addresses
+  nested component instances for state overrides, and overloading it would have
+  quietly changed which layer a state selection applied to. Logged as BUG-009 with
+  the remaining fix written down (explicit row heights, or flattening so every
+  visible layer is its own List row) plus a warning not to reach for it first,
+  since this panel is where PERF rounds 8 and 10 found ~6.2s hangs from per-row
+  computed properties.
+  Second: a layer name inside a component did nothing on click while the eye and
+  the state picker beside it both worked, so the row read as half-broken rather
+  than as read-only. Those layers genuinely cannot be selected there — they belong
+  to the source, not the document, and exist once per placement — so the honest
+  affordance is to go where they CAN be edited. Owner's call, and the right one:
+  double-click opens that component. A nested component row opens itself, since
+  that row's identity is the nested component and its badge and context menu
+  already say so; any other layer opens the component it lives in. Wired three ways
+  rather than one, per the command-coverage rule: double-click, a context-menu item
+  naming the component (both appear on a nested row — edit the nested thing, or the
+  thing it sits in), and a VoiceOver `accessibilityAction`, because a double-click
+  is pointer-only and would otherwise leave the row announcing something it could
+  not do. The tooltip now says what double-click will open.
+  NEEDS OWNER BUILD + RUN.
+
+- **2026-07-24 — FEAT-012 chunk I-b: anchored storage + a non-destructive migration [model]:**
+  `AnchoredRelationship` is kind + subject endpoint + target endpoint, stored on
+  the ANCHOR rather than the subject. Three anchor stores, because three things can
+  contain both ends: a group `Node`, a `ComponentSource`, and the `Document` root.
+  Authoring will never produce the document-root case — the neighborhood rule
+  requires a group — but MIGRATION can, so the case exists instead of quietly
+  dropping a legacy link. A subject is allowed to name the anchor ITSELF, which is
+  how a component's own relationships fall out with no special case in the data:
+  the element carrying the role is the one hosting the instance, so it IS the
+  anchor, and only `endpointNamesAnchor(_:anchorID:)` has to know that.
+  The migration runs at decode and is deliberately ADDITIVE — `Node.relationships`
+  and `a11y.rootRelationships` are left intact and still encoded. That matters more
+  than it looks: four passes are now written and none has been compiled, so a wrong
+  migration that CLEARED the legacy arrays would destroy a document the first time
+  it was saved. As written, the old data is still there to recover from, and since
+  nothing reads the anchored form until chunk I-d, a mistake cannot change what the
+  app draws or exports either. It is idempotent, with dedupe on
+  (kind, subject, target) rather than on `id` — `id` is freshly minted each run and
+  would have defeated the check, which is the kind of bug that only shows up as
+  slow duplication across many open/save cycles.
+  `nearestCommonAncestorGroup` considers GROUPS only. Component instances are
+  opaque here on purpose: a legacy relationship could only ever address a sibling,
+  so it never crossed an instance boundary, and treating instances as containers
+  would invent nesting the stored data does not have.
+  Caught while writing: the first version passed `sources[i].children` as both a
+  read argument and an `inout` argument in the same call — overlapping access Swift
+  would have rejected. The helpers are now static and work on local copies written
+  back at the end.
+  DEFERRED within I-b, on purpose: anchor REPAIR on move, regroup, ungroup, and
+  delete. Nothing reads anchors until I-d, so a stale anchor cannot affect anything
+  yet, and repair is far easier to write against the authoring UI I-c adds than
+  against nothing.
+  NEEDS OWNER BUILD + RUN. Four passes are now stacked unbuilt (BUG-008/FEAT-011,
+  document-scope authoring, I-a, I-b). Worth building before I-c, since I-c is the
+  first chunk that changes what the designer can actually do.
+  NEXT: chunk I-c — authoring UI that can select a subject nested inside a placed
+  component, which is what finally makes the tabs pattern testable.
+
+- **2026-07-24 — FEAT-012 chunk I-a: relationship endpoints become paths [model]:**
+  First chunk of the anchored-relationship plan, written to be INVISIBLE at
+  runtime so it can be verified before anything moves. `RelationshipEndpoint` is
+  an `instanceChain` (outermost first) plus a non-optional `nodeID`, rather than a
+  bare `[UUID]` path — an endpoint cannot then be malformed, and no accessor has to
+  invent a value for the empty case. `NodeRelationship` stores one; `targetID`
+  survives as a get/set accessor, so every existing call site in MainWindow, the
+  exporter, and the flatten path compiles and behaves exactly as before. Writing
+  through `targetID` resets the chain, which is deliberate — a raw id cannot
+  express one — and the comment says so rather than leaving it to be discovered.
+  Decode takes either form; encode writes BOTH, so a v2.1 file still opens in a
+  v2.0 build and degrades to sibling behavior instead of failing to decode the
+  whole document. `Document.resolveEndpoint(_:in:)` walks a path, stepping into
+  component instances through `resolvedChildren` (the same tree the canvas draws)
+  and treating plain GROUPS as transparent — a path never names a group, so a link
+  survives someone regrouping — capped at the same depth the dependency walker
+  uses so a damaged or legacy document terminates rather than recursing.
+  NEEDS OWNER BUILD + RUN, along with the two earlier passes. Nothing is compiled
+  on this side. Because I-a is runtime-invisible, the useful check is simply that
+  existing relationships still behave as before and old files open unchanged.
+  NEXT: chunk I-b — anchored storage plus migration of existing node-stored
+  relationships onto their common ancestor.
+
+- **2026-07-24 — Anchored relationships designed; the obvious fix was the wrong one [model/a11y/docs]:**
+  Owner reported the tab and panel still not seeing each other and asked to expand
+  the neighborhood "just a bit." Checked before building, and the request was the
+  wrong fix — recorded that way so nobody re-derives it. Their structure is a Tab
+  Bar component (role `tablist`) whose children are Tab components (role `tab`),
+  sitting in an artboard group beside a Tab Panel component. Verified against the
+  WAI-APG Tabs pattern: that nesting is CORRECT ("each element that serves as a tab
+  has role `tab` and is contained within the element with role `tablist`"), and the
+  link ARIA wants is individual tab to individual panel, never tablist to panel.
+  So the targets were not hidden by a narrow picker. Relationships are stored ON
+  THE SUBJECT NODE, the subject here lives inside the Tab Bar SOURCE, and anything
+  in a source applies to every placement of it — so all placements would point at
+  one panel. The link must vary per PLACEMENT and therefore cannot live there.
+  Widening the picker would only have let them author a link that cannot export.
+  Also checked and rejected FIRST: roles on plain groups. `Node` has no `a11y` at
+  all, so only component instances can carry a role, which is an EXP artifact
+  rather than an ARIA one — but it would NOT have helped this case, because their
+  roles were already on components and correctly placed. Logged as FEAT-014 on its
+  own merits instead of shipped as a fix for something it does not fix.
+  Owner delegated the mechanism ("just find the most stable and scaleable method"),
+  so: **a relationship lives at the nearest node that contains BOTH of its ends,
+  and addresses each end by instance path rather than raw id.** The anchor for
+  their file is the artboard group; the tab end is `[TabBarInstance, TabOne]`.
+  Place the group twice and each copy resolves to its own ids — no cross-placement
+  leak, no duplicate DOM ids. It also collapses the neighborhood rule into the same
+  concept rather than keeping it as a separate constraint: the neighborhood IS the
+  anchor's subtree. And it is not new surface area — it is the stable-instance-path
+  work Chunk I already owed, reached from the front door, so the Phase 4.1 box now
+  points at FEAT-012's five chunks (I-a path type, I-b anchored storage +
+  migration, I-c authoring UI, I-d export, I-e checks). I-d is the one that closes
+  the box, since `nodeDOMID` carries a single instance id today and collides at
+  depth 2+.
+  Owner also confirmed their panel's two hidden text areas are component STATES,
+  not three panels. That is coherent, and it means the panel's `aria-labelledby`
+  has to name whichever tab is active — a relationship that belongs in the state
+  diff. Logged as FEAT-013, WITH its open question left open on purpose: whether
+  several tabs sharing one `tabpanel` conforms at all is NOT resolved. The APG
+  describes a 1:1 pairing and does not address the shared case, and that answer
+  decides whether FEAT-013 is the right fix or whether the tool should be advising
+  a different structure. Deliberately not assumed either way.
+  Nothing was built this pass — design record only, by agreement.
+  NEXT: FEAT-012 chunk I-a (the path type), which is designed to be invisible at
+  runtime so it can be verified safely before anything moves.
+
+- **2026-07-24 — Relationships work on the canvas, scoped to a group [inspector/model]:**
+  Owner read the first BUG-008 pass and caught what it could not do: a tab and the
+  panel it opens are two PLACED instances, and relationship authoring only rendered
+  inside a component source — so there was literally nothing to test. The component
+  root can only ever point at layers inside its own source (targets resolve
+  per-instance; that is structural, not a limitation to lift), so this needed the
+  document-scope half.
+  Relationships now render on the canvas for any layer with a role of its own, and
+  the neighborhood rule is settled: targets come from the nearest enclosing GROUP,
+  with NO fallback to the artboard. The owner chose the strict version and the
+  reasoning is worth keeping — an artboard fallback quietly reintroduces the
+  long-dropdown problem the rule exists to prevent, and makes the rule change
+  depending on context, while "things you connect live in a group together" holds
+  everywhere. It also describes how they already design: "I put them in groups
+  already because I don't want to accidentally move the tab titles away from the
+  tab content." A constraint that matches the existing habit is not a constraint.
+  An ungrouped selection gets an instruction naming ⌘G rather than an empty picker,
+  because a blank dropdown teaches nothing; anything already authored is kept,
+  still exports, and the note says so instead of implying it was dropped. Targets
+  walk into groups but NOT into component instances — a layer inside another
+  component is not addressable from outside, since the id an outside reference
+  would need is minted per instance at export, so offering it would author a link
+  the exporter could not resolve. Each target is annotated with its role
+  ("Panel One — Tab Panel") so picking the right one is not guesswork.
+  `relationshipBinding` is now scope-agnostic through `mutateScopedNode`, so one
+  control authors both cases and the undo step lands in the right tree. Menu
+  validation was rewritten in BOTH `MainWindow` and `CanvasView` around a shared
+  "does this LAYER have a role of its own" test, and stays enabled for an ungrouped
+  selection on purpose — a greyed-out item explains nothing, the panel explains the
+  rule. Export needs no change: `collectDOMIDs` already registers every top-level
+  node, so a sibling target resolves at document scope.
+  NEEDS OWNER BUILD + RUN, same as the first pass — nothing here is compiled.
+  NEXT: build both passes together and run the BUG-008 acceptance list.
+
+- **2026-07-24 — BUG-008 + FEAT-011: relationships now follow the layer's OWN role, in plain language [model/inspector/export/a11y]:**
+  Verified first, per the standing rule — and the verification overturned a
+  premise this entry had been carrying. The backlog assumed `aria-controls` was
+  NOT global and planned to enforce a supported-roles list. It IS global (MDN:
+  "The global `aria-controls` property…", Associated roles: "Used in ALL roles"),
+  and so is `aria-describedby` ("Used in all roles. Usable in all HTML elements as
+  well"), which carries no role prohibition at all. There is no list to enforce.
+  That splits BUG-008 into two problems that had been treated as one, and the fix
+  now keeps them apart on purpose. `aria-labelledby` on a roleless layer is a
+  CONFORMANCE violation — `generic` is nameless and prohibits naming — so it is
+  suppressed in the UI and dropped at export with a `prohibitedRelationship`
+  fidelity issue. `aria-controls` and `aria-describedby` on a roleless layer are
+  spec-VALID and merely pointless, because a generic element is exposed to
+  accessibility APIs only "so that assistive technologies can gather certain
+  properties such as layout and bounds" — there is no named thing for them to
+  attach to. So those are a QUALITY default (not offered, never invented) and the
+  UI copy is careful not to call them invalid, because that would be telling the
+  designer something untrue. The `isProhibitedWithoutRole` doc comment says all of
+  this at the point of use so the three kinds do not get "tidied" into one rule.
+  The actual defect: `availableRelationshipKinds` read the enclosing SOURCE's role
+  and offered its kinds on every layer inside it. ARIA roles do not inherit, so
+  that had no basis in the spec — and it is why a decorative rectangle in a Tab
+  Panel was offered Labelled By. Layers are now driven by
+  `effectiveExportRole(of:)`: a component instance carries its source's role,
+  every other layer has none and is offered nothing new. Already-authored kinds
+  still render so a role change can never strand data that needs removing.
+  Fixing that exposed the modeling gap the last session logged: the element that
+  carries the role hosts the INSTANCE, so there was no conformant place to author
+  a component's own relationships at all. Owner chose the component-root option
+  over authoring on a placed instance, so `A11ySemantics.rootRelationships` lives
+  on the SOURCE and is part of the component contract — every instance emits it,
+  two uses cannot drift apart, and targets resolve per-instance at export so they
+  can never cross-link to each other's layers. The Relationships section now reads
+  "This component" (always, when the role offers kinds) and "This layer" (only
+  when that layer has a role of its own), which also means the section stops
+  looking identical on every layer the way the group Font control did.
+  FEAT-011 rode along as sequenced: `friendlyLabel(for:)` / `friendlyHelp(for:)`
+  make the plain-language phrase primary ("Named by its tab", "Opens this panel",
+  "Helper or error text") with the literal `aria-*` name in the hover tip and the
+  VoiceOver hint. Owner chose help-tip-only over always-visible secondary text,
+  which also avoids making FEAT-010's cramped default panel width worse. `label`
+  survives for undo action names and diagnostics only, and now says so.
+  Also handled, because adding root relationships would otherwise have quietly
+  broken it: `Document.flattened` carries root `controls`/`describedby` onto the
+  group that replaces a deleted source's instance, retargeted through the existing
+  id map, and drops root naming — invalid on a roleless group. Menu validation
+  updated in BOTH `MainWindow` and `CanvasView` so the Object ▸ Relationships…
+  item and the panel can never disagree about whether there is anything to edit.
+  RECORDED AS NOT VERIFIED, so it is not mistaken for settled: WAI-ARIA 1.2 §6.5
+  "Global States and Properties" was not read verbatim (the W3C fetch truncated),
+  so the globality claims rest on MDN citing the spec; no screen-reader behavior
+  was tested; and the FEAT-011 wording was checked against the WAI-APG only for
+  tab/tabpanel and dialog naming — the generic phrasings are content-design
+  judgment, not verified spec claims.
+  NEEDS OWNER BUILD + RUN. Nothing here has been compiled; there is no Swift
+  toolchain on this side. No headless check was added for the new cases yet.
+  NEXT: build and run the BUG-008 acceptance list, then stable instance paths.
+
+- **2026-07-24 — ARIA verification made a standing rule; relationship scope decided [docs]:**
+  Three owner decisions captured so none of them has to be re-derived later.
+  (1) **Verification is now a standing norm, not a one-off.** New
+  WORKING-AGREEMENT section "Accessibility decisions are verified, not
+  remembered," pointed at from CLAUDE.md's working norms and from a banner above
+  the ARIA cluster in BACKLOG. It says the quiet part explicitly, in the owner's
+  words: the rule holds *"even if I ask for the wrong thing by accident,"* so
+  Claude must push back with a citation when a request contradicts the spec
+  rather than implementing it. It also requires stating what was NOT verified,
+  and naming standards precisely (WCAG 2.1 AA / WAI-ARIA 1.2 / ARIA in HTML —
+  never "ADA compliant," since the ADA does not specify ARIA).
+  (2) **Relationship targets are scoped to a neighborhood, not the document.**
+  Owner's instinct, recorded as a design constraint on BUG-008: once a component
+  can reference something outside itself, the picker must be limited to the
+  enclosing artboard or group. A document with hundreds of components would
+  otherwise produce novel-length dropdowns — unusable generally, and genuinely
+  hostile by keyboard or screen reader. It also happens to match the DOM: these
+  are id references resolved within a document, and the exporter ALREADY raises
+  an `unresolvedRelationship` issue when a target falls outside the exported
+  artboard, so artboard-scoping the picker just stops people authoring links the
+  export would reject. The scope rule must land in the same change that opens
+  targets up, since `relationshipTargets` is currently confined to the source's
+  own children and the problem does not exist until then.
+  (3) **FEAT-011 (plain-language relationship UI) ships WITH the component
+  classification work**, not after it — recorded as part of that work's
+  definition of done. Same views are already being rewritten to fix WHEN each
+  kind is offered, so rewording WHAT it says costs almost nothing then, versus
+  touching them twice and shipping an interim release where the offers are
+  correct but still unreadable to most designers.
+
+- **2026-07-24 — Group font control removed; ARIA relationship offers verified against the spec [inspector/a11y]:**
+  Dropped the Type section from the single-group inspector. Its font menu label is
+  a hardcoded "Font" (it has no single value to display for a mixed selection), so
+  on one group it read as a control that never responded to anything. Changing a
+  typeface is an edit you make on the text layers. Multi-shape selections keep it,
+  where a fixed label is honest about mixed values.
+  Then verified the relationship question against WAI-ARIA 1.2 / MDN rather than
+  answering from memory, because the owner asked for exactness. Findings, all
+  recorded in BUG-008: ARIA roles do NOT inherit — nothing cascades to descendants
+  — so deriving a layer's relationship kinds from its CONTAINER's role has no
+  basis in the spec. Worse, an unroled group or rectangle exports as a `<div>`
+  whose implicit role is `generic`, and `generic` explicitly PROHIBITS
+  `aria-labelledby` and `aria-label`; the attribute is invalid there, not merely
+  noisy. None of EXP's curated roles are in the naming-prohibited list, so the
+  problem is exclusively the no-role case. And `tabpanel` + `aria-labelledby` is
+  correct and expected — the WAI-APG tabs pattern names the panel by its tab, and
+  `SemanticHTMLContract` already requires it — so that offer stays.
+  Verifying also surfaced the real modeling gap: the exporter puts
+  `source.a11y.role` on the element hosting the INSTANCE, so every layer inside a
+  source is an unroled div, while `relationshipControls` renders only in `.source`
+  scope. The kinds are therefore offered exactly where they are invalid, and there
+  is currently no conformant place to author a component's OWN relationships,
+  because the element carrying the role is the instance and it is not selectable
+  from inside the component. Logged rather than half-wired: this is a model
+  decision, not a UI tweak. Also logged FEAT-011 to translate the relationship UI
+  out of ARIA vocabulary — the owner's point that "labelled by" reads as
+  form-field language, and that Described By is hard to hold onto even with a11y
+  training, is a content-design problem worth solving properly with role-aware
+  phrasing while keeping the emitted attributes identical.
+  Standards-language note carried into the backlog: the ADA does not specify ARIA;
+  the applicable standards are WCAG 2.1 AA (DOJ Title II rule, Section 508,
+  EN 301 549) plus WAI-ARIA 1.2 and ARIA in HTML. Docs and UI copy should say
+  those, not "ADA compliant."
+  STILL TO VERIFY before implementing BUG-008: the supported-roles list for
+  `aria-controls` (not a global property) and whether `aria-describedby` carries
+  any role prohibition — only `aria-labelledby`'s list was confirmed.
+
+- **2026-07-24 — Auto-padding groups no longer show duplicate Fill/Stroke sections [inspector]:**
+  Owner spotted repeated sections on the component edit screen: an auto-padding
+  group already carries its own background, corner, stroke, and stroke position
+  in the Auto Padding section, then a separate Fill section and Stroke section
+  appear underneath it. Reading the code, they were worse than redundant. The
+  single-group branch calls `multiStyleControls()`, whose Fill/Stroke sections
+  are gated on `nodeHasFill`/`nodeHasStroke` — which for a `.group` return
+  `autoPadding != nil` — and whose bindings write `autoPadding.fill` /
+  `.stroke` / `.strokeWidth`. But `mutateAllSelected` runs through
+  `mutateStyleTargets`, which recurses, so that second "Fill" also repainted
+  EVERY layer inside the group. One control, identical in appearance to the one
+  above it, silently doing something much broader. Both paint sections are now
+  suppressed for a single group that has auto padding
+  (`multiStyleControls(includeFillAndStroke:)`). Type stays — it has no
+  counterpart above and bulk-styling contained text is the point of it — and
+  plain groups without auto padding keep both sections, since there is nothing to
+  duplicate there and the recursive apply is the only way to paint their
+  contents. Trade recorded: with auto padding ON you can no longer bulk-recolor
+  children from the group row; select the children (or turn padding off) instead.
+  If that proves annoying the alternative is to keep the sections but exclude the
+  group itself from the targets and relabel them "…all layers inside".
+  Also logged, not built: FEAT-009 per-corner radius for auto groups (the
+  `CornerRadii` / `effectiveRadii` model and the inspector "Advanced" disclosure
+  already exist for rectangles, so it is mirroring plus four draw/emit sites —
+  the entry lists them) and FEAT-010 the inspector responsiveness + user
+  type-size pass the owner asked to sequence as its own polish release.
+
+- **2026-07-24 — BUG-007: auto layout now sizes component instances by what they
+  actually resolve to [model/canvas]:** Owner repro — a `tab` component, two
+  instances in a 2px auto-layout row — showed text spilling outside the instance
+  bounds, gaps that did not measure 2px, and a text override running straight
+  over its sibling. Cause: an instance had TWO sizes in the app and nothing
+  reconciled them. `AutoLayoutEngine.reflow(_:)` only handles `.group` (recurse)
+  and auto-sized `.text` (re-measure); `.instance` hits neither branch and is
+  returned untouched, so the stack math used the instance's stored frame from
+  whenever it was placed. The engine could not do better — it is a pure
+  `[Node] -> [Node]` with no document, so it cannot look up a source. Meanwhile
+  every draw, hit-test, and selection path sizes instances with
+  `resolvedSize(of:)`, which re-hugs live. The instance therefore DREW at its
+  resolved size and was LAID OUT at a stale one, and any override that changed
+  the resolved size widened the drawing without moving its siblings.
+  Fix keeps the engine pure and gives the ENTRY POINT document context:
+  `Document.instanceSized(_:depth:)` walks the tree and assigns each instance its
+  resolved bounds (innermost-first, since resolution recurses), and
+  `Document.reflowed(_:)` hands the pre-sized tree to `AutoLayoutEngine`. Every
+  call site in `Document`, `CanvasView`, `LayersPanel`, `MainWindow`,
+  `DesignLanguagePanel`, and the semantic exporter moved onto the document-aware
+  form; the pure entry point remains for the thumbnail extension and for the one
+  no-document fallback in `updateNode`. `sourceUsesManagedBounds` deliberately
+  stays on the pure engine — it asks a structural question whose answer cannot
+  change with instance sizes, so resolving there would recurse on every layout
+  for no difference in result. Resolution depth is capped at 24 so a damaged or
+  legacy document that already contains a cycle terminates instead of recursing
+  forever, matching the dependency walker's existing totality guarantee.
+  Two component-state editing paths (`MainWindow.scopedNodes`,
+  `CanvasView.displayedCurrentNodes`) were reflowing through
+  `ComponentStateEditing.applied(reflow: true)`, which has no document and so hit
+  the same defect while editing a state. Both now reflow through the document,
+  and the `reflow:` parameter was REMOVED rather than left defaulted — a
+  document-free reflow is always wrong for instances, so the wrong call should
+  not be expressible.
+  Headless check now covers the owner's exact shape: the pure engine is kept as
+  the regression witness (it still lays out from stale frames), document-aware
+  reflow sizes both instances to their resolved bounds and measures the 2px gap
+  between them, a nested component's re-hugged width reaches its parent's layout,
+  and layout over a cyclic document returns.
+  NEEDS OWNER RUN: build + the two-tab repro, and a look at redraw performance on
+  a large document — this runs on the draw path and should ride the existing
+  `resolveGeneration` instance cache (see PERF-005 about the flat hit/miss
+  counters). Also logged FEAT-008: font-picker scroll memory plus "Fonts used"
+  and "Recent fonts" filters, penciled for v2.2, with the scroll-to-current half
+  callable forward on its own.
+
+- **2026-07-24 — Context-aware ARIA child roles from semantic containment [app]:**
+  Chunk I's semantic-containment item. Added the seven roles the rule set
+  required (Tree, Tree Item, Grid, Table Row, Table Cell, Column Header, Row
+  Header) across every exhaustive switch plus `semanticHTMLMapping`; table parts
+  stay on div hosts to match the existing div-based `table`/`grid`, because a
+  native `<tr>`/`<td>` outside a native `<table>` is markup the browser silently
+  reparents — promoting that whole family is its own change. Ownership rules live
+  on `AriaRole` as `expectedChildRoles` and `requiredParentRoles`, with
+  `containmentGuidance` producing the plain-language sentence. `Document` gained
+  advice from both directions: the child's (given where it sits) and the
+  container's (it expects List Items and none of its nested components are one) —
+  the authoring-time form of the `listStructure`/`tableStructure` gaps the handoff
+  fidelity report already raises, surfaced while it is still cheap to fix.
+  The design is deliberately quiet so it never cries wolf: no expectation, a
+  correct child, a legal-but-unrelated child, and an empty container all produce
+  nothing at all, and the single warning case is a child whose role REQUIRES a
+  container this parent is not. `radio` has no required parent on purpose.
+  Fixed a blocker found on the way in: `setComponentCategoryAction` ignored the
+  menu item's source and always wrote to `categoryTargetSourceID`, so inside a
+  source editor you could not categorise a nested child at all — every attempt
+  silently re-roled the outer source. Categories now travel on a
+  `ComponentCategoryRequest` (source id + role), mirroring
+  `ComponentPlacementRequest`, with the legacy token form still resolving for
+  older menu builders. The canvas Set Category submenu now leads with the
+  explanation and a "Recommended here" group, marks the warning case, keeps the
+  complete role list beneath it (a recommendation shortens the path to the right
+  answer, it never removes a choice), and carries each role's blurb as a tooltip.
+  The source editor's category tip now also carries the container-side advice.
+  Extended the headless check with the full containment matrix including the
+  silence cases and a guard that recommendations never remove a role.
+  NEEDS OWNER RUN: Xcode build + the graph check.
+  NEXT: stable instance paths for overrides/DOM ids — the last model gate before
+  XD/Figma import. Worth considering after that: now that rows and cells can be
+  authored, `table`/`grid` could graduate to native `<table>` markup.
+
+- **2026-07-24 — Dependent-source deletion: delete the source, keep the work [app]:**
+  Closed the PARTIAL half of the Chunk I dependency-graph item. Deleting a
+  component source previously stripped every instance of it from the canvas AND
+  from inside other sources with no warning — silent data loss from a context
+  menu, and the same code was duplicated verbatim in the Components grid card and
+  the list row. Replaced both with one model API,
+  `Document.deletingComponentSource(_:)`, which flattens rather than strips:
+  each instance becomes an ordinary group of its `resolvedChildren` — the same
+  resolution the canvas draws and Detach Component bakes — so the flatten is
+  visually a no-op. The instance node KEEPS its id and every layer property, so
+  visibility overrides, relationships, and Layers selection/expansion keep
+  working; flattened children are re-identified per use so two uses of one source
+  can never share node identity; and a parent instance's `nestedStateOverrides`
+  path that ran through the dissolved instance re-roots onto the surviving nested
+  instance rather than being orphaned (a selection FOR the dissolved instance is
+  dropped, since a plain group has no states). Added `sourcesDepending(on:)` and
+  `instanceCount(of:)` as the one place anything asks what a deletion would
+  touch. Command coverage per the working agreement: the behavior lives in
+  `deleteComponentSourceAction(_:)` on `CanvasNSView`; both Components-panel rows
+  now route through it via `sendCanvasAction` exactly like component placement;
+  the canvas context menu gained a Delete Component item; the Object menu gained
+  a destructive item; and `validateMenuItem` names the source in the title
+  (Delete Component "Card") so it can never be misread as deleting the selected
+  layer. Deleting a source that is open in a source editor now closes that
+  window instead of leaving it editing something the document no longer has.
+  Extended `scripts/NestedComponentGraphCheck.swift` with the flatten matrix:
+  dependents/counts before deletion, flatten on the canvas + inside a group +
+  inside another source, identity and frame preservation, nested instances
+  surviving as instances, document-wide id uniqueness, and state-path re-rooting.
+  OWNER REPORT 2026-07-24: deleting from the Components panel still removed
+  every instance. Only one deletion path exists in the source after this change,
+  so this is either a stale build or the flatten resolving to empty groups —
+  undetermined. The owner's call, recorded deliberately: this is NOT a blocker
+  (the delete is undoable, Detach exists as a pre-emptive escape hatch, and no
+  model work depends on it), so it is parked rather than chased. STILL NEEDS:
+  Xcode build + the graph check, then a real-document pass.
+  NEXT: stable instance paths for overrides/DOM ids, then the rest of the Chunk I
+  closure matrix.
 
 - **2026-07-24 — Nested-panel owner pass + continuity-doc synchronization [app/docs]:**
   Owner verified the revised default-width Layers and Components panels: source

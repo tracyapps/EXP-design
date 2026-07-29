@@ -189,7 +189,7 @@ struct DesignLanguagePanel: View {
                 } label: {
                     Label("Settings", systemImage: "gearshape")
                 }
-                .buttonStyle(DLCompactSecondaryButtonStyle())
+                .buttonStyle(.expCompact())
                 .help("Open the Design Language editor in Settings")
             }
             .fixedSize()
@@ -447,7 +447,7 @@ struct DesignLanguagePanel: View {
                 if case .group(let kids) = n.content { walk(kids) }
             }
         }
-        walk(document.model.nodes)
+        walk(document.model.page(for: app.activeCanvasPageID)?.nodes ?? [])
         return found
     }
 
@@ -457,6 +457,7 @@ struct DesignLanguagePanel: View {
         let ids = app.selectedNodeIDs
         guard !ids.isEmpty else { return }
         var model = document.model
+        guard let pageIndex = model.pageIndex(for: app.activeCanvasPageID) else { return }
         func walk(_ nodes: inout [Node]) {
             for i in nodes.indices {
                 if ids.contains(nodes[i].id), case .text(var tc) = nodes[i].content {
@@ -469,8 +470,8 @@ struct DesignLanguagePanel: View {
                 }
             }
         }
-        walk(&model.nodes)
-        model.nodes = AutoLayoutEngine.reflowed(model.nodes)
+        walk(&model.pages[pageIndex].nodes)
+        model.pages[pageIndex].nodes = model.reflowed(model.pages[pageIndex].nodes)
         document.setModel(model, undoManager: undoManager, actionName: "Apply Type Style")
     }
 
@@ -703,6 +704,7 @@ struct DesignLanguagePanel: View {
         let ids = app.selectedNodeIDs
         guard !ids.isEmpty else { return }
         var model = document.model
+        guard let pageIndex = model.pageIndex(for: app.activeCanvasPageID) else { return }
         func walk(_ nodes: inout [Node]) {
             for i in nodes.indices {
                 if ids.contains(nodes[i].id) { setFill(&nodes[i], paint) }
@@ -711,7 +713,7 @@ struct DesignLanguagePanel: View {
                 }
             }
         }
-        walk(&model.nodes)
+        walk(&model.pages[pageIndex].nodes)
         model.designLanguage.remember(paint)
         document.setModel(model, undoManager: undoManager, actionName: "Apply Color")
     }
@@ -747,7 +749,7 @@ struct DesignLanguagePanel: View {
                 if case .group(let kids) = n.content { find(kids) }
             }
         }
-        find(document.model.nodes)
+        find(document.model.page(for: app.activeCanvasPageID)?.nodes ?? [])
         var out: [Node] = []
         var seen: Set<UUID> = []
         func flatten(_ n: Node) {
@@ -932,22 +934,6 @@ struct DesignLanguagePanel: View {
         commit("Add Generated Palette") { dl in
             for paint in s.paints { dl.save(paint, provenance: "generated: \(s.title.lowercased())") }
         }
-    }
-}
-
-private struct DLCompactSecondaryButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: EXPType.mini, weight: .medium))
-            .foregroundStyle(EXPColor.textPrimary)
-            .padding(.horizontal, 9)
-            .frame(height: EXPMetric.controlH)
-            .background(configuration.isPressed ? EXPColor.rowActive : EXPColor.surfaceField,
-                        in: RoundedRectangle(cornerRadius: EXPMetric.radiusButton, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: EXPMetric.radiusButton, style: .continuous)
-                .strokeBorder(EXPColor.borderGlass, lineWidth: EXPMetric.strokeHairline))
-            .scaleEffect(configuration.isPressed ? 0.985 : 1)
-            .animation(EXPMotion.fast, value: configuration.isPressed)
     }
 }
 

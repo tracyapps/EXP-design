@@ -1,7 +1,8 @@
 # v2.0 — Interop & Handoff Plan ("the tool that lets go")
 
-**Created:** 2026-07-14 · **Status:** ACTIVE (v2.0.1 shipped; v2.1/build 12 Chunk I
-in progress; first two nested-component slices owner-verified 2026-07-24) · **Owner intent:** v2.0's headline. Traditional design
+**Created:** 2026-07-14 · **Status:** ACTIVE (v2.0.1 shipped; v2.1/build 12
+feature scope owner-accepted on 2026-07-28; release preparation remains) ·
+**Owner intent:** v2.0's headline. Traditional design
 software locks the design in; EXP should hand work onward — to a dev team, an
 LLM/agent, an IDE, or CodePen — and read work back in. Artboard notes +
 ARIA-role components are the multiplier: the *meaning* travels, not just
@@ -146,6 +147,33 @@ Figma updates. Ship Path 1 first; Path 2 only as "best-effort, labeled".
 - Risk: MEDIUM-HIGH (external API surface, rate limits, huge node-type space).
 - Fidelity tiers essential: import report listing what didn't map.
 
+**D1 implementation checkpoint — 2026-07-28:** the sanctioned REST path is now
+usable from File ▸ Import Figma File. It accepts a Figma URL/key and a memory-only
+PAT scoped to `file_content:read`, fetches file JSON with vector paths plus image
+fills, maps each Figma canvas to a browser-style EXP page, and applies the result
+as one undoable import. Core editable geometry/text/paint/effects/images, named
+paint/type styles, auto-layout stacks, and local component source/instance identity
+are mapped; every unsupported or approximate construct remains visible through the
+shared Import Report. A deterministic two-page fixture passes without network.
+Live owner/API acceptance and fidelity closure remain open, especially masks/clips,
+instance properties/variants/remote sources, mixed text, image crop modes, advanced
+layout sizing, huge-file performance, and error/rate-limit behavior. Tokens are not
+persisted; Keychain opt-in versus OAuth remains an explicit post-proof decision.
+Figma's Variables read endpoint is Enterprise-only, so this slice preserves bound
+rendered values and reports the reusable-variable limitation rather than gating
+ordinary file import.
+
+**D2a live-file correction — 2026-07-28:** first owner screenshots identified
+base text paints falling back to black and rotated nodes using Figma's post-rotation
+bounding-box dimensions before applying the angle again. The mapper now inherits
+TEXT-node fills into its base style and reconstructs EXP's unrotated frame from
+Figma's `size` centered on `absoluteBoundingBox`; open vector paths remain open.
+Figma `strokeDashes` also introduced a shared, editable Solid/Dash/Dot model for
+lines and all border surfaces, including component-state overrides and every
+render/export path. Marked Figma mask siblings activate their imported EXP group.
+Focused fixtures and existing XD/page/semantic/full-build checks pass; the same
+live document must now be re-imported for visual acceptance before D2 advances.
+
 ### Chunk E — Code/component import (v2.2)
 HTML/CSS prototypes → EXP nodes (parse DOM + computed styles → boxes, text,
 images; roles read BACK from semantic tags — the inverse of B, reusing its
@@ -235,6 +263,15 @@ frontier ones):**
   and unavailable-app behavior; they never replace or gate the generic stdio MCP
   configuration, and their shared assertions prevent host instructions drifting
   from the actual tool contract.
+  **DONE; OWNER VERIFIED 2026-07-28:** the panel, standalone
+  semantic HTML/token export commands, live opt-in bridge status/client identity,
+  setup snippets/privacy copy/read-only badge/selection-prompt affordance, Window
+  menu/persisted-panel wiring, and Properties-hosted vector/Pathfinder controls
+  are in the signed universal Debug build. Automated importer, page, component,
+  semantic package, signature, helper, and entitlement checks pass. The owner
+  passed dock/float, keyboard, VoiceOver, system-appearance, export/package, and
+  live Claude Code MCP checks across all six read-only tools. Capability packs
+  remain a separately scoped optional follow-up, not a v2.1 release gate.
 - **F3 — write-back (v2.3+, separate consent):** `apply_changes` (JSON Patch
   against a documented design.json subset), per-session approval prompt in
   EXP, applied as ONE undo group, and an Import-Report-style change summary.
@@ -254,6 +291,19 @@ the right FIRST importer to prove the codec pipeline before Figma's huge API
 surface.
 - Risk: MEDIUM (undocumented but static; open-source references exist, e.g.
   xd2svg).
+
+**Owner-accepted complete — 2026-07-28:** the shared codec contract and offline XD
+rescue importer are implemented. A bounded/cancellable ZIP reader and AGC mapper
+feed native editable nodes, lazily embedded image resources, document-library
+colors/gradients, and interaction notes through a progress UI, one-step document
+merge, and on-demand visible/copyable Import Report. All 11 owner-supplied real
+packages decode structurally (644 artboards; the mapper yields 84,208 recursively
+counted layers), and representative visual imports were accepted as looking good
+and remaining editable as expected. XD-only crop/mask/effect/component constructs
+that cannot be reconstructed exactly remain explicit reportable approximations or
+editable flattening—not silent fidelity claims. The sample corpus has no
+character-style library elements, so that optional mapping remains unproven and
+documented without blocking the accepted rescue workflow.
 
 ### Chunk H — Component states & behavior contract (model work; v1.6, before D/E)
 Owner question answered here (2026-07-17): how does interaction data
@@ -317,9 +367,10 @@ instance/source identity, discloses groups and nested sources recursively, and
 offers component states at every nested level; placed-parent choices persist as
 stable nested instance-ID paths. State diffs also preserve outline color/alpha,
 width, and position, including group backgrounds. The owner verified the
-default-width Layers and Components panel hierarchy. Remaining Chunk I work is
-dependent-source deletion and the full override/public-prop/layout/detach/
-renderer/export/Quick Look/semantic-containment acceptance matrix.
+default-width Layers and Components panel hierarchy. Dependent-source deletion,
+stable paths, overrides/public props, layout, detach, rendering/export, Quick
+Look, semantic containment, and the complete owner acceptance matrix are closed
+as of 2026-07-28.
 
 Semantic authoring uses the same resolved tree as useful context. Parent roles
 recommend or constrain likely owned child roles—List → List Item, Tab List → Tab,

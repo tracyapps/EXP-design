@@ -34,7 +34,7 @@ final class PanelHub {
     var activeFileURL: URL?
     @ObservationIgnored var activeUndo: UndoManager?
 
-    private static let defaultPanels: [PanelID] = [.layers, .properties, .components, .designLanguage]
+    private static let defaultPanels: [PanelID] = [.layers, .properties, .components, .designLanguage, .handoff]
     private static let traysKey = "exp.trays.v1"
     private var restoring = false
 

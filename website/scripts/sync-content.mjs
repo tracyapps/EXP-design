@@ -250,22 +250,28 @@ const testerPhaseCopy = [
 
 const testerLatestReleaseCopy = [
   {
-    phase: "v1.6 scope — Component states & accessibility",
-    title: "Component states",
+    phase: "v2.1 — Nested components + semantic containment",
+    title: "Nested, stateful components",
     status: "done",
-    body: "Create hover, pressed, focus, disabled, and custom source states; edit text, fill, and visibility per state; assign ARIA role categories; and check contrast for each active state.",
+    body: "Nest component sources safely, set states at every level, expose selected properties, fork a source into a new component, and keep instance overrides and semantic relationships stable.",
   },
   {
-    phase: "v1.6 scope — Components panel",
-    title: "Component previews",
+    phase: "v2.1 — Canvas pages",
+    title: "Browser-style canvas pages",
     status: "done",
-    body: "Switch the Components panel between list and grid, scan generated thumbnails, preview each source state, and use the fuller component actions from either display.",
+    body: "Split large documents across clear page tabs with independent cameras, guides, Layers, and selection; move or duplicate layers and artboards between pages without losing structure.",
   },
   {
-    phase: "Phase 14 + import pipeline",
-    title: "PDF and image import",
+    phase: "v2.1 — Shared importer pipeline",
+    title: "Editable XD and Figma import",
     status: "done",
-    body: "Place embedded raster images as document nodes, render and export them with the canvas, and bring PDF pages into EXP for editing through the import path.",
+    body: "Rescue local Adobe XD documents or import Figma files through the sanctioned REST API, map source pages to EXP tabs, and review honest fidelity notes only when something needs attention.",
+  },
+  {
+    phase: "v2.1 — Handoff + panel IA",
+    title: "One Handoff home",
+    status: "done",
+    body: "Export artboards, semantic HTML, design tokens, or a complete Handoff Package from one panel—and optionally let your own local agent inspect the document through six read-only tools.",
   },
 ];
 

@@ -1,0 +1,148 @@
+# EXP [design] v2.1
+
+## Bring the work in. Send the meaning onward.
+
+EXP [design] 2.1 is the release where the workflow opens up. Existing Adobe XD
+documents can be rescued into editable EXP layers, Figma files can come through
+Figma's sanctioned REST API, large documents can be divided into clear canvas
+pages, and the new Handoff panel puts visual exports, semantic artifacts, and an
+optional local agent connection in one place.
+
+The goal is not to replace every tool in a designer's workflow. It is to get out
+of the way: preserve as much editable structure and meaning as the source format
+allows, let the designer make real changes, and hand the result onward in the
+form the next step needs.
+
+### Editable XD and Figma import
+
+- Import local `.xd` documents through a bounded, cancellable offline reader.
+- Import a Figma URL or file key through the official REST API. Personal access
+  tokens stay in memory and are sent only to `api.figma.com`.
+- Figma pages become EXP canvas pages; top-level frames become artboards.
+- Artboards, groups, text, shapes, vector paths, lines, images, gradients,
+  strokes, effects, masks, auto layout, local component sources/instances, and
+  named paint/type styles map to editable EXP structures where the source data
+  supports it.
+- Import reports stay quiet when everything maps cleanly and call out only
+  approximations or unsupported constructs that deserve review.
+- Imported text bounds, image resources, dashed/dotted strokes, rotated line
+  geometry, nested alignment, masks, and absolute children in auto layout all
+  received live-file fidelity corrections during acceptance testing.
+
+Advanced Figma constructs that EXP cannot reconstruct exactly remain visible in
+the fidelity report rather than being silently presented as exact. OAuth,
+Keychain token storage, and Enterprise Variables mapping remain explicit future
+choices, not hidden requirements in this release.
+
+### Browser-style canvas pages
+
+- Split a document into named page tabs without burying pages beside ordinary
+  layers.
+- Each page keeps its own camera position, guides, Layers presentation, and
+  selection.
+- Add, rename, deep-duplicate, reorder, and delete pages with undo.
+- Move or duplicate single layers, multiple layers, nested children, or one or
+  more artboards to another page from both menus and contextual actions.
+- Moving work to a page reveals the result immediately instead of leaving it
+  somewhere off-screen.
+- Component sources and Design Language stay shared across the document.
+
+### Components that stay understandable as they grow
+
+- Place component instances inside other component sources from every normal
+  placement surface.
+- Direct and indirect source cycles are rejected before they can damage the
+  document.
+- Layers discloses nested component structure recursively and keeps the instance
+  name separate from the source name.
+- Choose component states independently at every nested level using stable
+  instance paths.
+- Parent components can expose selected nested public properties; reset returns
+  to the nearest source value.
+- Component-state appearance now includes opacity, fill, typography, visibility,
+  outlines, and blend mode without leaking changes into Default or sibling states.
+- Duplicate Component creates a new independent working source instead of another
+  instance of the original.
+- Deleting a source preserves every visible use as ordinary editable work, and
+  detaching or duplicating nested structures keeps IDs and relationships safe.
+
+### One Handoff home
+
+The new dockable, detachable Handoff panel brings together:
+
+- Current or selected artboard export as PNG, JPEG, PDF, or SVG.
+- All-artboard export, including multi-page PDF.
+- A complete inspectable `.exph` Handoff Package.
+- Standalone semantic HTML/CSS.
+- W3C Design Tokens Community Group token export.
+- An optional local agent connection.
+
+Existing File-menu commands remain available; the panel is an additional clear
+home, never the only route.
+
+### Local, read-only agent access
+
+Agent access is off by default. When the designer explicitly enables it, EXP
+starts a protected current-user Unix socket and provides setup snippets for
+Claude Code, Claude Desktop, or another stdio MCP client. There is no network
+listener and EXP does not require a vendor API key.
+
+Connected clients can use six read-only tools:
+
+- `get_orientation`
+- `list_artboards`
+- `get_artboard`
+- `get_selection`
+- `get_node`
+- `get_tokens`
+
+EXP shows connection readiness, client identity, and the read-only boundary in
+the Handoff panel. Write-back is not part of v2.1.
+
+### Accessibility at the core
+
+- Components can carry approachable ARIA-role categories, accessible names,
+  relationships, states, and structured notes into semantic handoff.
+- Context-aware containment guidance recommends meaningful child roles without
+  removing the designer's choice.
+- Relationship controls use plain-language explanations, with technical
+  `aria-*` details available when useful.
+- Text can preserve paragraph or heading intent independently of its visual Type
+  Style.
+- Contrast checks remain available where colors and component states are edited.
+- The app and the v2.1 panel work were accepted across keyboard order, VoiceOver,
+  light/dark appearance, increased contrast, reduced motion, and reduced
+  transparency.
+
+EXP helps authors make and preserve better decisions; it does not claim that a
+design file alone certifies an implementation as accessible. Generated output
+still needs browser, keyboard, and assistive-technology testing in its real
+product context.
+
+### Design Language and panel refinements
+
+- Design Language holds reusable colors, gradients, and complete typography
+  styles with shared categories and list/grid views.
+- Design decisions can travel through EXP JSON, CSS, and W3C design tokens.
+- Vector conversion, Outline Stroke, Pathfinder operations, Align/Distribute,
+  component semantics, and handoff actions now have clearer selection-aware panel
+  homes while retaining menu, contextual, and keyboard routes.
+- Handoff actions use the same compact neutral control rhythm as the rest of the
+  inspector and panel system.
+
+### Reliability fixes closed during the cycle
+
+- Layer Copy/Paste now works while the Layers list owns keyboard focus.
+- Duplicate Layer duplicates only the selected nested layer and keeps it inside
+  the same group.
+- A component source can be duplicated into a new independent component.
+- Deleting a component source no longer moves preserved instances off-canvas.
+- Component-state blend modes stay local to the selected state.
+- Align and Distribute operate on multiple selected children inside a group.
+- Text overflow indicators no longer report clipping from harmless font-metric
+  padding.
+- Temporary Spacebar panning reliably returns to the active selection tool and
+  cursor.
+- Canvas page tabs remain opaque and stable during fast panning.
+
+EXP [design] 2.1 is build 12 and requires macOS 26.2 or later.

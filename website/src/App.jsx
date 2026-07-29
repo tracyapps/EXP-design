@@ -16,8 +16,10 @@ const issuesUrl = "https://github.com/tracyapps/EXP-design/issues/new";
 // /download and /learn.
 const featureLinks = [
   { label: "features", href: "/#features" },
+  { label: "components", href: "/#component-system" },
   { label: "accessibility", href: "/#accessibility" },
   { label: "design language", href: "/#design-language" },
+  { label: "import + handoff", href: "/#import-handoff" },
   { label: "multi-window", href: "/#workspace" },
 ];
 
@@ -43,17 +45,17 @@ const featureMoments = [
   },
   {
     id: "components",
-    title: "source components",
+    title: "components with a memory",
     icon: "ph-stack",
-    line: "instances point back to a source, with bounded overrides for text, fill, and visibility.",
-    detail: "no mystery copies. edit the source, return, and every instance updates.",
+    line: "nest sources, describe states, expose the right properties, and keep every override attached to the instance that owns it.",
+    detail: "reuse stays powerful without turning the layer tree into a guessing game.",
   },
   {
-    id: "notes",
-    title: "handoff notes",
-    icon: "ph-note-pencil",
-    line: "notes live on the artboard, move with it, duplicate with it, and can export into PDF handoff pages.",
-    detail: "assumptions, test-first prompts, and context travel with the thing they explain.",
+    id: "meaning",
+    title: "accessible by intent",
+    icon: "ph-person-arms-spread",
+    line: "plain-language guidance keeps roles, names, relationships, text meaning, and contrast close to the decisions that create them.",
+    detail: "accessibility is part of the design model—not a checklist waiting at the finish line.",
   },
 ];
 
@@ -223,7 +225,10 @@ function ProductWindow({ compact = false }) {
         <span className="traffic green" />
         <span className="window-title">EXP [design]</span>
       </div>
-      <img src="/assets/exp-canvas-workbench.png" alt="EXP design app canvas with layers, artboards, and properties panels" />
+      <img
+        src="/assets/exp-canvas-workbench-v2-1.png"
+        alt="EXP design workspace with page tabs, an expanded component in Layers, artboards on the canvas, and component, Design Language, and Handoff panels"
+      />
     </figure>
   );
 }
@@ -257,8 +262,8 @@ function Hero() {
         <h1>a design tool that gets out of the way.</h1>
         <p>
           EXP [design] is a native macOS design app built around real UX workflow:
-          fast canvas work, source components, and handoff notes that travel with
-          the artboard.
+          fast canvas work, understandable components, accessibility-aware design,
+          and flexible ways to bring work in or hand it onward.
         </p>
         <div className="hero-actions" aria-label="primary actions">
           <a className="button primary" href="/download">tester download</a>
@@ -361,6 +366,52 @@ function FeatureStory() {
   );
 }
 
+function ComponentCallout() {
+  return (
+    <section id="component-system" className="component-section" aria-labelledby="component-title">
+      <div className="component-copy section-copy">
+        <p className="section-label">component system</p>
+        <h2 id="component-title">components that stay understandable as they grow.</h2>
+        <p>
+          Build from a source, nest components inside components, and give each
+          instance the state and overrides it actually needs. EXP keeps source
+          identity, nested structure, public properties, and semantic meaning
+          visible instead of hiding them behind a magic copy.
+        </p>
+        <ul className="feature-points" aria-label="component system benefits">
+          <li>
+            <strong>states belong to the component</strong>
+            <span>Describe hover, focus, pressed, disabled, and custom variants without changing the shared default.</span>
+          </li>
+          <li>
+            <strong>nest without losing your place</strong>
+            <span>Every level keeps its own source, state, and stable override path—with cycle safety built in.</span>
+          </li>
+          <li>
+            <strong>fork or detach on purpose</strong>
+            <span>Duplicate a source for a new direction, or detach an instance while preserving the work you can see.</span>
+          </li>
+        </ul>
+      </div>
+      <figure className="component-gallery" aria-label="Nested components shown in EXP's component editor">
+        <div className="component-shot overview">
+          <img
+            src="/assets/components-nested-overview.png"
+            alt="EXP showing two component editors with nested layers, states, relationships, and component instances"
+          />
+        </div>
+        <div className="component-shot detail">
+          <img
+            src="/assets/components-editor-detail.png"
+            alt="A focused EXP component editor showing a selected nested component, its state, public properties, and overrides"
+          />
+        </div>
+        <figcaption>see the full structure, then work at exactly the level you need.</figcaption>
+      </figure>
+    </section>
+  );
+}
+
 function AccessibilityCallout() {
   return (
     <section id="accessibility" className="a11y-section" aria-labelledby="a11y-title">
@@ -383,37 +434,124 @@ function AccessibilityCallout() {
   );
 }
 
+function AccessibilityCoreCallout() {
+  return (
+    <section className="a11y-core-section" aria-labelledby="a11y-core-title">
+      <div className="section-copy">
+        <p className="section-label">accessibility at the core</p>
+        <h2 id="a11y-core-title">accessible thinking, in plain language.</h2>
+        <p>
+          EXP brings accessibility into the design conversation without making
+          designers memorize a specification first. Friendly language explains
+          what a role or relationship means, contextual guidance teaches the
+          pattern, and the technical detail is still there when you need it.
+        </p>
+        <p className="a11y-boundary">
+          EXP helps preserve good decisions; it does not claim that a design file
+          can certify the accessibility of the finished product. Real code still
+          needs keyboard, browser, and assistive-technology testing.
+        </p>
+      </div>
+      <ul className="a11y-principles">
+        <li>
+          <i className="ph ph-chats-circle" aria-hidden="true" />
+          <div><strong>guidance, not jargon</strong><span>Approachable labels, role-aware recommendations, and an in-app ARIA guide make the why easier to learn.</span></div>
+        </li>
+        <li>
+          <i className="ph ph-tree-structure" aria-hidden="true" />
+          <div><strong>meaning travels</strong><span>Roles, names, relationships, text intent, component states, and notes survive semantic handoff.</span></div>
+        </li>
+        <li>
+          <i className="ph ph-keyboard" aria-hidden="true" />
+          <div><strong>the app respects access needs too</strong><span>Keyboard and VoiceOver paths, system appearance, increased contrast, reduced motion, and reduced transparency are release checks.</span></div>
+        </li>
+      </ul>
+      <div className="a11y-guide-gallery" aria-label="EXP ARIA guide screenshots">
+        <figure>
+          <img
+            src="/assets/aria-guide-overview.png"
+            alt="EXP ARIA Roles Guide introducing roles in plain language and organizing them by purpose"
+          />
+        </figure>
+        <figure>
+          <img
+            src="/assets/aria-guide-role-detail.png"
+            alt="EXP ARIA Roles Guide explaining the link role with when-to-use guidance, cautions, code, and common confusion"
+          />
+        </figure>
+      </div>
+    </section>
+  );
+}
+
 function DesignLanguageCallout() {
   return (
     <section id="design-language" className="design-language-section" aria-labelledby="design-language-title">
       <div className="section-copy narrow">
-        <p className="section-label">in progress</p>
-        <h2 id="design-language-title">a design language panel is starting to take shape.</h2>
+        <p className="section-label">design language</p>
+        <h2 id="design-language-title">build the system while you're building the work.</h2>
         <p>
-          Save colors and gradients, name them, sort them into categories, and
-          switch between swatch and list views while a system is still forming.
+          Save colors, gradients, and complete type styles; organize them into
+          shared categories; browse them as a compact list or visual grid; and
+          carry the same decisions into CSS, EXP JSON, or W3C design tokens.
         </p>
       </div>
       <div className="design-language-gallery" aria-label="Design language screenshots">
-        <figure className="design-shot settings">
+        <figure className="design-shot import">
           <img
-            src="/assets/design-language-settings.png"
-            alt="EXP settings window showing design language color and gradient categories"
+            src="/assets/design-language-css-import.png"
+            alt="EXP Design Language settings with a Paste Palette dialog ready to import CSS color variables"
           />
         </figure>
-        <figure className="design-shot list">
+        <figure className="design-shot panel">
           <img
-            src="/assets/design-language-list.png"
-            alt="EXP design language panel in list view with named colors and gradients"
-          />
-        </figure>
-        <figure className="design-shot grid">
-          <img
-            src="/assets/design-language-grid.png"
-            alt="EXP design language panel in swatch grid view"
+            src="/assets/design-language-panel-v2-1.png"
+            alt="EXP Design Language panel showing colors, gradients, type styles, categories, recent items, and grid or list controls"
           />
         </figure>
       </div>
+    </section>
+  );
+}
+
+function ImportHandoffCallout() {
+  const incoming = ["Figma REST", "Adobe XD", "PDF", "SVG + images"];
+  const outgoing = ["PNG / JPEG", "PDF / SVG", "semantic HTML", "design tokens", "Handoff Package", "local agent"];
+
+  return (
+    <section id="import-handoff" className="import-handoff-section" aria-labelledby="import-handoff-title">
+      <div className="section-copy">
+        <p className="section-label">import + handoff</p>
+        <h2 id="import-handoff-title">bring the work in. send the meaning onward.</h2>
+        <p>
+          Rescue an editable XD document, import a Figma file through its
+          sanctioned API, or bring in the formats already in your workflow. When
+          the design is ready, export pixels, vectors, semantic code, tokens, a
+          complete inspectable package, or let your own local agent read the work.
+        </p>
+        <p className="detail-line">
+          EXP does not ask you to rebuild your process around the app. Use the
+          format the next step needs, and keep moving.
+        </p>
+      </div>
+      <figure className="handoff-map" aria-label="Import options flow into EXP design and then into several export and handoff options">
+        <div className="handoff-column incoming">
+          <span className="map-kicker">bring it in</span>
+          {incoming.map((item) => <span key={item}>{item}</span>)}
+        </div>
+        <div className="handoff-arrow" aria-hidden="true"><i className="ph ph-arrow-right" /></div>
+        <div className="handoff-core">
+          <img src="/assets/exp-logo.png" alt="" />
+          <strong>EXP<span>[design]</span></strong>
+          <small>edit without losing the thread</small>
+        </div>
+        <div className="handoff-arrow" aria-hidden="true"><i className="ph ph-arrow-right" /></div>
+        <div className="handoff-column outgoing">
+          <span className="map-kicker">hand it onward</span>
+          {outgoing.map((item) => <span key={item}>{item}</span>)}
+        </div>
+        <figcaption>your workflow stays yours.</figcaption>
+      </figure>
     </section>
   );
 }
@@ -1254,9 +1392,12 @@ export default function App() {
       <main>
         <Hero />
         <FeatureStory />
+        <ComponentCallout />
         <WorkspaceCallout />
         <AccessibilityCallout />
+        <AccessibilityCoreCallout />
         <DesignLanguageCallout />
+        <ImportHandoffCallout />
         <Roadmap />
         <TestingInvite />
       </main>

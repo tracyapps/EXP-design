@@ -576,6 +576,11 @@ final class AppState {
 
     // MARK: Selection (session state — not saved)
 
+    /// The canvas page shown in this document window. The id is session state,
+    /// like zoom and selection: changing tabs must not dirty the design file.
+    /// A nil or stale id resolves to the document's first page.
+    var activeCanvasPageID: UUID?
+
     /// Which artboards are selected. A set so multiple boards can move, export,
     /// or duplicate together. Resolving ids to actual Artboards happens where the
     /// document is in scope (the Inspector, the canvas).

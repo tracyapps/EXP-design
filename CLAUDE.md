@@ -1,8 +1,18 @@
 # EXP [design]
 
 A native macOS design application built around an actual UX workflow — not
-feature-count parity with Figma/XD. Guiding principle: **the tool should get
-out of the way.** Built with Swift / SwiftUI (app chrome) + AppKit/Core
+feature-count parity with Figma/XD.
+
+Two guiding principles, both load-bearing:
+1. **The tool should get out of the way.**
+2. **EXP is a fidelity tool, not a prototyping tool.** It is ONE PIECE of a
+   designer's toolkit: read a component in without losing data, let the designer
+   tweak it, export it at the same fidelity, hand it to a developer or a model
+   that writes accessible component code from it. Prototyping is done more
+   efficiently in code and is explicitly out of scope. When a decision is
+   unclear, ask: *does this make the exported artifact more faithful, or does it
+   just make the canvas more impressive?* Build the first. Full statement in
+   ROADMAP → Architecture decisions. Built with Swift / SwiftUI (app chrome) + AppKit/Core
 Graphics (canvas). Xcode 26.3, Swift 6.2, macOS 26 SDK.
 
 ## Read these first
@@ -23,6 +33,15 @@ Graphics (canvas). Xcode 26.3, Swift 6.2, macOS 26 SDK.
 - Accessibility, inclusive design, and tech-ethics are hard requirements, not
   polish. Use "source," never "master." Follow all system accessibility &
   appearance settings (incl. light/dark via semantic colors).
+- **Verify ARIA/semantics against the spec before coding — even when the owner
+  asks for the wrong thing.** Any change touching ARIA roles, states, properties,
+  relationships, semantic HTML, or accessible naming must be checked against
+  WAI-ARIA 1.2 / ARIA in HTML / the APG / WCAG 2.1 AA first, with the citation
+  recorded in the backlog entry and an explicit note of what was NOT verified.
+  Say "the ADA does not specify ARIA" — name WCAG 2.1 AA and the ARIA specs.
+  Full rule: WORKING-AGREEMENT.md → "Accessibility decisions are verified, not
+  remembered."
+
 - Be honest about tool limitations. Be reasonably concise.
 - **Command-coverage rule (every user-facing action):** wire it ALL of these
   ways in the *same* change that adds the feature — never ship an action reachable
@@ -74,18 +93,17 @@ states/behavior contract, semantic Handoff Package, agent-bridge spine, and
 v2.0.1 stabilization fixes are shipped. Documents save as **`.design`**
 (legacy `.exp` opens for migration).
 
-Current work is **Chunk I — nested components + semantic containment**, the
-model gate before XD/Figma import. Completed and owner-verified on 2026-07-24:
-nested placement from every component surface, direct/indirect cycle safety,
-separate instance/source identity, recursive Layers disclosure, component-state
-controls at each nested level backed by stable instance-ID paths, state-local
-outline color/alpha/width/position, group-background outline position,
-role-aware Relationships placement, and compact default-width Layers/Components
-panel hierarchy. Debug app + Quick Look/helper, graph/state round-trip, semantic
-handoff package, and SVG token checks pass.
+The **v2.1 feature scope is complete and owner-accepted as of 2026-07-28**:
+nested components/semantic containment, canvas pages, editable XD and sanctioned
+Figma REST import, and the unified Handoff/panel-IA pass. The default-off local
+agent bridge connected successfully through Claude Code; all six read-only tools,
+live selection refresh, client identity, and ready/off transitions passed. Debug
+app + Quick Look/helper and the focused model/import/semantic suites pass.
 
-**Next:** dependent-source deletion choices and the remaining nested
-override/public-prop/layout/detach/export/Quick Look/semantic-containment
-acceptance matrix; then the shared XD/Figma importer/report pipeline. See
+The v2.1 release notes, website feature story, screenshot briefs, and exact build
+12 checklist are written. **Next:** run `docs/RELEASE-CHECKLIST-v2.1.md`; do not
+mark v2.1 released until archive/notarization, public Sparkle metadata, and the
+v2.0.1 → v2.1 install/relaunch proof pass. Agent capability packs and Figma
+OAuth/Keychain/Variables remain explicit non-gating follow-ups. See
 ROADMAP.md for the authoritative checklist and newest Progress Log entry; its
 phase statuses feed the public site via `website/scripts/sync-content.mjs`.

@@ -46,6 +46,19 @@ struct LayersPanel: View {
     @Environment(AppState.self) private var app
     @Environment(\.undoManager) private var undoManager
     @State private var expanded: Set<UUID> = []   // expanded group / instance rows
+    /// Expansion for rows INSIDE a component instance, keyed by a per-placement
+    /// path rather than a node id — the same source child appears under every
+    /// placement of its component, so a plain id would expand them all together.
+    ///
+    /// This lives at panel level, NOT as `@State` on the row, and that is the whole
+    /// point. `List` on macOS caches each row's measured height. A nested row
+    /// holding its own private expansion state changes the outer row's height
+    /// without the List ever being told, so the cached height goes stale and you
+    /// get a wrong scrollbar until a scroll forces re-measurement. Routing it
+    /// through a binding the panel owns means the change is observable from the
+    /// List row itself. It also stops nested expansion resetting whenever SwiftUI
+    /// recycles a row, which is why the old behavior was intermittent.
+    @State private var expandedNested: Set<[UUID]> = []
     @State private var collapsedSections: Set<String> = []   // collapsed artboard/Wall sections
     @State private var draggingID: UUID?           // layer being dragged
     @State private var dropIndicator: LayerDropIndicator?   // where it will land
@@ -60,7 +73,7 @@ struct LayersPanel: View {
 
     private var scopeNodes: [Node] {
         switch scope {
-        case .document: return document.model.nodes
+        case .document: return document.model.page(for: app.activeCanvasPageID)?.nodes ?? []
         case .source(let sid):
             let children = document.model.source(for: sid)?.children ?? []
             if let state = activeEditingState {
@@ -74,7 +87,8 @@ struct LayersPanel: View {
         var model = document.model
         switch scope {
         case .document:
-            model.nodes = nodes
+            guard let pageIndex = model.pageIndex(for: app.activeCanvasPageID) else { return }
+            model.pages[pageIndex].nodes = nodes
         case .source(let sid):
             guard let si = model.sources.firstIndex(where: { $0.id == sid }) else { return }
             let fitSourceBounds = model.sourceUsesManagedBounds(model.sources[si])
@@ -82,7 +96,7 @@ struct LayersPanel: View {
                let sti = model.sources[si].states.firstIndex(where: { $0.id == state.id }) {
                 let (newBase, newState) = ComponentStateEditing.capture(
                     base: model.sources[si].children, edited: nodes, state: state)
-                let reflowed = AutoLayoutEngine.reflowed(newBase)
+                let reflowed = model.reflowed(newBase)
                 model.sources[si].children = reflowed
                 model.sources[si].states[sti] = newState
                 if fitSourceBounds,
@@ -91,7 +105,7 @@ struct LayersPanel: View {
                     model.sources[si].size = bounds.size
                 }
             } else {
-                let reflowed = AutoLayoutEngine.reflowed(nodes)
+                let reflowed = model.reflowed(nodes)
                 model.sources[si].children = reflowed
                 if fitSourceBounds,
                    let bounds = model.managedRootBounds(in: reflowed) {
@@ -149,9 +163,11 @@ struct LayersPanel: View {
                                 node: node,
                                 document: document,
                                 expanded: $expanded,
+                                expandedNested: $expandedNested,
                                 draggingID: $draggingID,
                                 dropIndicator: $dropIndicator,
                                 inActiveSection: group.id == activeSectionID,
+                                allowsPageTransfer: scope == .document,
                                 onToggleVisible: { toggleVisible($0) },
                                 onToggleLock: { toggleLock($0) },
                                 onRename: { rename($0, $1) },
@@ -160,6 +176,13 @@ struct LayersPanel: View {
                                 onSetNestedInstanceState: { setNestedInstanceState($0, path: $1, stateID: $2) },
                                 onToggleInstanceLayer: { toggleInstanceLayer(instanceID: $0, childID: $1) },
                                 onDrop: { handleDrop($0, onto: $1, place: $2) },
+                                // A row's context menu belongs to that row. In
+                                // particular, duplicating a child must not also
+                                // duplicate an enclosing group left in the
+                                // broader canvas selection. Keyboard Duplicate
+                                // continues to operate on the full selection.
+                                onDuplicate: { duplicateLayers([$0]) },
+                                onCopy: { copyLayers(selectionOrRow($0)) },
                                 onDelete: { deleteLayers(selectionOrRow($0)) },
                                 onCopyStyle: { copyStyleFromRow($0) },
                                 onPasteStyle: { pasteStyleToRows(selectionOrRow($0)) },
@@ -211,6 +234,16 @@ struct LayersPanel: View {
             // events, so the canvas's keyDown never sees them — same focus gap the
             // onDeleteCommand above works around. ⇧ = 10pt step (via current event).
             .onMoveCommand { direction in nudgeSelectedLayers(direction) }
+            // A focused SwiftUI List is otherwise a responder-chain dead end for
+            // the standard Copy/Paste menu commands. Register native command
+            // handlers so keyboard shortcuts AND Edit-menu clicks use the same
+            // clipboard payload as the canvas.
+            .onCopyCommand {
+                layerCopyProviders()
+            }
+            .onPasteCommand(of: [UTType(exportedAs: CanvasNSView.nodePasteboardType.rawValue)]) { _ in
+                sendCanvasAction("paste:")
+            }
             .onAppear {
                 if case .document = scope {
                     app.layersRevealSelection = {
@@ -311,7 +344,9 @@ struct LayersPanel: View {
         switch scope {
         case .source: return "source"
         case .document:
-            if let ab = document.model.owningArtboard(of: node.frame) { return ab.id.uuidString }
+            if let ab = document.model.owningArtboard(of: node.frame, on: app.activeCanvasPageID) {
+                return ab.id.uuidString
+            }
             return "wall"
         }
     }
@@ -382,15 +417,16 @@ struct LayersPanel: View {
             // model order within each bucket, reversed so front is first.
             var byBoard: [UUID: [Node]] = [:]
             var wall: [Node] = []
-            for node in model.nodes {
-                if let owner = model.owningArtboard(of: node.frame) {
+            let page = model.page(for: app.activeCanvasPageID)
+            for node in page?.nodes ?? [] {
+                if let owner = model.owningArtboard(of: node.frame, on: page?.id) {
                     byBoard[owner.id, default: []].append(node)
                 } else {
                     wall.append(node)
                 }
             }
             var result: [LayerGroup] = []
-            for artboard in model.artboards {
+            for artboard in page?.artboards ?? [] {
                 result.append(LayerGroup(id: artboard.id.uuidString, title: artboard.name,
                                          nodes: (byBoard[artboard.id] ?? []).reversed()))
             }
@@ -547,6 +583,81 @@ struct LayersPanel: View {
         app.selectedNodeIDs.contains(id) ? app.selectedNodeIDs : [id]
     }
 
+    /// Duplicate selected rows beside their originals, including rows nested in
+    /// groups. A selected ancestor owns its whole subtree, so a selected child is
+    /// not duplicated a second time when its selected parent is also copied.
+    private func duplicateLayers(_ ids: Set<UUID>) {
+        guard !ids.isEmpty else { return }
+        let duplication = Document.duplicatingNodes(ids, in: scopeNodes)
+        let nodes = duplication.nodes
+        let copies = duplication.copiedIDs
+        guard !copies.isEmpty else { return }
+        commitNodes(document.model.reflowed(nodes),
+                    copies.count == 1 ? "Duplicate" : "Duplicate Layers")
+        app.selectedNodeIDs = Set(copies)
+        app.selectedArtboardIDs = []
+    }
+
+    /// Copy selected rows in scope coordinates. Nested layers fold in ancestor
+    /// offsets so a later paste lands where the layer was visibly drawn rather
+    /// than at its group-local origin.
+    private func copyLayers(_ ids: Set<UUID>) {
+        guard !ids.isEmpty else { return }
+        var copied: [Node] = []
+        func collect(_ nodes: [Node], parentOffset: CGPoint) {
+            for node in nodes {
+                if ids.contains(node.id) {
+                    var copy = node
+                    copy.frame = node.frame.offsetBy(dx: parentOffset.x,
+                                                     dy: parentOffset.y)
+                    copied.append(copy)
+                    continue
+                }
+                if case .group(let children) = node.content {
+                    collect(children,
+                            parentOffset: CGPoint(x: parentOffset.x + node.frame.minX,
+                                                  y: parentOffset.y + node.frame.minY))
+                }
+            }
+        }
+        collect(scopeNodes, parentOffset: .zero)
+        guard !copied.isEmpty else { return }
+
+        var sourceOrigin: CGPoint?
+        if case .document = scope {
+            let owners = Set(copied.compactMap {
+                document.model.owningArtboard(of: $0.frame, on: app.activeCanvasPageID)?.id
+            })
+            if owners.count == 1, let owner = owners.first,
+               let artboard = document.model.page(for: app.activeCanvasPageID)?.artboards.first(where: { $0.id == owner }) {
+                sourceOrigin = artboard.frame.origin
+            }
+        }
+
+        guard let data = try? JSONEncoder().encode(
+            NodeClipboard(nodes: copied, sourceOrigin: sourceOrigin)) else { return }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setData(data, forType: CanvasNSView.nodePasteboardType)
+    }
+
+    /// SwiftUI's native Copy command exchanges item providers. The canvas uses a
+    /// custom pasteboard type, so expose the exact encoded bytes under that type;
+    /// Paste then routes to the canvas, which remains the one placement engine.
+    private func layerCopyProviders() -> [NSItemProvider] {
+        copyLayers(app.selectedNodeIDs)
+        guard let data = NSPasteboard.general.data(forType: CanvasNSView.nodePasteboardType)
+        else { return [] }
+        let provider = NSItemProvider()
+        provider.registerDataRepresentation(
+            forTypeIdentifier: CanvasNSView.nodePasteboardType.rawValue,
+            visibility: .all) { completion in
+                completion(data, nil)
+                return nil
+            }
+        return [provider]
+    }
+
     /// Copy Style from a row — capture its effects + blend mode + opacity into the
     /// shared clipboard. Reimplemented here (like Delete) so it works whatever has
     /// focus; the canvas owns the equivalent action for canvas-side use.
@@ -595,7 +706,7 @@ struct LayersPanel: View {
         }
         var nodes = scopeNodes
         Self.moveIDs(ids, by: d, in: &nodes)
-        commitNodes(AutoLayoutEngine.reflowed(nodes), ids.count == 1 ? "Move Shape" : "Move Shapes")
+        commitNodes(document.model.reflowed(nodes), ids.count == 1 ? "Move Shape" : "Move Shapes")
     }
 
     /// Add `d` to the frame origin of every node in `ids`, recursing into groups
@@ -617,7 +728,7 @@ struct LayersPanel: View {
         guard !ids.isEmpty else { return }
         var nodes = scopeNodes
         Self.removeIDs(ids, from: &nodes)
-        commitNodes(AutoLayoutEngine.reflowed(nodes), ids.count == 1 ? "Delete" : "Delete Layers")
+        commitNodes(document.model.reflowed(nodes), ids.count == 1 ? "Delete" : "Delete Layers")
         app.selectedNodeIDs = []
     }
 
@@ -751,12 +862,13 @@ struct LayersPanel: View {
               document.model.canInsert([dragged], intoSource: sourceID),
               let si = document.model.sources.firstIndex(where: { $0.id == sourceID }) else { return }
         var model = document.model
-        var top = model.nodes
+        guard let pageIndex = model.pageIndex(for: app.activeCanvasPageID) else { return }
+        var top = model.pages[pageIndex].nodes
         guard var moved = Self.extract(draggedID, from: &top) else { return }
         // Source children render at the instance's origin; keep the node's position.
         let absX = moved.frame.minX + oldOffset.x, absY = moved.frame.minY + oldOffset.y
         moved.frame.origin = CGPoint(x: absX - instance.frame.minX, y: absY - instance.frame.minY)
-        model.nodes = top
+        model.pages[pageIndex].nodes = top
         model.sources[si].children.insert(moved, at: 0)
         document.setModel(model, undoManager: undoManager, actionName: "Add to Component")
         app.selectedNodeIDs = []
@@ -773,11 +885,15 @@ private struct LayerOutlineRow: View {
     let node: Node
     let document: ExpDocument
     @Binding var expanded: Set<UUID>
+    @Binding var expandedNested: Set<[UUID]>
     @Binding var draggingID: UUID?
     @Binding var dropIndicator: LayerDropIndicator?
-    /// When the artboard owning this row is the active one, the row draws a thin
-    /// accent border down its leading edge (set by the panel; nested rows inherit it).
+    /// When the artboard owning this row is active, the top-level outline subtree
+    /// draws one thin accent rail down its leading edge. Owning the rail here —
+    /// outside the concrete/virtual child row implementations — keeps it continuous
+    /// through expanded groups and component-instance layers alike.
     var inActiveSection: Bool = false
+    let allowsPageTransfer: Bool
     /// Indentation depth (0 = a root layer). Drives the manual indent; the two
     /// leading accent slots stay pinned at the panel's far-left regardless of depth.
     var depth: Int = 0
@@ -794,6 +910,8 @@ private struct LayerOutlineRow: View {
     let onSetNestedInstanceState: (UUID, [UUID], UUID?) -> Void
     let onToggleInstanceLayer: (UUID, UUID) -> Void
     let onDrop: (UUID, UUID, DropPlace) -> Void
+    let onDuplicate: (UUID) -> Void
+    let onCopy: (UUID) -> Void
     let onDelete: (UUID) -> Void
     let onCopyStyle: (UUID) -> Void
     let onPasteStyle: (UUID) -> Void
@@ -835,14 +953,17 @@ private struct LayerOutlineRow: View {
                 if let kids = groupChildren {
                     ForEach(Array(kids.reversed())) { child in
                         LayerOutlineRow(node: child, document: document, expanded: $expanded,
+                                        expandedNested: $expandedNested,
                                         draggingID: $draggingID, dropIndicator: $dropIndicator,
-                                        inActiveSection: inActiveSection, depth: depth + 1,
+                                        inActiveSection: inActiveSection,
+                                        allowsPageTransfer: allowsPageTransfer, depth: depth + 1,
                                         onToggleVisible: onToggleVisible, onToggleLock: onToggleLock,
                                         onRename: onRename, onRenameComponent: onRenameComponent,
                                         onSetInstanceState: onSetInstanceState,
                                         onSetNestedInstanceState: onSetNestedInstanceState,
                                         onToggleInstanceLayer: onToggleInstanceLayer,
-                                        onDrop: onDrop, onDelete: onDelete,
+                                        onDrop: onDrop, onDuplicate: onDuplicate,
+                                        onCopy: onCopy, onDelete: onDelete,
                                         onCopyStyle: onCopyStyle, onPasteStyle: onPasteStyle,
                                         onSelect: onSelect)
                     }
@@ -850,13 +971,28 @@ private struct LayerOutlineRow: View {
                     let effective = inst.applyingState(source.states.first { $0.id == inst.activeStateID })
                     ForEach(Array(source.children.reversed())) { child in
                         InstanceLayerRow(child: child, inst: effective, document: document,
+                                         expandedNested: $expandedNested,
                                          onSetState: { path, stateID in
                                              onSetNestedInstanceState(node.id, path, stateID)
                                          },
                                          onToggle: { onToggleInstanceLayer(node.id, $0) },
-                                         depth: depth + 1)
+                                         depth: depth + 1,
+                                         // Root the expansion key at the PLACED instance, so two
+                                         // placements of the same component expand independently.
+                                         rowKeyPath: [node.id])
                     }
                 }
+            }
+        }
+        .overlay(alignment: .leading) {
+            // One rail per top-level outline subtree spans the parent row and every
+            // disclosed descendant. Recursive LayerOutlineRows deliberately do not
+            // draw another copy; their depth remains a layout concern inside rows.
+            if depth == 0 {
+                Rectangle()
+                    .fill(inActiveSection ? LayersActiveStyle.tint : Color.clear)
+                    .frame(width: LayersActiveStyle.borderWidth)
+                    .allowsHitTesting(false)
             }
         }
     }
@@ -865,6 +1001,7 @@ private struct LayerOutlineRow: View {
     /// before/after/into drop indicators.
     private var rowDecorated: some View {
         LayerRow(node: node,
+                 document: document,
                  displayName: displayName(node),
                  componentSource: instanceSource,
                  componentStateID: instance?.activeStateID,
@@ -872,6 +1009,7 @@ private struct LayerOutlineRow: View {
                  hasDisclosure: hasDisclosure,
                  isExpanded: isExpanded,
                  inActiveSection: inActiveSection,
+                 allowsPageTransfer: allowsPageTransfer,
                  onToggleVisible: { onToggleVisible(node.id) },
                  onToggleLock: { onToggleLock(node.id) },
                  onToggleExpanded: toggleExpanded,
@@ -883,6 +1021,8 @@ private struct LayerOutlineRow: View {
                  onSetComponentState: instanceSource.map { _ in
                      { onSetInstanceState(node.id, $0) }
                  },
+                 onDuplicate: { onDuplicate(node.id) },
+                 onCopy: { onCopy(node.id) },
                  onDelete: { onDelete(node.id) },
                  onCopyStyle: { onCopyStyle(node.id) },
                  onPasteStyle: { onPasteStyle(node.id) },
@@ -960,10 +1100,115 @@ private struct LayerDropDelegate: DropDelegate {
     }
 }
 
+/// A pointer-only context-menu surface for one visual layer row.
+///
+/// Recursive layer rows are children of one SwiftUI `List` cell. AppKit's list
+/// contextual-menu routing can therefore choose the cell's top-level menu even
+/// when the pointer is over a nested child. This view only participates in hit
+/// testing for secondary/control clicks, leaving selection, buttons, drag and
+/// hover to the SwiftUI row for every ordinary pointer event.
+private struct LayerRowContextMenuEntry {
+    let title: String?
+    let enabled: Bool
+    let action: (() -> Void)?
+    let children: [LayerRowContextMenuEntry]?
+
+    static let separator = LayerRowContextMenuEntry(title: nil, enabled: false, action: nil, children: nil)
+
+    static func action(_ title: String,
+                       enabled: Bool = true,
+                       _ action: @escaping () -> Void) -> LayerRowContextMenuEntry {
+        LayerRowContextMenuEntry(title: title, enabled: enabled, action: action, children: nil)
+    }
+
+    static func submenu(_ title: String, children: [LayerRowContextMenuEntry]) -> LayerRowContextMenuEntry {
+        LayerRowContextMenuEntry(title: title, enabled: !children.isEmpty,
+                                 action: nil, children: children)
+    }
+}
+
+private struct LayerRowContextMenuHost: NSViewRepresentable {
+    let entries: [LayerRowContextMenuEntry]
+
+    func makeNSView(context: Context) -> LayerRowContextMenuView {
+        let view = LayerRowContextMenuView()
+        view.entries = entries
+        return view
+    }
+
+    func updateNSView(_ nsView: LayerRowContextMenuView, context: Context) {
+        nsView.entries = entries
+    }
+}
+
+private final class LayerRowContextMenuView: NSView {
+    var entries: [LayerRowContextMenuEntry] = []
+    private var activeActions: [() -> Void] = []
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard let event = window?.currentEvent ?? NSApp.currentEvent else { return nil }
+        let isContextClick = event.type == .rightMouseDown ||
+            (event.type == .leftMouseDown && event.modifierFlags.contains(.control))
+        return isContextClick ? self : nil
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        showMenu(with: event)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        if event.modifierFlags.contains(.control) {
+            showMenu(with: event)
+        } else {
+            super.mouseDown(with: event)
+        }
+    }
+
+    private func showMenu(with event: NSEvent) {
+        activeActions = []
+        let menu = NSMenu()
+        append(entries, to: menu)
+        NSMenu.popUpContextMenu(menu, with: event, for: self)
+    }
+
+    private func append(_ entries: [LayerRowContextMenuEntry], to menu: NSMenu) {
+        for entry in entries {
+            guard let title = entry.title else {
+                menu.addItem(.separator())
+                continue
+            }
+            if let children = entry.children {
+                let parent = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+                let submenu = NSMenu()
+                append(children, to: submenu)
+                parent.submenu = submenu
+                parent.isEnabled = entry.enabled
+                menu.addItem(parent)
+                continue
+            }
+            guard let action = entry.action else { continue }
+            let item = NSMenuItem(title: title,
+                                  action: #selector(performMenuAction(_:)),
+                                  keyEquivalent: "")
+            item.target = self
+            item.tag = activeActions.count
+            item.isEnabled = entry.enabled
+            activeActions.append(action)
+            menu.addItem(item)
+        }
+    }
+
+    @objc private func performMenuAction(_ sender: NSMenuItem) {
+        guard activeActions.indices.contains(sender.tag) else { return }
+        activeActions[sender.tag]()
+    }
+}
+
 // MARK: - Row
 
 private struct LayerRow: View {
     let node: Node
+    @ObservedObject var document: ExpDocument
     let displayName: String
     let componentSource: ComponentSource?
     let componentStateID: UUID?
@@ -971,6 +1216,7 @@ private struct LayerRow: View {
     let hasDisclosure: Bool
     let isExpanded: Bool
     let inActiveSection: Bool
+    let allowsPageTransfer: Bool
     let onToggleVisible: () -> Void
     let onToggleLock: () -> Void
     let onToggleExpanded: () -> Void
@@ -978,6 +1224,8 @@ private struct LayerRow: View {
     let onRename: (String) -> Void
     let onRenameComponent: ((String) -> Void)?
     let onSetComponentState: ((UUID?) -> Void)?
+    let onDuplicate: () -> Void
+    let onCopy: () -> Void
     let onDelete: () -> Void
     let onCopyStyle: () -> Void
     let onPasteStyle: () -> Void
@@ -998,12 +1246,10 @@ private struct LayerRow: View {
     var body: some View {
         // spacing 0 — every gap is an explicit token (per the row-layout spec).
         HStack(spacing: 0) {
-            // 1) active-ARTBOARD rule — hairline, accent only when the section is
-            //    active; transparent otherwise. First element → pinned far-left, and
-            //    because rows are flush it reads as one continuous line down the group.
-            Rectangle()
-                .fill(inActiveSection ? EXPColor.accent : Color.clear)
-                .frame(width: EXPMetric.strokeHairline)
+            // 1) active-ARTBOARD rail slot. LayerOutlineRow paints the actual rail
+            //    across the WHOLE disclosed subtree so virtual component layers can
+            //    never interrupt it; this clear slot preserves row alignment.
+            Color.clear.frame(width: LayersActiveStyle.borderWidth)
 
             // 2) active-LAYER bar — xxs, accent only when THIS layer is selected.
             Rectangle()
@@ -1089,12 +1335,103 @@ private struct LayerRow: View {
             Button("Rename") { beginRename() }
             Button("Center in Canvas") { centerInCanvas() }
             Divider()
+            Button("Copy") { onCopy() }
+            Button("Duplicate") { onDuplicate() }
+            if !pageDestinations.isEmpty {
+                Menu("Move to Page") {
+                    ForEach(pageDestinations) { page in
+                        Button(page.name) { transfer(to: page.id, duplicate: false) }
+                    }
+                }
+                Menu("Duplicate to Page") {
+                    ForEach(pageDestinations) { page in
+                        Button(page.name) { transfer(to: page.id, duplicate: true) }
+                    }
+                }
+            }
+            Divider()
             Button("Copy Style") { onCopyStyle() }
             Button("Paste Style") { onPasteStyle() }
                 .disabled(app.copiedLayerStyle == nil)
             Divider()
             Button("Delete", role: .destructive) { onDelete() }
         }
+        // Nested outline rows live inside one native List row. SwiftUI hoists a
+        // contextMenu from that recursive subtree to the enclosing List cell, so
+        // a secondary-click on a child can incorrectly run the GROUP row's menu.
+        // This transparent AppKit catcher handles pointer context clicks at the
+        // exact visual row. Keep the SwiftUI menu above for keyboard/accessibility
+        // invocation; pointer clicks are consumed here before List can retarget.
+        .overlay {
+            LayerRowContextMenuHost(entries: contextMenuEntries)
+                .accessibilityHidden(true)
+        }
+    }
+
+    private var contextMenuEntries: [LayerRowContextMenuEntry] {
+        var entries: [LayerRowContextMenuEntry] = []
+        // Capture the complete selection while the native menu is constructed.
+        // Its tracking loop can cause the enclosing SwiftUI List to retarget the
+        // clicked row before an item fires; the command must still act on the
+        // selection the user opened the menu with.
+        let transferSelection = app.selectedNodeIDs.contains(node.id)
+            ? app.selectedNodeIDs
+            : Set([node.id])
+        if let onEditComponent {
+            entries.append(.action("Edit Component", onEditComponent))
+            entries.append(.action("Rename Component…") { beginComponentRename() })
+            entries.append(.separator)
+        }
+        entries.append(.action("Rename") { beginRename() })
+        entries.append(.action("Center in Canvas") { centerInCanvas() })
+        entries.append(.separator)
+        entries.append(.action("Copy", onCopy))
+        entries.append(.action("Duplicate", onDuplicate))
+        if !pageDestinations.isEmpty {
+            entries.append(.submenu("Move to Page", children: pageDestinations.map { page in
+                .action(page.name) {
+                    transfer(to: page.id, duplicate: false, selection: transferSelection)
+                }
+            }))
+            entries.append(.submenu("Duplicate to Page", children: pageDestinations.map { page in
+                .action(page.name) {
+                    transfer(to: page.id, duplicate: true, selection: transferSelection)
+                }
+            }))
+        }
+        entries.append(.separator)
+        entries.append(.action("Copy Style", onCopyStyle))
+        entries.append(.action("Paste Style", enabled: app.copiedLayerStyle != nil, onPasteStyle))
+        entries.append(.separator)
+        entries.append(.action("Delete", onDelete))
+        return entries
+    }
+
+    private var pageDestinations: [CanvasPage] {
+        guard allowsPageTransfer else { return [] }
+        guard let active = document.model.pageID(resolving: app.activeCanvasPageID) else { return [] }
+        return document.model.pages.filter { $0.id != active }
+    }
+
+    private func transfer(to pageID: UUID,
+                          duplicate: Bool,
+                          selection requestedSelection: Set<UUID>? = nil) {
+        let selection: Set<UUID>
+        if let requestedSelection {
+            selection = requestedSelection
+        } else if app.selectedNodeIDs.contains(node.id) {
+            selection = app.selectedNodeIDs
+        } else {
+            selection = [node.id]
+        }
+        if app.selectedNodeIDs != selection {
+            app.selectedNodeIDs = selection
+        }
+        app.selectedArtboardIDs = []
+        sendCanvasAction(duplicate ? "duplicateSelectionToPageAction:" : "moveSelectionToPageAction:",
+                         from: CanvasPageTransferRequest(pageID: pageID,
+                                                         nodeIDs: selection,
+                                                         artboardIDs: []))
     }
 
     @ViewBuilder private var nameView: some View {
@@ -1252,6 +1589,9 @@ private struct InstanceLayerRow: View {
     /// state has already been folded in by the parent row.
     let inst: ComponentInstance
     let document: ExpDocument
+    /// Owned by the panel, not by this row — see `LayersPanel.expandedNested` for
+    /// why a private `@State` here made the List mis-measure its row heights.
+    @Binding var expandedNested: Set<[UUID]>
     /// Full path from the placed root instance to a nested component instance.
     let onSetState: ([UUID], UUID?) -> Void
     /// Toggle the per-instance visibility of the given layer id (this row or a
@@ -1261,7 +1601,18 @@ private struct InstanceLayerRow: View {
     var depth: Int = 0
     var instancePath: [UUID] = []
     var visibilityEditable = true
-    @State private var expanded = false
+    /// Identifies THIS row for expansion purposes, rooted at the placed instance.
+    /// Distinct from `instancePath`, which addresses nested component instances for
+    /// state overrides and must keep its own meaning — overloading it would have
+    /// quietly changed which layer a state selection applied to.
+    var rowKeyPath: [UUID] = []
+
+    private var expansionKey: [UUID] { rowKeyPath + [child.id] }
+    private var expanded: Bool { expandedNested.contains(expansionKey) }
+    private func toggleExpanded() {
+        if expandedNested.contains(expansionKey) { expandedNested.remove(expansionKey) }
+        else { expandedNested.insert(expansionKey) }
+    }
 
     private var hidden: Bool { !inst.isLayerVisible(child.id, sourceDefault: child.isVisible) }
     private var effectiveChild: Node { inst.applyingOverrides(to: child) }
@@ -1290,19 +1641,23 @@ private struct InstanceLayerRow: View {
             if expanded, let kids = groupChildren {
                 ForEach(Array(kids.reversed())) { k in
                     InstanceLayerRow(child: k, inst: inst, document: document,
+                                     expandedNested: $expandedNested,
                                      onSetState: onSetState,
                                      onToggle: onToggle, depth: depth + 1,
                                      instancePath: instancePath,
-                                     visibilityEditable: visibilityEditable)
+                                     visibilityEditable: visibilityEditable,
+                                     rowKeyPath: expansionKey)
                 }
             } else if expanded, let nested = nestedInstance, let source = nestedSource {
                 let effective = nested.applyingState(source.states.first { $0.id == nested.activeStateID })
                 ForEach(Array(source.children.reversed())) { nestedChild in
                     InstanceLayerRow(child: nestedChild, inst: effective, document: document,
+                                     expandedNested: $expandedNested,
                                      onSetState: onSetState,
                                      onToggle: onToggle, depth: depth + 1,
                                      instancePath: currentInstancePath,
-                                     visibilityEditable: false)
+                                     visibilityEditable: false,
+                                     rowKeyPath: expansionKey)
                 }
             }
         }
@@ -1314,7 +1669,7 @@ private struct InstanceLayerRow: View {
             // outer List row and keeps every recursive level aligned predictably.
             Color.clear.frame(width: 4 + CGFloat(depth) * 12)
             if hasDisclosure {
-                Button { expanded.toggle() } label: {
+                Button { toggleExpanded() } label: {
                     Image(systemName: "chevron.right")
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundStyle(EXPColor.textTertiary)
@@ -1374,16 +1729,60 @@ private struct InstanceLayerRow: View {
         }
         .frame(height: nestedSource == nil ? 28 : 42)
         .opacity(hidden ? 0.5 : 1)
+        .contentShape(Rectangle())
+        // Owner report: a layer name inside a component did NOTHING on click, while
+        // the eye and the state picker beside it both worked — so the row read as
+        // half-broken rather than as read-only. These layers genuinely cannot be
+        // selected here (they belong to the source, not the document, and exist
+        // once per placement), so the honest affordance is to go WHERE they can be
+        // edited. Double-click opens that component.
+        .onTapGesture(count: 2) { openComponent(editTarget) }
         .contextMenu {
             if let nestedSource {
-                Button("Edit Component") {
-                    SourceEditorWindowManager.shared.open(sourceID: nestedSource.id,
-                                                          document: document,
-                                                          undoManager: nil)
+                Button("Edit Component \u{201C}\(nestedSource.name)\u{201D}") {
+                    openComponent(nestedSource.id)
+                }
+            }
+            // Always offer the component this layer LIVES in, so the action is never
+            // reachable only by double-click. For a nested component row both appear:
+            // edit the nested thing, or the thing it sits in.
+            if let owning = document.model.source(for: inst.sourceID),
+               owning.id != nestedSource?.id {
+                Button("Edit Component \u{201C}\(owning.name)\u{201D}") {
+                    openComponent(owning.id)
                 }
             }
         }
-        .help(nestedSource.map { "Nested component: \($0.name)" } ?? child.name)
+        // Double-click is pointer-only, so VoiceOver gets the same action by name
+        // rather than being left with a row that announces but cannot act.
+        .accessibilityAction(named: Text(editActionTitle)) { openComponent(editTarget) }
+        .help(editHelp)
+    }
+
+    /// Which component a double-click opens. A NESTED component row opens itself —
+    /// that row's identity is the nested component, and its badge and context menu
+    /// already say so. Any other layer opens the component it lives in, which is
+    /// the only place that layer can actually be edited.
+    private var editTarget: UUID { nestedSource?.id ?? inst.sourceID }
+
+    private var editTargetName: String? {
+        nestedSource?.name ?? document.model.source(for: inst.sourceID)?.name
+    }
+
+    private var editActionTitle: String {
+        editTargetName.map { "Edit Component \u{201C}\($0)\u{201D}" } ?? "Edit Component"
+    }
+
+    private var editHelp: String {
+        let who = nestedSource.map { "Nested component: \($0.name)" } ?? child.name
+        guard let editTargetName else { return who }
+        return "\(who) \u{2014} double-click to edit \u{201C}\(editTargetName)\u{201D}"
+    }
+
+    private func openComponent(_ sourceID: UUID) {
+        SourceEditorWindowManager.shared.open(sourceID: sourceID,
+                                              document: document,
+                                              undoManager: nil)
     }
 
     private func nestedStateMenu(source: ComponentSource, instance: ComponentInstance) -> some View {

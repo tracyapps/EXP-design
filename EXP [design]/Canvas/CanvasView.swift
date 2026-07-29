@@ -36,6 +36,24 @@ enum CanvasScope: Equatable {
     case source(UUID)
 }
 
+final class CanvasPageTransferRequest: NSObject {
+    let pageID: UUID
+    /// Context menus snapshot the selection when they open. SwiftUI/AppKit may
+    /// retarget a List row while the menu is tracking; carrying the ids here
+    /// prevents a multi-layer transfer from silently shrinking to that one row.
+    /// App-menu requests leave these nil and intentionally use the live selection.
+    let nodeIDs: Set<UUID>?
+    let artboardIDs: Set<UUID>?
+
+    init(pageID: UUID,
+         nodeIDs: Set<UUID>? = nil,
+         artboardIDs: Set<UUID>? = nil) {
+        self.pageID = pageID
+        self.nodeIDs = nodeIDs
+        self.artboardIDs = artboardIDs
+    }
+}
+
 struct CanvasView: NSViewRepresentable {
     let app: AppState
     @ObservedObject var document: ExpDocument
@@ -58,9 +76,12 @@ struct CanvasView: NSViewRepresentable {
         nsView.documentURL = documentURL
         _ = (app.zoom, app.panOffset, app.tool,
              app.selectedArtboardIDs, app.selectedNodeIDs,
-             document.model.nodes.count, document.model.artboards.count,
+             app.activeCanvasPageID,
+             document.model.page(for: app.activeCanvasPageID)?.nodes.count ?? 0,
+             document.model.page(for: app.activeCanvasPageID)?.artboards.count ?? 0,
              document.model.sources.count, app.sourceBackdrop,
              app.activeComponentStateID)   // state switch redraws the preview
+        nsView.syncActivePageIfNeeded()
         // Inspector text-style changes are applied synchronously via
         // `app.applyTextStyle` (installed in beginEditingText), not through this
         // update cycle — see AppState.applyTextStyle.
@@ -220,6 +241,9 @@ final class CanvasNSView: NSView {
 
     // Retained while an export Save/Open panel (with its format accessory) is up.
     private var exportPanels: ExportPanels?
+    /// Most recent fidelity report stays available on demand without turning a
+    /// successful import into a modal interruption.
+    private var lastImportReport: InteropImportReport?
 
     // The path shape at the start of a resize drag, so points scale from a stable
     // baseline (set when a path's resize handle is grabbed).
@@ -236,6 +260,8 @@ final class CanvasNSView: NSView {
     private var spaceHeld = false
     private var lastMouse: CGPoint = .zero
     private var trackingArea: NSTrackingArea?
+    private var spaceKeyUpMonitor: Any?
+    private var observesAppDeactivation = false
 
     private let handleSize: CGFloat = 8
     private let handleGrab: CGFloat = 12
@@ -244,6 +270,11 @@ final class CanvasNSView: NSView {
     private var didInitialFit = false
     private var cameraPersistTimer: Timer?
     private var lastPersistedCamera: PersistedCanvasCamera?
+    private var lastActivePageID: UUID?
+    /// A cross-page move/duplicate should reveal its result, not restore an old
+    /// destination camera and make the designer hunt for it. Consumed by the
+    /// same page-switch funnel that normally restores per-page view state.
+    private var pendingPageFocus: (pageID: UUID, bounds: CGRect)?
 
     // Inline text editing: an NSTextView overlay sits over the node while you
     // type; the model is updated on commit.
@@ -300,6 +331,13 @@ final class CanvasNSView: NSView {
     }
 
     private func configureAccessibility() {
+        // The canvas uses oversized halo bitmaps during fast pan/zoom. SwiftUI's
+        // NSViewRepresentable hosting can briefly composite that backing surface
+        // above an adjacent SwiftUI sibling unless the native layer owns an
+        // explicit clip. Keep every live/snapshot pixel inside the canvas frame;
+        // chrome such as the page-tab strip must never become part of the wall.
+        wantsLayer = true
+        layer?.masksToBounds = true
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
         setAccessibilityLabel("Design canvas")
@@ -325,6 +363,7 @@ final class CanvasNSView: NSView {
 
     deinit {
         cameraPersistTimer?.invalidate()
+        if let spaceKeyUpMonitor { NSEvent.removeMonitor(spaceKeyUpMonitor) }
         NotificationCenter.default.removeObserver(self)
     }
 
@@ -334,6 +373,22 @@ final class CanvasNSView: NSView {
         // Accept image / SVG files and raw image-or-SVG data dragged onto the canvas.
         registerForDraggedTypes([.fileURL, .png, .tiff, .string,
                                  NSPasteboard.PasteboardType(UTType.svg.identifier)])
+        // Temporary Space-pan begins while the canvas owns keyboard focus, but
+        // its key-up may arrive after a panel/editor takes focus. Observe that
+        // release anywhere in EXP so the hand cursor cannot remain stuck.
+        if spaceKeyUpMonitor == nil {
+            spaceKeyUpMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyUp) {
+                [weak self] event in
+                if event.keyCode == 49 { self?.endTemporaryPan() }
+                return event
+            }
+        }
+        if !observesAppDeactivation {
+            observesAppDeactivation = true
+            NotificationCenter.default.addObserver(
+                self, selector: #selector(applicationDidResignActive),
+                name: NSApplication.didResignActiveNotification, object: nil)
+        }
     }
 
     override func layout() {
@@ -371,15 +426,18 @@ final class CanvasNSView: NSView {
         var viewportHeight: Double
     }
 
-    private var persistedCameraKey: String? {
+    private func persistedCameraKey(for pageID: UUID?) -> String? {
         guard !isSourceScope, let path = documentURL?.standardizedFileURL.path,
               !path.isEmpty else { return nil }
         var encoded = Data(path.utf8).base64EncodedString()
         encoded = encoded.replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "=", with: ".")
-        return "exp.canvas.camera.v1.\(encoded)"
+        let page = pageID?.uuidString ?? "default"
+        return "exp.canvas.camera.v2.\(encoded).\(page)"
     }
+
+    private var persistedCameraKey: String? { persistedCameraKey(for: activePageID) }
 
     private func currentPersistedCamera() -> PersistedCanvasCamera? {
         guard let app, didInitialFit, bounds.width > 1, bounds.height > 1 else { return nil }
@@ -405,7 +463,11 @@ final class CanvasNSView: NSView {
     }
 
     private func persistCameraNow() {
-        guard let key = persistedCameraKey,
+        persistCameraNow(for: activePageID)
+    }
+
+    private func persistCameraNow(for pageID: UUID?) {
+        guard let key = persistedCameraKey(for: pageID),
               let camera = currentPersistedCamera(),
               camera != lastPersistedCamera,
               let data = try? JSONEncoder().encode(camera) else { return }
@@ -425,6 +487,33 @@ final class CanvasNSView: NSView {
         lastPersistedCamera = camera
         needsDisplay = true
         return true
+    }
+
+    /// Called from the representable update whenever the browser-style page tab
+    /// changes. Each page restores its own camera; selection and transient editing
+    /// cannot cross a page boundary.
+    func syncActivePageIfNeeded() {
+        guard !isSourceScope, let document, let app,
+              let resolved = document.model.pageID(resolving: app.activeCanvasPageID) else { return }
+        if app.activeCanvasPageID != resolved { app.activeCanvasPageID = resolved }
+        guard lastActivePageID != resolved else { return }
+        if let previous = lastActivePageID { persistCameraNow(for: previous) }
+        commitTextEditing(keepNodeSelected: false)
+        lastActivePageID = resolved
+        lastPersistedCamera = nil
+        panZoomBlitActive = false
+        panZoomSnapshot = nil
+        guard didInitialFit, bounds.width > 1, bounds.height > 1 else { return }
+        app.zoom = 1
+        app.panOffset = .zero
+        if let focus = pendingPageFocus, focus.pageID == resolved {
+            pendingPageFocus = nil
+            fitViewport(to: focus.bounds)
+        } else {
+            pendingPageFocus = nil
+            if !restorePersistedCamera() { fitContent() }
+        }
+        needsDisplay = true
     }
 
     // MARK: Camera helpers
@@ -1648,8 +1737,6 @@ final class CanvasNSView: NSView {
 
     // MARK: Align & distribute
 
-    enum AlignEdge { case left, hCenter, right, top, vCenter, bottom }
-
     @objc func alignLeftAction(_ s: Any?)     { align(.left) }
     @objc func alignHCenterAction(_ s: Any?)  { align(.hCenter) }
     @objc func alignRightAction(_ s: Any?)    { align(.right) }
@@ -1663,34 +1750,101 @@ final class CanvasNSView: NSView {
     /// when "Align to" is Artboard — the board the selection sits in.
     private func alignReference(_ frames: [CGRect]) -> CGRect {
         let selectionBox = frames.dropFirst().reduce(frames[0]) { $0.union($1) }
-        guard app?.alignTarget == .artboard, let document, !isSourceScope else { return selectionBox }
-        if let ab = document.model.owningArtboard(of: selectionBox) { return ab.frame }
+        guard app?.alignTarget == .artboard, document != nil, !isSourceScope else { return selectionBox }
+        if let ab = owningArtboard(of: selectionBox) { return ab.frame }
         if let id = app?.selectedArtboardID,
-           let ab = document.model.artboards.first(where: { $0.id == id }) { return ab.frame }
+           let ab = currentArtboards.first(where: { $0.id == id }) { return ab.frame }
         return selectionBox
     }
 
-    private func align(_ edge: AlignEdge) {
+    private struct AlignmentItem {
+        let id: UUID
+        let node: Node
+        let ancestors: [Node]
+        let bounds: CGRect
+    }
+
+    /// The node's visual AABB in its parent's coordinate space, including its own
+    /// rotation and live group contents. This is the natural alignment space when
+    /// every selected layer is a sibling inside the same group.
+    private func parentLocalAlignmentBounds(_ node: Node) -> CGRect {
+        SelectionTransform.visualBounds(node)
+    }
+
+    /// Lift a parent-local visual box through every transformed ancestor. Mapping
+    /// all four corners (rather than adding group origins) keeps mixed-parent and
+    /// Align-to-Artboard operations correct inside rotated/flipped groups.
+    private func documentAlignmentBounds(_ node: Node, ancestors: [Node]) -> CGRect {
+        let local = parentLocalAlignmentBounds(node)
+        let corners = [
+            CGPoint(x: local.minX, y: local.minY),
+            CGPoint(x: local.maxX, y: local.minY),
+            CGPoint(x: local.maxX, y: local.maxY),
+            CGPoint(x: local.minX, y: local.maxY),
+        ].map { parentLocalToDoc($0, chain: ancestors) }
+        let xs = corners.map(\.x), ys = corners.map(\.y)
+        return CGRect(x: xs.min()!, y: ys.min()!,
+                      width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!)
+    }
+
+    private func alignmentItems(documentSpace: Bool) -> [AlignmentItem] {
+        guard let app else { return [] }
+        return app.selectedNodeIDs.compactMap { id in
+            guard !hasSelectedAncestor(id), let selected = node(id) else { return nil }
+            let ancestors = ancestorGroups(of: id)
+            let bounds = documentSpace
+                ? documentAlignmentBounds(selected, ancestors: ancestors)
+                : parentLocalAlignmentBounds(selected)
+            return AlignmentItem(id: id, node: selected, ancestors: ancestors, bounds: bounds)
+        }
+    }
+
+    /// Apply a translation expressed either in the shared parent-local space or
+    /// in document space. The document-space branch inverses each node's ancestor
+    /// transform so a selected child moves by the requested on-screen amount.
+    private func applyAlignmentOffsets(_ offsets: [UUID: CGPoint],
+                                       items: [AlignmentItem],
+                                       documentSpace: Bool,
+                                       to nodes: inout [Node]) {
+        for item in items {
+            guard let delta = offsets[item.id] else { continue }
+            let localDelta: CGPoint
+            if documentSpace {
+                let localOrigin = item.node.frame.origin
+                let documentOrigin = parentLocalToDoc(localOrigin, chain: item.ancestors)
+                let destination = CGPoint(x: documentOrigin.x + delta.x,
+                                          y: documentOrigin.y + delta.y)
+                let destinationLocal = docToParentLocal(destination, chain: item.ancestors)
+                localDelta = CGPoint(x: destinationLocal.x - localOrigin.x,
+                                     y: destinationLocal.y - localOrigin.y)
+            } else {
+                localDelta = delta
+            }
+            _ = Self.mutateNested(item.id, in: &nodes) { selected in
+                selected.frame.origin.x += localDelta.x
+                selected.frame.origin.y += localDelta.y
+            }
+        }
+    }
+
+    private func align(_ edge: SelectionTransform.AlignEdge) {
         guard let app else { return }
-        var nodes = currentNodes
-        let idxs = nodes.indices.filter { app.selectedNodeIDs.contains(nodes[$0].id) }
         // Aligning to the selection needs 2+ (one item is a no-op); aligning to the
         // artboard works on a single item (e.g. center one thing on the board).
         let minCount = app.alignTarget == .artboard ? 1 : 2
-        guard idxs.count >= minCount else { return }
-        let ref = alignReference(idxs.map { nodes[$0].frame })
-        for i in idxs {
-            var f = nodes[i].frame
-            switch edge {
-            case .left:    f.origin.x = ref.minX
-            case .hCenter: f.origin.x = ref.midX - f.width / 2
-            case .right:   f.origin.x = ref.maxX - f.width
-            case .top:     f.origin.y = ref.minY
-            case .vCenter: f.origin.y = ref.midY - f.height / 2
-            case .bottom:  f.origin.y = ref.maxY - f.height
-            }
-            nodes[i].frame = f
-        }
+        // Siblings align in their common parent-local coordinate system—even if
+        // that group is rotated. Mixed parents and artboard alignment use document
+        // space, then inverse-transform each movement on write-back.
+        let documentSpace = app.alignTarget == .artboard
+            || selectionLevel(for: app.selectedNodeIDs) == .mixed
+        let items = alignmentItems(documentSpace: documentSpace)
+        guard items.count >= minCount else { return }
+        let ref = alignReference(items.map(\.bounds))
+        let offsets = SelectionTransform.alignmentOffsets(
+            items.map { ($0.id, $0.bounds) }, edge: edge, reference: ref)
+        var nodes = currentNodes
+        applyAlignmentOffsets(offsets, items: items,
+                              documentSpace: documentSpace, to: &nodes)
         commitNodes(nodes, actionName: "Align")
         needsDisplay = true
     }
@@ -1699,27 +1853,14 @@ final class CanvasNSView: NSView {
     /// extremes fixed). Needs 3+.
     private func distribute(horizontal: Bool) {
         guard let app else { return }
+        let documentSpace = selectionLevel(for: app.selectedNodeIDs) == .mixed
+        let items = alignmentItems(documentSpace: documentSpace)
+        guard items.count >= 3 else { return }
+        let offsets = SelectionTransform.distributionOffsets(
+            items.map { ($0.id, $0.bounds) }, horizontal: horizontal)
         var nodes = currentNodes
-        let idxs = nodes.indices.filter { app.selectedNodeIDs.contains(nodes[$0].id) }
-        guard idxs.count >= 3 else { return }
-        let sorted = idxs.sorted {
-            horizontal ? nodes[$0].frame.minX < nodes[$1].frame.minX
-                       : nodes[$0].frame.minY < nodes[$1].frame.minY
-        }
-        let frames = sorted.map { nodes[$0].frame }
-        if horizontal {
-            let span = frames.last!.maxX - frames.first!.minX
-            let used = frames.reduce(0) { $0 + $1.width }
-            let gap = (span - used) / CGFloat(frames.count - 1)
-            var cursor = frames.first!.minX
-            for i in sorted { nodes[i].frame.origin.x = cursor; cursor = nodes[i].frame.maxX + gap }
-        } else {
-            let span = frames.last!.maxY - frames.first!.minY
-            let used = frames.reduce(0) { $0 + $1.height }
-            let gap = (span - used) / CGFloat(frames.count - 1)
-            var cursor = frames.first!.minY
-            for i in sorted { nodes[i].frame.origin.y = cursor; cursor = nodes[i].frame.maxY + gap }
-        }
+        applyAlignmentOffsets(offsets, items: items,
+                              documentSpace: documentSpace, to: &nodes)
         commitNodes(nodes, actionName: "Distribute")
         needsDisplay = true
     }
@@ -1916,7 +2057,7 @@ final class CanvasNSView: NSView {
         if isSourceScope {
             content = sourceBoundsRect() ?? .zero
         } else {
-            content = document.model.contentBounds
+            content = document.model.contentBounds(on: activePageID)
         }
         guard content.width > 0 else { return }
         // Center within the VISIBLE drawing area (inside the top/left ruler strips),
@@ -1936,6 +2077,29 @@ final class CanvasNSView: NSView {
         scheduleCameraPersistenceIfReady()
     }
 
+    /// Put a newly imported region visibly in front of the designer. Importers
+    /// place content away from existing work, so selection alone is not enough
+    /// feedback—the selected artboard can otherwise remain entirely off-screen.
+    private func fitViewport(to content: CGRect, maximumZoom: CGFloat = 1) {
+        guard let app, content.width > 0, content.height > 0,
+              bounds.width > 1, bounds.height > 1 else { return }
+        let rulerInset: CGFloat = (app.showRulers && !isSourceScope) ? rulerThickness : 0
+        let padding: CGFloat = 48
+        let availableWidth = max(1, bounds.width - rulerInset - padding * 2)
+        let availableHeight = max(1, bounds.height - rulerInset - padding * 2)
+        let zoom = app.clampZoom(min(maximumZoom,
+                                     availableWidth / content.width,
+                                     availableHeight / content.height))
+        let centerX = rulerInset + (bounds.width - rulerInset) / 2
+        let centerY = rulerInset + (bounds.height - rulerInset) / 2
+        app.viewportSize = bounds.size
+        app.zoom = zoom
+        app.panOffset = CGPoint(x: centerX - content.midX * zoom,
+                                y: centerY - content.midY * zoom)
+        scheduleCameraPersistenceIfReady()
+        needsDisplay = true
+    }
+
     // MARK: Scoped node access
     //
     // The canvas edits either the document's top-level nodes (.document) or a
@@ -1945,6 +2109,35 @@ final class CanvasNSView: NSView {
     private var sourceIndex: Int? {
         guard case .source(let sid) = scope else { return nil }
         return document?.model.sources.firstIndex { $0.id == sid }
+    }
+
+    private var activePageID: UUID? {
+        document?.model.pageID(resolving: app?.activeCanvasPageID)
+    }
+
+    private var activePageIndex: Int? {
+        document?.model.pageIndex(for: activePageID)
+    }
+
+    private var currentArtboards: [Artboard] {
+        guard !isSourceScope, let document else { return [] }
+        return document.model.page(for: activePageID)?.artboards ?? []
+    }
+
+    private var currentGuides: [Guide] {
+        guard !isSourceScope, let document else { return [] }
+        return document.model.page(for: activePageID)?.guides ?? []
+    }
+
+    private func owningArtboard(of frame: CGRect) -> Artboard? {
+        guard !isSourceScope else { return nil }
+        return document?.model.owningArtboard(of: frame, on: activePageID)
+    }
+
+    private func withActivePage(_ body: (inout CanvasPage) -> Void) {
+        guard !isSourceScope, let document,
+              let index = document.model.pageIndex(for: activePageID) else { return }
+        body(&document.model.pages[index])
     }
 
     /// The component source's viewBox — its own little artboard: a STABLE,
@@ -1971,7 +2164,7 @@ final class CanvasNSView: NSView {
     private var currentNodes: [Node] {
         guard let document else { return [] }
         switch scope {
-        case .document: return document.model.nodes
+        case .document: return document.model.page(for: activePageID)?.nodes ?? []
         case .source:
             guard let si = sourceIndex else { return [] }
             let children = document.model.sources[si].children
@@ -1989,12 +2182,16 @@ final class CanvasNSView: NSView {
         guard let document else { return [] }
         switch scope {
         case .document:
-            return document.model.nodes
+            return document.model.page(for: activePageID)?.nodes ?? []
         case .source:
             guard let si = sourceIndex else { return [] }
             let children = document.model.sources[si].children
             if let state = activeEditingState {
-                return ComponentStateEditing.applied(children, state: state, reflow: true)
+                // Reflow through the document so component instances inside a
+                // state contribute their resolved size, not a stale frame
+                // (BUG-007).
+                return document.model.reflowed(
+                    ComponentStateEditing.applied(children, state: state))
             }
             return children
         }
@@ -2005,7 +2202,8 @@ final class CanvasNSView: NSView {
         guard let document else { return }
         switch scope {
         case .document:
-            body(&document.model.nodes)
+            guard let index = activePageIndex else { return }
+            body(&document.model.pages[index].nodes)
         case .source:
             guard let si = sourceIndex else { return }
             body(&document.model.sources[si].children)
@@ -2024,32 +2222,58 @@ final class CanvasNSView: NSView {
         }
     }
 
+    /// Mirrors `MainWindow`'s rule: reachable when the COMPONENT ROOT can carry
+    /// relationships, or when the selected layer has a role of its OWN. ARIA roles
+    /// do not inherit, so sitting inside a roled component is not enough — that
+    /// was BUG-008. Kept in step with the inspector deliberately; the menu item and
+    /// the panel must never disagree about whether there is anything to edit.
+    /// Mirrors `MainWindow`'s rule, and both now answer from the SAME model
+    /// predicate rather than each keeping a copy — which is how a menu item and a
+    /// panel drift apart. Relationships are reachable when there is an anchor
+    /// holding both ends and something inside it that can carry one.
     private var canEditRelationships: Bool {
-        guard isSourceScope, let app, app.selectedNodeIDs.count == 1,
-              let selectedID = app.selectedNodeIDs.first else { return false }
+        guard let document else { return false }
         let allNodes = flattenedNodes(currentNodes)
-        guard allNodes.count > 1, let node = allNodes.first(where: { $0.id == selectedID }) else { return false }
-        let roleKinds: [NodeRelationship.Kind]
-        if case .source(let sid) = scope {
-            roleKinds = document?.model.source(for: sid)?.a11y.role?.authoredRelationshipKinds ?? []
-        } else {
-            roleKinds = []
+        let selected: Node? = {
+            guard let app, app.selectedNodeIDs.count == 1,
+                  let selectedID = app.selectedNodeIDs.first else { return nil }
+            return allNodes.first { $0.id == selectedID }
+        }()
+        let carries = selected.map { document.model.hasRelationshipParticipant(in: $0) } ?? false
+        guard isSourceScope, case .source(let sid) = scope,
+              let source = document.model.source(for: sid) else {
+            // Document scope: enabled even when the layer is not grouped yet, so the
+            // panel can explain the grouping rule instead of the menu going grey for
+            // a reason nobody can see.
+            return carries
         }
-        return !roleKinds.isEmpty || !node.relationships.isEmpty
+        let rootCarries = !(source.a11y.role?.authoredRelationshipKinds.isEmpty ?? true)
+            || !source.anchoredRelationships.isEmpty
+        return carries || rootCarries
     }
 
     /// Replace the current scope's node list and register one undo step.
-    private func commitNodes(_ newNodes: [Node], actionName: String) {
+    /// - Parameter appendingRootAnchors: relationships that must land on the SCOPE
+    ///   ROOT (the document, or the component source) rather than on any node —
+    ///   what happens when a top-level group carrying them is ungrouped. Passed
+    ///   through here rather than committed separately so the whole edit remains a
+    ///   single undo step.
+    /// - Parameter removingAnchorsReferencing: node ids being explicitly deleted.
+    ///   Relationships naming them at either end go with them, in the SAME undo
+    ///   step, so an undo restores the layer and its connections together.
+    private func commitNodes(_ newNodes: [Node], actionName: String,
+                             appendingRootAnchors rootAnchors: [AnchoredRelationship] = [],
+                             removingAnchorsReferencing removedIDs: Set<UUID> = []) {
         guard let document else { return }
         // Editing a component STATE: split the edited tree into base + diff.
-        // Text and fill changes become the state's override-diff; geometry and
+        // Appearance changes become the state's override-diff; geometry and
         // structural edits pass through to the base shared by every state.
         if case .source(let sid) = scope, let state = activeEditingState {
             var model = document.model
             guard let si = model.sources.firstIndex(where: { $0.id == sid }) else { return }
             let (newBase, newState) = ComponentStateEditing.capture(
                 base: model.sources[si].children, edited: newNodes, state: state)
-            let reflowed = AutoLayoutEngine.reflowed(newBase)
+            let reflowed = model.reflowed(newBase)
             let fitSourceBounds = model.sourceUsesManagedBounds(model.sources[si])
             model.sources[si].children = reflowed
             if let sti = model.sources[si].states.firstIndex(where: { $0.id == state.id }) {
@@ -2059,17 +2283,32 @@ final class CanvasNSView: NSView {
                 model.sources[si].origin = bounds.origin
                 model.sources[si].size = bounds.size
             }
+            model.sources[si].anchoredRelationships.append(contentsOf: rootAnchors)
+            if !removedIDs.isEmpty {
+                model.sources[si].anchoredRelationships = Document.removingAnchors(
+                    referencing: removedIDs, in: model.sources[si].anchoredRelationships)
+                Document.removingAnchors(referencing: removedIDs,
+                                         in: &model.sources[si].children)
+            }
             document.setModel(model, undoManager: undoManager, actionName: actionName)
             return
         }
         // Reflow auto-layout frames before committing, so any change (text growing,
         // a child resized/added/removed, a layout setting tweaked) ripples through
         // managed frames in the same undo step.
-        let reflowed = AutoLayoutEngine.reflowed(newNodes)
         var model = document.model
+        let reflowed = model.reflowed(newNodes)
         switch scope {
         case .document:
-            model.nodes = reflowed
+            guard let pageIndex = model.pageIndex(for: activePageID) else { return }
+            model.pages[pageIndex].nodes = reflowed
+            model.pages[pageIndex].anchoredRelationships.append(contentsOf: rootAnchors)
+            if !removedIDs.isEmpty {
+                model.pages[pageIndex].anchoredRelationships = Document.removingAnchors(
+                    referencing: removedIDs, in: model.pages[pageIndex].anchoredRelationships)
+                Document.removingAnchors(referencing: removedIDs,
+                                         in: &model.pages[pageIndex].nodes)
+            }
         case .source(let sid):
             guard let si = model.sources.firstIndex(where: { $0.id == sid }) else { return }
             let fitSourceBounds = model.sourceUsesManagedBounds(model.sources[si])
@@ -2078,6 +2317,13 @@ final class CanvasNSView: NSView {
                let bounds = model.managedRootBounds(in: reflowed) {
                 model.sources[si].origin = bounds.origin
                 model.sources[si].size = bounds.size
+            }
+            model.sources[si].anchoredRelationships.append(contentsOf: rootAnchors)
+            if !removedIDs.isEmpty {
+                model.sources[si].anchoredRelationships = Document.removingAnchors(
+                    referencing: removedIDs, in: model.sources[si].anchoredRelationships)
+                Document.removingAnchors(referencing: removedIDs,
+                                         in: &model.sources[si].children)
             }
         }
         document.setModel(model, undoManager: undoManager, actionName: actionName)
@@ -2333,7 +2579,13 @@ final class CanvasNSView: NSView {
             // A committed node change (e.g. text edited → frame grew) must reflow any
             // auto-layout frame that contains it. updateNode is the semantic-change
             // funnel (live drags use withNodes directly and reflow on mouse-up).
-            nodes = AutoLayoutEngine.reflowed(nodes)
+            // Document-aware so component instances contribute their RESOLVED
+            // size rather than a stale stored frame (BUG-007).
+            if let model = document?.model {
+                nodes = model.reflowed(nodes)
+            } else {
+                nodes = AutoLayoutEngine.reflowed(nodes)
+            }
         }
     }
 
@@ -2388,6 +2640,15 @@ final class CanvasNSView: NSView {
     }
 
     /// Remove the nodes with these ids anywhere in the tree (recursing into groups).
+    /// Every node id in a subtree, including the root. Used so deleting a group
+    /// also clears relationships naming something INSIDE it.
+    private static func collectSubtreeIDs(_ node: Node, into ids: inout Set<UUID>) {
+        ids.insert(node.id)
+        if case .group(let children) = node.content {
+            for child in children { collectSubtreeIDs(child, into: &ids) }
+        }
+    }
+
     private static func removeNested(_ ids: Set<UUID>, from nodes: inout [Node]) {
         nodes.removeAll { ids.contains($0.id) }
         for i in nodes.indices {
@@ -2428,14 +2689,14 @@ final class CanvasNSView: NSView {
     private func hitTestArtboard(atViewPoint point: CGPoint) -> Artboard? {
         guard let document, !isSourceScope else { return nil }   // source scope has no artboards
         let docPoint = viewToDoc(point)
-        return document.model.artboards.last { $0.frame.contains(docPoint) }
+        return currentArtboards.last { $0.frame.contains(docPoint) }
     }
 
     /// The artboard name label sits just above its frame; dragging it moves the
     /// artboard (and the shapes it owns), keeping empty interior free for marquee.
     private func hitTestArtboardLabel(atViewPoint point: CGPoint) -> Artboard? {
         guard let document, !isSourceScope else { return nil }
-        for ab in document.model.artboards.reversed() {
+        for ab in currentArtboards.reversed() {
             let r = docToView(ab.frame)
             let band = CGRect(x: r.minX, y: r.minY - 22, width: max(r.width, 80), height: 20)
             if band.contains(point) { return ab }
@@ -2681,13 +2942,13 @@ final class CanvasNSView: NSView {
         guard let app, let document, !isSourceScope,
               app.selectedNodeIDs.isEmpty, app.selectedArtboardIDs.count == 1,
               let id = app.selectedArtboardIDs.first else { return nil }
-        return document.model.artboards.first { $0.id == id }
+        return currentArtboards.first { $0.id == id }
     }
 
     /// The topmost selected artboard whose frame contains the document point.
     private func selectedBoardContaining(_ docPoint: CGPoint) -> Artboard? {
         guard let app, let document, !isSourceScope else { return nil }
-        return document.model.artboards.last {
+        return currentArtboards.last {
             app.selectedArtboardIDs.contains($0.id) && $0.frame.contains(docPoint)
         }
     }
@@ -2718,7 +2979,7 @@ final class CanvasNSView: NSView {
     private func artboardOrigins(_ ids: [UUID]) -> [UUID: CGPoint] {
         guard let document else { return [:] }
         var result: [UUID: CGPoint] = [:]
-        for ab in document.model.artboards where ids.contains(ab.id) {
+        for ab in currentArtboards where ids.contains(ab.id) {
             result[ab.id] = ab.frame.origin
         }
         return result
@@ -2730,8 +2991,8 @@ final class CanvasNSView: NSView {
         guard let document else { return [:] }
         let idSet = Set(ids)
         var result: [UUID: CGPoint] = [:]
-        for node in document.model.nodes {
-            if let owner = document.model.owningArtboard(of: node.frame)?.id, idSet.contains(owner) {
+        for node in currentNodes {
+            if let owner = owningArtboard(of: node.frame)?.id, idSet.contains(owner) {
                 result[node.id] = node.frame.origin
             }
         }
@@ -2741,8 +3002,8 @@ final class CanvasNSView: NSView {
     private func ownedNodeOrigins(artboardID: UUID) -> [UUID: CGPoint] {
         guard let document else { return [:] }
         var result: [UUID: CGPoint] = [:]
-        for node in document.model.nodes {
-            if document.model.owningArtboard(of: node.frame)?.id == artboardID {
+        for node in currentNodes {
+            if owningArtboard(of: node.frame)?.id == artboardID {
                 result[node.id] = node.frame.origin
             }
         }
@@ -2911,7 +3172,7 @@ final class CanvasNSView: NSView {
     }
 
     private func scopeHasBitmapSensitiveContent(model: Document) -> Bool {
-        if !isSourceScope, model.artboards.contains(where: { $0.background.isGradient }) {
+        if !isSourceScope, currentArtboards.contains(where: { $0.background.isGradient }) {
             return true
         }
         return currentNodes.contains { $0.isVisible && nodeHasBitmapSensitiveContent($0, model: model) }
@@ -3117,7 +3378,7 @@ final class CanvasNSView: NSView {
             }
             return false
         }
-        return document.model.nodes.first { contains($0, id) }?.id
+        return currentNodes.first { contains($0, id) }?.id
     }
 
     /// Render the two static layers for the current drag. Returns false when the
@@ -3135,7 +3396,7 @@ final class CanvasNSView: NSView {
             guard let top = topLevelAncestorID(of: id) else { return false }
             skip.insert(top)
         }
-        let nodes = document.model.nodes
+        let nodes = currentNodes
         guard let split = nodes.firstIndex(where: { skip.contains($0.id) }) else { return false }
         let t0 = CFAbsoluteTimeGetCurrent()
         let scale = backingScale
@@ -3161,7 +3422,7 @@ final class CanvasNSView: NSView {
         dragBlitBelow = renderLayer { ctx in
             NSColor.underPageBackgroundColor.setFill()
             bounds.fill()
-            for artboard in document.model.artboards {
+            for artboard in currentArtboards {
                 guard docToView(artboard.frame).insetBy(dx: -24, dy: -24).intersects(visible)
                 else { continue }
                 drawArtboardBackground(artboard, in: ctx)
@@ -3252,7 +3513,7 @@ final class CanvasNSView: NSView {
             ctx.restoreGState()
         }
         blit(below)
-        for node in document.model.nodes
+        for node in currentNodes
         where dragBlitSkipIDs.contains(node.id) && node.isVisible && node.id != editingNodeID {
             drawCulledTopLevelNode(node, visible: bounds, in: ctx)
         }
@@ -3424,7 +3685,7 @@ final class CanvasNSView: NSView {
             let visible = region
             var perfDrawn = 0, perfBoards = 0
             perf.measure("draw-boards") {
-                for artboard in document.model.artboards {
+                for artboard in currentArtboards {
                     // Grow for the name label above and the soft drop shadow around it.
                     guard docToView(artboard.frame).insetBy(dx: -24, dy: -24).intersects(visible)
                     else { continue }
@@ -3437,12 +3698,12 @@ final class CanvasNSView: NSView {
             // Shapes clipped to the artboard that owns them (or unclipped on the
             // wall). The node being text-edited is skipped — the overlay stands in.
             perf.measure("draw-nodes") {
-                for node in document.model.nodes where node.isVisible && node.id != editingNodeID {
+                for node in currentNodes where node.isVisible && node.id != editingNodeID {
                     if drawCulledTopLevelNode(node, visible: visible, in: ctx) { perfDrawn += 1 }
                 }
             }
             if perf.enabled {
-                perf.gauge("nodes(total)", document.model.nodes.count)
+                perf.gauge("nodes(total)", currentNodes.count)
                 perf.gauge("nodes(drawn)", perfDrawn)
                 perf.gauge("boards(drawn)", perfBoards)
                 perf.gauge("instCacheHit", perfCacheHit)
@@ -3507,7 +3768,7 @@ final class CanvasNSView: NSView {
             let m = nodeCullMargin(node)
             if !docToView(node.frame).insetBy(dx: -m, dy: -m).intersects(visible) { return false }
         }
-        let owner = document.model.owningArtboard(of: node.frame)
+        let owner = owningArtboard(of: node.frame)
         // An owned node is hard-clipped to its artboard (below), so if that
         // board is off-screen the node is invisible regardless of effects or
         // stray children — an exact cull that also covers containers.
@@ -3710,7 +3971,7 @@ final class CanvasNSView: NSView {
     /// Per-artboard layout grids (columns / rows / baseline), clipped to each board.
     private func drawLayoutGrids(in ctx: CGContext) {
         guard let document else { return }
-        for ab in document.model.artboards {
+        for ab in currentArtboards {
             let grids = ab.layoutGrids.filter { $0.visible }
             guard !grids.isEmpty else { continue }
             ctx.saveGState()
@@ -3808,7 +4069,7 @@ final class CanvasNSView: NSView {
         ctx.saveGState()
         cyan.setStroke()
         ctx.setLineWidth(1)
-        for g in document.model.guides { strokeGuide(g.axis, g.position, in: ctx) }
+        for g in currentGuides { strokeGuide(g.axis, g.position, in: ctx) }
         if let dg = draggingGuide { strokeGuide(dg.axis, dg.position, in: ctx) }   // live preview
         ctx.strokePath()
         ctx.restoreGState()
@@ -3852,7 +4113,7 @@ final class CanvasNSView: NSView {
     private func hitTestGuide(at p: CGPoint) -> Guide? {
         guard let document, app?.showGuides == true, !inRuler(p) else { return nil }
         let tol: CGFloat = 4
-        return document.model.guides.last { g in
+        return currentGuides.last { g in
             switch g.axis {
             case .horizontal: return abs(docToViewPoint(CGPoint(x: 0, y: g.position)).y - p.y) <= tol
             case .vertical:   return abs(docToViewPoint(CGPoint(x: g.position, y: 0)).x - p.x) <= tol
@@ -3893,8 +4154,10 @@ final class CanvasNSView: NSView {
     private func updateGuideDrag(at p: CGPoint) {
         guard let document else { return }
         let doc = viewToDoc(p)
-        if let id = movingGuideID, let i = document.model.guides.firstIndex(where: { $0.id == id }) {
-            document.model.guides[i].position = (document.model.guides[i].axis == .horizontal) ? doc.y : doc.x
+        if let id = movingGuideID, let i = currentGuides.firstIndex(where: { $0.id == id }) {
+            withActivePage { page in
+                page.guides[i].position = (page.guides[i].axis == .horizontal) ? doc.y : doc.x
+            }
         } else if var g = draggingGuide {
             g.position = (g.axis == .horizontal) ? doc.y : doc.x
             draggingGuide = g
@@ -3908,12 +4171,12 @@ final class CanvasNSView: NSView {
         let droppedOnRuler = inRuler(p)
         if let id = movingGuideID {
             if droppedOnRuler {
-                document.model.guides.removeAll { $0.id == id }
+                withActivePage { $0.guides.removeAll { $0.id == id } }
                 gestureUndoName = "Delete Guide"
             }
             registerUndoForGesture()
         } else if let g = draggingGuide, !droppedOnRuler {
-            document.model.guides.append(g)
+            withActivePage { $0.guides.append(g) }
             registerUndoForGesture()
         }
         draggingGuide = nil
@@ -3942,7 +4205,7 @@ final class CanvasNSView: NSView {
         
         // Ruler guides
         if app.showGuides {
-            for g in document.model.guides {
+            for g in currentGuides {
                 if g.axis == .vertical { 
                     xLines.append(g.position)
                 } else { 
@@ -3952,7 +4215,7 @@ final class CanvasNSView: NSView {
         }
         
         // Artboard edges/center
-        let boardObj = document.model.owningArtboard(of: b)
+        let boardObj = owningArtboard(of: b)
         if let ab = boardObj?.frame {
             xLines += [ab.minX, ab.midX, ab.maxX]
             yLines += [ab.minY, ab.midY, ab.maxY]
@@ -4161,7 +4424,7 @@ final class CanvasNSView: NSView {
                 let parentOffset = nodeOffset(pgid)
                 let parentAbsFrame = parent.frame.offsetBy(dx: parentOffset.x, dy: parentOffset.y)
                 drawEdgeMeasures(s, container: parentAbsFrame, in: ctx)
-            } else if !isSourceScope, let ab = document.model.owningArtboard(of: s) {
+            } else if !isSourceScope, let ab = owningArtboard(of: s) {
                 // Show spacing to artboard edges
                 drawEdgeMeasures(s, container: ab.frame, in: ctx)
             } else if isSourceScope {
@@ -4269,7 +4532,7 @@ final class CanvasNSView: NSView {
                                                excludingTopLevelIDs excluded: Set<UUID> = []) -> Bool {
         guard let document else { return false }
         if !isSourceScope {
-            for artboard in document.model.artboards
+            for artboard in currentArtboards
             where docToView(artboard.frame).insetBy(dx: -24, dy: -24).intersects(region) {
                 if artboard.background.isGradient { return true }
             }
@@ -4287,7 +4550,7 @@ final class CanvasNSView: NSView {
             let m = nodeCullMargin(node)
             if !docToView(node.frame).insetBy(dx: -m, dy: -m).intersects(region) { return false }
         }
-        if let owner = document.model.owningArtboard(of: node.frame),
+        if let owner = owningArtboard(of: node.frame),
            !docToView(owner.frame).intersects(region) { return false }
         return true
     }
@@ -4813,7 +5076,8 @@ final class CanvasNSView: NSView {
             if shape.strokeWidth > 0 {
                 PaintRender.strokeAligned(path, width: shape.strokeWidth * app.zoom,
                                           alignment: shape.strokeAlignment,
-                                          color: shape.stroke.nsColor, in: ctx)
+                                          color: shape.stroke.nsColor,
+                                          pattern: shape.strokePattern, in: ctx)
             }
         case .ellipse(let shape):
             let path = NSBezierPath(ovalIn: rect)
@@ -4821,7 +5085,8 @@ final class CanvasNSView: NSView {
             if shape.strokeWidth > 0 {
                 PaintRender.strokeAligned(path, width: shape.strokeWidth * app.zoom,
                                           alignment: shape.strokeAlignment,
-                                          color: shape.stroke.nsColor, in: ctx)
+                                          color: shape.stroke.nsColor,
+                                          pattern: shape.strokePattern, in: ctx)
             }
         case .polygon(let shape):
             let path = Self.polygonBezier(shape.vertices(in: rect))
@@ -4830,7 +5095,7 @@ final class CanvasNSView: NSView {
                 PaintRender.strokeAligned(path, width: shape.strokeWidth * app.zoom,
                                           alignment: shape.strokeAlignment,
                                           color: shape.stroke.nsColor,
-                                          join: .miter, in: ctx)
+                                          join: .miter, pattern: shape.strokePattern, in: ctx)
             }
         case .line(let ls):
             let a = docToViewPoint(CGPoint(x: frameDoc.minX + ls.start.x, y: frameDoc.minY + ls.start.y))
@@ -4838,7 +5103,9 @@ final class CanvasNSView: NSView {
             ctx.saveGState()
             ls.stroke.nsColor.setStroke()
             ctx.setLineWidth(max(1, ls.strokeWidth * app.zoom))
-            ctx.setLineCap(.round)
+            PaintRender.configureStrokePattern(ls.strokePattern,
+                                               width: max(1, ls.strokeWidth * app.zoom),
+                                               fallbackCap: .round, in: ctx)
             ctx.move(to: a)
             ctx.addLine(to: b)
             ctx.strokePath()
@@ -4853,7 +5120,8 @@ final class CanvasNSView: NSView {
                 PaintRender.strokeAligned(bez, width: ps.strokeWidth * app.zoom,
                                           alignment: ps.effectiveStrokeAlignment,
                                           color: ps.stroke.nsColor,
-                                          join: .round, cap: .round, in: ctx)
+                                          join: .round, cap: .round,
+                                          pattern: ps.strokePattern, in: ctx)
             }
         case .text(let text):
             // Lay the text out at TRUE size and scale the drawing, so wrapping and
@@ -4866,9 +5134,12 @@ final class CanvasNSView: NSView {
             drawText(text, nodeID: node.id, in: CGRect(origin: .zero, size: frameDoc.size))
             ctx.restoreGState()
             if capT != 0 { capTextMs += (CFAbsoluteTimeGetCurrent() - capT) * 1000 }
-            // Overflow ("more text than fits") badge for fixed boxes.
+            // Overflow ("more text than fits") badge for fixed boxes. Ask the
+            // SAME TextKit layout that drew the layer whether any meaningful
+            // characters were excluded; a separate height estimate produced
+            // false positives for tight line boxes and fonts with deep leading.
             if text.box == .fixed,
-               text.measuredSize(maxWidth: frameDoc.width).height > frameDoc.height + 0.5 {
+               textOverflows(text, nodeID: node.id, in: frameDoc.size) {
                 drawTextOverflowBadge(at: rect, in: ctx)
             }
         case .group(let children):
@@ -4885,7 +5156,8 @@ final class CanvasNSView: NSView {
                 if pad.strokeWidth > 0, let stroke = pad.stroke {
                     PaintRender.strokeAligned(path, width: pad.strokeWidth * z,
                                               alignment: pad.strokeAlignment,
-                                              color: stroke.nsColor, in: ctx)
+                                              color: stroke.nsColor,
+                                              pattern: pad.strokePattern, in: ctx)
                 }
             }
             let childOffset = CGPoint(x: frameDoc.minX, y: frameDoc.minY)
@@ -5162,7 +5434,8 @@ final class CanvasNSView: NSView {
         return h.finalize()
     }
 
-    private func drawText(_ text: TextContent, nodeID: UUID, in rect: CGRect) {
+    private func textLayoutEntry(_ text: TextContent, nodeID: UUID,
+                                 size: CGSize) -> TextLayoutEntry {
         if let document, document.resolveGeneration != textLayoutGen {
             // Entries self-validate via the fingerprint, so mid-drag generation
             // bumps (frame-only mutations) don't need the clear — without this,
@@ -5173,26 +5446,47 @@ final class CanvasNSView: NSView {
             }
             textLayoutGen = document.resolveGeneration
         }
-        let fp = textFingerprint(text, rect.size)
-        let layout: NSLayoutManager
+        let fp = textFingerprint(text, size)
         if let hit = textLayoutCache[nodeID], hit.fingerprint == fp {
-            layout = hit.layout
-        } else {
-            let storage = NSTextStorage(attributedString: text.attributedString(scale: 1))
-            let lm = NSLayoutManager()
-            lm.usesFontLeading = true
-            let container = NSTextContainer(containerSize: rect.size)
-            container.lineFragmentPadding = 0
-            storage.addLayoutManager(lm)
-            lm.addTextContainer(container)
-            layout = lm
-            textLayoutCache[nodeID] = TextLayoutEntry(storage: storage, layout: lm,
-                                                      fingerprint: fp)
+            return hit
         }
-        guard let container = layout.textContainers.first else { return }
-        let glyphRange = layout.glyphRange(for: container)   // cached inside the LM after first layout
-        layout.drawBackground(forGlyphRange: glyphRange, at: rect.origin)
-        layout.drawGlyphs(forGlyphRange: glyphRange, at: rect.origin)
+        let storage = NSTextStorage(attributedString: text.attributedString(scale: 1))
+        let layout = NSLayoutManager()
+        layout.usesFontLeading = true
+        let container = NSTextContainer(containerSize: size)
+        container.lineFragmentPadding = 0
+        storage.addLayoutManager(layout)
+        layout.addTextContainer(container)
+        let entry = TextLayoutEntry(storage: storage, layout: layout, fingerprint: fp)
+        textLayoutCache[nodeID] = entry
+        return entry
+    }
+
+    private func drawText(_ text: TextContent, nodeID: UUID, in rect: CGRect) {
+        let entry = textLayoutEntry(text, nodeID: nodeID, size: rect.size)
+        guard let container = entry.layout.textContainers.first else { return }
+        let glyphRange = entry.layout.glyphRange(for: container)
+        entry.layout.drawBackground(forGlyphRange: glyphRange, at: rect.origin)
+        entry.layout.drawGlyphs(forGlyphRange: glyphRange, at: rect.origin)
+    }
+
+    /// True only when the finite TextKit container omitted visible content.
+    /// Line-fragment leading, descender space, and trailing whitespace are not
+    /// "more text," so none of them can light the red plus badge.
+    private func textOverflows(_ text: TextContent, nodeID: UUID,
+                               in size: CGSize) -> Bool {
+        guard !text.isEmpty else { return false }
+        let entry = textLayoutEntry(text, nodeID: nodeID, size: size)
+        guard let container = entry.layout.textContainers.first else { return false }
+        let glyphRange = entry.layout.glyphRange(for: container)
+        let characterRange = entry.layout.characterRange(
+            forGlyphRange: glyphRange, actualGlyphRange: nil)
+        let end = min(entry.storage.length, NSMaxRange(characterRange))
+        guard end < entry.storage.length else { return false }
+        let remainder = (entry.storage.string as NSString).substring(
+            with: NSRange(location: end, length: entry.storage.length - end))
+        return remainder.rangeOfCharacter(
+            from: CharacterSet.whitespacesAndNewlines.inverted) != nil
     }
 
     private func drawNodeSelection(_ node: Node, offset: CGPoint = .zero, ctx: CGContext, handles: Bool) {
@@ -5612,6 +5906,23 @@ final class CanvasNSView: NSView {
 
     // MARK: Cursor
 
+    /// End the momentary Space-pan without changing the selected tool. This is
+    /// intentionally idempotent: both the canvas key handler and the app-wide
+    /// key-up monitor can observe the same release.
+    private func endTemporaryPan() {
+        guard spaceHeld else { return }
+        spaceHeld = false
+        if case .hand = dragMode {
+            dragMode = .none
+            lastDragPoint = nil
+        }
+        refreshCursor()
+    }
+
+    @objc private func applicationDidResignActive() {
+        endTemporaryPan()
+    }
+
     func refreshCursor(flags: NSEvent.ModifierFlags = NSEvent.modifierFlags) {
         desiredCursor(at: lastMouse, flags: flags).set()
     }
@@ -5904,9 +6215,7 @@ final class CanvasNSView: NSView {
 
     override func keyUp(with event: NSEvent) {
         if event.keyCode == 49 {
-            spaceHeld = false
-            if case .hand = dragMode { dragMode = .none }
-            refreshCursor()
+            endTemporaryPan()
             return
         }
         super.keyUp(with: event)
@@ -5921,6 +6230,11 @@ final class CanvasNSView: NSView {
 
         // A click anywhere outside the text editor commits the in-progress edit.
         if editingNodeID != nil { commitTextEditing() }
+        // Clicking the canvas must also reclaim keyboard ownership from a panel or
+        // inspector field. Without this, the click can select a perfectly valid
+        // layer while Command-C / Command-V still route to the previously focused
+        // sibling view and appear broken.
+        window?.makeFirstResponder(self)
 
         if spaceHeld || app?.tool == .pan {
             dragMode = .hand
@@ -6439,9 +6753,11 @@ final class CanvasNSView: NSView {
                 dx = (refX + dx).rounded() - refX   // whole-pixel board landing (⌘ bypasses)
                 dy = (refY + dy).rounded() - refY
             }
-            for bi in document.model.artboards.indices {
-                if let o = boardOrigins[document.model.artboards[bi].id] {
-                    document.model.artboards[bi].frame.origin = CGPoint(x: o.x + dx, y: o.y + dy)
+            withActivePage { page in
+                for bi in page.artboards.indices {
+                    if let o = boardOrigins[page.artboards[bi].id] {
+                        page.artboards[bi].frame.origin = CGPoint(x: o.x + dx, y: o.y + dy)
+                    }
                 }
             }
             for (cid, origin0) in childOrigins {
@@ -6451,13 +6767,13 @@ final class CanvasNSView: NSView {
             needsDisplay = true
 
         case .resizeArtboard(let id, let handle, let original):
-            guard let document, let i = document.model.artboards.firstIndex(where: { $0.id == id }) else { return }
+            guard document != nil, let i = currentArtboards.firstIndex(where: { $0.id == id }) else { return }
             let cur = viewToDoc(p)
             var boardFrame = shift
                 ? Self.proportionalFrame(original, handle: handle, cursor: cur)
                 : Self.resizedFrame(original, handle: handle, cursor: cur)
             if !bypassSnap { boardFrame = pxSnapRect(boardFrame) }
-            document.model.artboards[i].frame = boardFrame
+            withActivePage { $0.artboards[i].frame = boardFrame }
             didEdit = true
             needsDisplay = true
 
@@ -6587,7 +6903,7 @@ final class CanvasNSView: NSView {
         // Lasso that fully encloses one or more artboards selects the BOARDS
         // (you're arranging boards). Partial drags still select items below.
         if !isSourceScope {
-            let enclosed = document.model.artboards.filter { rectDoc.contains($0.frame) }
+            let enclosed = currentArtboards.filter { rectDoc.contains($0.frame) }
             if !enclosed.isEmpty {
                 let ids = Set(enclosed.map { $0.id })
                 app.selectedArtboardIDs = additive ? app.selectedArtboardIDs.union(ids) : ids
@@ -7071,13 +7387,17 @@ final class CanvasNSView: NSView {
         }
     }
 
+    /// A copy of `node` with fresh ids throughout, and its anchored relationships
+    /// re-pointed at the COPY.
+    ///
+    /// The remap is not optional. Duplicating a group used to carry its
+    /// relationships across verbatim, still naming the ORIGINAL's nodes — so the
+    /// copy described the original's structure instead of its own (BUG-010). Ids
+    /// outside the copied subtree are deliberately left alone: a source child id is
+    /// stable across every placement, and a link that genuinely points outside the
+    /// copy should keep doing so.
     private func cloned(_ node: Node) -> Node {
-        var c = node
-        c.id = UUID()
-        if case .group(let children) = c.content {
-            c.content = .group(children: children.map(cloned))
-        }
-        return c
+        Document.duplicatingNode(node)
     }
 
     private func selectedNodeOrigins() -> [UUID: CGPoint] {
@@ -7099,18 +7419,10 @@ final class CanvasNSView: NSView {
         guard let app else { return [] }
         var newIDs: [UUID] = []
         withNodes { nodes in
-            // Clone each selected node right after itself, inside its OWN parent
-            // (top-level list or a group's children), so nested items duplicate in
-            // place. New ids throughout (cloned recurses).
-            for id in app.selectedNodeIDs {
-                Self.inParentArray(of: id, in: &nodes) { arr, i in
-                    var copy = cloned(arr[i])
-                    copy.frame.origin.x += offset.x
-                    copy.frame.origin.y += offset.y
-                    arr.insert(copy, at: i + 1)
-                    newIDs.append(copy.id)
-                }
-            }
+            let duplication = Document.duplicatingNodes(
+                app.selectedNodeIDs, in: nodes, offset: offset)
+            nodes = duplication.nodes
+            newIDs = duplication.copiedIDs
         }
         return newIDs
     }
@@ -7123,19 +7435,20 @@ final class CanvasNSView: NSView {
         -> (boardOrigins: [UUID: CGPoint], childOrigins: [UUID: CGPoint]) {
         guard let document else { return ([:], [:]) }
         var model = document.model
+        guard let pageIndex = model.pageIndex(for: activePageID) else { return ([:], [:]) }
         var boardOrigins: [UUID: CGPoint] = [:]
         var childOrigins: [UUID: CGPoint] = [:]
         for id in ids {
-            guard let ab = model.artboards.first(where: { $0.id == id }) else { continue }
+            guard let ab = model.pages[pageIndex].artboards.first(where: { $0.id == id }) else { continue }
             // Copy the shapes this board owns (decided against the original model).
-            let owned = document.model.nodes.filter {
-                document.model.owningArtboard(of: $0.frame)?.id == id
+            let owned = currentNodes.filter {
+                owningArtboard(of: $0.frame)?.id == id
             }
             for original in owned {
                 var copy = cloned(original)
                 copy.frame.origin.x += offset.x
                 copy.frame.origin.y += offset.y
-                model.nodes.append(copy)
+                model.pages[pageIndex].nodes.append(copy)
                 childOrigins[copy.id] = copy.frame.origin
             }
             var newAb = ab
@@ -7143,7 +7456,7 @@ final class CanvasNSView: NSView {
             newAb.name = ab.name + " copy"
             newAb.frame.origin.x += offset.x
             newAb.frame.origin.y += offset.y
-            model.artboards.append(newAb)
+            model.pages[pageIndex].artboards.append(newAb)
             boardOrigins[newAb.id] = newAb.frame.origin
         }
         document.model = model
@@ -7228,14 +7541,17 @@ final class CanvasNSView: NSView {
         } else if !isSourceScope, !app.selectedArtboardIDs.isEmpty {
             // Move every selected artboard and carry the shapes each owns.
             var model = document.model
+            guard let pageIndex = model.pageIndex(for: activePageID) else { return }
             let owned = ownedNodeOrigins(forBoards: Array(app.selectedArtboardIDs))
-            for ai in model.artboards.indices where app.selectedArtboardIDs.contains(model.artboards[ai].id) {
-                model.artboards[ai].frame.origin.x += dx
-                model.artboards[ai].frame.origin.y += dy
+            for ai in model.pages[pageIndex].artboards.indices
+            where app.selectedArtboardIDs.contains(model.pages[pageIndex].artboards[ai].id) {
+                model.pages[pageIndex].artboards[ai].frame.origin.x += dx
+                model.pages[pageIndex].artboards[ai].frame.origin.y += dy
             }
-            for ni in model.nodes.indices where owned[model.nodes[ni].id] != nil {
-                model.nodes[ni].frame.origin.x += dx
-                model.nodes[ni].frame.origin.y += dy
+            for ni in model.pages[pageIndex].nodes.indices
+            where owned[model.pages[pageIndex].nodes[ni].id] != nil {
+                model.pages[pageIndex].nodes[ni].frame.origin.x += dx
+                model.pages[pageIndex].nodes[ni].frame.origin.y += dy
             }
             document.setModel(model, undoManager: undoManager, actionName: "Move Artboard")
         }
@@ -7304,22 +7620,31 @@ final class CanvasNSView: NSView {
             deleteSelectedPoints()
         } else if !app.selectedNodeIDs.isEmpty {
             var nodes = currentNodes
+            // Collect the WHOLE subtree being removed, not just the selection —
+            // a relationship may name a layer nested inside a deleted group.
+            var doomed = Set<UUID>()
+            for id in app.selectedNodeIDs {
+                if let n = node(id) { Self.collectSubtreeIDs(n, into: &doomed) }
+            }
             Self.removeNested(app.selectedNodeIDs, from: &nodes)   // nested children too
-            commitNodes(nodes, actionName: "Delete")
+            commitNodes(nodes, actionName: "Delete",
+                        removingAnchorsReferencing: doomed)
             app.selectedNodeIDs = []
         } else if !isSourceScope, !app.selectedArtboardIDs.isEmpty {
             var model = document.model
+            guard let pageIndex = model.pageIndex(for: activePageID) else { return }
             let ids = app.selectedArtboardIDs
             // Deleting an artboard also deletes the artwork it contains. Ownership
             // is geometric, so resolve it BEFORE the boards are removed (otherwise
             // owningArtboard has nothing to match and the nodes get orphaned onto
             // the wall — which is what left stray PDF-page content behind).
-            let ownedIDs = Set(model.nodes.compactMap { n -> UUID? in
-                guard let owner = model.owningArtboard(of: n.frame), ids.contains(owner.id) else { return nil }
+            let ownedIDs = Set(model.pages[pageIndex].nodes.compactMap { n -> UUID? in
+                guard let owner = model.owningArtboard(of: n.frame, on: activePageID),
+                      ids.contains(owner.id) else { return nil }
                 return n.id
             })
-            model.nodes.removeAll { ownedIDs.contains($0.id) }
-            model.artboards.removeAll { ids.contains($0.id) }
+            model.pages[pageIndex].nodes.removeAll { ownedIDs.contains($0.id) }
+            model.pages[pageIndex].artboards.removeAll { ids.contains($0.id) }
             document.setModel(model, undoManager: undoManager,
                               actionName: ids.count == 1 ? "Delete Artboard" : "Delete Artboards")
             app.selectedArtboardIDs = []
@@ -7329,8 +7654,8 @@ final class CanvasNSView: NSView {
     }
 
     private func cycleArtboardSelection(forward: Bool) {
-        guard let app, let document, !isSourceScope, !document.model.artboards.isEmpty else { return }
-        let boards = document.model.artboards
+        guard let app, document != nil, !isSourceScope, !currentArtboards.isEmpty else { return }
+        let boards = currentArtboards
         app.selectedNodeIDs = []
         if let id = app.selectedArtboardID, let idx = boards.firstIndex(where: { $0.id == id }) {
             let n = boards.count
@@ -7343,18 +7668,20 @@ final class CanvasNSView: NSView {
 
     // MARK: Clipboard + duplicate (responder actions → Edit menu + context menu)
 
-    private func collectSelectedNodes() -> [Node] {
+    private func collectSelectedNodes(_ requestedIDs: Set<UUID>? = nil) -> [Node] {
         guard let app else { return [] }
+        let selectedIDs = requestedIDs ?? app.selectedNodeIDs
         // Gather selected nodes anywhere in the tree. A nested node is copied with its
         // ABSOLUTE frame (parent offset folded in) so paste lands it where it visually
         // sat, not at the group-relative origin.
         var out: [Node] = []
         func walk(_ nodes: [Node], _ off: CGPoint) {
             for n in nodes {
-                if app.selectedNodeIDs.contains(n.id) {
+                if selectedIDs.contains(n.id) {
                     var c = n
                     c.frame = n.frame.offsetBy(dx: off.x, dy: off.y)
                     out.append(c)
+                    continue
                 }
                 if case .group(let kids) = n.content {
                     walk(kids, CGPoint(x: off.x + n.frame.minX, y: off.y + n.frame.minY))
@@ -7371,9 +7698,9 @@ final class CanvasNSView: NSView {
 
         // Boards take priority when artboards are selected and no shapes are.
         if !isSourceScope, app.selectedNodeIDs.isEmpty, !app.selectedArtboardIDs.isEmpty {
-            let boards = document.model.artboards.filter { app.selectedArtboardIDs.contains($0.id) }
-            let owned = document.model.nodes.filter {
-                guard let o = document.model.owningArtboard(of: $0.frame)?.id else { return false }
+            let boards = currentArtboards.filter { app.selectedArtboardIDs.contains($0.id) }
+            let owned = currentNodes.filter {
+                guard let o = owningArtboard(of: $0.frame)?.id else { return false }
                 return app.selectedArtboardIDs.contains(o)
             }
             if let data = try? JSONEncoder().encode(ArtboardClipboard(artboards: boards, nodes: owned)) {
@@ -7388,9 +7715,9 @@ final class CanvasNSView: NSView {
         // Remember the owning board (when the selection shares exactly one) so
         // paste can land on a *different* board at the same relative position.
         var srcOrigin: CGPoint?
-        let owners = Set(nodes.compactMap { document.model.owningArtboard(of: $0.frame)?.id })
+        let owners = Set(nodes.compactMap { owningArtboard(of: $0.frame)?.id })
         if owners.count == 1, let oid = owners.first,
-           let ab = document.model.artboards.first(where: { $0.id == oid }) {
+           let ab = currentArtboards.first(where: { $0.id == oid }) {
             srcOrigin = ab.frame.origin
         }
         if let data = try? JSONEncoder().encode(NodeClipboard(nodes: nodes, sourceOrigin: srcOrigin)) {
@@ -7752,16 +8079,310 @@ final class CanvasNSView: NSView {
         placeImportedPages(imported, sourceName: url.deletingPathExtension().lastPathComponent)
     }
 
+    // MARK: Adobe XD (offline InteropCodec import + visible fidelity report)
+
+    /// File ▸ Import Adobe XD… — decode the frozen ZIP/AGC package off the main
+    /// thread, append its native artboards/layers in one undo step, then show the
+    /// Import Report even when fidelity is partial.
+    @objc func importXDAction(_ sender: Any?) {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [UTType(filenameExtension: "xd") ?? .data]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.message = "Choose an Adobe XD document to rescue into the current EXP document."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        let token = InteropCancellationToken()
+        let progress = InteropImportProgressController(format: .adobeXD,
+                                                       sourceName: url.lastPathComponent)
+        let importTask = Task.detached(priority: .userInitiated) {
+            do {
+                let result = try XDImporter().read(
+                    from: url,
+                    context: InteropContext(cancellation: token) { update in
+                        Task { @MainActor in progress.update(update) }
+                    })
+                await progress.finish(.success(result))
+            } catch {
+                await progress.finish(.failure(error.localizedDescription))
+            }
+        }
+
+        let response = progress.runModal()
+        if response == .alertFirstButtonReturn {
+            token.cancel()
+            importTask.cancel()
+            return
+        }
+        switch progress.outcome {
+        case .success(let result):
+            applyXDImport(result)
+        case .failure(let message):
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "Adobe XD Import Failed"
+            alert.informativeText = message
+            alert.runModal()
+        case nil:
+            break
+        }
+    }
+
+    private func applyXDImport(_ result: InteropImportResult) {
+        guard let document else { return }
+        var payload = result.payload
+        let importBounds: CGRect? = {
+            // XD documents can have substantial pasteboard artwork outside every
+            // artboard. Reserve space for ALL imported content; using only board
+            // frames let a later import collide with those wall layers.
+            let frames = payload.artboards.map(\.frame) + payload.nodes.map(\.frame)
+            guard let first = frames.first else { return nil }
+            return frames.dropFirst().reduce(first) { $0.union($1) }
+        }()
+        if let bounds = importBounds {
+            let hasExistingContent = !currentArtboards.isEmpty || !currentNodes.isEmpty
+            let currentMaxX = hasExistingContent
+                ? document.model.contentBounds(on: activePageID).maxX : -120
+            payload.translate(by: CGPoint(x: currentMaxX + 120 - bounds.minX,
+                                          y: -bounds.minY))
+        }
+
+        var model = document.model
+        guard let pageIndex = model.pageIndex(for: activePageID) else { return }
+        model.pages[pageIndex].artboards.append(contentsOf: payload.artboards)
+        model.pages[pageIndex].nodes.append(contentsOf: payload.nodes)
+        model.sources.append(contentsOf: payload.sources)
+        for asset in payload.designLanguage.assets
+            where model.designLanguage.firstAsset(matching: asset.value) == nil {
+            model.designLanguage.assets.append(asset)
+        }
+        for style in payload.designLanguage.typeStyles
+            where !model.designLanguage.typeStyles.contains(where: { $0.sameValues(as: style) }) {
+            model.designLanguage.typeStyles.append(style)
+        }
+        document.setModel(model, undoManager: undoManager, actionName: "Import Adobe XD")
+        let firstImportedArtboard = payload.artboards.first
+        app?.selectedArtboardID = firstImportedArtboard?.id
+        app?.selectedNodeIDs = []
+        app?.tool = .select
+        if let frame = firstImportedArtboard?.frame {
+            fitViewport(to: frame)
+        } else if let firstNode = payload.nodes.first {
+            let bounds = payload.nodes.dropFirst().reduce(firstNode.frame) {
+                $0.union($1.frame)
+            }
+            fitViewport(to: bounds)
+        }
+        needsDisplay = true
+        lastImportReport = result.report
+        // A clean/approximated import should simply reveal the artwork. Interrupt
+        // only when content was actually rejected; all reports remain available
+        // from File > Show Last Import Report.
+        if result.report.errorCount > 0 || result.report.unsupportedCount > 0 {
+            showImportReport(result.report)
+        }
+    }
+
+    // MARK: Figma (sanctioned REST import)
+
+    /// File ▸ Import Figma File… — the token is deliberately memory-only in this
+    /// first slice. EXP sends it only to api.figma.com and never writes or logs it.
+    @objc func importFigmaAction(_ sender: Any?) {
+        guard let credentials = askForFigmaImportCredentials() else { return }
+        let token = InteropCancellationToken()
+        let progress = InteropImportProgressController(format: .figma,
+                                                       sourceName: credentials.displayName)
+        let request = FigmaRESTImporter.Request(fileKey: credentials.fileKey,
+                                                token: credentials.token)
+        let importTask = Task.detached(priority: .userInitiated) {
+            do {
+                let result = try await FigmaRESTImporter().read(
+                    request,
+                    context: InteropContext(cancellation: token) { update in
+                        Task { @MainActor in progress.update(update) }
+                    })
+                await progress.finish(.success(result))
+            } catch {
+                await progress.finish(.failure(error.localizedDescription))
+            }
+        }
+
+        let response = progress.runModal()
+        if response == .alertFirstButtonReturn {
+            token.cancel()
+            importTask.cancel()
+            return
+        }
+        switch progress.outcome {
+        case .success(let result):
+            applyFigmaImport(result)
+        case .failure(let message):
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "Figma Import Failed"
+            alert.informativeText = message
+            alert.runModal()
+        case nil:
+            break
+        }
+    }
+
+    private struct FigmaImportCredentials {
+        var fileKey: String
+        var token: String
+        var displayName: String
+    }
+
+    private func askForFigmaImportCredentials() -> FigmaImportCredentials? {
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = "Import Figma File"
+        alert.informativeText = "Paste a Figma file URL (or key) and a personal access token with file_content:read scope. EXP sends the token only to api.figma.com for this import; it is never saved or logged."
+        alert.addButton(withTitle: "Import")
+        alert.addButton(withTitle: "Cancel")
+
+        let fileLabel = NSTextField(labelWithString: "Figma file URL or key")
+        let fileField = NSTextField(frame: .zero)
+        fileField.placeholderString = "https://www.figma.com/design/…"
+        fileField.setAccessibilityLabel("Figma file URL or key")
+        if let clipboard = NSPasteboard.general.string(forType: .string),
+           FigmaRESTImporter.fileKey(from: clipboard) != nil {
+            fileField.stringValue = clipboard
+        }
+        let tokenLabel = NSTextField(labelWithString: "Personal access token")
+        let tokenField = NSSecureTextField(frame: .zero)
+        tokenField.placeholderString = "figd_…"
+        tokenField.setAccessibilityLabel("Figma personal access token")
+        let privacy = NSTextField(wrappingLabelWithString:
+            "Network access is required. The token remains in memory only and is discarded when this import finishes.")
+        privacy.textColor = .secondaryLabelColor
+        privacy.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+
+        let stack = NSStackView(views: [fileLabel, fileField, tokenLabel, tokenField, privacy])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 6
+        stack.frame = NSRect(x: 0, y: 0, width: 480, height: 126)
+        fileField.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        tokenField.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        privacy.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        alert.accessoryView = stack
+        alert.window.initialFirstResponder = fileField
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
+        let raw = fileField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let token = tokenField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let key = FigmaRESTImporter.fileKey(from: raw), !token.isEmpty else {
+            let error = NSAlert()
+            error.alertStyle = .warning
+            error.messageText = "Figma Import Needs More Information"
+            error.informativeText = token.isEmpty
+                ? "Enter a personal access token with file_content:read scope."
+                : "Enter a valid Figma design, file, prototype, or FigJam URL—or its file key."
+            error.runModal()
+            return nil
+        }
+        return FigmaImportCredentials(fileKey: key, token: token,
+                                      displayName: raw.contains("/") ? "Figma file \(key)" : key)
+    }
+
+    private func applyFigmaImport(_ result: InteropImportResult) {
+        guard let document, !result.payload.pages.isEmpty else { return }
+        var model = document.model
+        var usedNames = Set(model.pages.map { $0.name.lowercased() })
+        var importedPages: [CanvasPage] = []
+        for var page in result.payload.pages {
+            let base = page.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? "Figma Page" : page.name
+            var name = base
+            var suffix = 2
+            while usedNames.contains(name.lowercased()) {
+                name = "\(base) \(suffix)"
+                suffix += 1
+            }
+            page.name = name
+            usedNames.insert(name.lowercased())
+            importedPages.append(page)
+        }
+        model.pages.append(contentsOf: importedPages)
+        model.sources.append(contentsOf: result.payload.sources)
+        for asset in result.payload.designLanguage.assets
+            where model.designLanguage.firstAsset(matching: asset.value) == nil {
+            model.designLanguage.assets.append(asset)
+        }
+        for style in result.payload.designLanguage.typeStyles
+            where !model.designLanguage.typeStyles.contains(where: { $0.sameValues(as: style) }) {
+            model.designLanguage.typeStyles.append(style)
+        }
+        document.setModel(model, undoManager: undoManager, actionName: "Import Figma File")
+
+        guard let firstPage = importedPages.first else { return }
+        let firstBoard = firstPage.artboards.first
+        let focus: CGRect? = firstBoard?.frame ?? firstPage.nodes.first.map { first in
+            firstPage.nodes.dropFirst().reduce(first.frame) { $0.union($1.frame) }
+        }
+        if let focus { pendingPageFocus = (firstPage.id, focus) }
+        app?.selectedNodeIDs = []
+        app?.selectedArtboardIDs = Set(firstBoard.map { [$0.id] } ?? [])
+        app?.selectionAnchorID = nil
+        app?.tool = .select
+        app?.activeCanvasPageID = firstPage.id
+        syncActivePageIfNeeded()
+        needsDisplay = true
+        lastImportReport = result.report
+        if result.report.errorCount > 0 || result.report.unsupportedCount > 0 {
+            showImportReport(result.report)
+        }
+    }
+
+    @objc func showLastImportReportAction(_ sender: Any?) {
+        guard let lastImportReport else { NSSound.beep(); return }
+        showImportReport(lastImportReport)
+    }
+
+    private func showImportReport(_ report: InteropImportReport) {
+        let alert = NSAlert()
+        let needsReview = report.errorCount > 0 || report.unsupportedCount > 0
+        alert.alertStyle = needsReview ? .warning : .informational
+        alert.messageText = needsReview
+            ? "\(report.format.rawValue) Import Needs Review"
+            : "\(report.format.rawValue) Import Report"
+        alert.informativeText = needsReview
+            ? "Import completed, but some content could not be preserved. \(report.summary)."
+            : "Import succeeded. \(report.summary). Fidelity details are diagnostic information."
+        alert.addButton(withTitle: "Done")
+        alert.addButton(withTitle: "Copy Report")
+
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 560, height: 280))
+        scroll.hasVerticalScroller = true
+        scroll.borderType = .bezelBorder
+        let text = NSTextView(frame: scroll.bounds)
+        text.isEditable = false
+        text.isSelectable = true
+        text.drawsBackground = false
+        text.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+        text.string = report.detailedText
+        text.setAccessibilityLabel("Adobe XD import fidelity report")
+        scroll.documentView = text
+        alert.accessoryView = scroll
+
+        if alert.runModal() == .alertSecondButtonReturn {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(report.detailedText, forType: .string)
+        }
+    }
+
     /// Append imported PDF pages as new artboards to the right of existing content
     /// (one undo step) and select the first.
     private func placeImportedPages(_ pages: [PDFImporter.Page], sourceName: String) {
         guard let document else { return }
         var model = document.model
-        let startX = (model.artboards.map { $0.frame.maxX }.max() ?? -120) + 120
+        guard let pageIndex = model.pageIndex(for: activePageID) else { return }
+        let startX = (model.pages[pageIndex].artboards.map { $0.frame.maxX }.max() ?? -120) + 120
         let laid = PDFImporter.layout(pages, origin: CGPoint(x: startX, y: 0),
                                       namePrefix: sourceName.isEmpty ? "Page" : sourceName)
-        model.artboards.append(contentsOf: laid.artboards)
-        model.nodes.append(contentsOf: laid.nodes)
+        model.pages[pageIndex].artboards.append(contentsOf: laid.artboards)
+        model.pages[pageIndex].nodes.append(contentsOf: laid.nodes)
         document.setModel(model, undoManager: undoManager,
                           actionName: pages.count > 1 ? "Import PDF Pages" : "Import PDF")
         app?.selectedArtboardID = laid.artboards.first?.id
@@ -7832,7 +8453,7 @@ final class CanvasNSView: NSView {
         // caller drops the paste at the viewport centre instead of on a board you
         // selected earlier and then scrolled away from.
         let centerDoc = viewToDoc(viewCenter)
-        return document.model.artboards.first { $0.frame.contains(centerDoc) }
+        return currentArtboards.first { $0.frame.contains(centerDoc) }
     }
 
     /// Shift the pasted group onto `target`: same offset-from-board-origin when it
@@ -7873,18 +8494,19 @@ final class CanvasNSView: NSView {
     private func pasteArtboards(_ clip: ArtboardClipboard) {
         guard let app, let document else { return }
         var model = document.model
+        guard let pageIndex = model.pageIndex(for: activePageID) else { return }
         let offset = CGPoint(x: 40, y: 40)
         var newBoardIDs: [UUID] = []
         for board in clip.artboards {
             for original in clip.nodes where Self.boardOwns(board, original.frame) {
                 var c = cloned(original)
                 c.frame.origin.x += offset.x; c.frame.origin.y += offset.y
-                model.nodes.append(c)
+                model.pages[pageIndex].nodes.append(c)
             }
             var nb = board
             nb.id = UUID()
             nb.frame.origin.x += offset.x; nb.frame.origin.y += offset.y
-            model.artboards.append(nb)
+            model.pages[pageIndex].artboards.append(nb)
             newBoardIDs.append(nb.id)
         }
         document.setModel(model, undoManager: undoManager,
@@ -7946,16 +8568,16 @@ final class CanvasNSView: NSView {
             case .topLevel:
                 if !isSourceScope, let document {
                     let selected = currentNodes.filter { app.selectedNodeIDs.contains($0.id) }
-                    let owners = Set(selected.compactMap { document.model.owningArtboard(of: $0.frame)?.id })
-                    let hasWall = selected.contains { document.model.owningArtboard(of: $0.frame) == nil }
+                    let owners = Set(selected.compactMap { owningArtboard(of: $0.frame)?.id })
+                    let hasWall = selected.contains { owningArtboard(of: $0.frame) == nil }
                     if owners.count == 1, !hasWall, let owner = owners.first {
-                        app.selectedNodeIDs = Set(currentNodes.filter { document.model.owningArtboard(of: $0.frame)?.id == owner }.map(\.id))
+                        app.selectedNodeIDs = Set(currentNodes.filter { owningArtboard(of: $0.frame)?.id == owner }.map(\.id))
                         app.selectedArtboardIDs = []
                         needsDisplay = true
                         return
                     }
                     if owners.isEmpty, hasWall {
-                        app.selectedNodeIDs = Set(currentNodes.filter { document.model.owningArtboard(of: $0.frame) == nil }.map(\.id))
+                        app.selectedNodeIDs = Set(currentNodes.filter { owningArtboard(of: $0.frame) == nil }.map(\.id))
                         app.selectedArtboardIDs = []
                         needsDisplay = true
                         return
@@ -7972,8 +8594,8 @@ final class CanvasNSView: NSView {
         }
 
         if !isSourceScope, let document, !app.selectedArtboardIDs.isEmpty {
-            app.selectedArtboardIDs = Set(document.model.artboards.map(\.id))
-            app.selectedNodeIDs = Set(currentNodes.filter { document.model.owningArtboard(of: $0.frame) == nil }.map(\.id))
+            app.selectedArtboardIDs = Set(currentArtboards.map(\.id))
+            app.selectedNodeIDs = Set(currentNodes.filter { owningArtboard(of: $0.frame) == nil }.map(\.id))
             needsDisplay = true
             return
         }
@@ -8005,6 +8627,145 @@ final class CanvasNSView: NSView {
         needsDisplay = true
     }
 
+    @objc func moveSelectionToPageAction(_ sender: Any?) {
+        guard let request = pageTransferRequest(from: sender) else { return }
+        transferSelection(request, duplicate: false)
+    }
+
+    @objc func duplicateSelectionToPageAction(_ sender: Any?) {
+        guard let request = pageTransferRequest(from: sender) else { return }
+        transferSelection(request, duplicate: true)
+    }
+
+    private func pageTransferRequest(from sender: Any?) -> CanvasPageTransferRequest? {
+        if let request = sender as? CanvasPageTransferRequest { return request }
+        if let item = sender as? NSMenuItem {
+            if let request = item.representedObject as? CanvasPageTransferRequest { return request }
+            if let id = item.representedObject as? UUID { return CanvasPageTransferRequest(pageID: id) }
+            if let string = item.representedObject as? String,
+               let id = UUID(uuidString: string) { return CanvasPageTransferRequest(pageID: id) }
+        }
+        return nil
+    }
+
+    /// One shared implementation backs the app menu, canvas context menu, and
+    /// Layers context menu. Nested selections are promoted to destination-page
+    /// top level with their absolute frame; selecting a child never carries its
+    /// enclosing group along with it.
+    private func transferSelection(_ request: CanvasPageTransferRequest, duplicate: Bool) {
+        guard let app, let document, !isSourceScope,
+              let sourceID = activePageID, sourceID != request.pageID else { return }
+        let destinationID = request.pageID
+        let requestedNodeIDs = request.nodeIDs ?? app.selectedNodeIDs
+        let requestedBoardIDs = request.artboardIDs ?? app.selectedArtboardIDs
+        guard !requestedNodeIDs.isEmpty || !requestedBoardIDs.isEmpty else { return }
+
+        var model = document.model
+        guard let sourceIndex = model.pages.firstIndex(where: { $0.id == sourceID }),
+              let destinationIndex = model.pages.firstIndex(where: { $0.id == destinationID }) else { return }
+
+        var selectedNodeIDs = Set<UUID>()
+        var selectedBoardIDs = Set<UUID>()
+        var transferredBounds: CGRect?
+
+        if !requestedNodeIDs.isEmpty {
+            let originals = collectSelectedNodes(requestedNodeIDs)
+            guard !originals.isEmpty else { return }
+            var movedSubtreeIDs = Set<UUID>()
+            for original in originals { Self.collectSubtreeIDs(original, into: &movedSubtreeIDs) }
+            let duplication = duplicate
+                ? Document.duplicatingNodesForTransferWithMap(originals)
+                : (nodes: originals, idMap: [:])
+            let transferred = duplication.nodes
+            let internalAnchors = model.pages[sourceIndex].anchoredRelationships.filter {
+                relationshipIDs($0).isSubset(of: movedSubtreeIDs)
+            }
+            if !duplicate {
+                Self.removeNested(requestedNodeIDs, from: &model.pages[sourceIndex].nodes)
+                model.pages[sourceIndex].anchoredRelationships = Document.removingAnchors(
+                    referencing: movedSubtreeIDs,
+                    in: model.pages[sourceIndex].anchoredRelationships)
+            }
+            model.pages[destinationIndex].nodes.append(contentsOf: transferred)
+            model.pages[destinationIndex].anchoredRelationships.append(contentsOf:
+                duplicate ? remappedAnchors(internalAnchors, through: duplication.idMap)
+                          : internalAnchors)
+            selectedNodeIDs = Set(transferred.map(\.id))
+            transferredBounds = transferred.dropFirst().reduce(transferred.first?.frame) {
+                $0?.union($1.frame) ?? $1.frame
+            }
+        } else if !requestedBoardIDs.isEmpty {
+            let boardIDs = requestedBoardIDs
+            let sourcePage = model.pages[sourceIndex]
+            let boards = sourcePage.artboards.filter { boardIDs.contains($0.id) }
+            guard !boards.isEmpty else { return }
+            let owned = sourcePage.nodes.filter { node in
+                guard let owner = model.owningArtboard(of: node.frame, on: sourceID) else { return false }
+                return boardIDs.contains(owner.id)
+            }
+            var ownedSubtreeIDs = Set<UUID>()
+            for node in owned { Self.collectSubtreeIDs(node, into: &ownedSubtreeIDs) }
+            let internalAnchors = sourcePage.anchoredRelationships.filter {
+                relationshipIDs($0).isSubset(of: ownedSubtreeIDs)
+            }
+            if duplicate {
+                let duplication = Document.duplicatingNodesForTransferWithMap(owned)
+                model.pages[destinationIndex].nodes.append(contentsOf: duplication.nodes)
+                model.pages[destinationIndex].anchoredRelationships.append(contentsOf:
+                    remappedAnchors(internalAnchors, through: duplication.idMap))
+                let boardCopies = boards.map { board -> Artboard in
+                    var copy = board
+                    copy.id = UUID()
+                    return copy
+                }
+                model.pages[destinationIndex].artboards.append(contentsOf: boardCopies)
+                selectedBoardIDs = Set(boardCopies.map(\.id))
+                transferredBounds = boardCopies.dropFirst().reduce(boardCopies.first?.frame) {
+                    $0?.union($1.frame) ?? $1.frame
+                }
+            } else {
+                let ownedIDs = Set(owned.map(\.id))
+                model.pages[sourceIndex].nodes.removeAll { ownedIDs.contains($0.id) }
+                model.pages[sourceIndex].artboards.removeAll { boardIDs.contains($0.id) }
+                model.pages[sourceIndex].anchoredRelationships = Document.removingAnchors(
+                    referencing: ownedSubtreeIDs,
+                    in: model.pages[sourceIndex].anchoredRelationships)
+                model.pages[destinationIndex].nodes.append(contentsOf: owned)
+                model.pages[destinationIndex].artboards.append(contentsOf: boards)
+                model.pages[destinationIndex].anchoredRelationships.append(contentsOf: internalAnchors)
+                selectedBoardIDs = boardIDs
+                transferredBounds = boards.dropFirst().reduce(boards.first?.frame) {
+                    $0?.union($1.frame) ?? $1.frame
+                }
+            }
+        } else {
+            return
+        }
+
+        let verb = duplicate ? "Duplicate" : "Move"
+        document.setModel(model, undoManager: undoManager, actionName: "\(verb) to Canvas Page")
+        if let transferredBounds { pendingPageFocus = (destinationID, transferredBounds) }
+        app.activeCanvasPageID = destinationID
+        app.selectedNodeIDs = selectedNodeIDs
+        app.selectedArtboardIDs = selectedBoardIDs
+        app.selectionAnchorID = selectedNodeIDs.first
+        syncActivePageIfNeeded()
+        needsDisplay = true
+    }
+
+    private func relationshipIDs(_ relationship: AnchoredRelationship) -> Set<UUID> {
+        Set(relationship.subject.path + relationship.target.path)
+    }
+
+    private func remappedAnchors(_ anchors: [AnchoredRelationship],
+                                 through map: [UUID: UUID]) -> [AnchoredRelationship] {
+        anchors.map {
+            AnchoredRelationship(kind: $0.kind,
+                                 subject: Document.remapped($0.subject, map: map),
+                                 target: Document.remapped($0.target, map: map))
+        }
+    }
+
     // MARK: Artboard rename (inline label editor)
 
     @objc func renameArtboardAction(_ sender: Any?) {
@@ -8014,7 +8775,7 @@ final class CanvasNSView: NSView {
     /// Float a one-line text field over the artboard's name label to rename it.
     func beginRenamingArtboard(_ id: UUID) {
         guard let document, !isSourceScope,
-              let ab = document.model.artboards.first(where: { $0.id == id }) else { return }
+              let ab = currentArtboards.first(where: { $0.id == id }) else { return }
         commitArtboardRename()   // finish any prior edit
         let r = docToView(ab.frame)
         let frame = CGRect(x: r.minX, y: max(0, r.minY - 22), width: max(r.width, 120), height: 18)
@@ -8044,10 +8805,11 @@ final class CanvasNSView: NSView {
         tf.removeFromSuperview()
         artboardNameField = nil
         editingArtboardID = nil
-        if !name.isEmpty, let i = document.model.artboards.firstIndex(where: { $0.id == id }),
-           document.model.artboards[i].name != name {
+        if !name.isEmpty, let i = currentArtboards.firstIndex(where: { $0.id == id }),
+           currentArtboards[i].name != name {
             var model = document.model
-            model.artboards[i].name = name
+            guard let pageIndex = model.pageIndex(for: activePageID) else { return }
+            model.pages[pageIndex].artboards[i].name = name
             document.setModel(model, undoManager: undoManager, actionName: "Rename Artboard")
         }
         window?.makeFirstResponder(self)
@@ -8193,9 +8955,9 @@ final class CanvasNSView: NSView {
         app?.guidesLocked.toggle()
     }
     @objc func clearGuidesAction(_ sender: Any?) {
-        guard let document, !document.model.guides.isEmpty else { return }
+        guard let document, !currentGuides.isEmpty else { return }
         let baseline = document.model
-        document.model.guides.removeAll()
+        withActivePage { $0.guides.removeAll() }
         document.registerUndo(restoring: baseline, undoManager: undoManager, actionName: "Clear Guides")
         needsDisplay = true
     }
@@ -8249,15 +9011,17 @@ final class CanvasNSView: NSView {
         }
         switch scope {
         case .document:
-            walk(&model.nodes)
-            model.nodes = AutoLayoutEngine.reflowed(model.nodes)
-            for i in model.artboards.indices where boardIDs.contains(model.artboards[i].id) {
-                model.artboards[i].frame = rounded(model.artboards[i].frame)
+            guard let pageIndex = model.pageIndex(for: activePageID) else { return }
+            walk(&model.pages[pageIndex].nodes)
+            model.pages[pageIndex].nodes = model.reflowed(model.pages[pageIndex].nodes)
+            for i in model.pages[pageIndex].artboards.indices
+            where boardIDs.contains(model.pages[pageIndex].artboards[i].id) {
+                model.pages[pageIndex].artboards[i].frame = rounded(model.pages[pageIndex].artboards[i].frame)
             }
         case .source(let sid):
             guard let si = model.sources.firstIndex(where: { $0.id == sid }) else { return }
             walk(&model.sources[si].children)
-            model.sources[si].children = AutoLayoutEngine.reflowed(model.sources[si].children)
+            model.sources[si].children = model.reflowed(model.sources[si].children)
         }
         document.setModel(model, undoManager: undoManager, actionName: "Round to Pixel")
         needsDisplay = true
@@ -8291,7 +9055,7 @@ final class CanvasNSView: NSView {
         let selNodes = app.selectedNodeIDs
         let auditAll = selBoards.isEmpty && selNodes.isEmpty
 
-        for ab in document.model.artboards where auditAll || selBoards.contains(ab.id) {
+        for ab in currentArtboards where auditAll || selBoards.contains(ab.id) {
             items.append(Item(kind: "artboard", name: ab.name, frame: ab.frame, painted: ab.frame,
                               visualNote: "1px hairline drawn INSIDE frame; shadow softens bottom edge"))
         }
@@ -8393,7 +9157,7 @@ final class CanvasNSView: NSView {
                 .joined(separator: ", ")
             lines.append("Displays: \(NSScreen.screens.count) (backing \(scales))")
             if let model = self.document?.model {
-                lines.append("Document: \(model.nodes.count) top-level node(s), \(model.artboards.count) artboard(s), \(model.sources.count) component source(s)")
+                lines.append("Document: \(model.allNodes.count) top-level node(s), \(model.allArtboards.count) artboard(s), \(model.pages.count) canvas page(s), \(model.sources.count) component source(s)")
             }
             lines.append("")
             lines.append(contentsOf: self.geometryAuditLines())
@@ -8438,10 +9202,10 @@ final class CanvasNSView: NSView {
     /// artboard of a selected shape, else the first artboard.
     private func targetExportArtboard() -> Artboard? {
         guard let document else { return nil }
-        if let id = app?.selectedArtboardID, let ab = document.model.artboards.first(where: { $0.id == id }) { return ab }
+        if let id = app?.selectedArtboardID, let ab = currentArtboards.first(where: { $0.id == id }) { return ab }
         if let nid = app?.selectedNodeIDs.first, let n = node(nid),
-           let owner = document.model.owningArtboard(of: n.frame) { return owner }
-        return document.model.artboards.first
+           let owner = owningArtboard(of: n.frame) { return owner }
+        return currentArtboards.first
     }
 
     /// The artboards an export targets: all selected boards (document order),
@@ -8449,7 +9213,7 @@ final class CanvasNSView: NSView {
     private func selectedExportArtboards() -> [Artboard] {
         guard let document, let app else { return [] }
         if !app.selectedArtboardIDs.isEmpty {
-            return document.model.artboards.filter { app.selectedArtboardIDs.contains($0.id) }
+            return currentArtboards.filter { app.selectedArtboardIDs.contains($0.id) }
         }
         return targetExportArtboard().map { [$0] } ?? []
     }
@@ -8470,10 +9234,10 @@ final class CanvasNSView: NSView {
     }
 
     @objc func exportAllArtboards(_ sender: Any?) {
-        guard let document, !document.model.artboards.isEmpty else { NSSound.beep(); return }
+        guard let document, !currentArtboards.isEmpty else { NSSound.beep(); return }
         let panels = ExportPanels(model: document.model)
         exportPanels = panels
-        panels.exportAll(document.model.artboards, in: window)
+        panels.exportAll(currentArtboards, in: window)
     }
 
     @objc func exportHandoffPackage(_ sender: Any?) {
@@ -8507,6 +9271,72 @@ final class CanvasNSView: NSView {
         } else {
             panel.begin(completionHandler: complete)
         }
+    }
+
+    /// Standalone semantic HTML/CSS export. The full handoff package remains the
+    /// richer artifact; this is the quick path for a developer who only needs
+    /// inspectable web output.
+    @objc func exportSemanticHTMLAction(_ sender: Any?) {
+        guard let document else { NSSound.beep(); return }
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.prompt = "Export Here"
+        panel.message = "Choose a folder for the generated HTML pages and shared styles.css file."
+
+        let complete: (NSApplication.ModalResponse) -> Void = { [weak self] response in
+            guard let self, response == .OK, let directory = panel.url else { return }
+            do {
+                let bundle = SemanticHTMLExporter(document: document.model).makeBundle()
+                for artifact in bundle.artifacts {
+                    let relativePath = artifact.path.hasPrefix("html/")
+                        ? String(artifact.path.dropFirst("html/".count)) : artifact.path
+                    let target = directory.appendingPathComponent(relativePath)
+                    try FileManager.default.createDirectory(
+                        at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    try artifact.data.write(to: target, options: .atomic)
+                }
+            } catch {
+                self.presentExportError(error, title: "Semantic HTML export failed")
+            }
+        }
+        if let window {
+            panel.beginSheetModal(for: window, completionHandler: complete)
+        } else {
+            panel.begin(completionHandler: complete)
+        }
+    }
+
+    /// Design Language tokens in the W3C Design Tokens Community Group shape.
+    @objc func exportDesignTokensAction(_ sender: Any?) {
+        guard let document else { NSSound.beep(); return }
+        let panel = NSSavePanel()
+        panel.canCreateDirectories = true
+        panel.allowedContentTypes = [.json]
+        panel.nameFieldStringValue = "tokens.json"
+        panel.message = "Export this document's Design Language as portable design tokens."
+
+        let complete: (NSApplication.ModalResponse) -> Void = { [weak self] response in
+            guard let self, response == .OK, let url = panel.url else { return }
+            do {
+                let data = try DesignLanguageIO.exportDesignTokensJSON(document.model.designLanguage)
+                try data.write(to: url, options: .atomic)
+            } catch {
+                self.presentExportError(error, title: "Design token export failed")
+            }
+        }
+        if let window {
+            panel.beginSheetModal(for: window, completionHandler: complete)
+        } else {
+            panel.begin(completionHandler: complete)
+        }
+    }
+
+    private func presentExportError(_ error: Error, title: String) {
+        let alert = NSAlert(error: error)
+        alert.messageText = title
+        if let window { alert.beginSheetModal(for: window) } else { alert.runModal() }
     }
 
     // MARK: Point corner/curve toggle
@@ -8756,10 +9586,18 @@ final class CanvasNSView: NSView {
         guard let app else { return }
         let sel = app.selectedNodeIDs
         var freed = Set<UUID>()
-        func process(_ arr: inout [Node]) {
+        /// Relationships freed at the CURRENT level by a group disappearing. They
+        /// have to move UP to whatever now contains both ends — endpoints stay
+        /// valid because a path names component instances only, never groups, so a
+        /// link survives ungrouping as long as its STORAGE does. Before this, the
+        /// group node was replaced by its children and its `anchoredRelationships`
+        /// went with it: authored semantics destroyed by an ordinary edit, with no
+        /// warning. Exactly the silent loss BUG-012 was filed for, one door over.
+        func process(_ arr: inout [Node], hoisting hoist: inout [AnchoredRelationship]) {
             var i = 0
             while i < arr.count {
                 if sel.contains(arr[i].id), case .group(let kids) = arr[i].content {
+                    hoist.append(contentsOf: arr[i].anchoredRelationships)
                     let o = arr[i].frame.origin
                     let rebased = kids.map { k -> Node in
                         var c = k; c.frame = c.frame.offsetBy(dx: o.x, dy: o.y); return c
@@ -8769,17 +9607,23 @@ final class CanvasNSView: NSView {
                     i += rebased.count
                 } else {
                     if case .group(var kids) = arr[i].content {
-                        process(&kids)
+                        var inner: [AnchoredRelationship] = []
+                        process(&kids, hoisting: &inner)
                         arr[i].content = .group(children: kids)
+                        // This group survives and still contains both ends, so it
+                        // becomes the new anchor for anything freed beneath it.
+                        arr[i].anchoredRelationships.append(contentsOf: inner)
                     }
                     i += 1
                 }
             }
         }
         var nodes = currentNodes
-        process(&nodes)
+        var hoistedToRoot: [AnchoredRelationship] = []
+        process(&nodes, hoisting: &hoistedToRoot)
         guard !freed.isEmpty else { return }
-        commitNodes(nodes, actionName: "Ungroup")
+        commitNodes(nodes, actionName: "Ungroup",
+                    appendingRootAnchors: hoistedToRoot)
         app.selectedNodeIDs = freed
         needsDisplay = true
     }
@@ -9002,8 +9846,9 @@ final class CanvasNSView: NSView {
         let selectedIDs = app.selectedNodeIDs
         switch scope {
         case .document:
-            model.nodes.removeAll { selectedIDs.contains($0.id) }
-            model.nodes.append(instance)
+            guard let pageIndex = model.pageIndex(for: activePageID) else { return }
+            model.pages[pageIndex].nodes.removeAll { selectedIDs.contains($0.id) }
+            model.pages[pageIndex].nodes.append(instance)
         case .source(let sid):
             if let si = model.sources.firstIndex(where: { $0.id == sid }) {
                 model.sources[si].children.removeAll { selectedIDs.contains($0.id) }
@@ -9043,44 +9888,100 @@ final class CanvasNSView: NSView {
         return nil
     }
 
+    /// Which source a category menu item writes to, and what it writes. Carrying
+    /// the source id on the item is what makes NESTED authoring possible: inside
+    /// a source editor, right-clicking a nested instance must categorise THAT
+    /// component, not the source being edited.
+    final class ComponentCategoryRequest: NSObject {
+        let sourceID: UUID
+        let role: AriaRole?
+        init(sourceID: UUID, role: AriaRole?) {
+            self.sourceID = sourceID
+            self.role = role
+        }
+    }
+
     /// Single source of truth for assigning a component category. The sender's
-    /// representedObject carries the ARIA token (String; nil = uncategorized) —
-    /// the UI always shows the friendly label, the model always stores the token.
+    /// representedObject carries a `ComponentCategoryRequest`; the legacy plain
+    /// ARIA-token form still resolves against the ambient target so older menu
+    /// builders keep working. The UI always shows the friendly label, the model
+    /// always stores the token.
     @objc func setComponentCategoryAction(_ sender: NSMenuItem) {
-        guard let document, let sid = categoryTargetSourceID,
+        guard let document else { return }
+        let target: UUID?
+        let role: AriaRole?
+        if let request = sender.representedObject as? ComponentCategoryRequest {
+            target = request.sourceID
+            role = request.role
+        } else {
+            target = categoryTargetSourceID
+            role = (sender.representedObject as? String).flatMap(AriaRole.init(rawValue:))
+        }
+        guard let sid = target,
               let si = document.model.sources.firstIndex(where: { $0.id == sid }) else { return }
-        let role = (sender.representedObject as? String).flatMap(AriaRole.init(rawValue:))
         var model = document.model
         guard model.sources[si].a11y.role != role else { return }
         model.sources[si].a11y.role = role
         document.setModel(model, undoManager: undoManager, actionName: "Set Component Category")
     }
 
+    /// The role of the component this canvas is editing, if any — the parent
+    /// half of a semantic-containment question.
+    private var editingSourceRole: AriaRole? {
+        guard case .source(let sid) = scope else { return nil }
+        return document?.model.source(for: sid)?.a11y.role
+    }
+
     /// "Set Category" submenu for the right-click menu: friendly labels grouped
     /// by ARIA category, checkmark on the current choice, "Uncategorized" on top.
     private func categoryMenuItem(for sourceID: UUID) -> NSMenuItem {
         let current = document?.model.sources.first { $0.id == sourceID }?.a11y.role
+        // Semantic containment (Chunk I): when this component sits inside another
+        // component with ownership expectations, promote the roles that fit and
+        // say why. The full list still follows — a recommendation shortens the
+        // path to the right answer, it never removes a legitimate choice.
+        let advice = document?.model.containmentAdvice(forChildRole: current,
+                                                       inParentRole: editingSourceRole)
         let item = NSMenuItem(title: "Set Category", action: nil, keyEquivalent: "")
         let sub = NSMenu()
-        let none = NSMenuItem(title: "Uncategorized",
-                              action: #selector(setComponentCategoryAction(_:)), keyEquivalent: "")
-        none.target = self
-        none.state = current == nil ? .on : .off
-        sub.addItem(none)
+
+        func add(_ role: AriaRole?, indented: Bool) {
+            let entry = NSMenuItem(title: role?.friendlyLabel ?? "Uncategorized",
+                                   action: #selector(setComponentCategoryAction(_:)),
+                                   keyEquivalent: "")
+            entry.target = self
+            entry.representedObject = ComponentCategoryRequest(sourceID: sourceID, role: role)
+            entry.state = current == role ? .on : .off
+            entry.toolTip = role?.blurb
+            if indented { entry.indentationLevel = 1 }
+            sub.addItem(entry)
+        }
+
+        if let advice {
+            // A disabled first line explains the situation in plain language.
+            // Warnings are marked as such; suggestions must not read as errors.
+            let header = NSMenuItem(
+                title: (advice.isWarning ? "\u{26A0}\u{FE0F} " : "") + advice.message,
+                action: nil, keyEquivalent: "")
+            header.isEnabled = false
+            sub.addItem(header)
+            if !advice.recommended.isEmpty {
+                sub.addItem(.separator())
+                let label = NSMenuItem(title: "Recommended here", action: nil, keyEquivalent: "")
+                label.isEnabled = false
+                sub.addItem(label)
+                for role in advice.recommended { add(role, indented: true) }
+            }
+            sub.addItem(.separator())
+        }
+
+        add(nil, indented: false)
         for group in AriaRole.grouped() {
             sub.addItem(.separator())
             let header = NSMenuItem(title: group.category.label, action: nil, keyEquivalent: "")
             header.isEnabled = false   // section label, not a choice
             sub.addItem(header)
-            for role in group.roles {
-                let it = NSMenuItem(title: role.friendlyLabel,
-                                    action: #selector(setComponentCategoryAction(_:)), keyEquivalent: "")
-                it.target = self
-                it.representedObject = role.rawValue
-                it.state = current == role ? .on : .off
-                it.indentationLevel = 1
-                sub.addItem(it)
-            }
+            for role in group.roles { add(role, indented: true) }
         }
         item.submenu = sub
         return item
@@ -9093,6 +9994,62 @@ final class CanvasNSView: NSView {
     }
 
     @objc func detachComponentAction(_ sender: Any?) { detachSelectedInstances() }
+
+    /// The component source carried by a panel/menu item, the source currently
+    /// being edited, or the source behind the selected instance (in that order).
+    /// Source-level commands share this resolver so panel, canvas, and Object-menu
+    /// actions always target the same definition.
+    private func componentSourceTarget(for sender: Any?) -> UUID? {
+        if let item = sender as? NSMenuItem {
+            if let id = item.representedObject as? UUID { return id }
+            if let string = item.representedObject as? String,
+               let id = UUID(uuidString: string) { return id }
+            if let string = item.representedObject as? NSString,
+               let id = UUID(uuidString: string as String) { return id }
+        }
+        if case .source(let sourceID) = scope { return sourceID }
+        if let app, let id = app.selectedNodeIDs.first, let node = node(id),
+           case .instance(let inst) = node.content { return inst.sourceID }
+        return nil
+    }
+
+    /// Make a new, independent component SOURCE. This is intentionally different
+    /// from duplicating a selected instance/layer: existing instances keep pointing
+    /// at the original source, and the copy opens as its own working component.
+    @objc func duplicateComponentSourceAction(_ sender: Any?) {
+        guard let document,
+              let sourceID = componentSourceTarget(for: sender),
+              let duplicated = document.model.duplicatingComponentSource(sourceID)
+        else { return }
+        document.setModel(duplicated.document, undoManager: undoManager,
+                          actionName: "Duplicate Component")
+        openSourceEditor(duplicated.sourceID)
+        needsDisplay = true
+    }
+
+    /// The component source a Delete Component command would remove: the id
+    /// carried by the menu item when a Components panel raised it, otherwise the
+    /// source behind the selected instance. Menu validation and the action share
+    /// this so an enabled item always deletes what its title names.
+    func deleteComponentTarget(for sender: Any?) -> UUID? {
+        componentSourceTarget(for: sender)
+    }
+
+    /// Delete the component SOURCE behind the selection. Deliberately distinct
+    /// from deleting the selected layer: the source and its definition go away,
+    /// but no work is lost — every instance of it, here and inside other
+    /// sources, becomes an ordinary group of the layers it was drawing.
+    @objc func deleteComponentSourceAction(_ sender: Any?) {
+        guard let document, let sourceID = deleteComponentTarget(for: sender),
+              document.model.source(for: sourceID) != nil else { return }
+        document.setModel(document.model.deletingComponentSource(sourceID),
+                          undoManager: undoManager,
+                          actionName: "Delete Component")
+        // A source editor open on the deleted source would be editing something
+        // the document no longer has. Close it rather than leave a ghost window.
+        SourceEditorWindowManager.shared.close(sourceID: sourceID)
+        needsDisplay = true
+    }
 
     /// Add the next likely component state from the Object menu / shortcut.
     /// Source-editor only: state editing belongs to the source, not placed
@@ -9215,6 +10172,8 @@ final class CanvasNSView: NSView {
             add(menu, "Cut", #selector(cut(_:)))
             add(menu, "Copy", #selector(copy(_:)))
             add(menu, "Duplicate", #selector(duplicateSelection(_:)))
+            if let move = pageTransferMenuItem(title: "Move to Page", duplicate: false) { menu.addItem(move) }
+            if let copy = pageTransferMenuItem(title: "Duplicate to Page", duplicate: true) { menu.addItem(copy) }
             add(menu, "Delete", #selector(delete(_:)))
             add(menu, "Reveal in Layers", #selector(revealSelectionInLayersAction(_:)))
             menu.addItem(.separator())
@@ -9251,7 +10210,9 @@ final class CanvasNSView: NSView {
             }
             if case .instance(let inst) = hit.content {
                 add(menu, "Edit Component", #selector(editComponentAction(_:)))
+                add(menu, "Duplicate Component", #selector(duplicateComponentSourceAction(_:)))
                 add(menu, "Detach Component", #selector(detachComponentAction(_:)))
+                add(menu, "Delete Component", #selector(deleteComponentSourceAction(_:)))
                 menu.addItem(categoryMenuItem(for: inst.sourceID))
                 menu.addItem(instanceStateMenuItem(forNode: hit.id, sourceID: inst.sourceID,
                                                    current: inst.activeStateID))
@@ -9349,6 +10310,8 @@ final class CanvasNSView: NSView {
             add(menu, "Copy", #selector(copy(_:)))
             add(menu, "Paste", #selector(paste(_:)))
             add(menu, "Duplicate", #selector(duplicateArtboardsAction(_:)))
+            if let move = pageTransferMenuItem(title: "Move to Page", duplicate: false) { menu.addItem(move) }
+            if let copy = pageTransferMenuItem(title: "Duplicate to Page", duplicate: true) { menu.addItem(copy) }
             add(menu, "Delete", #selector(delete(_:)))
             if let placeItem = componentPlacementMenuItem(at: p) {
                 menu.addItem(.separator())
@@ -9362,6 +10325,30 @@ final class CanvasNSView: NSView {
             add(menu, "Fit to Screen", #selector(fitToScreen(_:)))
         }
         return menu
+    }
+
+    private func pageTransferMenuItem(title: String, duplicate: Bool) -> NSMenuItem? {
+        guard let document, let active = activePageID else { return nil }
+        let destinations = document.model.pages.filter { $0.id != active }
+        guard !destinations.isEmpty else { return nil }
+        let parent = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        let submenu = NSMenu()
+        for page in destinations {
+            let item = NSMenuItem(
+                title: page.name,
+                action: duplicate
+                    ? #selector(duplicateSelectionToPageAction(_:))
+                    : #selector(moveSelectionToPageAction(_:)),
+                keyEquivalent: "")
+            item.target = self
+            item.representedObject = CanvasPageTransferRequest(
+                pageID: page.id,
+                nodeIDs: app?.selectedNodeIDs ?? [],
+                artboardIDs: app?.selectedArtboardIDs ?? [])
+            submenu.addItem(item)
+        }
+        parent.submenu = submenu
+        return parent
     }
 
     /// A selection-independent placement path for the canvas context menu. Only
@@ -9463,6 +10450,13 @@ extension CanvasNSView: NSMenuItemValidation {
             return hasNodes && (app?.copiedLayerStyle != nil)
         case #selector(duplicateArtboardsAction(_:)), #selector(renameArtboardAction(_:)):
             return hasArtboards
+        case #selector(moveSelectionToPageAction(_:)), #selector(duplicateSelectionToPageAction(_:)):
+            guard let request = pageTransferRequest(from: item) else { return false }
+            let requestHasSelection = !(request.nodeIDs ?? app?.selectedNodeIDs ?? []).isEmpty
+                || !(request.artboardIDs ?? app?.selectedArtboardIDs ?? []).isEmpty
+            return requestHasSelection
+                && request.pageID != activePageID
+                && document?.model.pages.contains(where: { $0.id == request.pageID }) == true
         case #selector(ungroupSelection(_:)):
             return selectionHasGroup
         case #selector(maskWithTopShapeAction(_:)):
@@ -9488,6 +10482,19 @@ extension CanvasNSView: NSMenuItemValidation {
             return selectedItemInAutoLayout
         case #selector(editComponentAction(_:)), #selector(detachComponentAction(_:)):
             return selectionHasInstance
+        case #selector(duplicateComponentSourceAction(_:)):
+            guard let sourceID = componentSourceTarget(for: item) else { return false }
+            return document?.model.source(for: sourceID) != nil
+        case #selector(deleteComponentSourceAction(_:)):
+            // Name the source in the title so this can never be mistaken for
+            // deleting the selected layer.
+            guard let sourceID = deleteComponentTarget(for: item),
+                  let source = document?.model.source(for: sourceID) else {
+                item.title = "Delete Component"
+                return false
+            }
+            item.title = "Delete Component \u{201C}\(source.name)\u{201D}"
+            return true
         case #selector(placeComponentAction(_:)):
             let object = item.representedObject
             if let request = object as? ComponentPlacementRequest {
@@ -9540,7 +10547,7 @@ extension CanvasNSView: NSMenuItemValidation {
         case #selector(distributeHorizontallyAction(_:)), #selector(distributeVerticallyAction(_:)):
             return (app?.selectedNodeIDs.count ?? 0) >= 3
         case #selector(selectAll(_:)):
-            return !currentNodes.isEmpty || (!isSourceScope && !(document?.model.artboards.isEmpty ?? true))
+            return !currentNodes.isEmpty || (!isSourceScope && !currentArtboards.isEmpty)
         case #selector(deselectAllAction(_:)):
             return hasNodes || hasArtboards
         // Panel show/hide items: checkmark reflects whether the panel is in the
@@ -9563,14 +10570,18 @@ extension CanvasNSView: NSMenuItemValidation {
         case #selector(toggleTestingModeAction(_:)):
             item.state = (app?.testingMode ?? false) ? .on : .off
             return true
+        case #selector(showLastImportReportAction(_:)):
+            return lastImportReport != nil
         case #selector(placeImageAction(_:)), #selector(importPDFAction(_:)),
+             #selector(importXDAction(_:)), #selector(importFigmaAction(_:)),
              #selector(runGeometryAuditAction(_:)), #selector(saveDiagnosticReportAction(_:)),
-             #selector(exportHandoffPackage(_:)):
+             #selector(exportHandoffPackage(_:)), #selector(exportSemanticHTMLAction(_:)),
+             #selector(exportDesignTokensAction(_:)):
             return document != nil
         case #selector(exportSelectedArtboard(_:)):
             return hasArtboards
         case #selector(exportAllArtboards(_:)):
-            return !(document?.model.artboards.isEmpty ?? true)
+            return !currentArtboards.isEmpty
         case #selector(roundToPixelAction(_:)):
             return hasNodes || hasArtboards
         case #selector(paste(_:)):
@@ -9581,6 +10592,64 @@ extension CanvasNSView: NSMenuItemValidation {
         default:
             return true
         }
+    }
+}
+
+@MainActor
+private final class InteropImportProgressController {
+    enum Outcome {
+        case success(InteropImportResult)
+        case failure(String)
+    }
+
+    private let alert = NSAlert()
+    private let indicator = NSProgressIndicator(frame: NSRect(x: 0, y: 0, width: 360, height: 18))
+    private let detail = NSTextField(labelWithString: "Opening package…")
+    private var modalStarted = false
+    private(set) var outcome: Outcome?
+
+    init(format: InteropFormat, sourceName: String) {
+        alert.messageText = "Importing \(format.rawValue)"
+        alert.informativeText = sourceName
+        alert.addButton(withTitle: "Cancel")
+
+        indicator.isIndeterminate = true
+        indicator.startAnimation(nil)
+        detail.lineBreakMode = .byTruncatingMiddle
+        detail.setAccessibilityLabel("Import progress")
+        let stack = NSStackView(views: [indicator, detail])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 8
+        stack.frame = NSRect(x: 0, y: 0, width: 360, height: 48)
+        indicator.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        detail.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        alert.accessoryView = stack
+    }
+
+    func update(_ progress: InteropProgress) {
+        guard outcome == nil else { return }
+        detail.stringValue = progress.detail.isEmpty ? progress.phase.rawValue
+            : "\(progress.phase.rawValue): \(progress.detail)"
+        if progress.total > 1 {
+            indicator.isIndeterminate = false
+            indicator.minValue = 0
+            indicator.maxValue = Double(progress.total)
+            indicator.doubleValue = Double(progress.completed)
+        }
+    }
+
+    func finish(_ result: Outcome) {
+        guard outcome == nil else { return }
+        outcome = result
+        if modalStarted { NSApp.abortModal() }
+    }
+
+    func runModal() -> NSApplication.ModalResponse {
+        if outcome != nil { return .abort }
+        modalStarted = true
+        defer { modalStarted = false }
+        return alert.runModal()
     }
 }
 
@@ -9596,7 +10665,7 @@ private extension RGBAColor {
 
 /// Copied shapes plus the origin of the board they came from (when they share
 /// one), so paste can land on a different board at the same relative position.
-private struct NodeClipboard: Codable {
+struct NodeClipboard: Codable {
     var nodes: [Node]
     var sourceOrigin: CGPoint?
 }

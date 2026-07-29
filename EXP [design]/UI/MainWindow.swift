@@ -53,10 +53,20 @@ struct MainWindow: View {
                         .frame(minWidth: 200, idealWidth: app.workspace.left.width, maxWidth: 420)
                 }
 
-                CanvasView(app: app, document: document, documentURL: fileURL)
-                    .overlay(alignment: .topLeading) { ArtboardNotesOverlay(document: document) }
-                    .frame(minWidth: 400, maxWidth: .infinity, maxHeight: .infinity)
-                    .layoutPriority(1) // canvas gets the leftover space
+                VStack(spacing: 0) {
+                    CanvasPageTabs(document: document)
+                        // Native canvas redraws are aggressive during fast pan.
+                        // Keep the SwiftUI chrome in its own foreground stacking
+                        // group so AppKit cannot transiently composite above it.
+                        .compositingGroup()
+                        .zIndex(1)
+                    CanvasView(app: app, document: document, documentURL: fileURL)
+                        .overlay(alignment: .topLeading) { ArtboardNotesOverlay(document: document) }
+                        .clipped()
+                        .zIndex(0)
+                }
+                .frame(minWidth: 400, maxWidth: .infinity, maxHeight: .infinity)
+                .layoutPriority(1) // canvas gets the leftover space
 
                 // Right dock column (Properties + Components by default).
                 if app.workspaceMode == .single, app.showRightPanel {
@@ -79,7 +89,10 @@ struct MainWindow: View {
         // this window appears or becomes key, and reconcile windows on mode/tray
         // changes. (The tray set is global — PanelHub — so a 2nd document doesn't
         // open a 2nd set of panels.)
-        .onAppear { activate() }
+        .onAppear {
+            app.activeCanvasPageID = document.model.pageID(resolving: app.activeCanvasPageID)
+            activate()
+        }
         .onDisappear { SourceEditorWindowManager.shared.closeAll(for: document) }
         .onChange(of: controlActiveState) { _, state in if state == .key { activate() } }
         .onChange(of: app.workspaceMode) { _, _ in activate() }
@@ -375,14 +388,208 @@ struct MainWindow: View {
     /// undo-aware funnel, then select it.
     private func addArtboard(width: CGFloat, height: CGFloat, name: String) {
         var model = document.model
-        let originX = model.artboards.isEmpty ? 0 : model.contentBounds.maxX + 100
+        guard let pageIndex = model.pageIndex(for: app.activeCanvasPageID) else { return }
+        let page = model.pages[pageIndex]
+        let originX = page.artboards.isEmpty ? 0 : model.contentBounds(on: page.id).maxX + 100
         let artboard = Artboard(
-            name: "\(name) \(model.artboards.count + 1)",
+            name: "\(name) \(page.artboards.count + 1)",
             frame: CGRect(x: originX, y: 0, width: width, height: height)
         )
-        model.artboards.append(artboard)
+        model.pages[pageIndex].artboards.append(artboard)
         document.setModel(model, undoManager: undoManager, actionName: "New Artboard")
         app.selectedArtboardID = artboard.id
+    }
+}
+
+/// Document-level canvas navigation. Pages intentionally sit above the drawing
+/// surface—not beside Layers—because switching one replaces the whole workspace.
+private struct CanvasPageTabs: View {
+    @ObservedObject var document: ExpDocument
+    @Environment(AppState.self) private var app
+    @Environment(\.undoManager) private var undoManager
+    @State private var deleteCandidate: CanvasPage?
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ScrollView(.horizontal) {
+                HStack(spacing: 2) {
+                    ForEach(document.model.pages) { page in
+                        CanvasPageTab(
+                            page: page,
+                            isActive: document.model.pageID(resolving: app.activeCanvasPageID) == page.id,
+                            canDelete: document.model.pages.count > 1,
+                            canMoveLeft: document.model.pages.first?.id != page.id,
+                            canMoveRight: document.model.pages.last?.id != page.id,
+                            select: { select(page.id) },
+                            rename: { rename(page.id, to: $0) },
+                            duplicate: { duplicate(page.id) },
+                            delete: { deleteCandidate = page },
+                            moveLeft: { reorder(page.id, delta: -1) },
+                            moveRight: { reorder(page.id, delta: 1) })
+                    }
+                }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 4)
+            }
+            .scrollIndicators(.hidden)
+
+            Divider().frame(height: 20)
+            Button(action: addPage) {
+                Image(systemName: "plus")
+                    .frame(width: 26, height: 24)
+            }
+            .buttonStyle(.plain)
+            .help("New canvas page")
+            .accessibilityLabel("New canvas page")
+            .padding(.horizontal, 5)
+        }
+        .frame(height: 33)
+        .background(EXPColor.surfacePanelSolid)
+        .overlay(alignment: .bottom) { Divider() }
+        .alert("Delete Canvas Page?", isPresented: Binding(
+            get: { deleteCandidate != nil },
+            set: { if !$0 { deleteCandidate = nil } })) {
+                Button("Cancel", role: .cancel) { deleteCandidate = nil }
+                Button("Delete", role: .destructive) {
+                    if let page = deleteCandidate { deletePage(page.id) }
+                    deleteCandidate = nil
+                }
+            } message: {
+                Text("This removes \(deleteCandidate?.name ?? "the page") and all of its artboards and layers. You can undo this action.")
+            }
+    }
+
+    private func select(_ id: UUID) {
+        guard app.activeCanvasPageID != id else { return }
+        app.selectedNodeIDs = []
+        app.selectedArtboardIDs = []
+        app.selectionAnchorID = nil
+        app.activeCanvasPageID = id
+    }
+
+    private func uniqueName(_ base: String, excluding id: UUID? = nil) -> String {
+        let used = Set(document.model.pages.filter { $0.id != id }.map { $0.name.lowercased() })
+        if !used.contains(base.lowercased()) { return base }
+        var number = 2
+        while used.contains("\(base) \(number)".lowercased()) { number += 1 }
+        return "\(base) \(number)"
+    }
+
+    private func addPage() {
+        var model = document.model
+        let page = CanvasPage(name: uniqueName("Page \(model.pages.count + 1)"))
+        model.pages.append(page)
+        document.setModel(model, undoManager: undoManager, actionName: "New Canvas Page")
+        select(page.id)
+    }
+
+    private func rename(_ id: UUID, to proposed: String) {
+        let trimmed = proposed.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        var model = document.model
+        guard let index = model.pages.firstIndex(where: { $0.id == id }) else { return }
+        let name = uniqueName(trimmed, excluding: id)
+        guard model.pages[index].name != name else { return }
+        model.pages[index].name = name
+        document.setModel(model, undoManager: undoManager, actionName: "Rename Canvas Page")
+    }
+
+    private func duplicate(_ id: UUID) {
+        var model = document.model
+        guard let index = model.pages.firstIndex(where: { $0.id == id }) else { return }
+        let copy = Document.duplicatingPage(model.pages[index], named: uniqueName("\(model.pages[index].name) copy"))
+        model.pages.insert(copy, at: index + 1)
+        document.setModel(model, undoManager: undoManager, actionName: "Duplicate Canvas Page")
+        select(copy.id)
+    }
+
+    private func deletePage(_ id: UUID) {
+        var model = document.model
+        guard model.pages.count > 1,
+              let index = model.pages.firstIndex(where: { $0.id == id }) else { return }
+        model.pages.remove(at: index)
+        let fallback = model.pages[min(index, model.pages.count - 1)].id
+        document.setModel(model, undoManager: undoManager, actionName: "Delete Canvas Page")
+        if app.activeCanvasPageID == id { select(fallback) }
+    }
+
+    private func reorder(_ id: UUID, delta: Int) {
+        var model = document.model
+        guard let from = model.pages.firstIndex(where: { $0.id == id }) else { return }
+        let to = from + delta
+        guard model.pages.indices.contains(to) else { return }
+        model.pages.swapAt(from, to)
+        document.setModel(model, undoManager: undoManager, actionName: "Reorder Canvas Pages")
+    }
+}
+
+private struct CanvasPageTab: View {
+    let page: CanvasPage
+    let isActive: Bool
+    let canDelete: Bool
+    let canMoveLeft: Bool
+    let canMoveRight: Bool
+    let select: () -> Void
+    let rename: (String) -> Void
+    let duplicate: () -> Void
+    let delete: () -> Void
+    let moveLeft: () -> Void
+    let moveRight: () -> Void
+    @State private var editing = false
+    @State private var draft = ""
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        Group {
+            if editing {
+                TextField("Page name", text: $draft)
+                    .textFieldStyle(.plain)
+                    .frame(minWidth: 72, maxWidth: 180)
+                    .focused($focused)
+                    .onSubmit(commitRename)
+                    .onExitCommand { editing = false }
+                    .onChange(of: focused) { _, value in if !value, editing { commitRename() } }
+            } else {
+                Button(action: select) {
+                    Text(page.name)
+                        .font(.system(size: EXPType.small, weight: isActive ? .semibold : .regular))
+                        .lineLimit(1)
+                        .padding(.horizontal, 11)
+                        .frame(height: 25)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .foregroundStyle(isActive ? EXPColor.accent : EXPColor.textSecondary)
+        .background(isActive ? EXPColor.rowSelected : Color.clear,
+                    in: RoundedRectangle(cornerRadius: EXPMetric.radiusControl))
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(isActive ? EXPColor.accent : Color.clear).frame(height: 2)
+        }
+        .contextMenu {
+            Button("Rename…", action: beginRename)
+            Button("Duplicate Page", action: duplicate)
+            Divider()
+            Button("Move Left", action: moveLeft).disabled(!canMoveLeft)
+            Button("Move Right", action: moveRight).disabled(!canMoveRight)
+            Divider()
+            Button("Delete Page", role: .destructive, action: delete).disabled(!canDelete)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Canvas page \(page.name)")
+        .accessibilityValue(isActive ? "Selected" : "Not selected")
+        .help(isActive ? "Current canvas page" : "Switch to \(page.name)")
+    }
+
+    private func beginRename() {
+        draft = page.name
+        editing = true
+        DispatchQueue.main.async { focused = true }
+    }
+
+    private func commitRename() {
+        rename(draft)
+        editing = false
     }
 }
 
@@ -496,6 +703,11 @@ struct ComponentPlacementChoice: Identifiable, Hashable {
     var name: String
 }
 
+struct CanvasPageChoice: Identifiable, Hashable {
+    var id: UUID
+    var name: String
+}
+
 /// Focused state used by SwiftUI command menus to grey out actions that do not
 /// apply to the active selection. The canvas responder remains the source of
 /// behavior; this is just the visible menu contract.
@@ -507,6 +719,9 @@ struct EditorMenuModel {
     var canDuplicate: Bool
     var canCopyStyle: Bool
     var canPasteStyle: Bool
+    var pageTransferChoices: [CanvasPageChoice]
+    var selectedNodeIDs: Set<UUID>
+    var selectedArtboardIDs: Set<UUID>
 
     var canGroup: Bool
     var canUngroup: Bool
@@ -521,7 +736,10 @@ struct EditorMenuModel {
     var canCreateComponent: Bool
     var canNewEmptyComponent: Bool
     var canEditComponent: Bool
+    var canDuplicateComponent: Bool
     var canDetachComponent: Bool
+    var canDeleteComponent: Bool
+    var deleteComponentTitle: String
     var componentPlacementChoices: [ComponentPlacementChoice]
     var canSetComponentCategory: Bool
     var canEditRelationships: Bool
@@ -558,7 +776,7 @@ func makeEditorMenuModel(document: ExpDocument, app: AppState, scope: CanvasScop
     let source: ComponentSource?
     switch scope {
     case .document:
-        nodes = model.nodes
+        nodes = model.page(for: app.activeCanvasPageID)?.nodes ?? []
         source = nil
     case .source(let sid):
         source = model.source(for: sid)
@@ -599,6 +817,12 @@ func makeEditorMenuModel(document: ExpDocument, app: AppState, scope: CanvasScop
         return nil
     }
     let hasInstance = selectedNodes.contains { if case .instance = $0.content { return true }; return false }
+    /// The source behind the first selected instance — Delete Component names it
+    /// in the menu title so it can never read as "delete the selected layer."
+    let instanceSource = selectedNodes.compactMap { node -> ComponentSource? in
+        guard case .instance(let inst) = node.content else { return nil }
+        return model.source(for: inst.sourceID)
+    }.first
     let hasMask = selectedNodes.contains { $0.isMask }
     let hasConvertible = selectedNodes.contains {
         switch $0.content {
@@ -629,6 +853,32 @@ func makeEditorMenuModel(document: ExpDocument, app: AppState, scope: CanvasScop
         else { return "Add Component State" }
         return "Add \(next.capitalized) State"
     }()
+    /// Relationships are reachable when the COMPONENT ROOT can carry them, or when
+    /// the selected layer has a role of its OWN. Roles do not inherit, so being
+    /// inside a roled component is not enough — that was BUG-008, which offered
+    /// naming on every decorative layer in a Tab Panel.
+    /// Relationships are reachable when there is an ANCHOR holding both ends and
+    /// something inside it that can carry one. Answers from
+    /// `Document.hasRelationshipParticipant(in:)` so this and the canvas context
+    /// menu and the inspector cannot drift apart.
+    let canEditRelationships: Bool = {
+        guard let node = singleNode else {
+            // Source scope with nothing selected still offers the component ROOT.
+            guard let source else { return false }
+            return !(source.a11y.role?.authoredRelationshipKinds.isEmpty ?? true)
+                || !source.anchoredRelationships.isEmpty
+        }
+        let carries = model.hasRelationshipParticipant(in: node)
+        guard let source else {
+            // Document scope: the anchor is the enclosing GROUP. Without one there
+            // is nothing to point at, but the panel still explains the rule, so the
+            // menu item stays enabled rather than going grey for an invisible reason.
+            return carries
+        }
+        let rootCarries = !(source.a11y.role?.authoredRelationshipKinds.isEmpty ?? true)
+            || !source.anchoredRelationships.isEmpty
+        return carries || rootCarries
+    }()
     let canAlign = selectedIDs.count >= 2 || (selectedIDs.count >= 1 && app.alignTarget == .artboard)
     let componentPlacementChoices = model.sources
         .filter { candidate in
@@ -641,6 +891,10 @@ func makeEditorMenuModel(document: ExpDocument, app: AppState, scope: CanvasScop
         }
         .map { ComponentPlacementChoice(id: $0.id, name: $0.name) }
         .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    let activePageID = model.pageID(resolving: app.activeCanvasPageID)
+    let pageTransferChoices = scope == .document
+        ? model.pages.filter { $0.id != activePageID }.map { CanvasPageChoice(id: $0.id, name: $0.name) }
+        : []
 
     return EditorMenuModel(
         hasNodes: hasNodes,
@@ -648,6 +902,9 @@ func makeEditorMenuModel(document: ExpDocument, app: AppState, scope: CanvasScop
         canDuplicate: hasNodes,
         canCopyStyle: hasNodes,
         canPasteStyle: hasNodes && app.copiedLayerStyle != nil,
+        pageTransferChoices: pageTransferChoices,
+        selectedNodeIDs: selectedIDs,
+        selectedArtboardIDs: app.selectedArtboardIDs,
         canGroup: selectedIDs.count >= 2,
         canUngroup: hasGroup,
         canMask: selectedIDs.count >= 2,
@@ -660,12 +917,14 @@ func makeEditorMenuModel(document: ExpDocument, app: AppState, scope: CanvasScop
         canCreateComponent: hasNodes,
         canNewEmptyComponent: true,
         canEditComponent: hasInstance,
+        canDuplicateComponent: source != nil || hasInstance,
         canDetachComponent: hasInstance,
+        canDeleteComponent: instanceSource != nil,
+        deleteComponentTitle: instanceSource.map { "Delete Component \u{201C}\($0.name)\u{201D}" }
+            ?? "Delete Component",
         componentPlacementChoices: componentPlacementChoices,
         canSetComponentCategory: source != nil || hasInstance,
-        canEditRelationships: source != nil && singleNode != nil && flatten(nodes).count > 1
-            && (!(source?.a11y.role?.authoredRelationshipKinds.isEmpty ?? true)
-                || !(singleNode?.relationships.isEmpty ?? true)),
+        canEditRelationships: canEditRelationships,
         canAddComponentState: source != nil,
         addComponentStateTitle: stateName,
         canCycleComponentState: !(source?.states.isEmpty ?? true),
@@ -678,7 +937,7 @@ func makeEditorMenuModel(document: ExpDocument, app: AppState, scope: CanvasScop
         canAlign: canAlign,
         canDistribute: selectedIDs.count >= 3,
         canExportSelectedArtboards: !app.selectedArtboardIDs.isEmpty,
-        canExportAllArtboards: !model.artboards.isEmpty,
+        canExportAllArtboards: !(model.page(for: app.activeCanvasPageID)?.artboards.isEmpty ?? true),
         canRevealSelectionInLayers: hasNodes
     )
 }
@@ -755,7 +1014,7 @@ struct RightPanel: View {
 
     /// The component STATE being edited in this window's source scope, if any
     /// (v1.6 Chunk H). The inspector shows state-applied values and routes
-    /// text/fill edits into the state's diff while it's set.
+    /// appearance edits into the state's diff while it's set.
     private var activeEditingState: ComponentState? {
         guard case .source(let sid) = scope,
               let stateID = app.activeComponentStateID else { return nil }
@@ -766,11 +1025,15 @@ struct RightPanel: View {
     /// overrides applied, so the inspector reads what the canvas shows.
     private var scopedNodes: [Node] {
         switch scope {
-        case .document: return document.model.nodes
+        case .document: return document.model.page(for: app.activeCanvasPageID)?.nodes ?? []
         case .source(let sid):
             let children = document.model.source(for: sid)?.children ?? []
             if let state = activeEditingState {
-                return ComponentStateEditing.applied(children, state: state, reflow: true)
+                // Reflow through the document so component instances inside a
+                // state contribute their resolved size, not a stale frame
+                // (BUG-007).
+                return document.model.reflowed(
+                    ComponentStateEditing.applied(children, state: state))
             }
             return children
         }
@@ -782,15 +1045,16 @@ struct RightPanel: View {
         var model = document.model
         switch scope {
         case .document:
-            change(&model.nodes)
-            model.nodes = AutoLayoutEngine.reflowed(model.nodes)
+            guard let pageIndex = model.pageIndex(for: app.activeCanvasPageID) else { return }
+            change(&model.pages[pageIndex].nodes)
+            model.pages[pageIndex].nodes = model.reflowed(model.pages[pageIndex].nodes)
         case .source(let sid):
             guard let si = model.sources.firstIndex(where: { $0.id == sid }) else { return }
             let fitSourceBounds = model.sourceUsesManagedBounds(model.sources[si])
             if let state = activeEditingState,
                let sti = model.sources[si].states.firstIndex(where: { $0.id == state.id }) {
                 // Editing a STATE: run the change against the state-applied
-                // tree (what the user sees), then split text/fill differences
+                // tree (what the user sees), then split appearance differences
                 // into the state's diff and keep the rest in the base
                 // (see ComponentStateEditing).
                 var resolved = ComponentStateEditing.applied(model.sources[si].children,
@@ -798,7 +1062,7 @@ struct RightPanel: View {
                 change(&resolved)
                 let (newBase, newState) = ComponentStateEditing.capture(
                     base: model.sources[si].children, edited: resolved, state: state)
-                let reflowed = AutoLayoutEngine.reflowed(newBase)
+                let reflowed = model.reflowed(newBase)
                 model.sources[si].children = reflowed
                 model.sources[si].states[sti] = newState
                 if fitSourceBounds,
@@ -808,7 +1072,7 @@ struct RightPanel: View {
                 }
             } else {
                 change(&model.sources[si].children)
-                let reflowed = AutoLayoutEngine.reflowed(model.sources[si].children)
+                let reflowed = model.reflowed(model.sources[si].children)
                 model.sources[si].children = reflowed
                 if fitSourceBounds,
                    let bounds = model.managedRootBounds(in: reflowed) {
@@ -852,7 +1116,7 @@ struct RightPanel: View {
     /// (Source scope has no artboards.)
     private var selectedArtboard: Artboard? {
         guard case .document = scope, let id = app.selectedArtboardID else { return nil }
-        return document.model.artboards.first { $0.id == id }
+        return document.model.page(for: app.activeCanvasPageID)?.artboards.first { $0.id == id }
     }
 
     /// The single selected shape, if exactly one is selected (within the scope).
@@ -861,71 +1125,275 @@ struct RightPanel: View {
         return findScopedNode(id)   // resolves nested children too
     }
 
+    /// One pickable end of a relationship, addressed relative to the anchor.
     private struct RelationshipTarget: Identifiable {
-        let id: UUID
+        let endpoint: RelationshipEndpoint
         let title: String
         let icon: String
+        /// The target's own role, shown beside its name. Picking "the panel" out of
+        /// a list of layer names is guesswork; "Panel One — Tab Panel" is not.
+        var roleLabel: String? = nil
+
+        /// The PATH is the identity. A node id alone is not unique: the same source
+        /// child appears once per placement of its component.
+        var id: [UUID] { endpoint.path }
+
+        var display: String {
+            guard let roleLabel else { return title }
+            return "\(title) \u{2014} \(roleLabel)"
+        }
     }
 
-    /// Relationship authoring is part of the component behavior contract, so the
-    /// target list comes from the BASE source tree even when a visual state is
-    /// active. State overrides can change how a layer looks; ARIA links stay on
-    /// the source structure.
-    private var relationshipSourceNodes: [Node] {
-        guard case .source(let sid) = scope else { return [] }
-        return document.model.source(for: sid)?.children ?? []
+    /// A thing that can CARRY a relationship, and where it sits relative to the
+    /// anchor. The selection itself is one; so is each roled component nested
+    /// inside it, which is how a single tab inside a placed Tab Bar becomes
+    /// authorable without being selectable.
+    private struct RelationshipParticipant: Identifiable {
+        let subject: RelationshipEndpoint
+        let title: String
+        let subtitle: String
+        let role: AriaRole?
+        let kinds: [NodeRelationship.Kind]
+        var id: [UUID] { subject.path }
     }
 
-    private var relationshipTargets: [RelationshipTarget] {
-        guard let selectedID = app.singleSelectedNodeID else { return [] }
-        func collect(_ nodes: [Node], depth: Int = 0) -> [RelationshipTarget] {
-            nodes.flatMap { node -> [RelationshipTarget] in
-                let prefix = depth == 0 ? "" : String(repeating: "  ", count: depth)
-                let target = node.id == selectedID ? [] : [
-                    RelationshipTarget(id: node.id,
-                                       title: "\(prefix)\(node.name)",
-                                       icon: nodeTypeIcon(node))
-                ]
-                if case .group(let children) = node.content {
-                    return target + collect(children, depth: depth + 1)
-                }
-                return target
+    /// Where a relationship is STORED: the nearest thing containing both ends.
+    private enum RelationshipAnchor {
+        case source(ComponentSource)
+        case group(Node)
+
+        var id: UUID {
+            switch self {
+            case .source(let s): return s.id
+            case .group(let g):  return g.id
             }
         }
-        return collect(relationshipSourceNodes)
+        var name: String {
+            switch self {
+            case .source(let s): return s.name
+            case .group(let g):  return g.name.isEmpty ? "Group" : g.name
+            }
+        }
+        var children: [Node] {
+            switch self {
+            case .source(let s): return s.children
+            case .group(let g):
+                if case .group(let kids) = g.content { return kids }
+                return []
+            }
+        }
+        var stored: [AnchoredRelationship] {
+            switch self {
+            case .source(let s): return s.anchoredRelationships
+            case .group(let g):  return g.anchoredRelationships
+            }
+        }
     }
 
-    private func currentRelationshipTargetID(_ kind: NodeRelationship.Kind) -> UUID? {
-        selectedNode?.relationships.first { $0.kind == kind }?.targetID
+    private var editingSourceID: UUID? {
+        if case .source(let sid) = scope { return sid }
+        return nil
     }
 
-    private func relationshipBinding(_ kind: NodeRelationship.Kind) -> Binding<UUID?> {
+    private var editingSource: ComponentSource? {
+        editingSourceID.flatMap { document.model.source(for: $0) }
+    }
+
+    /// The role that will actually be emitted on the element hosting this node.
+    ///
+    /// ARIA roles do NOT inherit — each element has its own role, explicit or
+    /// implicit, and nothing cascades to descendants. So this asks the NODE, never
+    /// its container. A component instance hosts its source's role; every other
+    /// layer exports as a plain `<div>`, whose implicit role is `generic`.
+    /// Verified 2026-07-24; see BACKLOG BUG-008.
+    private func effectiveExportRole(of node: Node) -> AriaRole? {
+        if case .instance(let instance) = node.content {
+            return document.model.source(for: instance.sourceID)?.a11y.role
+        }
+        return nil
+    }
+
+    /// The nearest enclosing GROUP of a node, or nil when it is not in one.
+    private func enclosingGroup(of id: UUID, in nodes: [Node],
+                                parent: Node? = nil) -> Node? {
+        for node in nodes {
+            if node.id == id { return parent }
+            if case .group(let children) = node.content,
+               let found = enclosingGroup(of: id, in: children, parent: node) {
+                return found
+            }
+        }
+        return nil
+    }
+
+    /// RELATIONSHIP SCOPE — the "neighborhood" rule, now expressed as the ANCHOR
+    /// (owner calls 2026-07-24; BACKLOG FEAT-012).
+    ///
+    /// A relationship lives at the nearest thing containing BOTH ends, and the
+    /// pickable ends are exactly that thing's subtree. So the neighborhood is not a
+    /// separate constraint bolted onto the picker — it IS the anchor, which is why
+    /// the two collapsed into one concept.
+    ///
+    /// - SOURCE scope: the component. A component is already a bounded thing, and
+    ///   its root must be able to reach any layer in it.
+    /// - DOCUMENT scope: the nearest enclosing GROUP, with NO fallback to the
+    ///   artboard. Owner call: an artboard fallback quietly reintroduces the
+    ///   long-list problem and makes the rule change with context, while "things you
+    ///   connect live in a group together" always holds — and matches how the owner
+    ///   already designs.
+    private var relationshipAnchor: RelationshipAnchor? {
+        switch scope {
+        case .source:
+            return editingSource.map { .source($0) }
+        case .document:
+            guard let id = app.singleSelectedNodeID,
+                  let node = findScopedNode(id) else { return nil }
+            // A selected GROUP is the anchor ITSELF, not its parent. Groups carry no
+            // role, so a group is never a participant — it is only ever a container,
+            // and the thing you want when you select one is to connect the parts
+            // inside it. Asking for its ENCLOSING group instead meant selecting the
+            // very group that holds a tab bar and its panel produced no anchor at
+            // all, which is a dead end with nothing on screen to explain it.
+            if case .group = node.content { return .group(node) }
+            guard let group = enclosingGroup(
+                of: id, in: document.model.page(for: app.activeCanvasPageID)?.nodes ?? []) else { return nil }
+            return .group(group)
+        }
+    }
+
+    // MARK: Endpoints available inside the anchor
+
+    /// Everything in the anchor's subtree that may be an END of a relationship.
+    ///
+    /// Groups are transparent — they are structure, not identity, so a path never
+    /// names one and a link survives regrouping. Component INSTANCES contribute
+    /// themselves AND their roled descendants, but nothing else: an unroled layer
+    /// inside a component is that component's private business, and linking to one
+    /// from outside couples two components at a level that breaks the moment either
+    /// is edited. A component's roled parts are its public semantic surface, and
+    /// they are also the only things ARIA has any use for out here — a tabpanel is
+    /// named by its TAB, not by some rectangle inside the tab bar.
+    private func relationshipEndpoints(in nodes: [Node],
+                                       chain: [UUID] = [],
+                                       depth: Int = 0) -> [RelationshipTarget] {
+        guard depth < 8 else { return [] }
+        return nodes.flatMap { node -> [RelationshipTarget] in
+            let indent = String(repeating: "  ", count: depth)
+            let role = effectiveExportRole(of: node)
+            let here = RelationshipTarget(
+                endpoint: RelationshipEndpoint(instanceChain: chain, nodeID: node.id),
+                title: "\(indent)\(node.name.isEmpty ? "Layer" : node.name)",
+                icon: nodeTypeIcon(node),
+                roleLabel: role?.friendlyLabel)
+            switch node.content {
+            case .group(let children):
+                return [here] + relationshipEndpoints(in: children, chain: chain, depth: depth + 1)
+            case .instance(let instance):
+                guard let source = document.model.source(for: instance.sourceID) else { return [here] }
+                let inner = relationshipEndpoints(in: source.children,
+                                                  chain: chain + [node.id],
+                                                  depth: depth + 1)
+                    .filter { $0.roleLabel != nil }
+                return [here] + inner
+            default:
+                return [here]
+            }
+        }
+    }
+
+    // MARK: Participants (what can carry a relationship)
+
+    /// Roled things reachable from `node`, as subjects. `node` itself when it has a
+    /// role, plus every roled component nested inside it — which is what makes one
+    /// tab inside a placed Tab Bar authorable even though it cannot be selected.
+    private func participants(from node: Node, chain: [UUID] = [],
+                              depth: Int = 0) -> [RelationshipParticipant] {
+        guard depth < 8 else { return [] }
+        var result: [RelationshipParticipant] = []
+        let endpoint = RelationshipEndpoint(instanceChain: chain, nodeID: node.id)
+        if let role = effectiveExportRole(of: node) {
+            result.append(RelationshipParticipant(
+                subject: endpoint,
+                title: node.name.isEmpty ? "Layer" : node.name,
+                subtitle: role.friendlyLabel,
+                role: role,
+                kinds: kinds(for: role, authored: authoredKinds(for: endpoint))))
+        }
+        switch node.content {
+        case .group(let children):
+            for child in children {
+                result += participants(from: child, chain: chain, depth: depth + 1)
+            }
+        case .instance(let instance):
+            guard let source = document.model.source(for: instance.sourceID) else { break }
+            for child in source.children {
+                result += participants(from: child, chain: chain + [node.id], depth: depth + 1)
+            }
+        default:
+            break
+        }
+        return result
+    }
+
+    /// Kinds offered for a role, plus anything already authored so a role change
+    /// never hides data that still needs removing or retargeting.
+    private func kinds(for role: AriaRole?,
+                       authored: Set<NodeRelationship.Kind>) -> [NodeRelationship.Kind] {
+        let roleKinds = role?.authoredRelationshipKinds ?? []
+        return NodeRelationship.Kind.allCases.filter { roleKinds.contains($0) || authored.contains($0) }
+    }
+
+    private func authoredKinds(for subject: RelationshipEndpoint) -> Set<NodeRelationship.Kind> {
+        guard let anchor = relationshipAnchor else { return [] }
+        return Set(anchor.stored.filter { $0.subject == subject }.map(\.kind))
+    }
+
+    // MARK: Reading + writing anchored relationships
+
+    private func currentTarget(_ subject: RelationshipEndpoint,
+                               _ kind: NodeRelationship.Kind) -> RelationshipEndpoint? {
+        relationshipAnchor?.stored
+            .first { $0.subject == subject && $0.kind == kind }?.target
+    }
+
+    /// Write one relationship onto the ANCHOR, never onto the subject.
+    ///
+    /// Storing it on the subject is what FEAT-012 exists to undo: a subject inside a
+    /// component source is shared by every placement of that source, so the link
+    /// would apply to all of them. The anchor contains both ends, so placing the
+    /// anchor twice yields two independent, correctly-resolved copies.
+    private func anchoredBinding(_ subject: RelationshipEndpoint,
+                                 _ kind: NodeRelationship.Kind) -> Binding<RelationshipEndpoint?> {
         Binding(
-            get: { currentRelationshipTargetID(kind) },
-            set: { targetID in
-                guard let selectedID = app.singleSelectedNodeID,
-                      case .source(let sid) = scope,
-                      let si = document.model.sources.firstIndex(where: { $0.id == sid }) else { return }
-                var model = document.model
-                _ = Self.mutateNestedNode(selectedID, in: &model.sources[si].children) { node in
-                    node.relationships.removeAll { $0.kind == kind }
-                    if let targetID {
-                        node.relationships.append(NodeRelationship(kind: kind, targetID: targetID))
+            get: { currentTarget(subject, kind) },
+            set: { target in
+                guard let anchor = relationshipAnchor else { return }
+                let action = "Set \(kind.label) Relationship"
+                switch anchor {
+                case .source(let source):
+                    var model = document.model
+                    guard let si = model.sources.firstIndex(where: { $0.id == source.id }) else { return }
+                    model.sources[si].anchoredRelationships.removeAll {
+                        $0.subject == subject && $0.kind == kind
+                    }
+                    if let target {
+                        model.sources[si].anchoredRelationships.append(
+                            AnchoredRelationship(kind: kind, subject: subject, target: target))
+                    }
+                    document.setModel(model, undoManager: undoManager, actionName: action)
+                case .group(let group):
+                    mutateScopedNode(group.id, action: action) { node in
+                        node.anchoredRelationships.removeAll {
+                            $0.subject == subject && $0.kind == kind
+                        }
+                        if let target {
+                            node.anchoredRelationships.append(
+                                AnchoredRelationship(kind: kind, subject: subject, target: target))
+                        }
                     }
                 }
-                document.setModel(model, undoManager: undoManager,
-                                  actionName: "Set \(kind.label) Relationship")
             }
         )
-    }
-
-    /// Role-valid relationship fields, plus any already-authored fields so a role
-    /// change never hides data that the designer may need to remove or retarget.
-    private var availableRelationshipKinds: [NodeRelationship.Kind] {
-        guard case .source(let sid) = scope, let node = selectedNode else { return [] }
-        let roleKinds = document.model.source(for: sid)?.a11y.role?.authoredRelationshipKinds ?? []
-        let existing = Set(node.relationships.map(\.kind))
-        return NodeRelationship.Kind.allCases.filter { roleKinds.contains($0) || existing.contains($0) }
     }
 
     /// Document-space offset to subtract for display so a shape's X/Y read
@@ -933,7 +1401,8 @@ struct RightPanel: View {
     private func ownerOffset(_ keyPath: WritableKeyPath<CGRect, CGFloat>) -> CGFloat {
         guard case .document = scope,
               let node = selectedNode,
-              let owner = document.model.owningArtboard(of: node.frame) else { return 0 }
+              let owner = document.model.owningArtboard(
+                of: node.frame, on: app.activeCanvasPageID) else { return 0 }
         if keyPath == \CGRect.origin.x { return owner.frame.minX }
         if keyPath == \CGRect.origin.y { return owner.frame.minY }
         return 0   // width/height are not relative to the artboard
@@ -1063,7 +1532,19 @@ struct RightPanel: View {
                     autoLayoutControls()
                     Divider()
                     autoPaddingControls()
-                    multiStyleControls()
+                    // With Auto Padding on, the group's own background lives in
+                    // the section directly above — a second Fill/Stroke pair here
+                    // would not just repeat it, it would ALSO recolor every layer
+                    // inside (these controls recurse), which is not what a control
+                    // sitting under "Auto Padding" reads as.
+                    //
+                    // Type is dropped for a group entirely. The font menu's label
+                    // is a fixed "Font" (it has no single value to show for a
+                    // mixed selection), so on one group it looked like a control
+                    // that never responded. Changing a typeface is an edit you
+                    // make on the text layers themselves.
+                    multiStyleControls(includeType: false,
+                                       includeFillAndStroke: node.autoPadding == nil)
                 }
                 if case .text = node.content {
                     textControls()
@@ -1077,6 +1558,10 @@ struct RightPanel: View {
                 if case .path = node.content { pathControls() }
                 if case .instance = node.content {
                     instanceControls()
+                }
+                if inspectorCanConvertToPath || inspectorCanOutlineStroke {
+                    Divider()
+                    vectorOperationsControls()
                 }
                 Divider()
                 alignControls()
@@ -1100,6 +1585,10 @@ struct RightPanel: View {
                 )
                 // Font / fill / stroke applied to EVERY selected layer at once.
                 multiStyleControls()
+                if inspectorCanConvertToPath || inspectorCanOutlineStroke || inspectorCanPathfinder {
+                    Divider()
+                    vectorOperationsControls()
+                }
                 Divider()
                 alignControls()
             } else if app.selectedArtboardIDs.count > 1 {
@@ -1371,39 +1860,204 @@ struct RightPanel: View {
 
     @ViewBuilder
     private func relationshipControls() -> some View {
-        if case .source = scope, selectedNode != nil, !availableRelationshipKinds.isEmpty {
-            let targets = relationshipTargets
-            Divider()
-            VStack(alignment: .leading, spacing: 8) {
-                InspectorSectionTitle(
-                    title: "Relationships",
-                    icon: "point.3.connected.trianglepath.dotted",
-                    helpBody: "Use Controls when this layer operates another layer, like a tab controlling a panel. Use Labelled By when a visible text layer gives this layer its accessible name. Use Described By for helper, hint, or error text that explains this layer.")
-                ForEach(availableRelationshipKinds, id: \.self) { kind in
-                    HStack(spacing: 6) {
-                        Text(kind.label)
-                            .foregroundStyle(EXPColor.textSecondary)
-                            .frame(width: 86, alignment: .leading)
-                        Picker(kind.label, selection: relationshipBinding(kind)) {
-                            Text("None").tag(UUID?.none)
-                            if let missing = currentRelationshipTargetID(kind),
-                               !targets.contains(where: { $0.id == missing }) {
-                                Text("Missing layer").tag(UUID?.some(missing))
-                            }
-                            ForEach(targets) { target in
-                                Label(target.title, systemImage: target.icon)
-                                    .tag(UUID?.some(target.id))
-                            }
-                        }
-                        .labelsHidden()
-                        .help(kind.ariaAttribute)
+        if let anchor = relationshipAnchor {
+            let people = allParticipants(anchor)
+            if !people.isEmpty {
+                let targets = relationshipEndpoints(in: anchor.children)
+                Divider()
+                VStack(alignment: .leading, spacing: 12) {
+                    InspectorSectionTitle(
+                        title: "Relationships",
+                        icon: "point.3.connected.trianglepath.dotted",
+                        helpBody: "Connect layers so assistive technology knows how they relate \u{2014} which layer gives another its name, which one explains it, and which one a control operates. Choices come from \u{201C}\(anchor.name)\u{201D}, and a connection is stored on it, so copying it copies the connections with it. Each one exports as an ARIA attribute; hover a field to see which.")
+
+                    ForEach(people) { person in
+                        relationshipGroup(person: person, targets: targets)
+                    }
+
+                    if case .document = scope, let node = selectedNode,
+                       effectiveExportRole(of: node) == nil {
+                        unroledSelectionNote()
                     }
                 }
+                .font(.callout)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+            } else if case .document = scope, selectedNode != nil {
+                Divider()
+                VStack(alignment: .leading, spacing: 8) {
+                    InspectorSectionTitle(title: "Relationships",
+                                          icon: "point.3.connected.trianglepath.dotted")
+                    unroledSelectionNote()
+                }
+                .font(.callout)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+            }
+        } else if case .document = scope, let node = selectedNode,
+                  effectiveExportRole(of: node) != nil {
+            Divider()
+            VStack(alignment: .leading, spacing: 8) {
+                InspectorSectionTitle(title: "Relationships",
+                                      icon: "point.3.connected.trianglepath.dotted")
+                ungroupedNeighborhoodNote(node)
             }
             .font(.callout)
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
         }
+    }
+
+    /// Everything that can carry a relationship for the current selection.
+    ///
+    /// In SOURCE scope the component ROOT always comes first — the element carrying
+    /// the role is the one hosting the instance, so it is the anchor itself, and it
+    /// is not otherwise selectable from in here. Then the selection and any roled
+    /// components nested inside it.
+    private func allParticipants(_ anchor: RelationshipAnchor) -> [RelationshipParticipant] {
+        var result: [RelationshipParticipant] = []
+        if case .source(let source) = anchor {
+            let subject = RelationshipEndpoint(nodeID: source.id)
+            // NOT named `kinds` — that would shadow `kinds(for:authored:)` and the
+            // compiler would try to call the local array as a function.
+            let rootKinds = kinds(for: source.a11y.role,
+                                  authored: authoredKinds(for: subject))
+            if !rootKinds.isEmpty {
+                result.append(RelationshipParticipant(
+                    subject: subject,
+                    title: "This component",
+                    subtitle: componentRootSubtitle(source),
+                    role: source.a11y.role,
+                    kinds: rootKinds))
+            }
+        }
+        if let node = selectedNode {
+            result += participants(from: node)
+        }
+        return result
+    }
+
+    /// Caption for the component-root block, e.g. "Tab One — Tab Panel". Naming the
+    /// component AND its role makes it clear these fields belong to the component
+    /// itself, not to whatever layer happens to be selected — which is the
+    /// confusion BUG-008 was really about.
+    private func componentRootSubtitle(_ source: ComponentSource) -> String {
+        if let role = source.a11y.role {
+            return "\(source.name) \u{2014} \(role.friendlyLabel)"
+        }
+        return source.name
+    }
+
+    /// One labelled block of relationship rows for a single participant.
+    @ViewBuilder
+    private func relationshipGroup(person: RelationshipParticipant,
+                                   targets: [RelationshipTarget]) -> some View {
+        // A subject nested inside a placed component cannot be selected on the
+        // canvas, so it can never point at ITSELF by accident — but it can still
+        // appear in its own target list, which would be nonsense. Filter it here
+        // rather than at the source, so the same list serves every participant.
+        let choices = targets.filter { $0.endpoint != person.subject }
+        VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(person.title)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(EXPColor.textSecondary)
+                Text(person.subtitle)
+                    .font(.caption)
+                    .foregroundStyle(EXPColor.textTertiary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .accessibilityElement(children: .combine)
+
+            ForEach(person.kinds, id: \.self) { kind in
+                let label = kind.friendlyLabel(for: person.role)
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(label)
+                        .foregroundStyle(EXPColor.textSecondary)
+                        .frame(width: 110, alignment: .leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Picker(label, selection: anchoredBinding(person.subject, kind)) {
+                        Text("None").tag(RelationshipEndpoint?.none)
+                        // An end that no longer resolves stays SELECTABLE rather than
+                        // vanishing, so a broken link can be seen and fixed instead of
+                        // being silently swapped to None the next time this renders.
+                        if let missing = currentTarget(person.subject, kind),
+                           !choices.contains(where: { $0.endpoint == missing }) {
+                            Text("Missing layer").tag(RelationshipEndpoint?.some(missing))
+                        }
+                        ForEach(choices) { target in
+                            Label(target.display, systemImage: target.icon)
+                                .tag(RelationshipEndpoint?.some(target.endpoint))
+                        }
+                    }
+                    .labelsHidden()
+                    .expFieldTip(label, kind.friendlyHelp(for: person.role))
+                    // VoiceOver gets the plain-language name AND the attribute, so
+                    // the mapping is available without reading it off the screen.
+                    .accessibilityLabel("\(person.title): \(label)")
+                    .accessibilityHint(kind.friendlyHelp(for: person.role))
+
+                    // Two copies of the same component read IDENTICALLY in the
+                    // picker, so a name cannot tell you WHICH one a link points at.
+                    // This selects it, which can.
+                    if let target = currentTarget(person.subject, kind) {
+                        Button { revealEndpoint(target) } label: {
+                            Image(systemName: "scope")
+                        }
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(EXPColor.textTertiary)
+                        .help("Select what this points at")
+                        .accessibilityLabel("Select the target of \(label)")
+                    }
+                }
+            }
+        }
+    }
+
+    /// Select whatever an endpoint points at, so a link can be VERIFIED rather than
+    /// taken on trust. Two placements of the same component are indistinguishable by
+    /// name, which makes this the only way to tell them apart.
+    ///
+    /// A layer nested inside a component is not selectable — it exists once per
+    /// placement — so this selects the outermost PLACED thing on the path, which is
+    /// the closest the canvas can get to "show me what this points at."
+    private func revealEndpoint(_ endpoint: RelationshipEndpoint) {
+        let id = endpoint.instanceChain.first ?? endpoint.nodeID
+        app.selectedNodeIDs = [id]
+    }
+
+    /// Shown when a layer COULD carry relationships but is not inside a group, so
+    /// there is nothing in scope to point at.
+    ///
+    /// Deliberately an INSTRUCTION rather than an empty dropdown or a disabled
+    /// control. The rule is "connect things that live in a group together," and
+    /// saying it once, here, teaches it better than a blank picker does. Grouping
+    /// is also what the designer wants regardless — a tab that can drift away from
+    /// its panel on the canvas is a bug waiting to happen — and it is what keeps
+    /// the target list short enough to be usable by keyboard and screen reader,
+    /// which a whole-artboard list would not be.
+    @ViewBuilder
+    private func ungroupedNeighborhoodNote(_ node: Node) -> some View {
+        Label("Group this with the layers it connects to (\u{2318}G), then choose a target here. Connections are stored on the group, so the pieces travel together and the list stays short.",
+              systemImage: "square.on.square.dashed")
+            .font(.caption)
+            .foregroundStyle(EXPColor.textSecondary)
+            .labelStyle(.titleAndIcon)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// Shown when the selected layer itself has no role. Says the honest thing:
+    /// roles live on components, so this layer has nothing to carry a connection —
+    /// while anything roled INSIDE it is still offered above.
+    @ViewBuilder
+    private func unroledSelectionNote() -> some View {
+        Label("This layer has no role of its own, so it exports as a plain container and carries no connections. Give it a role by making it a component \u{2014} anything roled inside it can still be connected above.",
+              systemImage: "info.circle")
+            .font(.caption)
+            .foregroundStyle(EXPColor.textTertiary)
+            .labelStyle(.titleAndIcon)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     // MARK: Auto Layout (stacking) bindings + controls
@@ -1544,6 +2198,10 @@ struct RightPanel: View {
         Binding(get: { selectedAutoPadding?.strokeAlignment ?? .center },
                 set: { v in mutateAP("Frame Stroke Position") { $0.strokeAlignment = v } })
     }
+    private var apStrokePatternBinding: Binding<StrokePattern> {
+        Binding(get: { selectedAutoPadding?.strokePattern ?? .solid },
+                set: { v in mutateAP("Frame Stroke Pattern") { $0.strokePattern = v } })
+    }
 
     @ViewBuilder
     private func autoPaddingControls() -> some View {
@@ -1586,6 +2244,10 @@ struct RightPanel: View {
                         .frame(width: 40).numericStepping(apStrokeWidthBinding, min: 0)
                 }
                 if (selectedAutoPadding?.strokeWidth ?? 0) > 0 {
+                    EXPSegmented(selection: apStrokePatternBinding,
+                                 segments: StrokePattern.allCases.map { .init(value: $0, label: $0.label) })
+                        .help("Use a solid, dashed, or dotted group background border")
+                        .accessibilityLabel("Border pattern: solid, dash, or dot")
                     HStack(spacing: 6) {
                         Text("Position").foregroundStyle(EXPColor.textSecondary)
                         EXPSegmented(selection: apStrokeAlignmentBinding, segments: [
@@ -1942,6 +2604,20 @@ struct RightPanel: View {
         }
         return 0
     }
+    private var multiStrokePattern: StrokePattern {
+        for n in selectedResolvedNodes {
+            switch n.content {
+            case .rectangle(let s): return s.strokePattern
+            case .ellipse(let s): return s.strokePattern
+            case .polygon(let s): return s.strokePattern
+            case .path(let s): return s.strokePattern
+            case .line(let s): return s.strokePattern
+            case .group: return n.autoPadding?.strokePattern ?? .solid
+            default: continue
+            }
+        }
+        return .solid
+    }
     private var multiTextSize: CGFloat {
         for n in selectedResolvedNodes { if case .text(let t) = n.content { return t.firstRun.fontSize } }
         return 16
@@ -2035,6 +2711,21 @@ struct RightPanel: View {
             }
         })
     }
+    private var multiStrokePatternBinding: Binding<StrokePattern> {
+        Binding(get: { multiStrokePattern }, set: { pattern in
+            mutateAllSelected("Stroke Pattern") { node in
+                switch node.content {
+                case .rectangle(var s): s.strokePattern = pattern; node.content = .rectangle(s)
+                case .ellipse(var s): s.strokePattern = pattern; node.content = .ellipse(s)
+                case .polygon(var s): s.strokePattern = pattern; node.content = .polygon(s)
+                case .path(var s): s.strokePattern = pattern; node.content = .path(s)
+                case .line(var s): s.strokePattern = pattern; node.content = .line(s)
+                case .group: if node.autoPadding != nil { node.autoPadding?.strokePattern = pattern }
+                default: break
+                }
+            }
+        })
+    }
     private var multiTextSizeBinding: Binding<Double> {
         Binding(get: { Double(multiTextSize) },
                 set: { v in let sz = Swift.max(1, CGFloat(v)); applyToAllText("Text Size") { $0.applyToAllRuns { $0.fontSize = sz } } })
@@ -2044,24 +2735,23 @@ struct RightPanel: View {
         applyToAllText("Font") { $0.applyToAllRuns { $0.fontName = ps } }
     }
 
+    /// Font / fill / stroke applied to every selected layer AND everything inside
+    /// it. `includeFillAndStroke: false` drops the paint sections for a single
+    /// auto-padding group, whose background is already edited in its own section.
+    /// `includeType: false` drops the font menu, which cannot display a value and
+    /// so reads as broken when only one group is selected.
     @ViewBuilder
-    private func multiStyleControls() -> some View {
+    private func multiStyleControls(includeType: Bool = true,
+                                    includeFillAndStroke: Bool = true) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            if multiAnyText {
+            if includeType, multiAnyText {
                 Divider()
                 InspectorSectionTitle(title: "Type", icon: "textformat").padding(.top, 4)
-                Menu {
-                    Button("System") { applyFontFamilyAll("") }
-                    Divider()
-                    ForEach(FontCatalog.families, id: \.self) { fam in
-                        Button { applyFontFamilyAll(fam) } label: {
-                            Text(fam).font(fontMenuPreview(for: fam, size: 13))
-                        }
-                    }
-                } label: {
-                    HStack { Text("Font"); Spacer()
-                        Image(systemName: "chevron.up.chevron.down").font(.caption2).foregroundStyle(EXPColor.textSecondary) }
-                }
+                // A multi-selection has no single family, so the label stays fixed
+                // and nothing is ticked — honest about there being no one answer.
+                FontFamilyPicker(currentFamily: "Mixed", label: "Font",
+                                 onPick: { applyFontFamilyAll($0) },
+                                 onPickSystem: { applyFontFamilyAll("") })
                 .help("Set the typeface on every selected text layer")
                 HStack(spacing: 8) {
                     Text("Size").foregroundStyle(EXPColor.textSecondary)
@@ -2072,12 +2762,12 @@ struct RightPanel: View {
                     Spacer()
                 }
             }
-            if multiAnyFill {
+            if includeFillAndStroke, multiAnyFill {
                 Divider()
                 InspectorSectionTitle(title: "Fill", icon: "paintpalette").padding(.top, 4)
                 PaintWell(label: "Fill", paint: multiFillBinding)
             }
-            if multiAnyStroke {
+            if includeFillAndStroke, multiAnyStroke {
                 Divider()
                 InspectorSectionTitle(title: "Stroke", icon: "pencil.line").padding(.top, 4)
                 ColorWell(label: "Color", color: multiStrokeBinding)
@@ -2089,6 +2779,10 @@ struct RightPanel: View {
                         .numericStepping(multiStrokeWidthBinding, min: 0)
                     Spacer()
                 }
+                EXPSegmented(selection: multiStrokePatternBinding,
+                             segments: StrokePattern.allCases.map { .init(value: $0, label: $0.label) })
+                    .help("Apply a solid, dashed, or dotted stroke to the selected layers")
+                    .accessibilityLabel("Stroke pattern: solid, dash, or dot")
                 if multiHasClosedShape {
                     // v1.3 stroke alignment: closed shapes only (lines and open
                     // paths have no interior — they always render centered).
@@ -2106,6 +2800,74 @@ struct RightPanel: View {
     }
 
     // MARK: Align & distribute
+
+    /// The exact selected nodes, without recursively treating a selected group's
+    /// children as separately selected. That distinction matters to Pathfinder:
+    /// operating on one child must never silently consume its whole group.
+    private var inspectorSelectedNodes: [Node] {
+        app.selectedNodeIDs.compactMap(findScopedNode)
+    }
+
+    private var inspectorCanConvertToPath: Bool {
+        inspectorSelectedNodes.contains { node in
+            switch node.content {
+            case .rectangle, .ellipse, .polygon, .line: return true
+            default: return false
+            }
+        }
+    }
+
+    private var inspectorCanOutlineStroke: Bool {
+        inspectorSelectedNodes.contains { VectorPathGeometry.stroke(from: $0.content) != nil }
+    }
+
+    private var inspectorCanPathfinder: Bool {
+        inspectorSelectedNodes.count >= 2
+            && inspectorSelectedNodes.count == app.selectedNodeIDs.count
+            && inspectorSelectedNodes.allSatisfy { VectorPathGeometry.isClosedVector($0.content) }
+    }
+
+    @ViewBuilder private func vectorOperationsControls() -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            InspectorSectionTitle(title: "Vector", icon: "point.3.connected.trianglepath.dotted")
+                .padding(.top, 4)
+
+            if inspectorCanConvertToPath || inspectorCanOutlineStroke {
+                HStack(spacing: 6) {
+                    if inspectorCanConvertToPath {
+                        vectorTextButton("Convert to Path", selector: "convertToPathAction:")
+                    }
+                    if inspectorCanOutlineStroke {
+                        vectorTextButton("Outline Stroke", selector: "outlineStrokeAction:")
+                    }
+                }
+            }
+
+            if inspectorCanPathfinder {
+                Text("Pathfinder")
+                    .font(.callout)
+                    .foregroundStyle(EXPColor.textSecondary)
+                HStack(spacing: 6) {
+                    vectorTextButton("Unite", selector: "pathfinderUniteAction:")
+                    vectorTextButton("Subtract", selector: "pathfinderSubtractAction:")
+                }
+                HStack(spacing: 6) {
+                    vectorTextButton("Intersect", selector: "pathfinderIntersectAction:")
+                    vectorTextButton("Exclude", selector: "pathfinderExcludeAction:")
+                }
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.bottom, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func vectorTextButton(_ title: String, selector: String) -> some View {
+        Button(title) { sendCanvasAction(selector) }
+            .buttonStyle(.exp(.secondary))
+            .frame(maxWidth: .infinity)
+            .accessibilityHint("Applies \(title.lowercased()) to the current selection")
+    }
 
     @ViewBuilder private func alignControls() -> some View {
         let count = app.selectedNodeIDs.count
@@ -2246,24 +3008,27 @@ struct RightPanel: View {
     }
     private func updateLayoutGrid(_ idx: Int, action: String, _ change: @escaping (inout LayoutGrid) -> Void) {
         guard let id = app.selectedArtboardID,
-              let ai = document.model.artboards.firstIndex(where: { $0.id == id }),
-              document.model.artboards[ai].layoutGrids.indices.contains(idx) else { return }
+              let pageIndex = document.model.pageIndex(for: app.activeCanvasPageID),
+              let ai = document.model.pages[pageIndex].artboards.firstIndex(where: { $0.id == id }),
+              document.model.pages[pageIndex].artboards[ai].layoutGrids.indices.contains(idx) else { return }
         var model = document.model
-        change(&model.artboards[ai].layoutGrids[idx])
+        change(&model.pages[pageIndex].artboards[ai].layoutGrids[idx])
         document.setModel(model, undoManager: undoManager, actionName: action)
     }
     private func addLayoutGrid(_ kind: LayoutGrid.Kind) {
         guard let id = app.selectedArtboardID,
-              let ai = document.model.artboards.firstIndex(where: { $0.id == id }) else { return }
+              let pageIndex = document.model.pageIndex(for: app.activeCanvasPageID),
+              let ai = document.model.pages[pageIndex].artboards.firstIndex(where: { $0.id == id }) else { return }
         var model = document.model
-        model.artboards[ai].layoutGrids.append(LayoutGrid(kind: kind))
+        model.pages[pageIndex].artboards[ai].layoutGrids.append(LayoutGrid(kind: kind))
         document.setModel(model, undoManager: undoManager, actionName: "Add Layout Grid")
     }
     private func removeLayoutGrid(_ gid: UUID) {
         guard let id = app.selectedArtboardID,
-              let ai = document.model.artboards.firstIndex(where: { $0.id == id }) else { return }
+              let pageIndex = document.model.pageIndex(for: app.activeCanvasPageID),
+              let ai = document.model.pages[pageIndex].artboards.firstIndex(where: { $0.id == id }) else { return }
         var model = document.model
-        model.artboards[ai].layoutGrids.removeAll { $0.id == gid }
+        model.pages[pageIndex].artboards[ai].layoutGrids.removeAll { $0.id == gid }
         document.setModel(model, undoManager: undoManager, actionName: "Remove Layout Grid")
     }
     private func lgBool(_ idx: Int, _ kp: WritableKeyPath<LayoutGrid, Bool>) -> Binding<Bool> {
@@ -2600,9 +3365,10 @@ struct RightPanel: View {
             get: { selectedArtboard?.background ?? .white },
             set: { c in
                 guard let id = app.selectedArtboardID,
-                      let i = document.model.artboards.firstIndex(where: { $0.id == id }) else { return }
+                      let pageIndex = document.model.pageIndex(for: app.activeCanvasPageID),
+                      let i = document.model.pages[pageIndex].artboards.firstIndex(where: { $0.id == id }) else { return }
                 var model = document.model
-                model.artboards[i].background = c
+                model.pages[pageIndex].artboards[i].background = c
                 document.setModel(model, undoManager: undoManager, actionName: "Artboard Background")
             }
         )
@@ -2613,9 +3379,10 @@ struct RightPanel: View {
             get: { selectedArtboard?.name ?? "" },
             set: { newValue in
                 guard let id = app.selectedArtboardID,
-                      let i = document.model.artboards.firstIndex(where: { $0.id == id }) else { return }
+                      let pageIndex = document.model.pageIndex(for: app.activeCanvasPageID),
+                      let i = document.model.pages[pageIndex].artboards.firstIndex(where: { $0.id == id }) else { return }
                 var model = document.model
-                model.artboards[i].name = newValue
+                model.pages[pageIndex].artboards[i].name = newValue
                 document.setModel(model, undoManager: undoManager, actionName: "Rename Artboard")
             }
         )
@@ -2627,9 +3394,10 @@ struct RightPanel: View {
             get: { Double(selectedArtboard?.frame[keyPath: keyPath] ?? 0) },
             set: { newValue in
                 guard let id = app.selectedArtboardID,
-                      let i = document.model.artboards.firstIndex(where: { $0.id == id }) else { return }
+                      let pageIndex = document.model.pageIndex(for: app.activeCanvasPageID),
+                      let i = document.model.pages[pageIndex].artboards.firstIndex(where: { $0.id == id }) else { return }
                 var model = document.model
-                model.artboards[i].frame[keyPath: keyPath] = clamp(keyPath, CGFloat(newValue))
+                model.pages[pageIndex].artboards[i].frame[keyPath: keyPath] = clamp(keyPath, CGFloat(newValue))
                 document.setModel(model, undoManager: undoManager, actionName: action)
             }
         )
@@ -2656,21 +3424,10 @@ struct RightPanel: View {
             // below, near Case).
             HStack(spacing: 8) {
                 Text("Font").foregroundStyle(EXPColor.textSecondary).font(.callout)
-                Menu {
-                    Button("System") { setTextFontName("") }
-                    Divider()
-                    ForEach(FontCatalog.families, id: \.self) { fam in
-                        Button { setTextFamily(fam) } label: {
-                            Text(fam).font(fontMenuPreview(for: fam, size: 13))
-                        }
-                    }
-                } label: {
-                    HStack {
-                        Text(currentFamilyDisplay).lineLimit(1)
-                        Spacer()
-                        Image(systemName: "chevron.up.chevron.down").font(.caption2).foregroundStyle(EXPColor.textSecondary)
-                    }
-                }
+                FontFamilyPicker(currentFamily: currentFamilyForPicker,
+                                 label: currentFamilyDisplay,
+                                 onPick: { setTextFamily($0) },
+                                 onPickSystem: { setTextFontName("") })
                 .help("Typeface (applies to the whole text, or the selection while editing)")
             }
 
@@ -2828,6 +3585,15 @@ struct RightPanel: View {
     // and these controls drive it; otherwise they act on the whole text node.
     private var isEditingText: Bool { app.applyTextStyle != nil || app.textSelection != nil }
 
+    /// What the picker should TICK. `currentFamilyDisplay` says "System" for the
+    /// default face, but the picker's system row is keyed on an EMPTY family — the
+    /// same distinction the model makes, where `fontName == ""` means "no face
+    /// chosen" rather than a family literally named System.
+    private var currentFamilyForPicker: String {
+        let shown = currentFamilyDisplay
+        return shown == "System" ? "" : shown
+    }
+
     private var currentFamilyDisplay: String {
         if let s = app.textSelection {
             guard let fn = s.fontName else { return "Mixed" }
@@ -2885,12 +3651,6 @@ struct RightPanel: View {
     }
     private func setTextFontName(_ ps: String) { applyFontName(ps) }
 
-    private func fontMenuPreview(for family: String, size: CGFloat) -> Font {
-        family == FontCatalog.systemMonospacedFamily
-            ? .system(size: size, design: .monospaced)
-            : .custom(family, size: size)
-    }
-
     /// Apply a change to the selected text node's TextContent (one undo step),
     /// optionally re-measuring the box to fit.
     private func updateTextContent(action: String, remeasure: Bool, _ change: @escaping (inout TextContent) -> Void) {
@@ -2931,6 +3691,10 @@ struct RightPanel: View {
                 Spacer()
             }
             ColorWell(label: "Color", color: strokeColorBinding)
+            EXPSegmented(selection: lineStrokePatternBinding,
+                         segments: StrokePattern.allCases.map { .init(value: $0, label: $0.label) })
+                .help("Use a solid, dashed, or dotted line")
+                .accessibilityLabel("Line pattern: solid, dash, or dot")
         }
         .padding(.horizontal, 12)
         .padding(.bottom, 12)
@@ -2948,6 +3712,10 @@ struct RightPanel: View {
     private var strokeColorBinding: Binding<RGBAColor> {
         Binding(get: { selectedLineShape?.stroke ?? .black },
                 set: { c in updateLineContent { $0.stroke = c } })
+    }
+    private var lineStrokePatternBinding: Binding<StrokePattern> {
+        Binding(get: { selectedLineShape?.strokePattern ?? .solid },
+                set: { pattern in updateLineContent { $0.strokePattern = pattern } })
     }
 
     private func updateLineContent(_ change: @escaping (inout LineShape) -> Void) {
@@ -3033,32 +3801,44 @@ struct RightPanel: View {
                     .help("Which of this component's states this instance shows on the canvas")
                 }
 
-                Divider()
-                InspectorSectionTitle(title: "Overrides", icon: "arrow.left.arrow.right")
+                let targets = overridableTargets(ctx.source.children)
+                // Hoisted out of the rows on purpose — see `resolvedTargetNodes`.
+                let resolvedNodes = resolvedTargetNodes(targets, instance: ctx.instance)
+                if !targets.isEmpty {
+                    Divider()
+                    InspectorSectionTitle(
+                        title: "Overrides", icon: "arrow.left.arrow.right",
+                        helpBody: "Change this placement's content without touching the component. Layers from a component nested inside this one are grouped under its name; editing one here affects only THIS placement.")
 
-                ForEach(overridableChildren(ctx.source.children)) { child in
-                    switch child.content {
-                    case .text(let tc):
-                        InstanceTextRow(
-                            name: child.name,
-                            current: ctx.instance.textOverride(for: child.id) ?? tc.plainString,
-                            hasOverride: ctx.instance.textOverride(for: child.id) != nil,
-                            onCommit: { newValue in commitTextOverride(child.id, newValue) },
-                            onReset: { resetOverride(child.id) })
-                    case .rectangle(let s):
-                        fillOverrideRow(child: child, sourceFill: s.fill, instance: ctx.instance)
-                    case .ellipse(let s):
-                        fillOverrideRow(child: child, sourceFill: s.fill, instance: ctx.instance)
-                    case .path(let s):
-                        fillOverrideRow(child: child, sourceFill: s.fill, instance: ctx.instance)
-                    case .group:
-                        // A frame's background fill (the button surface).
-                        if let f = child.autoPadding?.fill {
-                            fillOverrideRow(child: child, sourceFill: f, instance: ctx.instance)
-                        }
-                    default:
-                        EmptyView()
+                    // Direct children first, then a block per nested component, so a
+                    // list of same-named layers ("label", "label", "label") is
+                    // readable instead of ambiguous.
+                    ForEach(targets.filter { $0.componentName == nil }) { target in
+                        overrideRow(target, instance: ctx.instance,
+                                    resolved: resolvedNodes[target.id])
                     }
+                    ForEach(nestedGroupNames(targets), id: \.self) { name in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(name)
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(EXPColor.textSecondary)
+                            ForEach(targets.filter { $0.componentName == name }) { target in
+                                overrideRow(target, instance: ctx.instance,
+                                            resolved: resolvedNodes[target.id])
+                            }
+                        }
+                        .padding(.top, 4)
+                    }
+                } else {
+                    // Say WHY rather than showing a heading over nothing, which reads
+                    // as broken. Owner hit exactly that on a component whose children
+                    // are all components.
+                    Divider()
+                    InspectorSectionTitle(title: "Overrides", icon: "arrow.left.arrow.right")
+                    Text("This component has no text or fills to override.")
+                        .font(.caption)
+                        .foregroundStyle(EXPColor.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .padding(.horizontal, 12)
@@ -3066,22 +3846,256 @@ struct RightPanel: View {
         }
     }
 
-    /// Overridable leaves of a component source, recursing INTO groups — so a
-    /// component whose content is grouped still exposes its text/fill overrides.
-    private func overridableChildren(_ nodes: [Node]) -> [Node] {
-        var out: [Node] = []
+    /// One overridable layer, and the nested-instance path that reaches it.
+    private struct OverridableTarget: Identifiable {
+        /// Nested instance node ids, outermost first. EMPTY means a direct child of
+        /// the selected instance's own source — the flat case that already worked.
+        let instancePath: [UUID]
+        let node: Node
+        /// Name of the nested component this came from, for grouping the rows.
+        /// nil for the flat case, which needs no heading.
+        let componentName: String?
+        var id: [UUID] { instancePath + [node.id] }
+    }
+
+    /// Overridable leaves of a component source, recursing into groups AND into
+    /// nested components (FEAT-017 chunk J-c).
+    ///
+    /// This used to stop dead at `.instance`, which is why a component built out of
+    /// other components — a tab bar whose children are all tab components — showed
+    /// an "Overrides" header with nothing under it. Nothing was broken; there was
+    /// simply no way to address a layer one level further down. `instancePath` is
+    /// that address, and it is the same path `NestedInstanceOverride` stores.
+    ///
+    /// Depth is capped for the same reason every other walk here is: a damaged or
+    /// legacy document may already contain a cycle, and this must terminate.
+    private func overridableTargets(_ nodes: [Node], path: [UUID] = [],
+                                    componentName: String? = nil,
+                                    depth: Int = 0) -> [OverridableTarget] {
+        guard depth < 8 else { return [] }
+        var out: [OverridableTarget] = []
         for n in nodes {
             switch n.content {
-            case .text, .rectangle, .ellipse, .path: out.append(n)
+            case .text, .rectangle, .ellipse, .path:
+                out.append(OverridableTarget(instancePath: path, node: n,
+                                             componentName: componentName))
             case .group(let kids):
                 // A frame with a background fill (a button surface) exposes that fill
                 // as an override; then recurse for nested text/shape overrides.
-                if n.autoPadding?.fill != nil { out.append(n) }
-                out.append(contentsOf: overridableChildren(kids))
+                if n.autoPadding?.fill != nil {
+                    out.append(OverridableTarget(instancePath: path, node: n,
+                                                 componentName: componentName))
+                }
+                out.append(contentsOf: overridableTargets(kids, path: path,
+                                                          componentName: componentName,
+                                                          depth: depth + 1))
+            case .instance(let nested):
+                guard let source = document.model.source(for: nested.sourceID) else { break }
+                // The nested component's own layers, addressed THROUGH this node.
+                // Named by the layer rather than the source, because two tabs from
+                // one component are told apart by their layer names, not by the
+                // component they share.
+                let label = n.name.isEmpty ? source.name : n.name
+                out.append(contentsOf: overridableTargets(source.children,
+                                                          path: path + [n.id],
+                                                          componentName: label,
+                                                          depth: depth + 1))
             default: break
             }
         }
         return out
+    }
+
+    /// The RESOLVED node behind each overridable target — what the canvas actually
+    /// draws — keyed by the target's id.
+    ///
+    /// Without this the panel showed the RAW source value, which is wrong twice
+    /// over: a nested instance usually carries its own overrides inside the parent
+    /// source (the tab bar sets its three tabs to "one", "two", "three"), and an
+    /// active state can change a value too. Both meant the field said one thing
+    /// while the canvas said another. Owner's phrasing, and it is the right
+    /// instinct: "the default text in there [should] match what is shown in the
+    /// canvas."
+    ///
+    /// Resolved ONCE per body evaluation, by distinct PATH rather than per row.
+    /// Resolving inside each row would be a computed property in a `ForEach`, which
+    /// is exactly the shape that caused the ~6.2s inspector hangs in PERF rounds 8
+    /// and 10 — see docs/PERF-LOG.md. Do not move this into `overrideRow`.
+    private func resolvedTargetNodes(_ targets: [OverridableTarget],
+                                     instance: ComponentInstance) -> [[UUID]: Node] {
+        var result: [[UUID]: Node] = [:]
+        func find(_ id: UUID, in nodes: [Node]) -> Node? {
+            for node in nodes {
+                if node.id == id { return node }
+                if case .group(let children) = node.content,
+                   let found = find(id, in: children) { return found }
+            }
+            return nil
+        }
+        // Group by path so each nested component is resolved once, not once per leaf.
+        var byPath: [[UUID]: [OverridableTarget]] = [:]
+        for target in targets { byPath[target.instancePath, default: []].append(target) }
+
+        for (path, group) in byPath {
+            var level = document.model.resolvedChildren(of: instance)
+            var reachable = true
+            for step in path {
+                guard let host = find(step, in: level),
+                      case .instance(let nested) = host.content else { reachable = false; break }
+                level = document.model.resolvedChildren(of: nested)
+            }
+            guard reachable else { continue }
+            for target in group {
+                if let node = find(target.node.id, in: level) { result[target.id] = node }
+            }
+        }
+        return result
+    }
+
+    // MARK: Nested override read / write (FEAT-017)
+
+    private func nestedOverrideValue(_ target: OverridableTarget) -> InstanceOverride.Value? {
+        selectedInstanceContext?.instance.nestedOverrides.last {
+            $0.instancePath == target.instancePath && $0.targetNodeID == target.node.id
+        }?.value
+    }
+
+    private func commitNestedText(_ target: OverridableTarget, _ newValue: String) {
+        updateSelectedInstance("Override Text") { inst in
+            inst.nestedOverrides.removeAll {
+                $0.instancePath == target.instancePath
+                    && $0.targetNodeID == target.node.id
+                    && $0.value.textValue != nil
+            }
+            inst.nestedOverrides.append(
+                NestedInstanceOverride(instancePath: target.instancePath,
+                                       targetNodeID: target.node.id,
+                                       value: .text(newValue)))
+        }
+    }
+
+    private func nestedFillBinding(_ target: OverridableTarget,
+                                   sourceFill: Paint) -> Binding<Paint> {
+        Binding(
+            get: { nestedOverrideValue(target)?.fillValue ?? sourceFill },
+            set: { newValue in
+                updateSelectedInstance("Override Fill") { inst in
+                    inst.nestedOverrides.removeAll {
+                        $0.instancePath == target.instancePath
+                            && $0.targetNodeID == target.node.id
+                            && $0.value.fillValue != nil
+                    }
+                    inst.nestedOverrides.append(
+                        NestedInstanceOverride(instancePath: target.instancePath,
+                                               targetNodeID: target.node.id,
+                                               value: .fill(newValue)))
+                }
+            }
+        )
+    }
+
+    /// Reset is the ABSENCE of an override — drop the entry and resolution falls
+    /// back to the nearest source value on its own. No separate restore path to
+    /// keep in step with the setters.
+    private func resetNestedOverride(_ target: OverridableTarget) {
+        updateSelectedInstance("Reset Override") { inst in
+            inst.nestedOverrides.removeAll {
+                $0.instancePath == target.instancePath && $0.targetNodeID == target.node.id
+            }
+        }
+    }
+
+    /// Nested component names in first-seen order, so the blocks follow the
+    /// component's own layer order rather than an alphabetical shuffle.
+    private func nestedGroupNames(_ targets: [OverridableTarget]) -> [String] {
+        var seen: Set<String> = []
+        var order: [String] = []
+        for target in targets {
+            guard let name = target.componentName else { continue }
+            if seen.insert(name).inserted { order.append(name) }
+        }
+        return order
+    }
+
+    /// One override row. The FLAT case keeps its existing bindings untouched; only
+    /// a nested target routes through `nestedOverrides`, so nothing that already
+    /// worked changes shape.
+    /// One override row.
+    ///
+    /// `resolved` is the node as the CANVAS draws it — already carrying any
+    /// override baked into the parent source, any active state, and this
+    /// placement's own override. Showing that instead of the raw source value is
+    /// what makes the field agree with the canvas. The stored entry is still what
+    /// decides `hasOverride`, so the reset affordance stays exact: the displayed
+    /// value and the question "has this been changed HERE" are genuinely different
+    /// questions and must not be answered from the same place.
+    @ViewBuilder
+    private func overrideRow(_ target: OverridableTarget,
+                             instance: ComponentInstance,
+                             resolved: Node?) -> some View {
+        let nested = !target.instancePath.isEmpty
+        let shown = resolved ?? target.node
+        switch target.node.content {
+        case .text:
+            let fallback: String = {
+                if case .text(let tc) = shown.content { return tc.plainString }
+                if case .text(let tc) = target.node.content { return tc.plainString }
+                return ""
+            }()
+            let hasOverride = nested
+                ? nestedOverrideValue(target)?.textValue != nil
+                : instance.textOverride(for: target.node.id) != nil
+            InstanceTextRow(
+                name: target.node.name,
+                current: fallback,
+                hasOverride: hasOverride,
+                onCommit: { newValue in
+                    nested ? commitNestedText(target, newValue)
+                           : commitTextOverride(target.node.id, newValue)
+                },
+                onReset: {
+                    nested ? resetNestedOverride(target)
+                           : resetOverride(target.node.id)
+                })
+        case .rectangle:
+            if case .rectangle(let shape) = shown.content {
+                overrideFillRow(target, sourceFill: shape.fill, instance: instance)
+            }
+        case .ellipse:
+            if case .ellipse(let shape) = shown.content {
+                overrideFillRow(target, sourceFill: shape.fill, instance: instance)
+            }
+        case .path:
+            if case .path(let shape) = shown.content {
+                overrideFillRow(target, sourceFill: shape.fill, instance: instance)
+            }
+        case .group:
+            if let fill = shown.autoPadding?.fill ?? target.node.autoPadding?.fill {
+                overrideFillRow(target, sourceFill: fill, instance: instance)
+            }
+        default:
+            EmptyView()
+        }
+    }
+
+    @ViewBuilder
+    private func overrideFillRow(_ target: OverridableTarget, sourceFill: Paint,
+                                 instance: ComponentInstance) -> some View {
+        if target.instancePath.isEmpty {
+            fillOverrideRow(child: target.node, sourceFill: sourceFill, instance: instance)
+        } else {
+            HStack {
+                PaintWell(label: target.node.name,
+                          paint: nestedFillBinding(target, sourceFill: sourceFill))
+                if nestedOverrideValue(target)?.fillValue != nil {
+                    Button { resetNestedOverride(target) } label: {
+                        Image(systemName: "arrow.uturn.backward")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Reset to source")
+                }
+            }
+        }
     }
 
     @ViewBuilder
@@ -3202,6 +4216,10 @@ struct RightPanel: View {
                     .numericStepping(strokeWidthShapeBinding, min: 0)
                 Spacer()
             }
+            EXPSegmented(selection: shapeStrokePatternBinding,
+                         segments: StrokePattern.allCases.map { .init(value: $0, label: $0.label) })
+                .help("Use a solid, dashed, or dotted shape border")
+                .accessibilityLabel("Border pattern: solid, dash, or dot")
             // v1.3 stroke alignment (rect/ellipse/polygon are all closed).
             // EXPSegmented = the design-system accent segmented control.
             EXPSegmented(selection: shapeStrokeAlignmentBinding,
@@ -3257,6 +4275,15 @@ struct RightPanel: View {
         default: return 0
         }
     }
+    private var shapeStrokePattern: StrokePattern {
+        guard let content = selectedNode?.content else { return .solid }
+        switch content {
+        case .rectangle(let s): return s.strokePattern
+        case .ellipse(let s): return s.strokePattern
+        case .polygon(let s): return s.strokePattern
+        default: return .solid
+        }
+    }
     private var polygonSides: Int {
         if case .polygon(let s)? = selectedNode?.content { return s.sides }
         return 3
@@ -3277,6 +4304,10 @@ struct RightPanel: View {
     private var strokeWidthShapeBinding: Binding<Double> {
         Binding(get: { Double(shapeStrokeWidth) },
                 set: { v in updateShape("Stroke Width") { $0.strokeWidth = max(0, CGFloat(v)) } })
+    }
+    private var shapeStrokePatternBinding: Binding<StrokePattern> {
+        Binding(get: { shapeStrokePattern },
+                set: { value in updateShape("Stroke Pattern") { $0.strokePattern = value } })
     }
     private var cornerRadiusBinding: Binding<Double> {
         Binding(get: { Double(rectCornerRadius) },
@@ -3382,19 +4413,22 @@ struct RightPanel: View {
         mutateScopedNode(id, action: action) { node in
             switch node.content {
             case .rectangle(var s):
-                var style = ShapeStyle(fill: s.fill, stroke: s.stroke, strokeWidth: s.strokeWidth)
+                var style = ShapeStyle(fill: s.fill, stroke: s.stroke, strokeWidth: s.strokeWidth,
+                                       strokePattern: s.strokePattern)
                 change(&style)
-                s.fill = style.fill; s.stroke = style.stroke; s.strokeWidth = style.strokeWidth
+                s.fill = style.fill; s.stroke = style.stroke; s.strokeWidth = style.strokeWidth; s.strokePattern = style.strokePattern
                 node.content = .rectangle(s)
             case .ellipse(var s):
-                var style = ShapeStyle(fill: s.fill, stroke: s.stroke, strokeWidth: s.strokeWidth)
+                var style = ShapeStyle(fill: s.fill, stroke: s.stroke, strokeWidth: s.strokeWidth,
+                                       strokePattern: s.strokePattern)
                 change(&style)
-                s.fill = style.fill; s.stroke = style.stroke; s.strokeWidth = style.strokeWidth
+                s.fill = style.fill; s.stroke = style.stroke; s.strokeWidth = style.strokeWidth; s.strokePattern = style.strokePattern
                 node.content = .ellipse(s)
             case .polygon(var s):
-                var style = ShapeStyle(fill: s.fill, stroke: s.stroke, strokeWidth: s.strokeWidth)
+                var style = ShapeStyle(fill: s.fill, stroke: s.stroke, strokeWidth: s.strokeWidth,
+                                       strokePattern: s.strokePattern)
                 change(&style)
-                s.fill = style.fill; s.stroke = style.stroke; s.strokeWidth = style.strokeWidth
+                s.fill = style.fill; s.stroke = style.stroke; s.strokeWidth = style.strokeWidth; s.strokePattern = style.strokePattern
                 node.content = .polygon(s)
             default:
                 return
@@ -3409,6 +4443,7 @@ private struct ShapeStyle {
     var fill: Paint
     var stroke: RGBAColor
     var strokeWidth: CGFloat
+    var strokePattern: StrokePattern
 }
 
 // MARK: - Path styling controls
@@ -3451,6 +4486,10 @@ extension RightPanel {
                         .numericStepping(pathStrokeWidthBinding, min: 0)
                     Spacer()
                 }
+                EXPSegmented(selection: pathStrokePatternBinding,
+                             segments: StrokePattern.allCases.map { .init(value: $0, label: $0.label) })
+                    .help("Use a solid, dashed, or dotted path stroke")
+                    .accessibilityLabel("Path stroke pattern: solid, dash, or dot")
                 if ps.closed || ps.isMultiContour {
                     // v1.3 stroke alignment — closed outlines only (an open
                     // stroke has no interior, so it always renders centered).
@@ -3495,6 +4534,10 @@ extension RightPanel {
     var pathStrokeWidthBinding: Binding<Double> {
         Binding(get: { Double(selectedPathShape?.strokeWidth ?? 2) },
                 set: { v in updatePath("Stroke Width") { $0.strokeWidth = max(0, CGFloat(v)) } })
+    }
+    var pathStrokePatternBinding: Binding<StrokePattern> {
+        Binding(get: { selectedPathShape?.strokePattern ?? .solid },
+                set: { value in updatePath("Stroke Pattern") { $0.strokePattern = value } })
     }
 }
 

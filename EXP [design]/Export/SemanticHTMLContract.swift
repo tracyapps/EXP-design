@@ -124,6 +124,15 @@ extension AriaRole {
             return .init(tag: "div", explicitRole: .alertdialog,
                          requirements: [.accessibleName])
         case .alert:      return .init(tag: "div", explicitRole: .alert)
+        case .tree:
+            return .init(tag: "div", explicitRole: .tree,
+                         requirements: [.accessibleName])
+        case .treeitem:
+            return .init(tag: "div", explicitRole: .treeitem,
+                         requirements: [.selectedState])
+        case .grid:
+            return .init(tag: "div", explicitRole: .grid,
+                         requirements: [.accessibleName, .tableStructure])
 
         // Document structure. Heading level and table/list ownership are never
         // guessed: the generated markup carries the role and reports the gap.
@@ -148,6 +157,15 @@ extension AriaRole {
                          requirements: [.accessibleName, .tableStructure])
         case .separator:  return .init(tag: "div", explicitRole: .separator)
         case .group:      return .init(tag: "div", explicitRole: .group)
+        // Table parts stay on div hosts to match the div-based `table`/`grid`
+        // above: native <tr>/<td> are only valid inside a native <table>, and
+        // emitting one without the other would produce markup the browser
+        // silently reparents. Promoting the whole family to native elements is
+        // its own change, once authored rows/cells are common enough to rely on.
+        case .row:          return .init(tag: "div", explicitRole: .row)
+        case .cell:         return .init(tag: "div", explicitRole: .cell)
+        case .columnheader: return .init(tag: "div", explicitRole: .columnheader)
+        case .rowheader:    return .init(tag: "div", explicitRole: .rowheader)
         }
     }
 }
@@ -157,11 +175,27 @@ enum SemanticHTMLIdentity {
         "exp-artboard-\(uuid(id))"
     }
 
-    /// Source-layer UUIDs repeat in every component instance. Composite ids keep
-    /// relationships stable and unique without changing EXP's reference model.
+    /// Source-layer UUIDs repeat in every component instance, so a DOM id has to be
+    /// composed from the INSTANCE CHAIN above the node, outermost first.
+    ///
+    /// This used to carry a single instance id, which is exact at one level of
+    /// nesting and COLLIDES below it: two placements of the same component inside a
+    /// third would mint identical ids for their children. Passing the whole chain
+    /// makes the id unique at any depth and matches how `RelationshipEndpoint`
+    /// addresses things, so a relationship and the element it names agree by
+    /// construction (FEAT-012 chunk I-d).
+    ///
+    /// Depth-1 output is unchanged (`exp-<instance>-<node>`), so existing exports
+    /// keep their ids; only the previously-colliding cases move.
+    static func nodeDOMID(_ nodeID: UUID, chain: [UUID]) -> String {
+        guard !chain.isEmpty else { return "exp-\(uuid(nodeID))" }
+        return "exp-" + chain.map(uuid).joined(separator: "-") + "-\(uuid(nodeID))"
+    }
+
+    /// Single-level convenience. Kept because plenty of call sites legitimately
+    /// know only the immediate host.
     static func nodeDOMID(_ nodeID: UUID, instanceID: UUID? = nil) -> String {
-        if let instanceID { return "exp-\(uuid(instanceID))-\(uuid(nodeID))" }
-        return "exp-\(uuid(nodeID))"
+        nodeDOMID(nodeID, chain: instanceID.map { [$0] } ?? [])
     }
 
     static func artboardFilename(name: String, id: UUID) -> String {

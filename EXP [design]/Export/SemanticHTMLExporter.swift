@@ -21,6 +21,11 @@ struct SemanticHTMLFidelityIssue: Sendable {
     enum Category: String, Sendable {
         case semanticRequirement
         case visualFallback
+        /// Valid markup that is probably not what was meant. Kept SEPARATE from
+        /// `semanticRequirement` on purpose: a reader must be able to tell "you
+        /// broke a rule" from "this is legal but unusual," and collapsing the two
+        /// would make the report either alarmist or ignorable. FEAT-016.
+        case advisory
     }
 
     var artboardID: UUID
@@ -53,25 +58,29 @@ struct SemanticHTMLExporter {
         var emittedNodeCount = 0
         var fidelityIssues: [SemanticHTMLFidelityIssue] = []
 
-        for artboard in document.artboards {
-            let owned = document.nodes.enumerated().filter {
-                document.owningArtboard(of: $0.element.frame)?.id == artboard.id
+        for canvasPage in document.pages {
+            for artboard in canvasPage.artboards {
+                let owned = canvasPage.nodes.enumerated().filter {
+                    document.owningArtboard(of: $0.element.frame, on: canvasPage.id)?.id == artboard.id
+                }
+                let page = HTMLWriter(document: document, artboard: artboard,
+                                      topLevelNodes: owned).render()
+                css.append(artboard: artboard, topLevelNodes: owned)
+                let filename = SemanticHTMLIdentity.artboardFilename(name: artboard.name, id: artboard.id)
+                let path = "html/\(filename)"
+                pages.append(path)
+                emittedNodeCount += page.nodeCount
+                fidelityIssues.append(contentsOf: page.issues)
+                artifacts.append(.init(path: path, role: "semantic-html",
+                                       mediaType: "text/html", data: Data(page.html.utf8)))
             }
-            let page = HTMLWriter(document: document, artboard: artboard,
-                                  topLevelNodes: owned).render()
-            css.append(artboard: artboard, topLevelNodes: owned)
-            let filename = SemanticHTMLIdentity.artboardFilename(name: artboard.name, id: artboard.id)
-            let path = "html/\(filename)"
-            pages.append(path)
-            emittedNodeCount += page.nodeCount
-            fidelityIssues.append(contentsOf: page.issues)
-            artifacts.append(.init(path: path, role: "semantic-html",
-                                   mediaType: "text/html", data: Data(page.html.utf8)))
         }
 
-        let omitted = document.nodes
-            .filter { document.owningArtboard(of: $0.frame) == nil }
-            .reduce(0) { $0 + Self.nodeCount($1) }
+        let omitted = document.pages.reduce(0) { total, canvasPage in
+            total + canvasPage.nodes
+                .filter { document.owningArtboard(of: $0.frame, on: canvasPage.id) == nil }
+                .reduce(0) { $0 + Self.nodeCount($1) }
+        }
         artifacts.insert(.init(path: "html/styles.css", role: "semantic-stylesheet",
                                mediaType: "text/css", data: Data(css.render().utf8)), at: 0)
         return SemanticHTMLBundle(artifacts: artifacts, pagePaths: pages,
@@ -105,11 +114,28 @@ private struct HTMLWriter {
         var count = 0
         var issues: [SemanticHTMLFidelityIssue] = []
         let available = availableDOMIDs()
+        // The DOCUMENT root is an anchor too. Authoring never creates one — the
+        // neighborhood rule requires a group — but a migrated legacy relationship
+        // between two ungrouped top-level layers lands here, and dropping it
+        // silently would lose real work from an older file.
+        let rootAnchored: [String: [String: String]] = document.anchoredRelationships.isEmpty
+            ? [:]
+            : anchoredAttributes(document.anchoredRelationships,
+                                 anchorID: artboard.id,
+                                 anchorElementID: SemanticHTMLIdentity.artboardDOMID(artboard.id),
+                                 anchorChildren: topLevelNodes.map(\.element),
+                                 anchorRole: nil,
+                                 context: [], availableDOMIDs: available,
+                                 node: topLevelNodes.first?.element
+                                     ?? Node(name: artboard.name, frame: artboard.frame,
+                                             content: .group(children: [])),
+                                 sourceID: nil, issues: &issues)
         let nodeHTML = topLevelNodes.reversed().map { item in
-            render(node: item.element, instanceID: nil, sourceID: nil,
+            render(node: item.element, instanceChain: [], sourceID: nil,
                    instanceNodeIDs: nil, semanticAncestors: [],
                    phrasingOnly: false,
-                   availableDOMIDs: available, level: 2,
+                   availableDOMIDs: available,
+                   anchoredAttributes: rootAnchored, level: 2,
                    count: &count, issues: &issues)
         }.joined(separator: "\n")
         let note = artboard.notes.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -137,16 +163,27 @@ private struct HTMLWriter {
         return (html + "\n", count, issues)
     }
 
-    private func render(node: Node, instanceID: UUID?, sourceID: UUID?,
+    /// - Parameter instanceChain: the component instances this node sits inside,
+    ///   OUTERMOST FIRST. It is what makes a DOM id unique at any depth, and it is
+    ///   the same addressing `RelationshipEndpoint` uses, so an element and a
+    ///   relationship naming it agree by construction (FEAT-012 chunk I-d).
+    /// - Parameter anchoredAttributes: attributes contributed by ANCESTOR anchors,
+    ///   keyed by the DOM id of the element that must carry them. Relationships are
+    ///   stored on the anchor but belong on the SUBJECT, so each anchor resolves its
+    ///   entries once and every descendant simply looks itself up.
+    private func render(node: Node, instanceChain: [UUID], sourceID: UUID?,
                         instanceNodeIDs: Set<UUID>?,
                         semanticAncestors: [AriaRole],
                         phrasingOnly: Bool,
-                        availableDOMIDs: Set<String>, level: Int,
+                        availableDOMIDs: Set<String>,
+                        anchoredAttributes: [String: [String: String]],
+                        level: Int,
                         count: inout Int,
                         issues: inout [SemanticHTMLFidelityIssue]) -> String {
         count += 1
+        let instanceID = instanceChain.last
         let indent = String(repeating: "  ", count: level)
-        let id = SemanticHTMLIdentity.nodeDOMID(node.id, instanceID: instanceID)
+        let id = SemanticHTMLIdentity.nodeDOMID(node.id, chain: instanceChain)
         let expID = node.id.uuidString.lowercased()
         var common = [
             Attribute(name: "id", value: id),
@@ -162,20 +199,65 @@ private struct HTMLWriter {
         reportVisualFallbacks(node: node, sourceID: sourceID,
                               instanceID: instanceID, issues: &issues)
 
-        let relationships = relationshipAttributes(
-            node: node, instanceID: instanceID,
-            instanceNodeIDs: instanceNodeIDs,
-            availableDOMIDs: availableDOMIDs,
-            sourceID: sourceID, issues: &issues)
+        // ARIA roles do NOT inherit, so this element's role is its OWN, never its
+        // container's. Only a component instance carries one; every other layer
+        // exports as a plain container with the implicit `generic` role.
+        // The emission step below needs this to know whether a NAMING attribute
+        // would be prohibited here.
+        let hostRole: AriaRole? = {
+            if case .instance(let inst) = node.content {
+                return document.source(for: inst.sourceID)?.a11y.role
+            }
+            return nil
+        }()
+        // Relationships are read from ANCESTOR ANCHORS now, not from the node.
+        // Anything stored the old way was rewritten into an anchored twin at decode
+        // (`Document.migrateRelationshipsToAnchors`), so nothing is lost — and
+        // reading only one of the two is what makes a DELETE actually delete,
+        // instead of a stale legacy entry resurrecting the attribute.
+        var relationships = anchoredAttributes[id] ?? [:]
+        // The one conformance rule that has to live at the point of emission,
+        // because only here is the host's role known: `aria-labelledby` is
+        // PROHIBITED on an element with no role (it exports as a `<div>`, implicit
+        // role `generic`, which is nameless). `aria-controls` and `aria-describedby`
+        // are GLOBAL and stay. Verified 2026-07-24 — see BACKLOG BUG-008, and do not
+        // collapse these into one rule; they are not the same case.
+        if hostRole == nil {
+            for kind in NodeRelationship.Kind.allCases where kind.isProhibitedWithoutRole {
+                guard relationships[kind.ariaAttribute] != nil else { continue }
+                relationships[kind.ariaAttribute] = nil
+                issues.append(issue(node: node, sourceID: sourceID,
+                                    instanceID: instanceID, role: nil,
+                                    requirement: "prohibitedRelationship",
+                                    detail: "\(kind.ariaAttribute) was dropped: this layer has no role, so it exports as a generic container, and naming attributes are prohibited there."))
+            }
+        }
+
+        // This node is itself an ANCHOR when it is a group holding relationships:
+        // resolve them once here and hand them down.
+        var childAnchored = anchoredAttributes
+        if !node.anchoredRelationships.isEmpty {
+            let groupChildren: [Node] = {
+                if case .group(let children) = node.content { return children }
+                return []
+            }()
+            childAnchored = merging(childAnchored, self.anchoredAttributes(
+                node.anchoredRelationships,
+                anchorID: node.id, anchorElementID: id,
+                anchorChildren: groupChildren, anchorRole: hostRole,
+                context: instanceChain, availableDOMIDs: availableDOMIDs,
+                node: node, sourceID: sourceID, issues: &issues))
+        }
 
         switch node.content {
         case .group(let children):
             let childHTML = orderedChildren(children, autoLayout: node.autoLayout).map {
-                render(node: $0, instanceID: instanceID, sourceID: sourceID,
+                render(node: $0, instanceChain: instanceChain, sourceID: sourceID,
                        instanceNodeIDs: instanceNodeIDs,
                        semanticAncestors: semanticAncestors,
                        phrasingOnly: phrasingOnly,
-                       availableDOMIDs: availableDOMIDs, level: level + 1,
+                       availableDOMIDs: availableDOMIDs,
+                       anchoredAttributes: childAnchored, level: level + 1,
                        count: &count, issues: &issues)
             }.joined(separator: "\n")
             var attrs = common
@@ -221,8 +303,27 @@ private struct HTMLWriter {
             }
 
             var semanticAttributes = relationships
+
+            // The SOURCE is an anchor too: it holds links between this component's
+            // own children, and the component's own links (whose subject names the
+            // source itself, standing for the element hosting THIS instance). Both
+            // ends resolve against this instance's copies, so two placements can
+            // never cross-link to each other's layers.
+            let sourceAnchored = self.anchoredAttributes(
+                source.anchoredRelationships,
+                anchorID: source.id, anchorElementID: id,
+                anchorChildren: source.children, anchorRole: role,
+                context: instanceChain + [node.id],
+                availableDOMIDs: availableDOMIDs,
+                node: node, sourceID: source.id, issues: &issues)
+            for (name, value) in sourceAnchored[id] ?? [:] {
+                for token in value.split(separator: " ").map(String.init) {
+                    appendAttributeValue(token, name: name, to: &semanticAttributes)
+                }
+            }
+
             if let labelID = source.a11y.accessibleNameLayerID {
-                let target = SemanticHTMLIdentity.nodeDOMID(labelID, instanceID: node.id)
+                let target = SemanticHTMLIdentity.nodeDOMID(labelID, chain: instanceChain + [node.id])
                 if sourceNodeIDs.contains(labelID), availableDOMIDs.contains(target) {
                     appendAttributeValue(target, name: "aria-labelledby",
                                          to: &semanticAttributes)
@@ -258,12 +359,14 @@ private struct HTMLWriter {
             append(semanticAttributes, to: &attrs)
 
             let childHTML = children.reversed().map {
-                render(node: $0, instanceID: node.id, sourceID: source.id,
+                render(node: $0, instanceChain: instanceChain + [node.id], sourceID: source.id,
                        instanceNodeIDs: sourceNodeIDs,
                        semanticAncestors: role.map { semanticAncestors + [$0] }
                            ?? semanticAncestors,
                        phrasingOnly: phrasingOnly || tag == "button",
-                       availableDOMIDs: availableDOMIDs, level: level + 1,
+                       availableDOMIDs: availableDOMIDs,
+                       anchoredAttributes: merging(childAnchored, sourceAnchored),
+                       level: level + 1,
                        count: &count, issues: &issues)
             }.joined(separator: "\n")
             return "\(indent)<\(tag)\(attributes(attrs))>\n\(childHTML)\n\(indent)</\(tag)>"
@@ -309,49 +412,175 @@ private struct HTMLWriter {
     private func availableDOMIDs() -> Set<String> {
         var result = Set<String>()
         for item in topLevelNodes {
-            collectDOMIDs(node: item.element, instanceID: nil, into: &result)
+            collectDOMIDs(node: item.element, chain: [], into: &result)
         }
         return result
     }
 
-    private func collectDOMIDs(node: Node, instanceID: UUID?,
+    /// Every DOM id an artboard will emit, so a relationship pointing at something
+    /// outside it can be REPORTED rather than emitted as a dangling reference.
+    /// Mirrors `render`'s chain handling exactly — if these two ever disagree about
+    /// how an id is composed, every relationship silently becomes unresolvable.
+    private func collectDOMIDs(node: Node, chain: [UUID],
                                into result: inout Set<String>) {
-        result.insert(SemanticHTMLIdentity.nodeDOMID(node.id, instanceID: instanceID))
+        result.insert(SemanticHTMLIdentity.nodeDOMID(node.id, chain: chain))
         switch node.content {
         case .group(let children):
-            for child in children { collectDOMIDs(node: child, instanceID: instanceID, into: &result) }
+            for child in children { collectDOMIDs(node: child, chain: chain, into: &result) }
         case .instance(let instance):
             for child in document.semanticHTMLResolvedChildren(of: instance.withoutActiveState) {
-                collectDOMIDs(node: child, instanceID: node.id, into: &result)
+                collectDOMIDs(node: child, chain: chain + [node.id], into: &result)
             }
         default:
             break
         }
     }
 
-    private func relationshipAttributes(
-        node: Node, instanceID: UUID?, instanceNodeIDs: Set<UUID>?,
-        availableDOMIDs: Set<String>, sourceID: UUID?,
+    /// Resolve one anchor's relationships into attributes keyed by the DOM id of
+    /// the element that must CARRY each one.
+    ///
+    /// Relationships live on the anchor but belong on the subject, so this is the
+    /// translation step. Both ends are addressed by path relative to the anchor, and
+    /// `context` is the instance chain the anchor itself sits in — so the emitted id
+    /// is composed exactly the way `render` composes it, and the two cannot drift.
+    ///
+    /// `anchorElementID` is the DOM id of the anchor's own element, used when a
+    /// subject names the ANCHOR ITSELF. That is how a component's own relationships
+    /// are expressed: the element carrying the role hosts the instance, so it IS the
+    /// anchor, and nothing inside the source can stand for it.
+    private func anchoredAttributes(
+        _ relationships: [AnchoredRelationship],
+        anchorID: UUID,
+        anchorElementID: String,
+        anchorChildren: [Node],
+        anchorRole: AriaRole?,
+        context: [UUID],
+        availableDOMIDs: Set<String>,
+        node: Node, sourceID: UUID?,
         issues: inout [SemanticHTMLFidelityIssue]
-    ) -> [String: String] {
-        var result: [String: String] = [:]
-        for relationship in node.relationships {
-            let target = SemanticHTMLIdentity.nodeDOMID(
-                relationship.targetID,
-                instanceID: instanceID != nil && instanceNodeIDs?.contains(relationship.targetID) == true
-                    ? instanceID : nil)
-            guard availableDOMIDs.contains(target) else {
-                issues.append(issue(node: node, sourceID: sourceID,
-                                    instanceID: instanceID, role: nil,
-                                    requirement: "unresolvedRelationship",
-                                    detail: "\(relationship.kind.ariaAttribute) target \(relationship.targetID.uuidString.lowercased()) is outside this artboard or missing."))
+    ) -> [String: [String: String]] {
+        var result: [String: [String: String]] = [:]
+        /// Which subjects point at each target, so a target serving several
+        /// subjects can be noticed once rather than per-subject.
+        var subjectsPerTarget: [String: [UUID]] = [:]
+        func role(of endpoint: RelationshipEndpoint) -> AriaRole? {
+            if endpoint.isDirect, endpoint.nodeID == anchorID { return anchorRole }
+            guard let resolved = document.resolveEndpoint(endpoint, in: anchorChildren)
+            else { return nil }
+            return document.roleForExport(of: resolved)
+        }
+        /// Fidelity issues belong to the relationship's SUBJECT, not whichever
+        /// container happens to store the relationship. This matters most at the
+        /// document root, where there is no real anchor node and the old fallback
+        /// attributed every issue to an arbitrary first artboard layer.
+        func diagnosticNode(for endpoint: RelationshipEndpoint) -> Node {
+            if endpoint.isDirect, endpoint.nodeID == anchorID { return node }
+            if let resolved = document.resolveEndpoint(endpoint, in: anchorChildren) {
+                return resolved
+            }
+            // Preserve the missing subject's id in the report even when the layer
+            // itself cannot be resolved. Geometry/content are diagnostic-only.
+            return Node(id: endpoint.nodeID,
+                        name: "Missing relationship subject",
+                        frame: .zero,
+                        content: .group(children: []))
+        }
+        for relationship in relationships {
+            let subjectNode = diagnosticNode(for: relationship.subject)
+            let subjectID: String
+            if relationship.subject.isDirect, relationship.subject.nodeID == anchorID {
+                subjectID = anchorElementID
+            } else {
+                subjectID = SemanticHTMLIdentity.nodeDOMID(
+                    relationship.subject.nodeID,
+                    chain: context + relationship.subject.instanceChain)
+            }
+            // Validate the SUBJECT as well as the target. Only the target used to
+            // be checked, so a relationship whose subject layer had since been
+            // deleted resolved to a DOM id nothing would ever emit — and then
+            // vanished in total silence, with no fidelity issue and no trace in the
+            // export. Found in a real file: three authored relationships had
+            // evaporated exactly this way. Silent loss is the one thing a fidelity
+            // tool must not do.
+            guard availableDOMIDs.contains(subjectID) else {
+                issues.append(issue(node: subjectNode, sourceID: sourceID,
+                                    instanceID: context.last, role: nil,
+                                    requirement: "orphanedRelationship",
+                                    detail: "A \(relationship.kind.ariaAttribute) connection was authored on a layer that no longer exists, so nothing carries it. Remove it, or restore the layer."))
                 continue
             }
-            appendAttributeValue(target, name: relationship.kind.ariaAttribute,
-                                 to: &result)
+            let targetID = SemanticHTMLIdentity.nodeDOMID(
+                relationship.target.nodeID,
+                chain: context + relationship.target.instanceChain)
+            guard availableDOMIDs.contains(targetID) else {
+                issues.append(issue(node: subjectNode, sourceID: sourceID,
+                                    instanceID: context.last, role: nil,
+                                    requirement: "unresolvedRelationship",
+                                    detail: "\(relationship.kind.ariaAttribute) target \(relationship.target.nodeID.uuidString.lowercased()) is outside this artboard or missing."))
+                continue
+            }
+            // ADVICE, not an error: the link resolves and the markup is valid, it
+            // just points at an unexpected KIND of thing for this pattern. A
+            // developer or a model reading this package would otherwise produce a
+            // plausible-but-wrong component from it, with nothing flagging why.
+            let subjectRole = role(of: relationship.subject)
+            let expected = subjectRole?.expectedRelationshipTargetRoles(for: relationship.kind) ?? []
+            if !expected.isEmpty {
+                let actual = role(of: relationship.target)
+                if actual == nil || !expected.contains(actual!) {
+                    let wanted = expected.map(\.friendlyLabel).joined(separator: " or ")
+                    let got = actual?.friendlyLabel ?? "a layer with no role"
+                    issues.append(issue(node: subjectNode, sourceID: sourceID,
+                                        instanceID: context.last, role: subjectRole,
+                                        category: .advisory,
+                                        requirement: "unexpectedRelationshipTarget",
+                                        detail: "\(relationship.kind.ariaAttribute) on a \(subjectRole?.friendlyLabel ?? "layer") usually points at \(wanted); this one points at \(got). Valid markup, but check it is what you meant."))
+                }
+            }
+            subjectsPerTarget[targetID, default: []].append(relationship.subject.nodeID)
+
+            var attributes = result[subjectID] ?? [:]
+            appendAttributeValue(targetID, name: relationship.kind.ariaAttribute,
+                                 to: &attributes)
+            result[subjectID] = attributes
+        }
+
+        // One panel serving several tabs. The APG describes a 1:1 pairing ("its
+        // associated tabpanel"), but states no prohibition — so this is advice and
+        // must stay advice. NOT VERIFIED that anything forbids it; do not promote
+        // this to a requirement without finding text that does.
+        for (targetID, subjects) in subjectsPerTarget where subjects.count > 1 {
+            guard let match = relationships.first(where: { relationship in
+                SemanticHTMLIdentity.nodeDOMID(relationship.target.nodeID,
+                                               chain: context + relationship.target.instanceChain) == targetID
+            }), role(of: match.target) == .tabpanel else { continue }
+            issues.append(issue(node: diagnosticNode(for: match.subject), sourceID: sourceID,
+                                instanceID: context.last, role: .tabpanel,
+                                category: .advisory,
+                                requirement: "sharedRelationshipTarget",
+                                detail: "\(subjects.count) tabs point at the same Tab Panel. The WAI-APG tabs pattern pairs each tab with its own panel, so a downstream implementation may not behave as expected. Nothing here is invalid."))
         }
         return result
     }
+
+    /// Merge anchor-contributed attributes into the inherited map. Later anchors do
+    /// not replace earlier ones — a subject can legitimately be named by one anchor
+    /// and described by another, so values ACCUMULATE per attribute.
+    private func merging(_ inherited: [String: [String: String]],
+                         _ added: [String: [String: String]]) -> [String: [String: String]] {
+        var result = inherited
+        for (domID, attributes) in added {
+            var existing = result[domID] ?? [:]
+            for (name, value) in attributes {
+                for token in value.split(separator: " ").map(String.init) {
+                    appendAttributeValue(token, name: name, to: &existing)
+                }
+            }
+            result[domID] = existing
+        }
+        return result
+    }
+
 
     private func applyActiveState(instance: ComponentInstance,
                                   source: ComponentSource,
@@ -593,10 +822,20 @@ private struct HTMLWriter {
             fillOpacity = "1"
         }
         let stroke = path.strokeWidth > 0
-            ? " stroke=\"var(--exp-path-stroke, \(svgColor(path.stroke)))\" stroke-width=\"\(number(path.strokeWidth))\""
+            ? " stroke=\"var(--exp-path-stroke, \(svgColor(path.stroke)))\" stroke-width=\"\(number(path.strokeWidth))\"\(svgStrokePattern(path.strokePattern, width: path.strokeWidth))"
             : ""
         let defs = definitions.isEmpty ? "" : "<defs>\(definitions)</defs>"
         return "<svg class=\"exp-path-svg\" viewBox=\"0 0 \(number(width)) \(number(height))\" preserveAspectRatio=\"none\" aria-hidden=\"true\" focusable=\"false\">\(defs)<path class=\"exp-path-shape\" d=\"\(svgPathData(path))\" fill=\"\(fill)\" fill-opacity=\"\(fillOpacity)\"\(stroke) stroke-linejoin=\"round\" stroke-linecap=\"round\"/></svg>"
+    }
+
+    private func svgStrokePattern(_ pattern: StrokePattern, width: CGFloat) -> String {
+        switch pattern {
+        case .solid: return ""
+        case .dashed:
+            return " stroke-dasharray=\"\(number(max(3, width * 3))) \(number(max(2, width * 2)))\" stroke-linecap=\"butt\""
+        case .dotted:
+            return " stroke-dasharray=\"0.001 \(number(max(2, width * 2.25)))\" stroke-linecap=\"round\""
+        }
     }
 
     private func svgPathData(_ path: PathShape) -> String {
@@ -707,7 +946,7 @@ private struct CSSWriter {
                    origin: CGPoint(x: item.element.frame.minX - artboard.frame.minX,
                                    y: item.element.frame.minY - artboard.frame.minY),
                    zIndex: item.offset + 1,
-                   instanceID: nil)
+                   chain: [])
         }
     }
 
@@ -803,9 +1042,13 @@ private struct CSSWriter {
         return header + "\n\n" + designLanguage + "\n" + rules.joined(separator: "\n\n") + "\n"
     }
 
+    /// - Parameter chain: the component instances above this node, outermost first.
+    ///   MUST be composed the same way `render` composes it, or the CSS selector and
+    ///   the element it is meant to style stop matching at nesting depth 2 — the
+    ///   exact collision FEAT-012 chunk I-d exists to remove.
     private mutating func append(node: Node, origin: CGPoint, zIndex: Int,
-                                 instanceID: UUID?, flexItem: Bool = false) {
-        let id = SemanticHTMLIdentity.nodeDOMID(node.id, instanceID: instanceID)
+                                 chain: [UUID], flexItem: Bool = false) {
+        let id = SemanticHTMLIdentity.nodeDOMID(node.id, chain: chain)
         var declarations = geometry(node: node, origin: origin, zIndex: zIndex,
                                     flexItem: flexItem)
         declarations.append(contentsOf: appearance(node))
@@ -831,23 +1074,24 @@ private struct CSSWriter {
         case .group(let children):
             for (index, child) in children.enumerated() {
                 append(node: child, origin: child.frame.origin, zIndex: index + 1,
-                       instanceID: instanceID, flexItem: node.autoLayout != nil)
+                       chain: chain, flexItem: node.autoLayout != nil)
             }
         case .instance(let instance):
             let base = instance.withoutActiveState
             let baseChildren = document.semanticHTMLResolvedChildren(of: base)
             for (index, child) in baseChildren.enumerated() {
                 append(node: child, origin: child.frame.origin, zIndex: index + 1,
-                       instanceID: node.id)
+                       chain: chain + [node.id])
             }
-            appendStateRules(rootNode: node, rootDOMID: id, instance: base,
-                             baseChildren: baseChildren)
+            appendStateRules(rootNode: node, rootDOMID: id, chain: chain + [node.id],
+                             instance: base, baseChildren: baseChildren)
         default:
             break
         }
     }
 
     private mutating func appendStateRules(rootNode: Node, rootDOMID: String,
+                                           chain: [UUID],
                                            instance: ComponentInstance,
                                            baseChildren: [Node]) {
         guard let source = document.source(for: instance.sourceID) else { return }
@@ -861,17 +1105,17 @@ private struct CSSWriter {
                                            mapping: source.a11y.role?.semanticHTMLMapping)
             for (index, child) in children.enumerated() {
                 appendState(node: child, origin: child.frame.origin,
-                            zIndex: index + 1, instanceID: rootNode.id,
+                            zIndex: index + 1, chain: chain,
                             prefix: prefix, baseVisibility: baseVisibility)
             }
         }
     }
 
     private mutating func appendState(node: Node, origin: CGPoint, zIndex: Int,
-                                      instanceID: UUID, prefix: String,
+                                      chain: [UUID], prefix: String,
                                       baseVisibility: [UUID: Bool],
                                       flexItem: Bool = false) {
-        let id = SemanticHTMLIdentity.nodeDOMID(node.id, instanceID: instanceID)
+        let id = SemanticHTMLIdentity.nodeDOMID(node.id, chain: chain)
         var declarations = geometry(node: node, origin: origin, zIndex: zIndex,
                                     flexItem: flexItem)
         declarations.append(contentsOf: appearance(node))
@@ -897,7 +1141,7 @@ private struct CSSWriter {
         if case .group(let children) = node.content {
             for (index, child) in children.enumerated() {
                 appendState(node: child, origin: child.frame.origin,
-                            zIndex: index + 1, instanceID: instanceID,
+                            zIndex: index + 1, chain: chain,
                             prefix: prefix, baseVisibility: baseVisibility,
                             flexItem: node.autoLayout != nil)
             }
@@ -957,7 +1201,8 @@ private struct CSSWriter {
         switch node.content {
         case .rectangle(let shape):
             var d = ["background: \(paint(shape.fill))"]
-            d.append(contentsOf: border(color: shape.stroke, width: shape.strokeWidth))
+            d.append(contentsOf: border(color: shape.stroke, width: shape.strokeWidth,
+                                        pattern: shape.strokePattern))
             let r = shape.effectiveRadii
             if !r.isZero {
                 d.append("border-radius: \(number(r.topLeft))px \(number(r.topRight))px \(number(r.bottomRight))px \(number(r.bottomLeft))px")
@@ -965,7 +1210,8 @@ private struct CSSWriter {
             return d
         case .ellipse(let shape):
             return ["background: \(paint(shape.fill))", "border-radius: 50%"]
-                + border(color: shape.stroke, width: shape.strokeWidth)
+                + border(color: shape.stroke, width: shape.strokeWidth,
+                         pattern: shape.strokePattern)
         case .polygon(let shape):
             let points = shape.vertices(in: CGRect(origin: .zero, size: node.frame.size))
             let pairs = points.map {
@@ -983,7 +1229,7 @@ private struct CSSWriter {
             }
             return declarations
         case .line(let shape):
-            return ["border-top: \(number(shape.strokeWidth))px solid \(color(shape.stroke))"]
+            return ["border-top: \(number(shape.strokeWidth))px \(cssStrokePattern(shape.strokePattern)) \(color(shape.stroke))"]
         case .text(let text):
             if DesignLanguageIO.firstTypeStyleBinding(
                 matching: text, in: document.designLanguage) != nil { return [] }
@@ -1023,15 +1269,23 @@ private struct CSSWriter {
             }
             if let fill = padding.fill { d.append("background: \(paint(fill))") }
             if padding.cornerRadius > 0 { d.append("border-radius: \(number(padding.cornerRadius))px") }
-            if let stroke = padding.stroke { d += border(color: stroke, width: padding.strokeWidth) }
+            if let stroke = padding.stroke {
+                d += border(color: stroke, width: padding.strokeWidth,
+                            pattern: padding.strokePattern)
+            }
             return d
         case .instance:
             return []
         }
     }
 
-    private func border(color: RGBAColor, width: CGFloat) -> [String] {
-        width > 0 ? ["border: \(number(width))px solid \(self.color(color))"] : []
+    private func border(color: RGBAColor, width: CGFloat,
+                        pattern: StrokePattern = .solid) -> [String] {
+        width > 0 ? ["border: \(number(width))px \(cssStrokePattern(pattern)) \(self.color(color))"] : []
+    }
+
+    private func cssStrokePattern(_ pattern: StrokePattern) -> String {
+        switch pattern { case .solid: return "solid"; case .dashed: return "dashed"; case .dotted: return "dotted" }
     }
 
     private func paint(_ value: Paint) -> String {
@@ -1130,14 +1384,23 @@ private struct CSSWriter {
 // The canvas renderer drops invisible source layers for speed. Semantic export
 // keeps them in the DOM with `hidden`, because stable relationships must remain
 // addressable and a later component state may reveal them.
-private extension Document {
+extension Document {
     func semanticHTMLResolvedChildren(of instance: ComponentInstance) -> [Node] {
         guard let source = source(for: instance.sourceID) else { return [] }
         let effective = instance.applyingState(instance.activeStateID.flatMap { stateID in
             source.states.first { $0.id == stateID }
         })
-        let resolved = source.children.map { semanticHTMLResolvedNode($0, instance: effective) }
-        let laid = AutoLayoutEngine.reflowed(resolved)
+        let resolved = source.children
+            .map { semanticHTMLResolvedNode($0, instance: effective) }
+            // FEAT-017 chunk J-d. This is a PARALLEL resolver — it keeps hidden
+            // layers so it can emit `hidden`, which is why it does not call
+            // `resolvedChildren` — and that meant J-b's push-down never reached the
+            // HTML. Same call, same position (before the reflow, so a re-hug
+            // measures the overridden content). If a third resolver ever appears,
+            // it needs this line too; the duplication is the hazard here, not the
+            // logic.
+            .map { Document.pushingNestedOverrides(effective.nestedOverrides, into: $0) }
+        let laid = reflowed(resolved)
         let bounds = sourceUsesManagedBounds(source)
             ? (managedRootBounds(in: laid) ?? source.bounds)
             : source.bounds
@@ -1186,18 +1449,23 @@ private extension Document {
                 // geometry() emits `opacity` from the resolved node, so per-state
                 // opacity flows into the state rule automatically.
                 node.opacity = value
+            case .blendMode(let value):
+                // visualDeclarations() emits mix-blend-mode from the resolved
+                // node, so state-local compositing reaches the generated CSS.
+                node.blendMode = value
             case .stroke(let stroke):
                 switch node.content {
-                case .rectangle(var shape): shape.stroke = stroke.color ?? .clear; shape.strokeWidth = stroke.width; shape.strokeAlignment = stroke.alignment; node.content = .rectangle(shape)
-                case .ellipse(var shape):   shape.stroke = stroke.color ?? .clear; shape.strokeWidth = stroke.width; shape.strokeAlignment = stroke.alignment; node.content = .ellipse(shape)
-                case .polygon(var shape):   shape.stroke = stroke.color ?? .clear; shape.strokeWidth = stroke.width; shape.strokeAlignment = stroke.alignment; node.content = .polygon(shape)
-                case .path(var shape):      shape.stroke = stroke.color ?? .clear; shape.strokeWidth = stroke.width; shape.strokeAlignment = stroke.alignment; node.content = .path(shape)
-                case .line(var shape):      shape.stroke = stroke.color ?? .clear; shape.strokeWidth = stroke.width; node.content = .line(shape)
+                case .rectangle(var shape): shape.stroke = stroke.color ?? .clear; shape.strokeWidth = stroke.width; shape.strokeAlignment = stroke.alignment; shape.strokePattern = stroke.pattern ?? .solid; node.content = .rectangle(shape)
+                case .ellipse(var shape):   shape.stroke = stroke.color ?? .clear; shape.strokeWidth = stroke.width; shape.strokeAlignment = stroke.alignment; shape.strokePattern = stroke.pattern ?? .solid; node.content = .ellipse(shape)
+                case .polygon(var shape):   shape.stroke = stroke.color ?? .clear; shape.strokeWidth = stroke.width; shape.strokeAlignment = stroke.alignment; shape.strokePattern = stroke.pattern ?? .solid; node.content = .polygon(shape)
+                case .path(var shape):      shape.stroke = stroke.color ?? .clear; shape.strokeWidth = stroke.width; shape.strokeAlignment = stroke.alignment; shape.strokePattern = stroke.pattern ?? .solid; node.content = .path(shape)
+                case .line(var shape):      shape.stroke = stroke.color ?? .clear; shape.strokeWidth = stroke.width; shape.strokePattern = stroke.pattern ?? .solid; node.content = .line(shape)
                 case .group:
                     if node.autoPadding != nil {
                         node.autoPadding?.stroke = stroke.color
                         node.autoPadding?.strokeWidth = stroke.width
                         node.autoPadding?.strokeAlignment = stroke.alignment
+                        node.autoPadding?.strokePattern = stroke.pattern ?? .solid
                     }
                 default: break
                 }

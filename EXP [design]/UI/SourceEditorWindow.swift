@@ -81,6 +81,12 @@ final class SourceEditorWindowManager {
         window.makeKeyAndOrderFront(nil as Any?)
     }
 
+    /// Close the editor for one source — used when that source is deleted, so
+    /// no window is left editing a component the document no longer contains.
+    func close(sourceID: UUID) {
+        controllers[sourceID]?.close()
+    }
+
     func closeAll(for document: ExpDocument) {
         let ids = delegates.compactMap { sourceID, delegate in
             delegate.document === document ? sourceID : nil
@@ -212,10 +218,22 @@ struct SourceEditorView: View {
         )
     }
 
-    /// What the current choice MEANS, in plain language.
+    /// What the current choice MEANS, in plain language — plus, when this
+    /// component's role expects particular children and none of the components
+    /// inside it carry that role yet, the semantic-containment nudge. Surfaced
+    /// here because it is far cheaper to fix while authoring than to discover in
+    /// the handoff package's fidelity report.
     private var categoryBlurb: String {
-        if let role = source?.a11y.role { return role.blurb }
-        return "Optional — tag what this component IS. It organizes the Components panel today, and the same tag powers accessible code export later."
+        guard let role = source?.a11y.role else {
+            return "Optional — tag what this component IS. It organizes the Components panel today, and the same tag powers accessible code export later."
+        }
+        if let advice = document.model.containmentAdvice(forSource: sourceID) {
+            return role.blurb + "\n\n" + advice.message
+        }
+        if let guidance = role.containmentGuidance {
+            return role.blurb + "\n\n" + guidance
+        }
+        return role.blurb
     }
 
     private func commitName() {

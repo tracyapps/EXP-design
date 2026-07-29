@@ -39,7 +39,7 @@ func captureFeedbackContext(app: AppState, document: ExpDocument) -> [(String, S
         ("macOS", ProcessInfo.processInfo.operatingSystemVersionString),
         ("Tool", app.tool.label),
         ("Selection", "\(app.selectedNodeIDs.count) layer(s), \(app.selectedArtboardIDs.count) artboard(s)"),
-        ("Document", "\(m.artboards.count) artboards · \(count(m.nodes)) nodes · \(m.sources.count) components"),
+        ("Document", "\(m.pages.count) pages · \(m.allArtboards.count) artboards · \(m.pages.reduce(0) { $0 + count($1.nodes) }) nodes · \(m.sources.count) components"),
     ]
 }
 

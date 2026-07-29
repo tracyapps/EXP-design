@@ -27,9 +27,9 @@ private enum SemanticHTMLPackageCheck {
                 at: output.appendingPathComponent("html"),
                 includingPropertiesForKeys: nil)
                 .filter { $0.pathExtension == "html" }
-            require(htmlFiles.count == document.artboards.count,
+            require(htmlFiles.count == document.allArtboards.count,
                     "real-document artboard page count mismatch")
-            print("ok: real document smoke export (\(document.artboards.count) page(s), \(css.utf8.count) CSS bytes)")
+            print("ok: real document smoke export (\(document.allArtboards.count) artboard page(s), \(css.utf8.count) CSS bytes)")
             return
         }
         guard CommandLine.arguments.count == 2 else {
@@ -105,9 +105,9 @@ private enum SemanticHTMLPackageCheck {
                 "semantic stylesheet no longer matches the reviewed golden")
         require(sha256(Data(html.utf8)) == "bdbe933a027de5c815fa23bbe36b2b0ffc8cebc5dd2d0638d9ba36765a5a07ad",
                 "semantic HTML page no longer matches the reviewed golden")
-        require(sha256(manifestData) == "83fc525aec45d3824cbe9a1a4e63c1476f669bfdc81c5c55660040287be9df19",
+        require(sha256(manifestData) == "7c2645f30fdd44e93ed36e7df5b83ee32d0aef689154876ab9f9fef810c95b49",
                 "handoff manifest no longer matches the reviewed golden")
-        require(sha256(Data(readme.utf8)) == "f92c98f55900a28d6d5434d876e1e1e4bf67040efbdbda9711258ff385ae417c",
+        require(sha256(Data(readme.utf8)) == "0aca4002dc6c9c9e57c4b9b5bf9f922c3ed8c79b3b20331698a967cdcff8637f",
                 "handoff README no longer matches the reviewed golden")
 
         require(html.contains("<!doctype html>"), "page is not a standalone HTML document")

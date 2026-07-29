@@ -100,10 +100,10 @@ struct HandoffPackageWriter {
                       bytes: readmeData.count,
                       sha256: sha256(readmeData)),
             ],
-            summary: .init(artboards: document.artboards.count,
-                           nodes: count(document.nodes),
+            summary: .init(artboards: document.allArtboards.count,
+                           nodes: document.pages.reduce(0) { $0 + count($1.nodes) },
                            components: document.sources.count,
-                           notes: document.artboards.filter { !$0.notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.count,
+                           notes: document.allArtboards.filter { !$0.notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.count,
                            designTokens: document.designLanguage.assets.count + document.designLanguage.typeStyles.count,
                            semanticHTMLPages: htmlBundle.pagePaths.count,
                            semanticHTMLNodes: htmlBundle.emittedNodeCount,
@@ -150,7 +150,7 @@ struct HandoffPackageWriter {
 
     private func orientationMarkdown(htmlBundle: SemanticHTMLBundle) -> String {
         let sourceName = sourceURL?.lastPathComponent ?? "Untitled document"
-        let notes = document.artboards
+        let notes = document.allArtboards
             .filter { !$0.notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
             .map { artboard in
                 "### \(markdownInline(artboard.name))\n\n" +
@@ -163,14 +163,29 @@ struct HandoffPackageWriter {
                 guard let role = source.a11y.role else { return nil }
                 return "- \(source.name) (`\(source.id.uuidString)`) is categorized as ARIA `\(role.rawValue)`."
             }
-            .joined(separator: "\n")
+        let componentProps = document.sources
+            .compactMap { source -> String? in
+                let props = Self.publicProps(of: source, in: document)
+                guard !props.isEmpty else { return nil }
+                return "### \(markdownInline(source.name))\n\n" + props.joined(separator: "\n")
+            }
+            .joined(separator: "\n\n")
         let htmlPages = htmlBundle.pagePaths
             .map { "- `\($0)`" }
             .joined(separator: "\n")
         let semanticRequirements = htmlBundle.fidelityIssues.map { issue in
             let role = issue.role.map { " ARIA `\($0.rawValue)`" } ?? ""
             let instance = issue.instanceID.map { ", instance `\($0.uuidString)`" } ?? ""
-            let category = issue.category == .visualFallback ? "Visual fallback" : "Semantic requirement"
+            // Three distinct things, named distinctly. A reader has to be able to
+            // tell "a rule was broken" from "we approximated something visual"
+            // from "this is legal but probably not what you meant" — flattening
+            // them makes the report either alarmist or ignorable. FEAT-016.
+            let category: String
+            switch issue.category {
+            case .visualFallback:      category = "Visual fallback"
+            case .advisory:            category = "Advisory"
+            case .semanticRequirement: category = "Semantic requirement"
+            }
             return "- \(category) — artboard `\(issue.artboardID.uuidString)`, node `\(issue.nodeID.uuidString)`\(instance)\(role): **\(markdownInline(issue.requirement))** — \(issue.detail)"
         }.joined(separator: "\n")
 
@@ -207,7 +222,13 @@ struct HandoffPackageWriter {
 
         ## Component Semantics
 
-        \(roles.isEmpty ? "No component ARIA roles are assigned." : roles)
+        \(roles.isEmpty ? "No component ARIA roles are assigned." : roles.joined(separator: "\n"))
+
+        ## Component Props
+
+        Fields the component author marked PUBLIC — the ones intended to be real props in code, as opposed to tweaks made locally in EXP. A path with more than one step reaches a layer inside a nested component; each step is that nested component's layer name.
+
+        \(componentProps.isEmpty ? "No fields are marked as public props. Everything overridable is currently EXP-local." : componentProps)
 
         ## Semantic HTML Requirements & Visual Fallbacks
 
@@ -217,6 +238,47 @@ struct HandoffPackageWriter {
 
         This package preserves EXP's native document data and includes the verified v2.0 semantic HTML/CSS contract. The generated pages are deterministic, inspectable handoff artifacts—not a claim that listed downstream interaction requirements have been implemented or that a reported visual fallback is pixel-identical.
         """
+    }
+
+    /// Public props of a component, INCLUDING ones on layers inside nested
+    /// components, addressed by the same path `NestedInstanceOverride` uses.
+    ///
+    /// `publicProps` has existed on `Node` for a while and was never advertised
+    /// anywhere in the package — so a reader had to infer a component's API from
+    /// the raw model tree, which is exactly the guessing a handoff exists to
+    /// prevent. Its stored meaning is deliberately preserved: false keeps an
+    /// override EXP-local, true declares it part of the component's public
+    /// contract. This reports that declaration; it does not gate anything.
+    static func publicProps(of source: ComponentSource, in document: Document,
+                            nodes: [Node]? = nil, path: [String] = [],
+                            depth: Int = 0) -> [String] {
+        guard depth < 8 else { return [] }
+        var out: [String] = []
+        for node in nodes ?? source.children {
+            let name = node.name.isEmpty ? "(unnamed)" : node.name
+            let here = path + [name]
+            if node.publicProps.text {
+                out.append("- `\(here.joined(separator: " / "))` — text")
+            }
+            if node.publicProps.fill {
+                out.append("- `\(here.joined(separator: " / "))` — fill")
+            }
+            switch node.content {
+            case .group(let children):
+                // Groups are structure, not identity — they do not add a path step,
+                // for the same reason a relationship endpoint never names one.
+                out += publicProps(of: source, in: document, nodes: children,
+                                   path: path, depth: depth + 1)
+            case .instance(let nested):
+                guard let nestedSource = document.source(for: nested.sourceID) else { break }
+                out += publicProps(of: nestedSource, in: document,
+                                   nodes: nestedSource.children,
+                                   path: here, depth: depth + 1)
+            default:
+                break
+            }
+        }
+        return out
     }
 
     private func markdownInline(_ value: String) -> String {

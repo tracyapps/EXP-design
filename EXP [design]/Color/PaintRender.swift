@@ -36,13 +36,14 @@ enum PaintRender {
     static func strokeAligned(_ path: NSBezierPath, width: CGFloat,
                               alignment: StrokeAlignment, color: NSColor,
                               join: CGLineJoin = .miter, cap: CGLineCap = .butt,
+                              pattern: StrokePattern = .solid,
                               in ctx: CGContext) {
         guard width > 0 else { return }
         let cg = path.cgPath
         ctx.saveGState()
         ctx.setStrokeColor(color.cgColor)
         ctx.setLineJoin(join)
-        ctx.setLineCap(cap)
+        configureStrokePattern(pattern, width: width, fallbackCap: cap, in: ctx)
         switch alignment {
         case .center:
             ctx.addPath(cg)
@@ -65,6 +66,27 @@ enum PaintRender {
             ctx.strokePath()
         }
         ctx.restoreGState()
+    }
+
+    /// Apply one semantic stroke rhythm at the current render scale. Dots use a
+    /// near-zero dash with round caps; a true zero-length dash is inconsistently
+    /// handled across PDF/Core Graphics destinations.
+    static func configureStrokePattern(_ pattern: StrokePattern, width: CGFloat,
+                                       fallbackCap: CGLineCap = .butt,
+                                       in ctx: CGContext) {
+        switch pattern {
+        case .solid:
+            ctx.setLineDash(phase: 0, lengths: [])
+            ctx.setLineCap(fallbackCap)
+        case .dashed:
+            ctx.setLineDash(phase: 0,
+                            lengths: [max(3, width * 3), max(2, width * 2)])
+            ctx.setLineCap(.butt)
+        case .dotted:
+            ctx.setLineDash(phase: 0,
+                            lengths: [0.001, max(2, width * 2.25)])
+            ctx.setLineCap(.round)
+        }
     }
 
     static func fillRect(_ paint: Paint, rect: CGRect, in ctx: CGContext) {

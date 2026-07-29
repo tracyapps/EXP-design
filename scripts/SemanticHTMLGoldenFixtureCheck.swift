@@ -19,6 +19,7 @@ enum Fixture {
     static func id(_ value: String) -> UUID { UUID(uuidString: value)! }
 
     static let artboardID = id("00000000-0000-0000-0000-000000000001")
+    static let canvasPageID = id("00000000-0000-0000-0000-000000000002")
     static let sourceID = id("00000000-0000-0000-0000-000000000010")
     static let backgroundID = id("00000000-0000-0000-0000-000000000011")
     static let labelID = id("00000000-0000-0000-0000-000000000012")
@@ -68,9 +69,6 @@ enum Fixture {
             id: labelID,
             name: "Button label",
             frame: CGRect(x: 28, y: 11, width: 76, height: 22),
-            relationships: [NodeRelationship(id: validRelationshipID,
-                                             kind: .describedby,
-                                             targetID: descriptionID)],
             publicProps: PublicOverrideProps(text: true),
             content: .text(TextContent(
                 runs: [TextRun(string: "Continue", fontName: fixtureFont,
@@ -97,7 +95,14 @@ enum Fixture {
             size: CGSize(width: 180, height: 66),
             children: [background, label, description],
             a11y: A11ySemantics(role: .button, accessibleNameLayerID: labelID),
-            states: [hoverState, openState]
+            states: [hoverState, openState],
+            anchoredRelationships: [
+                AnchoredRelationship(
+                    id: validRelationshipID,
+                    kind: .describedby,
+                    subject: RelationshipEndpoint(nodeID: labelID),
+                    target: RelationshipEndpoint(nodeID: descriptionID))
+            ]
         )
 
         var layout = AutoLayout()
@@ -136,9 +141,6 @@ enum Fixture {
             id: vectorPathID,
             name: "Complex vector path",
             frame: CGRect(x: 500, y: 80, width: 120, height: 100),
-            relationships: [NodeRelationship(id: brokenRelationshipID,
-                                             kind: .controls,
-                                             targetID: wallNodeID)],
             content: .path(PathShape(
                 points: [
                     PathPoint(point: CGPoint(x: 0, y: 80),
@@ -208,7 +210,15 @@ enum Fixture {
             nodes: [freeNode, autoGroup, instance, secondInstance, vectorPath,
                     headingInstance, wallNode],
             sources: [source, headingSource],
-            designLanguage: language
+            designLanguage: language,
+            anchoredRelationships: [
+                AnchoredRelationship(
+                    id: brokenRelationshipID,
+                    kind: .controls,
+                    subject: RelationshipEndpoint(nodeID: vectorPathID),
+                    target: RelationshipEndpoint(nodeID: wallNodeID))
+            ],
+            pageID: canvasPageID
         )
     }
 
@@ -340,7 +350,8 @@ private enum SemanticHTMLGoldenFixtureCheck {
                 "fixture lacks accessible-name source")
         require(source.states.contains { $0.name == "hover" }, "fixture lacks conventional state")
         require(source.states.contains { $0.name == "menu open" }, "fixture lacks custom state")
-        require(source.children.contains { !$0.relationships.isEmpty }, "fixture lacks relationship")
+        require(!source.anchoredRelationships.isEmpty, "fixture lacks source relationship")
+        require(!document.anchoredRelationships.isEmpty, "fixture lacks root relationship")
         require(document.nodes.contains {
             if case .instance(let instance) = $0.content { return instance.activeStateID == Fixture.hoverID }
             return false

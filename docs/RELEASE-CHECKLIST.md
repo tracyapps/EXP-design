@@ -3,6 +3,12 @@
 The repeatable path from a green build on `dev` to a tagged GitHub Release.
 GitHub auth is off-box, so the owner runs every `git`/`gh` step.
 
+## Current release
+
+Use **[RELEASE-CHECKLIST-v2.1.md](RELEASE-CHECKLIST-v2.1.md)** for the complete
+v2.1/build 12 path. The older version-specific paths below remain as historical
+release records and recovery references.
+
 ## v2.0.1 copy/paste path
 
 The complete v2.0.1 / build 11 bug-fix path: BUG-006 (component-state typography

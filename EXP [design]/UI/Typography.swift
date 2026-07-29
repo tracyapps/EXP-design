@@ -155,22 +155,24 @@ extension TextContent {
                   tracking: tracking, box: box, textCase: textCase)
     }
 
-    /// Size to fit the text. With `maxWidth` (a fixed/paragraph box) the width is
-    /// kept and the text wraps, growing only in height; otherwise it hugs a single
-    /// line. Min 20×(1.3·size).
+    /// Size to fit the same attributed text TextKit draws on canvas. With
+    /// `maxWidth` (a fixed/paragraph box) the width is kept and the text wraps,
+    /// growing only in height; otherwise it hugs a single line. Do not impose an
+    /// extra `1.3 × font size` floor or bottom safety pad here: those made the
+    /// stored box visibly taller than TextKit's real line box and caused false
+    /// overflow badges when a tightly authored/imported frame still drew every
+    /// character.
     func measuredSize(maxWidth: CGFloat? = nil) -> CGSize {
         let a = attributedString()
         let s = a.length == 0 ? NSAttributedString(string: "Text", attributes: [.font: firstRun.nsFont()]) : a
         if let w = maxWidth, w > 1 {
             let bounds = s.boundingRect(with: CGSize(width: w, height: .greatestFiniteMagnitude),
                                         options: [.usesLineFragmentOrigin, .usesFontLeading])
-            // +3 guards against the last wrapped line clipping (boundingRect can
-            // under-report the final line's leading).
-            return CGSize(width: w, height: max(ceil(firstRun.fontSize * 1.3), ceil(bounds.height) + 3))
+            return CGSize(width: w, height: max(1, ceil(bounds.height)))
         }
         let m = s.size()
         return CGSize(width: max(20, ceil(m.width) + 2),
-                      height: max(ceil(firstRun.fontSize * 1.3), ceil(m.height)))
+                      height: max(1, ceil(m.height)))
     }
 
     /// Re-measure honoring the box mode: fixed/paragraph keeps `currentWidth`.
