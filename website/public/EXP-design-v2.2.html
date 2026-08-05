@@ -1,0 +1,124 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>EXP [design] v2.2</title></head>
+<body><pre style="white-space: pre-wrap; font: -apple-system-body;">
+# EXP [design] v2.2
+
+## Bring rendered components onto the canvas.
+
+EXP [design] 2.2 adds a bounded path from rendered web work to editable native
+layers. Import a local HTML/CSS page, a Chrome-saved page package, a published
+static Storybook build, or a CodePen export without asking EXP to install
+dependencies or run a repository build. The result is ordinary editable EXP
+work, accompanied by a source receipt and an honest Import Report when the
+browser and canvas models do not match exactly.
+
+This release intentionally stops at the rendered state it can observe. It does
+not claim source-code round-tripping, rebuild interactive component logic, or
+turn EXP into a browser or prototyping environment.
+
+### Editable local HTML and CSS import
+
+- Choose a local entry HTML file and one or more Phone, Tablet, or Desktop
+  viewports; each selected viewport becomes an editable artboard.
+- Import Chrome's complete-page save format, including its sibling resource
+  folder, through the same bounded local path.
+- Preserve rendered boxes, text, images, inline and local SVG, gradients,
+  borders, per-corner radii, opacity, blend modes, shadows, layer blur,
+  clipping, generated content, and supported pseudo-elements as native EXP
+  structures where the source allows it.
+- Retain semantic roles, accessible names, authored `aria-*` values, heading and
+  paragraph intent, links, and accessibility-only text without inventing
+  interaction states.
+- Use the browser's measured layout and computed styles, including media-query
+  differences, installed fallback-font metrics, and explicit or normal line
+  height.
+- Keep the complete import as one undoable document change.
+
+The importer runs in a short-lived, non-persistent WebKit session. It serves
+only the selected local package, blocks external network/file navigation, checks
+symlink boundaries, and enforces time, file-count, and payload limits.
+
+### Static Storybook builds
+
+- Choose a published/static Storybook folder containing its generated catalog
+  and isolated story renderer; EXP never runs npm, a framework compiler, or a
+  build script.
+- Search the catalog and select a bounded set of stories before rendering.
+- Import each story at one or more viewports with title, story name, ID, tags,
+  source path, build metadata, initial args, and consumed-resource receipts.
+- Preserve visible portal content, play-function final states, clipped content,
+  accessibility-only labels, external SVG sprites, and CSS-mask icons where the
+  generated build exposes them.
+
+The measured v2.2 compatibility matrix covers real published builds from Vue 3
+with webpack / Storybook 7, React + Vite / Storybook 10, Angular + webpack /
+Storybook 8, Svelte + Vite / Storybook 8, and light-DOM Web Components + Vite /
+Storybook 10. These are evidence-backed compatibility rows, not a claim that
+every Storybook version, framework, add-on, or story will import perfectly.
+
+### CodePen handoff in both directions
+
+- Send the current artboard to a new CodePen through CodePen's supported Prefill
+  flow, with a local review step before anything is transmitted.
+- Import a CodePen 2.0 exported ZIP by rendering only its last successful
+  browser-ready `dist/` output.
+- Preserve `src/`, processor/Block configuration, file paths, sizes, and hashes
+  as non-executed provenance for future handoff work.
+- Reject traversal, symlinks, encryption, ambiguous package roots, unsupported
+  compression, and over-limit archives.
+
+### Source receipts without hidden code execution
+
+Imported work now carries a hidden, versioned `CodeBridgeManifest` separate from
+ordinary Notes and canvas nodes. It records connector and source identity,
+framework/build metadata, resource hashes, bounded opaque source, DOM bindings,
+semantic behavior receipts, and the import baseline. Credentials and absolute
+local paths are never stored. Rendered bindings remain receipt-only; v2.2 does
+not claim that an EXP edit can safely rewrite the originating source.
+
+### Fidelity refinements from real component libraries
+
+Acceptance testing against five framework/build families improved:
+
+- responsive viewport sizing and a reliable white browser canvas;
+- browser-normal line height and fallback-font leading;
+- percentage radii and capsule geometry;
+- overflow clipping and nested positioned content;
+- generated-content and transformed pseudo-elements;
+- local/data-backed CSS masks converted to editable SVG paths;
+- final-state capture for entrance animations;
+- Storybook portals, sprites, and framework-independent readiness;
+- SVG path, gradient, transform, mask, and blur preservation.
+
+When a source uses unequal borders, unavailable fonts, unsupported filters,
+closed shadow DOM, unobservable interaction states, or another construct EXP
+cannot reproduce honestly, the Import Report names the limitation instead of
+silently claiming an exact match. A fixed-width source also remains fixed-width;
+EXP does not invent responsive behavior that was not rendered.
+
+### Canvas and workflow refinements
+
+- Create artboards directly with the Artboard tool and organize multi-artboard
+  selections with improved align, distribute, and clean-up controls.
+- Keep page tabs, Layers selection, notes editing, zoom-to-fit, numeric stepping,
+  and gradient-angle editing steadier during everyday canvas work.
+- Continue to preserve the v2.1 nested-component, canvas-page, XD/Figma import,
+  Handoff Package, semantic export, and local read-only agent workflows.
+
+### What remains deliberately future work
+
+- Reconstructing related rendered stories into actual EXP components, nested
+  components, and editable collapsed/expanded or other named states is a v2.4+
+  research candidate. Preserved ARIA and Storybook provenance provide useful
+  evidence, but they cannot recover source ownership or event logic by
+  themselves.
+- Unrestricted URL import, authenticated pages, repository build execution,
+  complete argTypes ingestion, source-code write-back, and update-in-place sync
+  remain deferred until a safe and reversible contract is proven.
+- Older Angular/AngularJS generations, open-shadow-root traversal, and broader
+  real-world framework coverage remain non-gating compatibility research driven
+  by tester evidence.
+
+EXP [design] 2.2 is build 13 and requires macOS 26.2 or later.
+
+</pre></body></html>

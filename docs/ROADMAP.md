@@ -869,7 +869,7 @@ and the coordinated panel/tool-discoverability pass remain in this release.
 
 ---
 
-## v2.2 — feature complete; release preparation
+## v2.2 — released (2026-08-05)
 
 Build 13, `MARKETING_VERSION 2.2`. Primary scope is **Chunk E — code/component
 import**: reconstruct editable EXP documents from rendered HTML/CSS first, then
