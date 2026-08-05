@@ -38,22 +38,21 @@ EXP [design]/
 ```
 
 ## Current status
-Public **v2.1/build 12** is released. Development is on **v2.2/build 13**.
+Public **v2.2/build 13** is released. Development is on **v2.3/build 14**.
 The core native editor, component states/behavior contract, semantic Handoff
 Package, agent-bridge spine, nested components, canvas pages, editable XD/Figma
-import, and unified Handoff/panel IA are shipped.
+import, unified Handoff/panel IA, editable rendered HTML/CSS import, CodePen
+handoff/import, and static Storybook import are shipped.
 
-The **v2.2 primary scope is Chunk E — code/component import**. E0/E1 rendered
-HTML/CSS, E2 local/static Storybook, and the E2c modern compatibility matrix are
-complete and owner-accepted. The measured matrix covers GitLab Vue + webpack,
-CZI React + Vite, Dell modern Angular + webpack, Brave Leo Svelte + Vite, and
-Kintone light-DOM Web Components + Vite. The same framework-neutral rendered-DOM
-seam preserves editable paint/text/SVG geometry, accessibility semantics,
-Storybook story/args receipts, and explicit fidelity limits across all five.
+The **v2.3 opening priority is FEAT-008 font-picker discovery**. Review the
+owner's font-filter mockups and test the information architecture before coding.
+The candidate set is document-scoped Fonts Used, persisted Recent Fonts,
+type-to-jump, and search/filtering over one list; none is automatically committed
+to implementation without evidence. Set the keyboard, VoiceOver, persistence,
+and empty-state contract first, then build the smallest coherent result.
 
-**Next:** finish the v2.2 release audit and prepare build 13 for broader testing
-and release. FEAT-008 is explicitly deferred from build 13 and is the first-priority
-v2.3 discovery/design item, pending the owner's font-filter mockups and testing.
+**Next:** begin with the owner's FEAT-008 mockup/research pass when v2.3 work
+resumes. Do not start implementation before that evidence is available.
 Semantic component/state reconstruction is logged as a v2.4+ research candidate;
 older Angular/AngularJS and open-shadow-root evidence are non-gating follow-ups.
 Unrestricted URL import, repository build execution, full argTypes ingestion, and

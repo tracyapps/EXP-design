@@ -1266,6 +1266,33 @@ arbitrary source-code or pixel-perfect round-tripping.
           the already-expected absence of editable component states. The modern
           matrix is closed; older Angular/AngularJS and a future real open-shadow-root
           fixture remain explicit non-gating compatibility work.
+- [x] **Supporting v2.2 polish scope closed 2026-08-05.** FEAT-008 was explicitly
+      moved to first-priority v2.3 discovery so the owner's additional font-filter
+      ideas can be mocked up and tested rather than rushed into build 13. Other open
+      backlog items remain candidates, not implicit v2.2 release gates.
+- [x] **v2.2 final release gate. COMPLETE 2026-08-05.** The build-13 source and
+      public feature story were frozen; the deterministic importer/regression
+      matrix, website, and Release build passed; owner acceptance, signed archive,
+      notarization, immutable zip, Sparkle/GitHub/website publication, and the
+      v2.1 → v2.2 local update/relaunch proof completed. Exact historical path:
+      `docs/RELEASE-CHECKLIST-v2.2.md`.
+
+Figma OAuth/Keychain/Variables, host-specific agent capability packs, and agent
+write-back remain separately scoped follow-ups; shipping v2.2 did not silently
+promote them into release gates.
+
+---
+
+## v2.3 — in development
+
+Build 14, `MARKETING_VERSION 2.3`. The only committed opening scope is the
+evidence-first FEAT-008 font-picker discovery below. Review the owner's mockups
+and usability evidence before deciding which filters or navigation mechanisms to
+ship; do not turn the candidate list into an implementation promise by default.
+The code/component write-back and semantic state-reconstruction lanes remain
+recorded here for continuity but are explicitly non-gating until separately
+researched and promoted.
+
 - [ ] **First-priority v2.3 discovery — FEAT-008 font-picker navigation and
       filtering.** Begin the next version by reviewing the owner's font-filter
       mockups and testing whether the proposed information architecture is useful
@@ -1307,21 +1334,6 @@ arbitrary source-code or pixel-perfect round-tripping.
       confidence and conflict handling, accessibility-preserving visual editing, and
       provenance-bound framework export adapters. Commit it to a release only after
       the evidence establishes a reversible, honest contract.
-- [x] **Supporting v2.2 polish scope closed 2026-08-05.** FEAT-008 was explicitly
-      moved to first-priority v2.3 discovery so the owner's additional font-filter
-      ideas can be mocked up and tested rather than rushed into build 13. Other open
-      backlog items remain candidates, not implicit v2.2 release gates.
-- [ ] **v2.2 final release gate.** Freeze the build-13 source and public feature
-      story, run the complete deterministic importer/regression matrix plus the
-      website and Release build, repeat the condensed owner smoke test, then
-      archive/notarize, byte-verify the shipping zip, generate and publish Sparkle
-      metadata, prove the public v2.1 → v2.2 install/relaunch path, and only then
-      announce. Exact commands and acceptance checks:
-      `docs/RELEASE-CHECKLIST-v2.2.md`.
-
-Figma OAuth/Keychain/Variables, host-specific agent capability packs, and agent
-write-back remain separately scoped follow-ups; opening v2.2 does not silently
-promote them into release gates.
 
 ---
 
@@ -2702,6 +2714,20 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-08-05 (v2.2 shipped; v2.3/build 14 development opened).** Owner
+  completed the final Release-build acceptance and locally verified the
+  v2.1 → v2.2 update. The signed v2.2/build 13 appcast entry, release-notes page,
+  Git tag, and release commits are present, so the historical v2.2 final gate is
+  closed. Advanced every Xcode configuration to `MARKETING_VERSION 2.3` /
+  `CURRENT_PROJECT_VERSION 14`, opened an explicit v2.3 roadmap section, and
+  synchronized `AGENTS.md` / `CLAUDE.md` with the new handoff. The only committed
+  opening scope is evidence-first FEAT-008 discovery; code/component write-back
+  and semantic state reconstruction remain recorded non-gating research lanes.
+  **NEXT:** when work resumes, review the owner's font-filter mockups and usability
+  evidence, decide which of Fonts Used, Recent Fonts, type-to-jump, and search
+  form one coherent accessible control, then write the keyboard/VoiceOver/state
+  contract before implementation.
 
 - **2026-08-05 (v2.2/build 13 local release gate green; owner shipping steps
   remain).** Closed E1, E2, and the v2.2 `CodeBridgeManifest` foundation after

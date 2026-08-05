@@ -87,44 +87,24 @@ EXP [design]/
 ```
 
 ## Current status
-Public **v2.1/build 12** is released; local development is
-**v2.2/build 13**. The native editor, Design Language, component
-states/behavior contract, semantic Handoff Package, agent-bridge spine, and
-v2.1 nested components, canvas pages, XD/Figma import, and Handoff/panel IA are
-shipped. Documents save as **`.design`** (legacy `.exp` opens for migration).
+Public **v2.2/build 13** is released; local development is **v2.3/build 14**.
+The native editor, Design Language, component states/behavior contract, semantic
+Handoff Package, agent bridge, nested components, canvas pages, XD/Figma import,
+rendered HTML/CSS import, CodePen handoff/import, static Storybook import, and the
+five-family compatibility matrix are shipped. Documents save as **`.design`**
+(legacy `.exp` opens for migration).
 
-The **v2.2 primary scope is Chunk E — code/component import**. E0/E1 local HTML,
-E2 static Storybook import, and CodePen export/ZIP import are working. E2c's first
-measured framework/generation matrix now covers two real published artifacts:
-GitLab UI on Storybook 7.6.24 / Vue + webpack 5, and CZI Science Design System on
-Storybook 10.5.2 / React + Vite. The second corpus passes eight representative
-stories after generation-aware runtime-phase, zero-box-root, and project-metadata
-compatibility fixes. Its visual-acceptance regression now also covers Phone + Web
-1280 viewport minimums, the browser's opaque canvas backdrop, generated pseudo
-content, and native text overflow. A focused ContentCard/InputToggle Tablet gate
-also covers flex pseudo placement, CSS outline mapping, and multiline fallback
-and control line-box layout. Fixed px/em line-height keeps its source value while
-centering CSS leading at paint time; CSS `normal` remains font-native Auto, and
-percentage corner radii preserve the toggle's circular thumb. Oversized uniform
-radii now use the same CSS normalization in live rectangles and converted paths.
-Authored fixed-width viewport overflow is retained
-and reported rather than silently made responsive; see
-`docs/STORYBOOK-COMPATIBILITY-MATRIX.md`.
+The **v2.3 opening priority is FEAT-008 font-picker discovery**. Start from the
+owner's proposed mockups and usability testing, not implementation. Candidate
+mechanisms are document-scoped Fonts Used, persisted Recent Fonts, type-to-jump,
+and search/filtering over one list. Decide which combination is coherent, then
+specify keyboard navigation, VoiceOver naming, persistence, and empty states
+before coding the smallest supported result.
 
-A third real corpus—Dell Design System Angular v3.0.1, Angular 17 + webpack 5 /
-Storybook 8.6.18—passes the same static-artifact seam with 12/12 Phone + Web
-artboards, 52 painted text layers, 32 roles, 32 ARIA attributes, and bounded
-initial args. Owner review added framework-neutral fixes for fully overflow-clipped
-subtrees, transformed pseudo-element bounds, root-level static assets, and editable
-data-SVG CSS masks (including all six accordion carets); no
-Angular-specific importer branch was added.
-
-**Next:** owner re-imports the corrected six-story Dell Angular corpus at Phone +
-Web 1280. If approved, add a real published Svelte + Vite artifact, then Web Components
-and non-gating older Angular/AngularJS evidence. Unrestricted URL import,
-repository build execution, full argTypes
-ingestion, and code write-back remain deferred.
-Agent capability packs, Figma OAuth/Keychain/Variables, and agent write-back
-remain non-gating. See ROADMAP.md for the authoritative checklist and newest
-Progress Log entry; its phase statuses feed the public site via
-`website/scripts/sync-content.mjs`.
+**Next:** wait for the owner's FEAT-008 mockup/research pass. Semantic
+component/state reconstruction remains a v2.4+ research candidate. Older
+Angular/AngularJS, open-shadow-root evidence, unrestricted URL import, repository
+build execution, full argTypes ingestion, code write-back, agent capability
+packs, and Figma OAuth/Keychain/Variables remain non-gating. See ROADMAP.md for
+the authoritative checklist and newest Progress Log entry; its phase statuses
+feed the public site via `website/scripts/sync-content.mjs`.
