@@ -240,7 +240,7 @@ private enum AgentMCPRouter {
                     return toolError("No artboard exists with id \(raw)")
                 }
                 let nodes = page.nodes.filter {
-                    context.document.owningArtboard(of: $0.frame, on: page.id)?.id == id
+                    context.document.owningArtboard(of: $0, on: page.id)?.id == id
                 }
                 return toolJSON(["artboard": try jsonObject(artboard), "nodes": try jsonObject(nodes)])
             case "get_selection":

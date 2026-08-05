@@ -2681,7 +2681,12 @@ struct RightPanel: View {
             case .polygon(let s): return s.strokePattern
             case .path(let s): return s.strokePattern
             case .line(let s): return s.strokePattern
-            case .group: return n.autoPadding?.strokePattern ?? .solid
+            // A plain group has no stroke of its own. Keep walking to the first
+            // stroked descendant; returning `.solid` here made the control lie
+            // after its recursive setter had changed every child to Dash/Dot.
+            case .group:
+                if let pattern = n.autoPadding?.strokePattern { return pattern }
+                continue
             default: continue
             }
         }
@@ -2742,7 +2747,11 @@ struct RightPanel: View {
             case .ellipse(let s):   return s.strokeAlignment
             case .polygon(let s):   return s.strokeAlignment
             case .path(let s) where s.closed || s.isMultiContour: return s.strokeAlignment
-            case .group: return n.autoPadding?.strokeAlignment ?? .center
+            // Plain groups are containers, not stroked shapes. Their descendants
+            // supply the representative value used by the segmented control.
+            case .group:
+                if let alignment = n.autoPadding?.strokeAlignment { return alignment }
+                continue
             default: continue
             }
         }
@@ -3167,6 +3176,7 @@ struct RightPanel: View {
                 Menu {
                     Button("Drop Shadow") { addEffect(.dropShadow) }
                     Button("Inner Shadow") { addEffect(.innerShadow) }
+                    Button("Layer Blur") { addEffect(.layerBlur) }
                     Button("Noise") { addEffect(.noise) }
                     Button("Dissolve") { addEffect(.dissolve) }
                     // Background Blur intentionally omitted — disabled for performance
@@ -3198,6 +3208,7 @@ struct RightPanel: View {
                 Picker("", selection: effectKindBinding(idx)) {
                     Text("Drop").tag(Effect.Kind.dropShadow)
                     Text("Inner").tag(Effect.Kind.innerShadow)
+                    Text("Blur").tag(Effect.Kind.layerBlur)
                     Text("Noise").tag(Effect.Kind.noise)
                     Text("Dissolve").tag(Effect.Kind.dissolve)
                     // Bg Blur can't be ADDED (disabled for performance — see
@@ -3227,6 +3238,10 @@ struct RightPanel: View {
                     effectNum("Amount", idx, \.blur, min: 0,
                               tip: "Blur amount",
                               tipDetail: "How strongly the backdrop behind the layer is blurred, in pixels.")
+                } else if effect.kind == .layerBlur {
+                    effectNum("Amount", idx, \.blur, min: 0,
+                              tip: "Layer blur amount",
+                              tipDetail: "How strongly this layer's own pixels are blurred. Maps directly to SVG feGaussianBlur standard deviation.")
                 } else if effect.kind == .noise || effect.kind == .dissolve {
                     // SIMPLE row — flavor, strength, and (noise) blend: all most
                     // people ever need. The feTurbulence dials (Freq/Oct/Seed/
@@ -3408,6 +3423,7 @@ struct RightPanel: View {
             var e = Effect(kind: kind)
             if kind == .innerShadow { e.color = RGBAColor(r: 0, g: 0, b: 0, a: 0.5) }
             if kind == .backgroundBlur { e.blur = 8 }   // visible by default; 0 = no-op
+            if kind == .layerBlur { e.blur = 8 }
             if kind == .noise { e.blend = .overlay }    // classic grain-over-fill look
             if kind == .noise || kind == .dissolve { e.seed = Int.random(in: 1...9999) }
             node.effects.append(e)
@@ -3588,6 +3604,7 @@ struct RightPanel: View {
                 }
                 Spacer()
             }
+            .help("Auto uses the selected font’s native line height. × is a font-size multiplier; px and em preserve fixed authored line boxes.")
             HStack(spacing: 6) {
                 Text("Spacing").foregroundStyle(EXPColor.textSecondary).font(.callout)
                 TextField("", value: trackingBinding, format: .number.precision(.fractionLength(1)))
@@ -3645,11 +3662,21 @@ struct RightPanel: View {
     }
     private var lineHeightBinding: Binding<Double> {
         Binding(get: { Double(selectedTextContent?.lineHeight ?? 1.3) },
-                set: { v in updateTextContent(action: "Line Height", remeasure: true) { $0.lineHeight = max(0, CGFloat(v)) } })
+                set: { v in updateTextContent(action: "Line Height", remeasure: true) {
+                    $0.lineHeight = max(0, CGFloat(v))
+                    if $0.lineHeightUnit == .px || $0.lineHeightUnit == .em {
+                        $0.centersFixedLineHeightLeading = true
+                    }
+                } })
     }
     private var lineHeightUnitBinding: Binding<LineHeightUnit> {
         Binding(get: { selectedTextContent?.lineHeightUnit ?? .auto },
-                set: { u in updateTextContent(action: "Line Height", remeasure: true) { $0.lineHeightUnit = u } })
+                set: { u in updateTextContent(action: "Line Height", remeasure: true) {
+                    $0.lineHeightUnit = u
+                    if u == .px || u == .em {
+                        $0.centersFixedLineHeightLeading = true
+                    }
+                } })
     }
     private var trackingBinding: Binding<Double> {
         Binding(get: { Double(selectedTextContent?.tracking ?? 0) },

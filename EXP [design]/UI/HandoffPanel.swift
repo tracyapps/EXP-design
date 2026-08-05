@@ -103,6 +103,12 @@ struct HandoffPanel: View {
                     panelAction("Semantic HTML…", icon: "chevron.left.forwardslash.chevron.right") {
                         sendCanvasAction("exportSemanticHTMLAction:")
                     }
+                    panelAction("Send Current Artboard to CodePen…",
+                                icon: "safari") {
+                        sendCanvasAction("exportCurrentArtboardToCodePen:")
+                    }
+                    .disabled(selectedExportCount != 1)
+                    .accessibilityHint("Opens a local review page before sending semantic HTML and CSS to a new CodePen Pen")
                     panelAction("Design Tokens…", icon: "curlybraces") {
                         sendCanvasAction("exportDesignTokensAction:")
                     }

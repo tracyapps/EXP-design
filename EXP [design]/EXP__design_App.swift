@@ -181,6 +181,12 @@ private struct FileCommandItems: View {
             .disabled(menu == nil)
         Button("Import Adobe XD…") { sendEditorAction("importXDAction:") }
             .disabled(menu == nil)
+        Button("Import HTML/CSS…") { sendEditorAction("importRenderedHTMLAction:") }
+            .disabled(menu == nil)
+        Button("Import CodePen Export…") { sendEditorAction("importCodePenPackageAction:") }
+            .disabled(menu == nil)
+        Button("Import Storybook Build…") { sendEditorAction("importStorybookPackageAction:") }
+            .disabled(menu == nil)
         Button("Import Figma File…") { sendEditorAction("importFigmaAction:") }
             .disabled(menu == nil)
         Button("Show Last Import Report…") { sendEditorAction("showLastImportReportAction:") }
@@ -195,6 +201,10 @@ private struct FileCommandItems: View {
             .disabled(menu == nil)
         Button("Export Semantic HTML…") { sendEditorAction("exportSemanticHTMLAction:") }
             .disabled(menu == nil)
+        Button("Send Current Artboard to CodePen…") {
+            sendEditorAction("exportCurrentArtboardToCodePen:")
+        }
+        .disabled(menu?.canExportSelectedArtboards != true)
         Button("Export Design Tokens…") { sendEditorAction("exportDesignTokensAction:") }
             .disabled(menu == nil)
     }

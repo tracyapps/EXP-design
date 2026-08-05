@@ -51,7 +51,10 @@ struct SemanticHTMLExporter {
 
     let document: Document
 
-    func makeBundle() -> SemanticHTMLBundle {
+    /// A nil filter preserves the full-package behavior. Connectors such as
+    /// CodePen can request one explicit board without leaking unrelated
+    /// canvases or generating unused CSS.
+    func makeBundle(artboardIDs: Set<UUID>? = nil) -> SemanticHTMLBundle {
         var css = CSSWriter(document: document)
         var artifacts: [SemanticHTMLArtifact] = []
         var pages: [String] = []
@@ -60,8 +63,9 @@ struct SemanticHTMLExporter {
 
         for canvasPage in document.pages {
             for artboard in canvasPage.artboards {
+                if let artboardIDs, !artboardIDs.contains(artboard.id) { continue }
                 let owned = canvasPage.nodes.enumerated().filter {
-                    document.owningArtboard(of: $0.element.frame, on: canvasPage.id)?.id == artboard.id
+                    document.owningArtboard(of: $0.element, on: canvasPage.id)?.id == artboard.id
                 }
                 let page = HTMLWriter(document: document, artboard: artboard,
                                       topLevelNodes: owned).render()
@@ -78,7 +82,7 @@ struct SemanticHTMLExporter {
 
         let omitted = document.pages.reduce(0) { total, canvasPage in
             total + canvasPage.nodes
-                .filter { document.owningArtboard(of: $0.frame, on: canvasPage.id) == nil }
+                .filter { document.owningArtboard(of: $0, on: canvasPage.id) == nil }
                 .reduce(0) { $0 + Self.nodeCount($1) }
         }
         artifacts.insert(.init(path: "html/styles.css", role: "semantic-stylesheet",
@@ -341,8 +345,21 @@ private struct HTMLWriter {
                 for (name, value) in mapping.fixedAttributes.sorted(by: { $0.key < $1.key }) {
                     attrs.append(Attribute(name: name, value: value))
                 }
+                // BUG-018. Two problems with the previous form
+                // `(role == .banner || role == .contentinfo), !semanticAncestors.isEmpty`:
+                //
+                // 1. `complementary` was missing, so a nested EXP complementary
+                //    exported as a bare `<aside>` and computed as `generic`
+                //    whenever it had no accessible name (HTML-AAM §3.5.10) —
+                //    the authored role lost with nothing reported.
+                // 2. "any semantic ancestor" is not the spec's rule. Only
+                //    sectioning content and `main` rescope a nested
+                //    header/footer/aside, so an EXP banner inside an EXP group
+                //    (a plain `<div>`) was getting a redundant role attribute
+                //    that ARIA in HTML calls NOT RECOMMENDED.
                 var explicitRole = mapping.explicitRole
-                if (role == .banner || role == .contentinfo), !semanticAncestors.isEmpty {
+                if role.needsExplicitRoleWhenNested,
+                   semanticAncestors.contains(where: { $0.hostRescopesNestedLandmarks }) {
                     explicitRole = role
                 }
                 if let explicitRole {
@@ -374,7 +391,11 @@ private struct HTMLWriter {
         case .text(let text):
             let runs = text.runs.enumerated().map { index, run in
                 let content = SemanticHTMLEscape.text(text.textCase.apply(run.string))
-                return "<span class=\"exp-text-run exp-text-run-\(index)\">\(content)</span>"
+                let className = "exp-text-run exp-text-run-\(index)"
+                if let href = run.linkURL, !href.isEmpty {
+                    return "<a class=\"\(className)\" href=\"\(SemanticHTMLEscape.attribute(href))\">\(content)</a>"
+                }
+                return "<span class=\"\(className)\">\(content)</span>"
             }.joined()
             var attrs = common
             let typeClass = DesignLanguageIO.firstTypeStyleBinding(
@@ -1423,7 +1444,7 @@ extension Document {
                 if case .text(var text) = node.content {
                     text.setPlainString(string)
                     node.content = .text(text)
-                    node.frame.size = text.measuredSize()
+                    node.frame.size = text.measuredSize(boxWidth: node.frame.width)
                 }
             case .fill(let fill):
                 switch node.content {
@@ -1443,7 +1464,9 @@ extension Document {
                 if case .text(var text) = node.content {
                     text = style.applied(to: text)
                     node.content = .text(text)
-                    node.frame.size = text.measuredSize()
+                    if style.affectsMetrics {
+                        node.frame.size = text.measuredSize(boxWidth: node.frame.width)
+                    }
                 }
             case .opacity(let value):
                 // geometry() emits `opacity` from the resolved node, so per-state

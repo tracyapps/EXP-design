@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fixture 2 — hand-written, not from EXP</title>
+<link rel="stylesheet" href="style.css">
+<script src="behavior.js" defer></script>
+</head>
+<body>
+  <header class="masthead">
+    <p class="wordmark">Northgate</p>
+    <nav aria-label="Primary">
+      <ul>
+        <li><a href="#work">Work</a></li>
+        <li><a href="#about">About</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <main>
+    <h1>A page the importer has never seen</h1>
+
+    <section aria-labelledby="work-heading" class="cards">
+      <h2 id="work-heading">Two cards, one breakpoint</h2>
+
+      <article class="card">
+        <img src="swatch.svg" alt="A blue rounded swatch" width="64" height="64">
+        <h3>Side by side above 768px</h3>
+        <p>Below the breakpoint these stack, and the padding shrinks. That is the
+           only thing the media query does, so the difference between the two
+           imported viewports should be exactly this and nothing else.</p>
+        <button type="button" class="cta">Read more</button>
+      </article>
+
+      <article class="card card--accent">
+        <img src="swatch.svg" alt="A blue rounded swatch" width="64" height="64">
+        <h3>Gradient, radius, shadow</h3>
+        <p>This card carries a linear-gradient background, a border radius, and a
+           box-shadow, so the paint and effect mapping has something to report.</p>
+        <button type="button" class="cta">Read more</button>
+      </article>
+    </section>
+
+    <section aria-labelledby="about-heading">
+      <h2 id="about-heading">Type that must be measured, not re-laid-out</h2>
+      <p class="lede">Deliberately long enough to wrap differently at 393pt than it
+         does at 1440pt, with a hanging word or two, so that a viewport whose line
+         breaks were re-computed rather than measured will disagree visibly with the
+         browser instead of failing quietly.</p>
+      <p><a href="https://example.com/somewhere">An external link</a> that must map to
+         a link role, and <strong>bold</strong> plus <em>italic</em> runs inside one
+         paragraph so text-run splitting is exercised.</p>
+    </section>
+  </main>
+
+  <footer>
+    <p>No <code>data-exp-id</code> anywhere in this file. That is the point.</p>
+  </footer>
+</body>
+</html>

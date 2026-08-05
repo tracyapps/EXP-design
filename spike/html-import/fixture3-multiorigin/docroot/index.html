@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fixture 3 — multi-origin trust flow</title>
+
+<!-- Same origin as the document: pre-allowed per §4. -->
+<link rel="stylesheet" href="local.css">
+
+<!-- Third-party origin A (different PORT, same host — still a distinct origin,
+     which is the subtlety the manifest grouping has to get right). -->
+<link rel="stylesheet" href="http://127.0.0.1:8732/brand.css">
+
+<!-- A real remote origin, present so the manifest is not purely loopback.
+     It is never expected to be allowed during the spike. -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap">
+</head>
+<body>
+  <h1>Trust flow fixture</h1>
+
+  <p>Pass 1 must fetch <strong>this document and nothing else</strong>. Everything
+     below is a request the page <em>wants</em> to make.</p>
+
+  <!-- Third-party image, origin A -->
+  <img src="http://127.0.0.1:8732/logo.svg" alt="Third-party logo" width="96" height="96">
+
+  <!-- An origin that never resolves, with a non-ASCII host, so the manifest's
+       punycode display can be checked without any network dependency. -->
+  <img src="https://bücher.example/never-resolves.png" alt="" width="1" height="1">
+
+  <!-- Only requested when the phone media query matches: the union-manifest
+       attribution test. See local.css. -->
+  <div class="hero"></div>
+
+  <!-- Origin A script. Allowing THIS is what surfaces new manifest entries
+       from origin B — the §4 iterative case. -->
+  <script src="http://127.0.0.1:8732/widget.js"></script>
+</body>
+</html>

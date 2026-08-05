@@ -1,0 +1,83 @@
+/* Fixture 2 — bounded on purpose. Every rule here exists to exercise one
+   mapping in HTML-IMPORT-CONTRACT.md §3. Nothing decorative. */
+
+:root {
+  --ink: #14213d;
+  --paper: #fbfbfe;
+  --accent: #2b59c3;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: "Definitely Not Installed", Helvetica, Arial, sans-serif; /* forces a named font fallback */
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+.masthead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  border-bottom: 1px solid #d7dbe7;
+}
+
+.wordmark { margin: 0; font-size: 20px; font-weight: 700; letter-spacing: 0.02em; }
+
+nav ul { display: flex; gap: 16px; list-style: none; margin: 0; padding: 0; }
+nav a { color: var(--accent); text-decoration: underline; }
+
+main { padding: 24px; }
+
+h1 { font-size: 40px; line-height: 1.15; margin: 0 0 24px; }
+h2 { font-size: 24px; margin: 32px 0 16px; }
+h3 { font-size: 18px; margin: 12px 0 8px; }
+
+.cards { display: flex; gap: 24px; align-items: flex-start; }
+
+.card {
+  flex: 1 1 0;
+  padding: 24px;
+  background: #ffffff;
+  border: 1px solid #d7dbe7;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(20, 33, 61, 0.12);
+}
+
+.card--accent {
+  background: linear-gradient(160deg, #ffffff 0%, #e6ecfb 100%);
+  border-color: var(--accent);
+}
+
+.cta {
+  margin-top: 12px;
+  padding: 8px 16px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #ffffff;
+  font: inherit;
+  font-weight: 600;
+}
+
+.lede { max-width: 62ch; font-size: 18px; }
+
+footer {
+  margin-top: 48px;
+  padding: 16px 24px;
+  border-top: 1px solid #d7dbe7;
+  font-size: 14px;
+}
+
+/* THE breakpoint. This is the only media query in the fixture, so any
+   difference between the two imported viewports traces back to exactly here. */
+@media (max-width: 768px) {
+  .cards { flex-direction: column; }
+  .card { padding: 16px; }
+  h1 { font-size: 28px; }
+  main { padding: 16px; }
+}

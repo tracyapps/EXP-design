@@ -39,6 +39,43 @@ struct SemanticHTMLRoleMapping: Equatable, Sendable {
 }
 
 extension AriaRole {
+    /// True when this role's host element is HTML **sectioning content** or
+    /// `main`. HTML-AAM scopes `header`/`footer`/`aside` semantics by exactly
+    /// this set, so it is what decides whether a NESTED landmark still computes
+    /// as the role the designer authored:
+    ///
+    /// - `<footer>` scoped to `main` or sectioning content → `sectionfooter`
+    ///   ([HTML-AAM §3.5.44](https://www.w3.org/TR/html-aam-1.0/#el-footer))
+    /// - `<aside>` in sectioning content → `complementary` only with an
+    ///   accessible name, otherwise `generic`
+    ///   ([HTML-AAM §3.5.10](https://www.w3.org/TR/html-aam-1.0/#el-aside))
+    ///
+    /// `search` and `form` are deliberately ABSENT. Both are landmarks, but
+    /// neither is sectioning content, so neither rescopes a descendant
+    /// header/footer — treating "is a landmark" as the test would emit role
+    /// attributes that ARIA in HTML calls NOT RECOMMENDED for no benefit.
+    var hostRescopesNestedLandmarks: Bool {
+        switch semanticHTMLMapping.tag {
+        case "article", "aside", "nav", "section", "main": return true
+        default: return false
+        }
+    }
+
+    /// Roles whose native host STOPS computing as the authored role once nested
+    /// inside a rescoping container, so the export has to say the role out loud
+    /// or the designer's authored semantic is silently downgraded.
+    ///
+    /// Verified against HTML-AAM 1.0 (W3C WD 29 July 2026) on 2026-08-01:
+    /// `<footer>` §3.5.44 → `sectionfooter`, `<header>` §3.5.50 →
+    /// `sectionheader`, `<aside>` §3.5.10 → `complementary` only with an
+    /// accessible name. All three read from the spec, none inferred.
+    var needsExplicitRoleWhenNested: Bool {
+        switch self {
+        case .banner, .contentinfo, .complementary: return true
+        default: return false
+        }
+    }
+
     /// Native-first mapping, constrained by what EXP currently models. The
     /// explicit ARIA fallbacks intentionally keep arbitrary component artwork as
     /// descendants; void elements such as input/img cannot do that safely.

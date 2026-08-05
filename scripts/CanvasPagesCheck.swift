@@ -41,6 +41,68 @@ private enum CanvasPagesCheck {
         require(document.owningArtboard(of: left.frame, on: second.id)?.id == secondBoard.id,
                 "same-coordinate artboards leaked across page boundaries")
 
+        // Artboard membership has deliberate hysteresis: >50% to enter, any
+        // positive overlap to remain, and zero overlap to leave.
+        var threshold = Node(name: "Threshold",
+                             frame: CGRect(x: 50, y: 0, width: 100, height: 100),
+                             content: .rectangle(RectangleShape()))
+        require(document.owningArtboard(of: threshold, on: first.id) == nil,
+                "exactly 50% overlap should not auto-attach a wall layer")
+        threshold.frame.origin.x = 49
+        require(document.owningArtboard(of: threshold, on: first.id)?.id == board.id,
+                "more than 50% overlap should auto-attach a wall layer")
+        threshold.artboardID = board.id
+        threshold.frame.origin.x = 99
+        require(document.owningArtboard(of: threshold, on: first.id)?.id == board.id,
+                "an attached layer should remain owned while a sliver overlaps")
+        threshold.frame.origin.x = 100
+        require(document.owningArtboard(of: threshold, on: first.id) == nil,
+                "an attached layer should detach when completely outside")
+
+        var hysteresisDocument = Document(artboards: [board], nodes: [])
+        threshold.frame.origin.x = 99
+        threshold.artboardID = board.id
+        hysteresisDocument.pages[0].nodes = [threshold]
+        let hysteresisData = try JSONEncoder().encode(hysteresisDocument)
+        var reopenedHysteresis = try JSONDecoder().decode(Document.self, from: hysteresisData)
+        require(reopenedHysteresis.pages[0].nodes[0].artboardID == board.id,
+                "sliver ownership did not persist through save/open")
+        reopenedHysteresis.pages[0].nodes[0].frame.origin.x = 100
+        reopenedHysteresis.reconcileArtboardOwnership(on: reopenedHysteresis.pages[0].id)
+        require(reopenedHysteresis.pages[0].nodes[0].artboardID == nil,
+                "zero-overlap ownership was not cleared during reconciliation")
+
+        // Unmanaged groups use current descendant geometry, not a stale group
+        // frame. This models resizing/moving children after the group was created.
+        let resizedChild = Node(name: "Resized child",
+                                frame: CGRect(x: -201, y: 0, width: 100, height: 100),
+                                content: .rectangle(RectangleShape()))
+        let resizedGroup = Node(name: "Resized group",
+                                frame: CGRect(x: 250, y: 0, width: 10, height: 10),
+                                content: .group(children: [resizedChild]))
+        require(document.artboardOwnershipBounds(of: resizedGroup).minX == 49,
+                "group ownership bounds did not follow resized descendants")
+        require(document.owningArtboard(of: resizedGroup, on: first.id)?.id == board.id,
+                "resized descendant geometry did not drive artboard entry")
+
+        // A mask's clip shape reduces membership geometry even when the content and
+        // container extend far onto the wall.
+        let maskContent = Node(name: "Wide content",
+                               frame: CGRect(x: 0, y: 0, width: 1_000, height: 100),
+                               content: .rectangle(RectangleShape()))
+        var maskShape = Node(name: "Crop",
+                             frame: CGRect(x: 990, y: 0, width: 10, height: 100),
+                             content: .rectangle(RectangleShape()))
+        maskShape.isMaskShape = true
+        var mask = Node(name: "Mask", frame: CGRect(x: -990, y: 0, width: 1_000, height: 100),
+                        content: .group(children: [maskContent, maskShape]))
+        mask.isMask = true
+        let maskBounds = document.artboardOwnershipBounds(of: mask)
+        require(maskBounds == CGRect(x: 0, y: 0, width: 10, height: 100),
+                "mask ownership bounds did not reduce to the visible crop")
+        require(document.owningArtboard(of: mask, on: first.id)?.id == board.id,
+                "masked visible geometry did not drive artboard entry")
+
         let copy = Document.duplicatingPage(first, named: "Flows copy")
         require(copy.id != first.id && copy.artboards[0].id != board.id,
                 "duplicated page/artboard ids were reused")
@@ -73,6 +135,6 @@ private enum CanvasPagesCheck {
         require(migrated.pages.count == 1 && migrated.pages[0].nodes.count == 2,
                 "legacy single-canvas document did not migrate into Page 1")
 
-        print("ok: canvas pages isolate ownership, deep-duplicate, round-trip, and migrate v2 documents")
+        print("ok: canvas pages isolate and persist hysteretic group/mask ownership, deep-duplicate, round-trip, and migrate v2 documents")
     }
 }

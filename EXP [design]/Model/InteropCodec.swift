@@ -13,6 +13,9 @@ import CoreGraphics
 nonisolated enum InteropFormat: String, Sendable {
     case adobeXD = "Adobe XD"
     case figma = "Figma"
+    case renderedHTML = "Rendered HTML"
+    case codePen = "CodePen 2.0"
+    case storybook = "Storybook"
 }
 
 nonisolated enum InteropCapability: Hashable, Sendable {
@@ -218,6 +221,16 @@ nonisolated struct InteropImportPayload: Sendable {
 nonisolated struct InteropImportResult: Sendable {
     var payload: InteropImportPayload
     var report: InteropImportReport
+    /// Hidden source identities/bindings produced alongside native artwork.
+    /// The document layer merges these in the same undoable import mutation.
+    var codeBridges: [CodeBridgeManifest]
+
+    init(payload: InteropImportPayload, report: InteropImportReport,
+         codeBridges: [CodeBridgeManifest] = []) {
+        self.payload = payload
+        self.report = report
+        self.codeBridges = codeBridges
+    }
 }
 
 nonisolated struct InteropExportResult: Sendable {

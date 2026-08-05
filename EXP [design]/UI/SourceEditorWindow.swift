@@ -801,7 +801,10 @@ enum ComponentContrastAudit {
             case .text(let tc):
                 let bg = enclosingFill(before: i, in: nodes, target: n.frame) ?? background
                 if let run = tc.runs.first {
-                    let use: ContrastUse = run.fontSize >= 24 ? .largeText : .normalText
+                    // WCAG's large-text boundary is 18pt regular or 14pt bold.
+                    let isBold = run.nsFont().fontDescriptor.symbolicTraits.contains(.bold)
+                    let use: ContrastUse = run.fontSize >= (isBold ? 14 : 18)
+                        ? .largeText : .normalText
                     let report = ContrastMath.report(foreground: run.color, background: bg)
                     out.append(StateContrastResult(layerName: n.name, report: report, use: use))
                 }
@@ -822,9 +825,32 @@ enum ComponentContrastAudit {
         for j in stride(from: index - 1, through: 0, by: -1) {
             let s = nodes[j]
             guard s.frame.contains(target) || significantOverlap(s.frame, target) else { continue }
-            if let paint = fill(of: s) { return paint.representativeColor }
+            if let color = paintedBackground(in: s, behind: target) { return color }
         }
         return nil
+    }
+
+    /// Resolve the painted surface inside a container sibling. Imported SVGs are
+    /// groups whose own `fill` is nil; the visible background belongs to a child
+    /// path. Treating the group as empty made the audit fall back to white and
+    /// report white-on-white (1:1) or black-on-white (21:1).
+    private static func paintedBackground(in node: Node, behind target: CGRect) -> RGBAColor? {
+        guard node.isVisible, node.opacity > 0,
+              node.frame.contains(target) || significantOverlap(node.frame, target) else { return nil }
+
+        if case .group(let children) = node.content {
+            let localTarget = target.offsetBy(dx: -node.frame.minX, dy: -node.frame.minY)
+            // Later children draw on top, so inspect them front-to-back.
+            for child in children.reversed() {
+                if let color = paintedBackground(in: child, behind: localTarget) {
+                    return color
+                }
+            }
+        }
+        guard let paint = fill(of: node) else { return nil }
+        var color = paint.representativeColor
+        color.a *= node.opacity
+        return color
     }
 
     private static func significantOverlap(_ a: CGRect, _ b: CGRect) -> Bool {

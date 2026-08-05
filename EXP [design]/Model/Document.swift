@@ -26,6 +26,282 @@
 import Foundation
 import CoreGraphics
 
+// MARK: - Code/component interop provenance
+
+/// Hidden document metadata that lets a rendered import retain its identity in
+/// the source system. This is deliberately separate from Notes and canvas nodes:
+/// people edit the design; connectors use this receipt to make later handoff or
+/// sync decisions without pretending anonymous pixels identify source code.
+///
+/// Connector/kind/ownership values are strings rather than closed enums. A newer
+/// connector can therefore survive an older EXP decoder without making the whole
+/// design file unreadable. Unknown fields are ignored by Codable; all known
+/// collections decode with empty defaults for additive schema evolution.
+struct CodeBridgeManifest: Identifiable, Codable, Equatable, Sendable {
+    static let currentSchemaVersion = 1
+
+    var id: UUID
+    var schemaVersion: Int
+    var connector: String
+    var source: CodeBridgeSource
+    var resources: [CodeBridgeResource]
+    var bindings: [CodeBridgeBinding]
+    var behaviorContracts: [CodeBridgeBehaviorContract]
+    var baseline: CodeBridgeBaseline?
+    var metadata: [String: String]
+
+    init(id: UUID = UUID(), schemaVersion: Int = Self.currentSchemaVersion,
+         connector: String, source: CodeBridgeSource,
+         resources: [CodeBridgeResource] = [], bindings: [CodeBridgeBinding] = [],
+         behaviorContracts: [CodeBridgeBehaviorContract] = [],
+         baseline: CodeBridgeBaseline? = nil,
+         metadata: [String: String] = [:]) {
+        self.id = id
+        self.schemaVersion = schemaVersion
+        self.connector = connector
+        self.source = source
+        self.resources = resources
+        self.bindings = bindings
+        self.behaviorContracts = behaviorContracts
+        self.baseline = baseline
+        self.metadata = metadata
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, schemaVersion, connector, source, resources, bindings
+        case behaviorContracts, baseline, metadata
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        schemaVersion = try c.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
+        connector = try c.decodeIfPresent(String.self, forKey: .connector) ?? "unknown"
+        source = try c.decodeIfPresent(CodeBridgeSource.self, forKey: .source)
+            ?? CodeBridgeSource(displayName: "Unknown source")
+        resources = try c.decodeIfPresent([CodeBridgeResource].self,
+                                          forKey: .resources) ?? []
+        bindings = try c.decodeIfPresent([CodeBridgeBinding].self,
+                                         forKey: .bindings) ?? []
+        behaviorContracts = try c.decodeIfPresent([CodeBridgeBehaviorContract].self,
+                                                   forKey: .behaviorContracts) ?? []
+        baseline = try c.decodeIfPresent(CodeBridgeBaseline.self, forKey: .baseline)
+        metadata = try c.decodeIfPresent([String: String].self, forKey: .metadata) ?? [:]
+    }
+}
+
+struct CodeBridgeSource: Codable, Equatable, Sendable {
+    var displayName: String
+    var stableID: String?
+    var entryPath: String?
+    var repositoryURL: String?
+    var branch: String?
+    var revision: String?
+    var packagePath: String?
+    var framework: String?
+    var frameworkVersion: String?
+    var buildTool: String?
+    var buildToolVersion: String?
+    var metadata: [String: String]
+
+    init(displayName: String, stableID: String? = nil, entryPath: String? = nil,
+         repositoryURL: String? = nil, branch: String? = nil,
+         revision: String? = nil, packagePath: String? = nil,
+         framework: String? = nil, frameworkVersion: String? = nil,
+         buildTool: String? = nil, buildToolVersion: String? = nil,
+         metadata: [String: String] = [:]) {
+        self.displayName = displayName
+        self.stableID = stableID
+        self.entryPath = entryPath
+        self.repositoryURL = repositoryURL
+        self.branch = branch
+        self.revision = revision
+        self.packagePath = packagePath
+        self.framework = framework
+        self.frameworkVersion = frameworkVersion
+        self.buildTool = buildTool
+        self.buildToolVersion = buildToolVersion
+        self.metadata = metadata
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case displayName, stableID, entryPath, repositoryURL, branch, revision
+        case packagePath, framework, frameworkVersion, buildTool, buildToolVersion, metadata
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        displayName = try c.decodeIfPresent(String.self, forKey: .displayName)
+            ?? "Unknown source"
+        stableID = try c.decodeIfPresent(String.self, forKey: .stableID)
+        entryPath = try c.decodeIfPresent(String.self, forKey: .entryPath)
+        repositoryURL = try c.decodeIfPresent(String.self, forKey: .repositoryURL)
+        branch = try c.decodeIfPresent(String.self, forKey: .branch)
+        revision = try c.decodeIfPresent(String.self, forKey: .revision)
+        packagePath = try c.decodeIfPresent(String.self, forKey: .packagePath)
+        framework = try c.decodeIfPresent(String.self, forKey: .framework)
+        frameworkVersion = try c.decodeIfPresent(String.self, forKey: .frameworkVersion)
+        buildTool = try c.decodeIfPresent(String.self, forKey: .buildTool)
+        buildToolVersion = try c.decodeIfPresent(String.self, forKey: .buildToolVersion)
+        metadata = try c.decodeIfPresent([String: String].self, forKey: .metadata) ?? [:]
+    }
+}
+
+/// One consumed browser resource or one explicitly inventoried connector-package
+/// file. Text source may be retained byte-for-byte under the importer cap;
+/// binary assets retain a digest/receipt and continue through normal EXP nodes.
+struct CodeBridgeResource: Codable, Equatable, Sendable {
+    var path: String
+    var role: String
+    var mimeType: String?
+    var byteCount: Int?
+    var sha256: String?
+    var preservedData: Data?
+    var metadata: [String: String]
+
+    init(path: String, role: String, mimeType: String? = nil,
+         byteCount: Int? = nil, sha256: String? = nil,
+         preservedData: Data? = nil, metadata: [String: String] = [:]) {
+        self.path = path
+        self.role = role
+        self.mimeType = mimeType
+        self.byteCount = byteCount
+        self.sha256 = sha256
+        self.preservedData = preservedData
+        self.metadata = metadata
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case path, role, mimeType, byteCount, sha256, preservedData, metadata
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        path = try c.decodeIfPresent(String.self, forKey: .path) ?? "unknown"
+        role = try c.decodeIfPresent(String.self, forKey: .role) ?? "resource"
+        mimeType = try c.decodeIfPresent(String.self, forKey: .mimeType)
+        byteCount = try c.decodeIfPresent(Int.self, forKey: .byteCount)
+        sha256 = try c.decodeIfPresent(String.self, forKey: .sha256)
+        preservedData = try c.decodeIfPresent(Data.self, forKey: .preservedData)
+        metadata = try c.decodeIfPresent([String: String].self, forKey: .metadata) ?? [:]
+    }
+}
+
+/// A stable association between one EXP object and one external identity. Empty
+/// `writableProperties` means receipt-only: a future exporter must not infer a
+/// source edit merely because the rendered node changed.
+struct CodeBridgeBinding: Identifiable, Codable, Equatable, Sendable {
+    var id: UUID
+    var expNodeID: UUID?
+    var expArtboardID: UUID?
+    var externalID: String
+    var externalKind: String
+    var sourcePath: String?
+    var confidence: Double
+    var ownership: String
+    var observedProperties: [String]
+    var writableProperties: [String]
+    var baselineDigest: String?
+    var metadata: [String: String]
+
+    init(id: UUID = UUID(), expNodeID: UUID? = nil, expArtboardID: UUID? = nil,
+         externalID: String, externalKind: String, sourcePath: String? = nil,
+         confidence: Double = 1, ownership: String = "source",
+         observedProperties: [String] = [], writableProperties: [String] = [],
+         baselineDigest: String? = nil,
+         metadata: [String: String] = [:]) {
+        self.id = id
+        self.expNodeID = expNodeID
+        self.expArtboardID = expArtboardID
+        self.externalID = externalID
+        self.externalKind = externalKind
+        self.sourcePath = sourcePath
+        self.confidence = min(1, max(0, confidence))
+        self.ownership = ownership
+        self.observedProperties = observedProperties
+        self.writableProperties = writableProperties
+        self.baselineDigest = baselineDigest
+        self.metadata = metadata
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, expNodeID, expArtboardID, externalID, externalKind, sourcePath
+        case confidence, ownership, observedProperties, writableProperties
+        case baselineDigest, metadata
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        expNodeID = try c.decodeIfPresent(UUID.self, forKey: .expNodeID)
+        expArtboardID = try c.decodeIfPresent(UUID.self, forKey: .expArtboardID)
+        externalID = try c.decodeIfPresent(String.self, forKey: .externalID) ?? "unknown"
+        externalKind = try c.decodeIfPresent(String.self, forKey: .externalKind) ?? "unknown"
+        sourcePath = try c.decodeIfPresent(String.self, forKey: .sourcePath)
+        confidence = min(1, max(0,
+            try c.decodeIfPresent(Double.self, forKey: .confidence) ?? 0))
+        ownership = try c.decodeIfPresent(String.self, forKey: .ownership) ?? "source"
+        observedProperties = try c.decodeIfPresent([String].self,
+                                                   forKey: .observedProperties) ?? []
+        writableProperties = try c.decodeIfPresent([String].self,
+                                                   forKey: .writableProperties) ?? []
+        baselineDigest = try c.decodeIfPresent(String.self, forKey: .baselineDigest)
+        metadata = try c.decodeIfPresent([String: String].self, forKey: .metadata) ?? [:]
+    }
+}
+
+/// One opacity mutation shared by canvas and Layers-panel keyboard handling.
+/// Both selection surfaces use the same recursive tree semantics, so selecting
+/// a nested group from the panel cannot behave differently from clicking it on
+/// the artboard merely because a different view owns keyboard focus.
+enum LayerOpacityMutation {
+    @discardableResult
+    static func apply(_ requestedOpacity: Double, to ids: Set<UUID>,
+                      in nodes: inout [Node]) -> Bool {
+        guard !ids.isEmpty else { return false }
+        let opacity = min(1, max(0, requestedOpacity))
+        var changed = false
+        for index in nodes.indices {
+            if ids.contains(nodes[index].id), nodes[index].opacity != opacity {
+                nodes[index].opacity = opacity
+                changed = true
+            }
+            if case .group(var children) = nodes[index].content,
+               apply(opacity, to: ids, in: &children) {
+                nodes[index].content = .group(children: children)
+                changed = true
+            }
+        }
+        return changed
+    }
+}
+
+struct CodeBridgeBehaviorContract: Identifiable, Codable, Equatable, Sendable {
+    var id: UUID = UUID()
+    var externalID: String
+    var kind: String
+    var name: String
+    var payload: [String: String] = [:]
+}
+
+struct CodeBridgeBaseline: Codable, Equatable, Sendable {
+    var importedAt: Date
+    var sourceRevision: String?
+    var sourceDigest: String?
+    var snapshotVersion: Int?
+    var metadata: [String: String]
+
+    init(importedAt: Date = Date(), sourceRevision: String? = nil,
+         sourceDigest: String? = nil, snapshotVersion: Int? = nil,
+         metadata: [String: String] = [:]) {
+        self.importedAt = importedAt
+        self.sourceRevision = sourceRevision
+        self.sourceDigest = sourceDigest
+        self.snapshotVersion = snapshotVersion
+        self.metadata = metadata
+    }
+}
+
 // MARK: - Canvas page
 
 /// One independent infinite canvas inside an EXP document. Pages are peers of
@@ -62,8 +338,9 @@ struct Document: Codable, Sendable {
     /// Public file-schema marker for future interop/handoff readers. This is
     /// distinct from `formatVersion`, which tracks internal model migrations.
     /// History: 1 = v1.4 baseline; 2 = v1.6 component contract (states,
-    /// relationships, public override props); 3 = document-level canvas pages.
-    static let currentSchemaVersion = 3
+    /// relationships, public override props); 3 = document-level canvas pages;
+    /// 4 = hidden code/component bridge provenance.
+    static let currentSchemaVersion = 4
 
     /// The schema version this in-memory document was DECODED from (kept for
     /// diagnostics), or the current version for new documents. Encoding always
@@ -95,6 +372,10 @@ struct Document: Codable, Sendable {
     /// by `id` — the reference-based heart of the model. Empty until Phase 4.
     var sources: [ComponentSource]
 
+    /// Hidden source receipts and bindings for code/component imports. This is
+    /// not rendered and never contains credentials or executable app state.
+    var codeBridges: [CodeBridgeManifest]
+
     /// Ruler guides (document coordinates), persisted with the file like Photoshop.
     var guides: [Guide] {
         get { pages.first?.guides ?? [] }
@@ -120,17 +401,19 @@ struct Document: Codable, Sendable {
          guides: [Guide] = [],
          designLanguage: DesignLanguage = DesignLanguage(),
          anchoredRelationships: [AnchoredRelationship] = [],
+         codeBridges: [CodeBridgeManifest] = [],
          pageID: UUID = UUID()) {
         self.pages = [CanvasPage(id: pageID, artboards: artboards, nodes: nodes, guides: guides,
                                  anchoredRelationships: anchoredRelationships)]
         self.sources = sources
+        self.codeBridges = codeBridges
         self.designLanguage = designLanguage
     }
 
     // Custom decode so files saved before `guides` existed still open.
     enum CodingKeys: String, CodingKey {
         case schemaVersion, formatVersion, pages, artboards, nodes, sources, guides,
-             designLanguage, anchoredRelationships
+             designLanguage, anchoredRelationships, codeBridges
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -150,6 +433,10 @@ struct Document: Codable, Sendable {
                                 anchoredRelationships: legacyAnchors)]
         }
         sources = try c.decodeIfPresent([ComponentSource].self, forKey: .sources) ?? []
+        // A malformed optional connector receipt must never brick the artwork.
+        // The source can be re-imported; the design itself remains primary.
+        codeBridges = ((try? c.decodeIfPresent([CodeBridgeManifest].self,
+                                               forKey: .codeBridges)) ?? nil) ?? []
         designLanguage = try c.decodeIfPresent(DesignLanguage.self, forKey: .designLanguage) ?? DesignLanguage()
         // FEAT-012 chunk I-b. Derive the anchored form for anything still stored
         // the old way. Deliberately ADDITIVE: the legacy arrays are left intact and
@@ -157,6 +444,11 @@ struct Document: Codable, Sendable {
         // a document the first time it is saved. Nothing reads the anchored form
         // until chunk I-d, so this is invisible at runtime.
         migrateRelationshipsToAnchors()
+        // schema 1…3 documents inferred artboard membership from geometry on every
+        // read. Seed v2.2's persistent hysteresis state once on open so an item
+        // already on a board does not jump to the wall merely because a later group
+        // resize makes its coverage fall below the entry threshold.
+        for pageID in pages.map(\.id) { reconcileArtboardOwnership(on: pageID) }
     }
 
     // Custom encode so a re-saved older file upgrades its declared schema
@@ -167,6 +459,7 @@ struct Document: Codable, Sendable {
         try c.encode(3, forKey: .formatVersion)
         try c.encode(pages, forKey: .pages)
         try c.encode(sources, forKey: .sources)
+        if !codeBridges.isEmpty { try c.encode(codeBridges, forKey: .codeBridges) }
         try c.encode(designLanguage, forKey: .designLanguage)
     }
 
@@ -408,9 +701,11 @@ struct Document: Codable, Sendable {
                                  subject: remapped($0.subject, map: map),
                                  target: remapped($0.target, map: map))
         }
+        var artboardMap: [UUID: UUID] = [:]
         let artboards = page.artboards.map { original -> Artboard in
             var copy = original
             copy.id = UUID()
+            artboardMap[original.id] = copy.id
             return copy
         }
         let guides = page.guides.map { original -> Guide in
@@ -418,7 +713,12 @@ struct Document: Codable, Sendable {
             copy.id = UUID()
             return copy
         }
-        return CanvasPage(name: name, artboards: artboards, nodes: nodes,
+        let ownedNodes = nodes.map { original -> Node in
+            var copy = original
+            copy.artboardID = original.artboardID.flatMap { artboardMap[$0] }
+            return copy
+        }
+        return CanvasPage(name: name, artboards: artboards, nodes: ownedNodes,
                           guides: guides, anchoredRelationships: anchors)
     }
 
@@ -1143,9 +1443,10 @@ struct Document: Codable, Sendable {
         return resolvedChildren(of: ephemeral)
     }
 
-    /// The artboard that owns a shape with the given document-space frame, or
-    /// nil if it's on the wall. Rule: an artboard owns the shape when it covers
-    /// MORE THAN HALF of the shape's area; ties broken by largest coverage.
+    /// The candidate artboard for previously-unattached geometry. This is the
+    /// ENTRY half of the artboard-membership rule: more than 50% overlap attaches
+    /// a wall layer. Node-aware callers should use `owningArtboard(of:on:)`, which
+    /// also remembers an existing attachment until its overlap reaches zero.
     func owningArtboard(of frame: CGRect) -> Artboard? {
         owningArtboard(of: frame, on: pages.first?.id)
     }
@@ -1169,6 +1470,130 @@ struct Document: Codable, Sendable {
             if best == nil || coverage > best!.coverage { best = (artboard, coverage) }
         }
         return best?.artboard
+    }
+
+    /// Geometry used specifically for artboard membership. Ordinary unmanaged
+    /// groups follow their descendants rather than a possibly stale container
+    /// frame. A mask follows the visible crop (mask-shape bounds intersected with
+    /// its content bounds), so "Mask with Top Shape" genuinely reduces the size
+    /// used by the ownership test. Effects stay out of this calculation: a soft
+    /// shadow should not decide which board owns an object.
+    func artboardOwnershipBounds(of node: Node) -> CGRect {
+        func transformed(_ bounds: CGRect, by node: Node, frame: CGRect) -> CGRect {
+            guard !bounds.isNull else { return frame }
+            let center = CGPoint(x: frame.midX, y: frame.midY)
+            let radians = node.rotation * .pi / 180
+            let sine = sin(radians), cosine = cos(radians)
+            func map(_ point: CGPoint) -> CGPoint {
+                var x = point.x, y = point.y
+                if node.flipH { x = 2 * center.x - x }
+                if node.flipV { y = 2 * center.y - y }
+                guard node.rotation != 0 else { return CGPoint(x: x, y: y) }
+                let dx = x - center.x, dy = y - center.y
+                return CGPoint(x: center.x + dx * cosine - dy * sine,
+                               y: center.y + dx * sine + dy * cosine)
+            }
+            let corners = [
+                CGPoint(x: bounds.minX, y: bounds.minY),
+                CGPoint(x: bounds.maxX, y: bounds.minY),
+                CGPoint(x: bounds.maxX, y: bounds.maxY),
+                CGPoint(x: bounds.minX, y: bounds.maxY)
+            ].map(map)
+            let xs = corners.map(\.x), ys = corners.map(\.y)
+            return CGRect(x: xs.min() ?? frame.minX, y: ys.min() ?? frame.minY,
+                          width: (xs.max() ?? frame.maxX) - (xs.min() ?? frame.minX),
+                          height: (ys.max() ?? frame.maxY) - (ys.min() ?? frame.minY))
+        }
+
+        func bounds(_ node: Node, parentOrigin: CGPoint) -> CGRect {
+            let frame = node.frame.offsetBy(dx: parentOrigin.x, dy: parentOrigin.y)
+            let inner: CGRect
+            switch node.content {
+            case .group(let children) where !children.isEmpty:
+                let childOrigin = frame.origin
+                func union(_ selected: [Node]) -> CGRect? {
+                    selected.reduce(nil as CGRect?) { partial, child in
+                        let childBounds = bounds(child, parentOrigin: childOrigin)
+                        return partial?.union(childBounds) ?? childBounds
+                    }
+                }
+                if node.isMask {
+                    let mask = union(children.filter(\.isMaskShape))
+                    let content = union(children.filter { !$0.isMaskShape })
+                    if let mask, let content {
+                        let clipped = mask.intersection(content)
+                        inner = clipped.isNull || clipped.width <= 0 || clipped.height <= 0
+                            ? mask : clipped
+                    } else {
+                        inner = mask ?? content ?? frame
+                    }
+                } else if node.autoLayout != nil || node.autoPadding != nil {
+                    inner = frame
+                } else {
+                    inner = union(children) ?? frame
+                }
+            case .instance(let instance):
+                inner = CGRect(origin: frame.origin, size: resolvedSize(of: instance))
+            default:
+                inner = frame
+            }
+            return transformed(inner, by: node, frame: frame)
+        }
+        return bounds(node, parentOrigin: .zero)
+    }
+
+    /// Resolve one top-level node's current board with hysteresis:
+    /// - wall -> board requires the existing >50% entry threshold;
+    /// - board -> wall requires zero remaining overlap.
+    /// This preserves intentional cropped/sliver placements while still allowing
+    /// a layer to be dragged completely back onto the wall.
+    func owningArtboard(of node: Node, on pageID: UUID?) -> Artboard? {
+        let boards = page(for: pageID)?.artboards ?? []
+        if let assigned = node.artboardID,
+           let board = boards.first(where: { $0.id == assigned }) {
+            // Fast path for the common case: the persisted top-level frame itself
+            // still touches its board. Masks deliberately skip it because their
+            // whole point is that visible ownership may be much smaller than the
+            // container/content union. This avoids a recursive descendant walk on
+            // every canvas frame for ordinary large attached groups.
+            if !node.isMask {
+                let frameOverlap = board.frame.intersection(node.frame)
+                if !frameOverlap.isNull, frameOverlap.width > 0, frameOverlap.height > 0 {
+                    return board
+                }
+            }
+            let geometry = artboardOwnershipBounds(of: node)
+            let overlap = board.frame.intersection(geometry)
+            if !overlap.isNull, overlap.width > 0, overlap.height > 0 { return board }
+        }
+        let geometry = artboardOwnershipBounds(of: node)
+        return owningArtboard(of: geometry, on: pageID)
+    }
+
+    func owningArtboard(of node: Node) -> Artboard? {
+        owningArtboard(of: node, on: pages.first?.id)
+    }
+
+    /// Persist the node-aware ownership answer after geometry/structure changes.
+    /// Membership belongs only to top-level canvas nodes; nested children inherit
+    /// their top-level container's clip and carry no competing assignment.
+    mutating func reconcileArtboardOwnership(on pageID: UUID?) {
+        guard let pageIndex = pageIndex(for: pageID) else { return }
+        let resolvedPageID = pages[pageIndex].id
+        func clearNested(_ node: inout Node) {
+            guard case .group(var children) = node.content else { return }
+            for index in children.indices {
+                children[index].artboardID = nil
+                clearNested(&children[index])
+            }
+            node.content = .group(children: children)
+        }
+        for index in pages[pageIndex].nodes.indices {
+            let owner = owningArtboard(of: pages[pageIndex].nodes[index],
+                                       on: resolvedPageID)
+            pages[pageIndex].nodes[index].artboardID = owner?.id
+            clearNested(&pages[pageIndex].nodes[index])
+        }
     }
 
     /// A fresh document's starting artboards: a single board at the origin. The
@@ -1226,9 +1651,9 @@ struct Guide: Identifiable, Codable, Sendable {
 
 // MARK: - Artboard
 
-/// A named frame on the canvas. Artboards no longer own their shapes — a shape
-/// belongs to whichever artboard covers >50% of it (see Document.owningArtboard),
-/// which is what makes a shape crop the instant it crosses inside.
+/// A named frame on the canvas. Shapes enter through the >50% overlap rule, retain
+/// that membership while any portion remains on the board, and return to the wall
+/// when completely outside (see `Document.owningArtboard(of:on:)`).
 struct Artboard: Identifiable, Codable, Sendable {
     var id = UUID()
     var name: String
@@ -1272,10 +1697,61 @@ struct Artboard: Identifiable, Codable, Sendable {
 /// One shape. Common attributes (name, frame, visibility, lock) live here; what
 /// the node *is* lives in `content`. `frame` is in DOCUMENT coordinates now.
 /// Group children remain nested via the `.group` case.
+/// Source semantics recovered from rendered HTML or another code connector.
+///
+/// This is deliberately data, not executable behavior. Authored `aria-*` values
+/// survive byte-for-value so a future code bridge can round-trip them, while
+/// `role` contains only the curated EXP role we can reason about today. An invalid
+/// or unsupported authored role remains in `authoredRole` instead of being guessed.
+struct NodeSemantics: Codable, Equatable, Sendable {
+    var role: AriaRole?
+    var authoredRole: String?
+    var implicitRole: String?
+    var ariaAttributes: [String: String]
+    var sourceTag: String?
+    var explicitRoleConformsToHost: Bool?
+    var headingLevel: Int?
+
+    init(role: AriaRole? = nil, authoredRole: String? = nil,
+         implicitRole: String? = nil,
+         ariaAttributes: [String: String] = [:], sourceTag: String? = nil,
+         explicitRoleConformsToHost: Bool? = nil, headingLevel: Int? = nil) {
+        self.role = role
+        self.authoredRole = authoredRole
+        self.implicitRole = implicitRole
+        self.ariaAttributes = ariaAttributes
+        self.sourceTag = sourceTag
+        self.explicitRoleConformsToHost = explicitRoleConformsToHost
+        self.headingLevel = headingLevel
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case role, authoredRole, implicitRole, ariaAttributes, sourceTag
+        case explicitRoleConformsToHost, headingLevel
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        role = (try? c.decodeIfPresent(AriaRole.self, forKey: .role)) ?? nil
+        authoredRole = try c.decodeIfPresent(String.self, forKey: .authoredRole)
+        implicitRole = try c.decodeIfPresent(String.self, forKey: .implicitRole)
+        ariaAttributes = try c.decodeIfPresent([String: String].self,
+                                               forKey: .ariaAttributes) ?? [:]
+        sourceTag = try c.decodeIfPresent(String.self, forKey: .sourceTag)
+        explicitRoleConformsToHost = try c.decodeIfPresent(
+            Bool.self, forKey: .explicitRoleConformsToHost)
+        headingLevel = try c.decodeIfPresent(Int.self, forKey: .headingLevel)
+    }
+}
+
 struct Node: Identifiable, Codable, Sendable {
     var id = UUID()
     var name: String
     var frame: CGRect           // DOCUMENT coordinates (points)
+    /// Persistent top-level artboard membership. nil means the wall. This small
+    /// amount of memory provides the 50%-in / 100%-out hysteresis designers expect;
+    /// nested nodes inherit their top-level container and keep this nil.
+    var artboardID: UUID? = nil
     var isVisible: Bool = true
     var isLocked: Bool = false
     /// Rotation in degrees, clockwise, about the frame's center. 0 = upright.
@@ -1330,9 +1806,14 @@ struct Node: Identifiable, Codable, Sendable {
     /// downstream codegen / Storybook args. A false value keeps the override local
     /// to EXP; a true value advertises it as part of the source's public contract.
     var publicProps: PublicOverrideProps = PublicOverrideProps()
+    /// Structured, non-executable semantics recovered from code imports.
+    /// Ordinary EXP-authored nodes leave this nil; component semantics continue
+    /// to live on `ComponentSource.a11y` and remain the user-facing contract.
+    var semantics: NodeSemantics? = nil
     var content: NodeContent
 
-    init(id: UUID = UUID(), name: String, frame: CGRect, isVisible: Bool = true,
+    init(id: UUID = UUID(), name: String, frame: CGRect, artboardID: UUID? = nil,
+         isVisible: Bool = true,
          isLocked: Bool = false, rotation: Double = 0, opacity: Double = 1,
          effects: [Effect] = [], blendMode: BlendMode = .normal,
          autoLayout: AutoLayout? = nil, autoPadding: AutoPadding? = nil,
@@ -1342,8 +1823,10 @@ struct Node: Identifiable, Codable, Sendable {
          relationships: [NodeRelationship] = [],
          anchoredRelationships: [AnchoredRelationship] = [],
          publicProps: PublicOverrideProps = PublicOverrideProps(),
+         semantics: NodeSemantics? = nil,
          content: NodeContent) {
         self.id = id; self.name = name; self.frame = frame
+        self.artboardID = artboardID
         self.isVisible = isVisible; self.isLocked = isLocked
         self.rotation = rotation; self.opacity = opacity
         self.effects = effects; self.blendMode = blendMode
@@ -1354,6 +1837,7 @@ struct Node: Identifiable, Codable, Sendable {
         self.relationships = relationships
         self.anchoredRelationships = anchoredRelationships
         self.publicProps = publicProps
+        self.semantics = semantics
         self.content = content
     }
 
@@ -1361,15 +1845,16 @@ struct Node: Identifiable, Codable, Sendable {
     // autoLayout/autoPadding/flip/mask) default cleanly when absent — synthesized
     // Codable would throw on a missing key.
     enum CodingKeys: String, CodingKey {
-        case id, name, frame, isVisible, isLocked, rotation, opacity, effects, blendMode
+        case id, name, frame, artboardID, isVisible, isLocked, rotation, opacity, effects, blendMode
         case autoLayout, autoPadding, isAbsoluteInAutoLayout, flipH, flipV, isMask, isMaskShape
-        case relationships, anchoredRelationships, publicProps, content
+        case relationships, anchoredRelationships, publicProps, semantics, content
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id)
         name = try c.decode(String.self, forKey: .name)
         frame = try c.decode(CGRect.self, forKey: .frame)
+        artboardID = try c.decodeIfPresent(UUID.self, forKey: .artboardID)
         isVisible = try c.decodeIfPresent(Bool.self, forKey: .isVisible) ?? true
         isLocked = try c.decodeIfPresent(Bool.self, forKey: .isLocked) ?? false
         rotation = try c.decodeIfPresent(Double.self, forKey: .rotation) ?? 0
@@ -1388,6 +1873,7 @@ struct Node: Identifiable, Codable, Sendable {
         anchoredRelationships = ((try? c.decodeIfPresent([AnchoredRelationship].self,
                                                          forKey: .anchoredRelationships)) ?? nil) ?? []
         publicProps = try c.decodeIfPresent(PublicOverrideProps.self, forKey: .publicProps) ?? PublicOverrideProps()
+        semantics = try c.decodeIfPresent(NodeSemantics.self, forKey: .semantics)
         content = try c.decode(NodeContent.self, forKey: .content)
     }
 }
@@ -1858,7 +2344,8 @@ extension Node {
 // MARK: - Effects
 
 /// A post-composite visual effect on a node. Drop + inner shadow mirror CSS
-/// `box-shadow` (offset x/y, blur, spread). Noise + dissolve are procedural
+/// `box-shadow` (offset x/y, blur, spread). Layer blur mirrors SVG
+/// `feGaussianBlur` on SourceGraphic. Noise + dissolve are procedural
 /// texture effects whose parameters deliberately mirror SVG `<feTurbulence>`
 /// (type / baseFrequency / numOctaves / seed) so the canvas render and the SVG
 /// export share one spec'd algorithm (see `TurbulenceNoise`):
@@ -1869,7 +2356,9 @@ extension Node {
 ///                alpha mask: the classic scattered-pixel dissolve. Frequency
 ///                sets clump size; amount is the fraction dissolved away.
 struct Effect: Identifiable, Codable, Sendable {
-    enum Kind: String, Codable, Sendable { case dropShadow, innerShadow, backgroundBlur, noise, dissolve }
+    enum Kind: String, Codable, Sendable {
+        case dropShadow, innerShadow, layerBlur, backgroundBlur, noise, dissolve
+    }
     /// SVG `feTurbulence type=` — fractalNoise is smoother (signed octaves
     /// averaged around mid-gray, ideal for grain overlays); turbulence takes
     /// |noise| per octave (billowy, marble-like).
@@ -1897,7 +2386,7 @@ struct Effect: Identifiable, Codable, Sendable {
     var amount: CGFloat = 0.35     // noise: overlay opacity 0–1; dissolve: fraction gone 0–1
     var blend: BlendMode = .normal // per-effect blend (noise only; node blend is separate)
 
-    init(id: UUID = UUID(), kind: Kind = .dropShadow,
+    nonisolated init(id: UUID = UUID(), kind: Kind = .dropShadow,
          color: RGBAColor = RGBAColor(r: 0, g: 0, b: 0, a: 0.33),
          dx: CGFloat = 0, dy: CGFloat = 2, blur: CGFloat = 4, spread: CGFloat = 0,
          isEnabled: Bool = true, preserveTransparency: Bool = false,
@@ -2399,11 +2888,16 @@ struct TextRun: Codable, Equatable, Sendable {
     var fontSize: CGFloat = 16
     var color: RGBAColor = .black
     var underline: Bool = false
+    /// Optional destination for an imported inline link. Keeping this on the run
+    /// preserves one manageable rich-text box instead of overlapping link/text
+    /// nodes, and semantic HTML export can reconstruct the anchor.
+    var linkURL: String? = nil
 
     init(string: String, fontName: String = "", fontSize: CGFloat = 16,
-         color: RGBAColor = .black, underline: Bool = false) {
+         color: RGBAColor = .black, underline: Bool = false,
+         linkURL: String? = nil) {
         self.string = string; self.fontName = fontName; self.fontSize = fontSize
-        self.color = color; self.underline = underline
+        self.color = color; self.underline = underline; self.linkURL = linkURL
     }
 }
 
@@ -2511,6 +3005,10 @@ struct TextContent: Codable, Sendable {
     var box: TextBox = .auto
     var textCase: TextCase = .none      // non-destructive CSS text-transform
     var contentRole: TextContentRole = .plain
+    /// New text uses CSS-style centered leading for fixed px/em line boxes.
+    /// Older saved documents decode this as false so the v2.2 correction does
+    /// not silently move typography authored against TextKit's legacy baseline.
+    var centersFixedLineHeightLeading: Bool = true
 
     /// Legacy-shaped initializer (one run) so existing call sites keep working.
     init(string: String = "", fontSize: CGFloat = 16, color: RGBAColor = .black, fontName: String = "") {
@@ -2518,11 +3016,13 @@ struct TextContent: Codable, Sendable {
     }
     init(runs: [TextRun], align: TextAlign = .left, lineHeight: CGFloat = 1.3,
          lineHeightUnit: LineHeightUnit = .auto, tracking: CGFloat = 0, box: TextBox = .auto,
-         textCase: TextCase = .none, contentRole: TextContentRole = .plain) {
+         textCase: TextCase = .none, contentRole: TextContentRole = .plain,
+         centersFixedLineHeightLeading: Bool = true) {
         self.runs = runs.isEmpty ? [TextRun(string: "")] : runs
         self.align = align; self.lineHeight = lineHeight; self.lineHeightUnit = lineHeightUnit
         self.tracking = tracking; self.box = box; self.textCase = textCase
         self.contentRole = contentRole
+        self.centersFixedLineHeightLeading = centersFixedLineHeightLeading
     }
 
     // MARK: convenience
@@ -2552,6 +3052,7 @@ struct TextContent: Codable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case runs, align, lineHeight, lineHeightUnit, tracking, box, textCase, contentRole
+        case centersFixedLineHeightLeading
         case string, fontName, fontSize, color   // legacy
     }
     init(from decoder: Decoder) throws {
@@ -2573,6 +3074,8 @@ struct TextContent: Codable, Sendable {
         textCase = (try? c.decode(TextCase.self, forKey: .textCase)) ?? .none
         // Missing or future/unknown values stay readable as plain text.
         contentRole = (try? c.decode(TextContentRole.self, forKey: .contentRole)) ?? .plain
+        centersFixedLineHeightLeading = (try? c.decode(
+            Bool.self, forKey: .centersFixedLineHeightLeading)) ?? false
     }
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
@@ -2584,6 +3087,8 @@ struct TextContent: Codable, Sendable {
         try c.encode(box, forKey: .box)
         try c.encode(textCase, forKey: .textCase)
         try c.encode(contentRole, forKey: .contentRole)
+        try c.encode(centersFixedLineHeightLeading,
+                     forKey: .centersFixedLineHeightLeading)
     }
 }
 
@@ -3182,7 +3687,7 @@ enum ComponentStateEditing {
                 if case .text(var tc) = node.content {
                     tc.setPlainString(string)
                     node.content = .text(tc)
-                    node.frame.size = tc.measuredSize()
+                    node.frame.size = tc.measuredSize(boxWidth: node.frame.width)
                 }
             case .fill(let paint):
                 setFill(paint, on: &node)
@@ -3190,7 +3695,13 @@ enum ComponentStateEditing {
                 if case .text(var tc) = node.content {
                     tc = style.applied(to: tc)
                     node.content = .text(tc)
-                    node.frame.size = tc.measuredSize()
+                    // Paint-only state changes (most notably color) must not
+                    // collapse a fixed text box back to the glyph's hug size.
+                    // Metric changes may reflow, but fixed boxes retain their
+                    // authored width.
+                    if style.affectsMetrics {
+                        node.frame.size = tc.measuredSize(boxWidth: node.frame.width)
+                    }
                 }
             case .opacity(let value):
                 node.opacity = value
@@ -3545,6 +4056,14 @@ struct TextStyleOverride: Codable, Sendable, Equatable {
             && tracking == nil && textCase == nil
     }
 
+    /// Whether applying this override can change glyph or line geometry.
+    /// Color and underline are paint/decoration only; remeasuring for them made
+    /// fixed component-state text boxes unexpectedly shrink.
+    var affectsMetrics: Bool {
+        fontName != nil || fontSize != nil || lineHeight != nil
+            || lineHeightUnit != nil || tracking != nil || textCase != nil
+    }
+
     /// Overlay the set properties onto `text`, returning the styled copy. Only
     /// non-nil fields change; everything else inherits from `text` (the base).
     func applied(to text: TextContent) -> TextContent {
@@ -3644,11 +4163,10 @@ extension ComponentInstance {
                 if case .text(var tc) = node.content {
                     tc.setPlainString(string)
                     node.content = .text(tc)
-                    // Hug the overridden label to a single line (grow width), so the
-                    // surrounding auto-padding/layout frame re-hugs it. Done for ANY
-                    // box mode — an overridden component label should fit its content,
-                    // which is what makes a button grow with its text.
-                    node.frame.size = tc.measuredSize()
+                    // Auto-width labels keep hugging so button/frame layouts can
+                    // re-hug. Fixed text boxes retain their authored width, which
+                    // preserves the space needed for center/right paragraph alignment.
+                    node.frame.size = tc.measuredSize(boxWidth: node.frame.width)
                 }
             case .fill(let paint):
                 switch node.content {
@@ -3665,8 +4183,11 @@ extension ComponentInstance {
                 if case .text(var tc) = node.content {
                     tc = style.applied(to: tc)
                     node.content = .text(tc)
-                    // Re-measure so an overridden size/face/tracking still re-hugs.
-                    node.frame.size = tc.measuredSize()
+                    // Reflow only when typography metrics can actually change.
+                    // A color-only state/instance override is paint, not layout.
+                    if style.affectsMetrics {
+                        node.frame.size = tc.measuredSize(boxWidth: node.frame.width)
+                    }
                 }
             case .opacity(let value):
                 node.opacity = value
@@ -3731,9 +4252,9 @@ struct RGBAColor: Codable, Equatable, Sendable {
     var b: Double
     var a: Double = 1
 
-    static let white = RGBAColor(r: 1, g: 1, b: 1, a: 1)
-    static let black = RGBAColor(r: 0, g: 0, b: 0, a: 1)
-    static let clear = RGBAColor(r: 0, g: 0, b: 0, a: 0)
+    nonisolated static let white = RGBAColor(r: 1, g: 1, b: 1, a: 1)
+    nonisolated static let black = RGBAColor(r: 0, g: 0, b: 0, a: 1)
+    nonisolated static let clear = RGBAColor(r: 0, g: 0, b: 0, a: 0)
 }
 
 
@@ -4191,6 +4712,9 @@ struct TypeStyle: Codable, Equatable, Identifiable, Sendable {
         tc.align = align
         tc.lineHeight = lineHeight
         tc.lineHeightUnit = lineHeightUnit
+        if lineHeightUnit == .px || lineHeightUnit == .em {
+            tc.centersFixedLineHeightLeading = true
+        }
         tc.tracking = tracking
         tc.textCase = textCase
     }

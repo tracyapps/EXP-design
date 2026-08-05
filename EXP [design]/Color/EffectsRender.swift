@@ -2,8 +2,8 @@
 //  EffectsRender.swift
 //  EXP [design]
 //
-//  Core-Graphics rendering for node effects (drop + inner shadow). Shared by the
-//  on-canvas drawing and the PNG/PDF export so a shadow looks identical in both.
+//  Core-Graphics/Core-Image rendering for node effects. Shared by the on-canvas
+//  drawing and the PNG/PDF export so effects look identical in both.
 //
 //  Both shadows use CG's built-in `setShadow` (a Gaussian blur). The geometry
 //  mirrors CSS `box-shadow`: offset (dx,dy), blur, spread, color.
@@ -22,6 +22,7 @@
 //
 
 import AppKit
+import CoreImage
 import CoreGraphics
 
 /// The outline a shape casts a shadow from, plus spread-grown/shrunk variants.
@@ -43,7 +44,8 @@ struct Silhouette {
         switch shape {
         case .roundRect(let r):
             let rr = rect.insetBy(dx: -spread, dy: -spread)
-            let rad = max(0, r + spread)
+            let rad = min(max(0, r + spread),
+                          max(0, min(rr.width, rr.height) / 2))
             return CGPath(roundedRect: rr, cornerWidth: rad, cornerHeight: rad, transform: nil)
         case .perCornerRect(let radii):
             // Each radius grows with the spread, mirroring the uniform case.
@@ -58,6 +60,72 @@ struct Silhouette {
 }
 
 enum EffectsRender {
+
+    private static let ciContext = CIContext(options: [.cacheIntermediates: false])
+    /// A bounded bitmap protects the same interaction/export paths that already
+    /// guard shadow buffers. Above this limit the caller draws the unblurred
+    /// vector content rather than risking an allocation failure or UI hang.
+    private static let maxLayerPixels = 32_000_000
+    private static let maxLayerDimension = 12_000
+
+    /// Blur a node's own pixels while leaving its geometry editable. `bounds` is
+    /// in the caller's y-down user space; `deviceScale` is backing scale on the
+    /// canvas and 1 for export. The drawing closure is replayed into a tightly
+    /// bounded transparent bitmap, filtered, then composited back once.
+    static func drawLayerBlur(_ effects: [Effect], bounds: CGRect,
+                              deviceScale: CGFloat, in ctx: CGContext,
+                              draw: (CGContext) -> Void) {
+        let active = effects.filter { $0.isEnabled && $0.kind == .layerBlur && $0.blur > 0 }
+        guard !active.isEmpty, !bounds.isNull, bounds.width > 0, bounds.height > 0 else {
+            draw(ctx)
+            return
+        }
+        let scale = max(1, deviceScale)
+        let maxSigma = active.map(\.blur).max() ?? 0
+        let pad = maxSigma * 3 + 2 / scale
+        let expanded = bounds.insetBy(dx: -pad, dy: -pad)
+        let width = max(1, Int(ceil(expanded.width * scale)))
+        let height = max(1, Int(ceil(expanded.height * scale)))
+        guard width <= maxLayerDimension, height <= maxLayerDimension,
+              width <= maxLayerPixels / max(1, height),
+              let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+              let bitmap = CGContext(data: nil, width: width, height: height,
+                                     bitsPerComponent: 8, bytesPerRow: 0,
+                                     space: colorSpace,
+                                     bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else {
+            draw(ctx)
+            return
+        }
+
+        // Match EXP's top-left, y-down drawing space inside the offscreen bitmap.
+        bitmap.translateBy(x: 0, y: CGFloat(height))
+        bitmap.scaleBy(x: scale, y: -scale)
+        bitmap.translateBy(x: -expanded.minX, y: -expanded.minY)
+        let graphics = NSGraphicsContext(cgContext: bitmap, flipped: true)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = graphics
+        draw(bitmap)
+        NSGraphicsContext.restoreGraphicsState()
+
+        guard let image = bitmap.makeImage() else { draw(ctx); return }
+        var filtered = CIImage(cgImage: image)
+        for effect in active {
+            let sigma = Double(min(maxShadowBlurPx, effect.blur * scale))
+            filtered = filtered.clampedToExtent()
+                .applyingGaussianBlur(sigma: sigma)
+                .cropped(to: filtered.extent)
+        }
+        guard let output = ciContext.createCGImage(filtered, from: filtered.extent) else {
+            draw(ctx)
+            return
+        }
+        ctx.saveGState()
+        ctx.translateBy(x: expanded.minX, y: expanded.maxY)
+        ctx.scaleBy(x: 1, y: -1)
+        ctx.draw(output, in: CGRect(origin: .zero, size: expanded.size))
+        ctx.restoreGState()
+    }
 
     /// Hard ceiling on a shadow's blur radius in DEVICE space (points × scale).
     /// `setShadow`'s cost (and the offscreen surface Core Graphics allocates for it)

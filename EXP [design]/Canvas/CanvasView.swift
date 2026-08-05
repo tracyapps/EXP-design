@@ -5,12 +5,10 @@
 //  The canvas: an AppKit NSView (Core Graphics drawing) wrapped for SwiftUI.
 //
 //  THE WALL MODEL: every shape lives in `document.nodes` in DOCUMENT
-//  coordinates. Whether a shape belongs to an artboard — and therefore crops to
-//  it — is decided live by the >50%-overlap rule (Document.owningArtboard). A
-//  shape not mostly inside any artboard floats free on the "wall" and isn't
-//  clipped. Drag a shape across an artboard edge and it crops the instant more
-//  than half of it is inside. Drag an artboard and the shapes it currently owns
-//  travel with it.
+//  coordinates. Artboard membership uses hysteresis: a wall shape enters when
+//  more than half overlaps, then stays attached/cropped while ANY visible geometry
+//  still overlaps. It returns to the wall only when completely outside. Drag an
+//  artboard and the shapes it currently owns travel with it.
 //
 //  Coordinate spaces:
 //   • document — where artboards and shapes live (frames).
@@ -1915,7 +1913,7 @@ final class CanvasNSView: NSView {
 
         var owned: [UUID: [UUID]] = [:]
         for node in currentNodes {
-            if let owner = owningArtboard(of: node.frame)?.id, deltas[owner] != nil {
+            if let owner = owningArtboard(of: node)?.id, deltas[owner] != nil {
                 owned[owner, default: []].append(node.id)
             }
         }
@@ -2351,6 +2349,11 @@ final class CanvasNSView: NSView {
         return document?.model.owningArtboard(of: frame, on: activePageID)
     }
 
+    private func owningArtboard(of node: Node) -> Artboard? {
+        guard !isSourceScope else { return nil }
+        return document?.model.owningArtboard(of: node, on: activePageID)
+    }
+
     private func withActivePage(_ body: (inout CanvasPage) -> Void) {
         guard !isSourceScope, let document,
               let index = document.model.pageIndex(for: activePageID) else { return }
@@ -2526,6 +2529,7 @@ final class CanvasNSView: NSView {
                 Document.removingAnchors(referencing: removedIDs,
                                          in: &model.pages[pageIndex].nodes)
             }
+            model.reconcileArtboardOwnership(on: model.pages[pageIndex].id)
         case .source(let sid):
             guard let si = model.sources.firstIndex(where: { $0.id == sid }) else { return }
             let fitSourceBounds = model.sourceUsesManagedBounds(model.sources[si])
@@ -2947,7 +2951,12 @@ final class CanvasNSView: NSView {
     }
 
     private func hitTestHandle(atViewPoint point: CGPoint) -> Handle? {
-        guard let app, let id = app.singleSelectedNodeID,
+        // Groups use the child-aware unified transform box.  Falling through to
+        // the node-frame handles would leave a second, invisible resize target
+        // whenever rotated children make the visual bounds differ from the raw
+        // group frame.
+        guard !usesSelectionTransform(),
+              let app, let id = app.singleSelectedNodeID,
               let node = node(id), isBoxResizable(node) else { return nil }
         // Handles work under ANY ancestor chain — rotated and/or flipped groups
         // included — because the handle position maps through the full chain and
@@ -2988,7 +2997,8 @@ final class CanvasNSView: NSView {
 
     private func hitTestRotateHandle(atViewPoint point: CGPoint)
         -> (id: UUID, center: CGPoint, corner: CGPoint)? {
-        guard let app, let id = app.singleSelectedNodeID,
+        guard !usesSelectionTransform(),
+              let app, let id = app.singleSelectedNodeID,
               let node = node(id), isBoxResizable(node) else { return nil }
         let chain = ancestorGroups(of: id)
         let f = node.frame
@@ -3209,7 +3219,7 @@ final class CanvasNSView: NSView {
         let idSet = Set(ids)
         var result: [UUID: CGPoint] = [:]
         for node in currentNodes {
-            if let owner = owningArtboard(of: node.frame)?.id, idSet.contains(owner) {
+            if let owner = owningArtboard(of: node)?.id, idSet.contains(owner) {
                 result[node.id] = node.frame.origin
             }
         }
@@ -3220,7 +3230,7 @@ final class CanvasNSView: NSView {
         guard let document else { return [:] }
         var result: [UUID: CGPoint] = [:]
         for node in currentNodes {
-            if owningArtboard(of: node.frame)?.id == artboardID {
+            if owningArtboard(of: node)?.id == artboardID {
                 result[node.id] = node.frame.origin
             }
         }
@@ -3986,7 +3996,7 @@ final class CanvasNSView: NSView {
             let m = nodeCullMargin(node)
             if !docToView(node.frame).insetBy(dx: -m, dy: -m).intersects(visible) { return false }
         }
-        let owner = owningArtboard(of: node.frame)
+        let owner = owningArtboard(of: node)
         // An owned node is hard-clipped to its artboard (below), so if that
         // board is off-screen the node is invisible regardless of effects or
         // stray children — an exact cull that also covers containers.
@@ -4012,6 +4022,8 @@ final class CanvasNSView: NSView {
         guard let app else { return }
         let selectedIDs = app.selectedNodeIDs
         let selectedCount = selectedIDs.count
+        let transformNodes = selectionTransformNodesDoc(for: selectedIDs)
+        let drawsUnifiedTransform = usesSelectionTransform(transformNodes)
         if perf.enabled { perf.gauge("selectedNodes", selectedCount) }
         let single = selectedCount == 1
         let drawPerNodeHints = single || selectedCount <= 32
@@ -4019,6 +4031,11 @@ final class CanvasNSView: NSView {
             perf.measure("chrome-node-selection") {
                 for id in selectedIDs {
                     guard let node = node(id) else { continue }
+                    // A single group already gets the authoritative, rotation-aware
+                    // unified transform box below. Its older per-node hint measures
+                    // raw descendant frames and can disagree when children are
+                    // rotated, producing two crossed sets of resize handles.
+                    if single && drawsUnifiedTransform { continue }
                     // Resize/rotate handles for a lone selection that's top-level OR
                     // nested under only UNrotated groups (handle math is a pure offset
                     // there). Nested under a rotated group stays move-only.
@@ -4029,8 +4046,7 @@ final class CanvasNSView: NSView {
         // Unified selection box (8 handles + rotate knob) for a multi-selection
         // or a single group — the per-node boxes above stay as a hint.
         perf.measure("chrome-transform-box") {
-            let transformNodes = selectionTransformNodesDoc(for: selectedIDs)
-            if usesSelectionTransform(transformNodes),
+            if drawsUnifiedTransform,
                let b = SelectionTransform.unionBounds(transformNodes) {
                 drawSelectionTransformBox(b, in: ctx)
             }
@@ -4768,13 +4784,15 @@ final class CanvasNSView: NSView {
             let m = nodeCullMargin(node)
             if !docToView(node.frame).insetBy(dx: -m, dy: -m).intersects(region) { return false }
         }
-        if let owner = owningArtboard(of: node.frame),
+        if let owner = owningArtboard(of: node),
            !docToView(owner.frame).intersects(region) { return false }
         return true
     }
 
     private func nodeHasBitmapSensitiveContent(_ node: Node, model: Document) -> Bool {
-        if node.effects.contains(where: { $0.isEnabled && ($0.kind == .dropShadow || $0.kind == .innerShadow) }) {
+        if node.effects.contains(where: {
+            $0.isEnabled && ($0.kind == .dropShadow || $0.kind == .innerShadow || $0.kind == .layerBlur)
+        }) {
             return true
         }
         func sensitivePaint(_ paint: Paint?) -> Bool { paint?.isGradient == true }
@@ -4805,6 +4823,9 @@ final class CanvasNSView: NSView {
         var doc = strokeReach(node.content)
         for e in node.effects where e.isEnabled && e.kind == .dropShadow {
             doc = max(doc, max(abs(e.dx), abs(e.dy)) + e.blur * 3 + e.spread)
+        }
+        for e in node.effects where e.isEnabled && e.kind == .layerBlur {
+            doc = max(doc, e.blur * 3)
         }
         var margin = doc * z + 2
         if node.rotation != 0 {
@@ -5058,6 +5079,7 @@ final class CanvasNSView: NSView {
         let sil = nodeSilhouette(node, frameDoc: frameDoc, rect: rect)
         let dissolves = enabled.filter { $0.kind == .dissolve && $0.amount > 0 }
         let noises = enabled.filter { $0.kind == .noise && $0.amount > 0 }
+        let layerBlurs = enabled.filter { $0.kind == .layerBlur && $0.blur > 0 }
         /// Intersect the ctx's clip with each dissolve's thresholded-noise mask
         /// (tile is node-local model space, mapped onto the view-space rect).
         func applyDissolveMasks() {
@@ -5116,7 +5138,15 @@ final class CanvasNSView: NSView {
             ctx.beginTransparencyLayer(auxiliaryInfo: nil)
         }
 
-        drawNodeContent(node, frameDoc: frameDoc, rect: rect, in: ctx)
+        if layerBlurs.isEmpty {
+            drawNodeContent(node, frameDoc: frameDoc, rect: rect, in: ctx)
+        } else {
+            EffectsRender.drawLayerBlur(layerBlurs,
+                                        bounds: paintBoundsView(node, offset: offset),
+                                        deviceScale: backingScale, in: ctx) { blurContext in
+                self.drawNodeContent(node, frameDoc: frameDoc, rect: rect, in: blurContext)
+            }
+        }
 
         if let s = sil {
             capT0 = capturingSnapshot ? CFAbsoluteTimeGetCurrent() : 0
@@ -5256,9 +5286,11 @@ final class CanvasNSView: NSView {
         guard let app else { return nil }
         switch node.content {
         case .rectangle(let s):
-            return s.hasPerCornerRadii
-                ? Silhouette(rect: rect, shape: .perCornerRect(s.effectiveRadii.scaled(by: app.zoom)))
-                : Silhouette(rect: rect, shape: .roundRect(radius: s.cornerRadius * app.zoom))
+            // Uniform and per-corner rectangles must share the CSS overlap rule.
+            // AppKit's roundedRect accepts an oversized uniform radius but turns
+            // a capsule into a stretched oval instead of clamping it.
+            return Silhouette(rect: rect,
+                              shape: .perCornerRect(s.effectiveRadii.scaled(by: app.zoom)))
         case .ellipse:          return Silhouette(rect: rect, shape: .oval)
         case .polygon(let s):   return Silhouette(rect: rect, shape: .custom(Self.polygonBezier(s.vertices(in: rect)).cgPath))
         case .path(let ps) where ps.closed && ps.points.count >= 2:
@@ -5281,15 +5313,10 @@ final class CanvasNSView: NSView {
         defer { if capLeafT != 0 { capShapeMs += (CFAbsoluteTimeGetCurrent() - capLeafT) * 1000 } }
         switch node.content {
         case .rectangle(let shape):
-            let path: NSBezierPath
-            if shape.hasPerCornerRadii {
-                // v1.3 per-corner radii: shared CGPath builder (radii in doc
-                // points, scaled into view space here).
-                path = NSBezierPath(cgPath: shape.effectiveRadii.path(in: rect, scale: app.zoom))
-            } else {
-                let radius = shape.cornerRadius * app.zoom
-                path = NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
-            }
+            // The shared builder normalizes both uniform and per-corner radii
+            // exactly as Convert to Path does.
+            let path = NSBezierPath(
+                cgPath: shape.effectiveRadii.path(in: rect, scale: app.zoom))
             PaintRender.fill(shape.fill, path: path, bounds: rect, in: ctx)
             if shape.strokeWidth > 0 {
                 PaintRender.strokeAligned(path, width: shape.strokeWidth * app.zoom,
@@ -5642,6 +5669,7 @@ final class CanvasNSView: NSView {
         h.combine(size.width); h.combine(size.height)
         h.combine(t.align.rawValue); h.combine(t.lineHeight)
         h.combine(t.lineHeightUnit.rawValue); h.combine(t.tracking)
+        h.combine(t.centersFixedLineHeightLeading)
         h.combine(t.box.rawValue); h.combine(t.textCase.rawValue)
         for run in t.runs {
             h.combine(run.string); h.combine(run.fontName); h.combine(run.fontSize)
@@ -6429,14 +6457,8 @@ final class CanvasNSView: NSView {
     private func setOpacityOnSelection(_ opacity: Double) {
         guard let app, !app.selectedNodeIDs.isEmpty else { return }
         var nodes = currentNodes
-        var changed = false
-        // Recurse so a layer selected INSIDE a group is reached too (was top-level only).
-        for id in app.selectedNodeIDs {
-            _ = Self.mutateNested(id, in: &nodes) { n in
-                if n.opacity != opacity { n.opacity = opacity; changed = true }
-            }
-        }
-        guard changed else { return }
+        guard LayerOpacityMutation.apply(opacity, to: app.selectedNodeIDs,
+                                         in: &nodes) else { return }
         commitNodes(nodes, actionName: "Opacity")
         needsDisplay = true
     }
@@ -7197,6 +7219,9 @@ final class CanvasNSView: NSView {
 
     private func registerUndoForGesture() {
         guard let document, let baseline = dragBaseline else { return }
+        if !isSourceScope {
+            document.model.reconcileArtboardOwnership(on: activePageID)
+        }
         document.registerUndo(restoring: baseline, undoManager: undoManager, actionName: gestureUndoName)
     }
 
@@ -7372,7 +7397,8 @@ final class CanvasNSView: NSView {
             // node's paragraph settings).
             let tc = TextContent(attributed: edited, scale: scale, align: old.align,
                                  lineHeight: old.lineHeight, lineHeightUnit: old.lineHeightUnit,
-                                 tracking: old.tracking, box: old.box, textCase: old.textCase)
+                                 tracking: old.tracking, box: old.box, textCase: old.textCase,
+                                 centersFixedLineHeightLeading: old.centersFixedLineHeightLeading)
             // Auto hugs; fixed keeps its box (text may overflow → badge).
             let newSize = old.box == .auto ? tc.measuredSize() : target.frame.size
             // Recursive so a text node INSIDE a group is written back too.
@@ -7715,22 +7741,23 @@ final class CanvasNSView: NSView {
         var childOrigins: [UUID: CGPoint] = [:]
         for id in ids {
             guard let ab = model.pages[pageIndex].artboards.first(where: { $0.id == id }) else { continue }
-            // Copy the shapes this board owns (decided against the original model).
-            let owned = currentNodes.filter {
-                owningArtboard(of: $0.frame)?.id == id
-            }
-            for original in owned {
-                var copy = cloned(original)
-                copy.frame.origin.x += offset.x
-                copy.frame.origin.y += offset.y
-                model.pages[pageIndex].nodes.append(copy)
-                childOrigins[copy.id] = copy.frame.origin
-            }
             var newAb = ab
             newAb.id = UUID()
             newAb.name = ab.name + " copy"
             newAb.frame.origin.x += offset.x
             newAb.frame.origin.y += offset.y
+            // Copy the shapes this board owns (decided against the original model).
+            let owned = currentNodes.filter {
+                owningArtboard(of: $0)?.id == id
+            }
+            for original in owned {
+                var copy = cloned(original)
+                copy.frame.origin.x += offset.x
+                copy.frame.origin.y += offset.y
+                copy.artboardID = newAb.id
+                model.pages[pageIndex].nodes.append(copy)
+                childOrigins[copy.id] = copy.frame.origin
+            }
             model.pages[pageIndex].artboards.append(newAb)
             boardOrigins[newAb.id] = newAb.frame.origin
         }
@@ -7914,7 +7941,7 @@ final class CanvasNSView: NSView {
             // owningArtboard has nothing to match and the nodes get orphaned onto
             // the wall — which is what left stray PDF-page content behind).
             let ownedIDs = Set(model.pages[pageIndex].nodes.compactMap { n -> UUID? in
-                guard let owner = model.owningArtboard(of: n.frame, on: activePageID),
+                guard let owner = model.owningArtboard(of: n, on: activePageID),
                       ids.contains(owner.id) else { return nil }
                 return n.id
             })
@@ -7975,7 +8002,7 @@ final class CanvasNSView: NSView {
         if !isSourceScope, app.selectedNodeIDs.isEmpty, !app.selectedArtboardIDs.isEmpty {
             let boards = currentArtboards.filter { app.selectedArtboardIDs.contains($0.id) }
             let owned = currentNodes.filter {
-                guard let o = owningArtboard(of: $0.frame)?.id else { return false }
+                guard let o = owningArtboard(of: $0)?.id else { return false }
                 return app.selectedArtboardIDs.contains(o)
             }
             if let data = try? JSONEncoder().encode(ArtboardClipboard(artboards: boards, nodes: owned)) {
@@ -7990,7 +8017,7 @@ final class CanvasNSView: NSView {
         // Remember the owning board (when the selection shares exactly one) so
         // paste can land on a *different* board at the same relative position.
         var srcOrigin: CGPoint?
-        let owners = Set(nodes.compactMap { owningArtboard(of: $0.frame)?.id })
+        let owners = Set(nodes.compactMap { owningArtboard(of: $0)?.id })
         if owners.count == 1, let oid = owners.first,
            let ab = currentArtboards.first(where: { $0.id == oid }) {
             srcOrigin = ab.frame.origin
@@ -8458,6 +8485,344 @@ final class CanvasNSView: NSView {
         }
     }
 
+    // MARK: Rendered HTML/CSS (E1b local-file vertical slice)
+
+    /// File ▸ Import HTML/CSS… — renders a user-selected local HTML file in a
+    /// short-lived, non-persistent WKWebView and converts the resolved DOM into
+    /// editable EXP artboards. This first production slice intentionally grants
+    /// only the chosen folder; remote-origin trust/session UI follows separately.
+    @objc func importRenderedHTMLAction(_ sender: Any?) {
+        guard let source = askRenderedHTMLSource(),
+              let viewports = askRenderedHTMLViewports() else { return }
+
+        let url = source.file
+        let directory = source.directory
+        let token = InteropCancellationToken()
+        let progress = InteropImportProgressController(format: .renderedHTML,
+                                                       sourceName: url.lastPathComponent)
+        let capture = RenderedHTMLWebKitCapture()
+        let importTask = Task { @MainActor in
+            do {
+                let result = try await capture.readLocalFile(
+                    from: url,
+                    scopedDirectory: directory,
+                    viewports: viewports,
+                    context: InteropContext(cancellation: token) { update in
+                        Task { @MainActor in progress.update(update) }
+                    })
+                progress.finish(.success(result))
+            } catch {
+                progress.finish(.failure(error.localizedDescription))
+            }
+        }
+
+        let response = progress.runModal()
+        if response == .alertFirstButtonReturn {
+            token.cancel()
+            capture.cancel()
+            importTask.cancel()
+            return
+        }
+        switch progress.outcome {
+        case .success(let result):
+            applyRenderedHTMLImport(result)
+        case .failure(let message):
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "HTML/CSS Import Failed"
+            alert.informativeText = message
+            alert.runModal()
+        case nil:
+            break
+        }
+    }
+
+    /// File ▸ Import CodePen Export… — recognizes CodePen's exported ZIP,
+    /// renders only the last successful dist/index.html, and retains the full
+    /// bounded src/config receipt without invoking any build tooling.
+    @objc func importCodePenPackageAction(_ sender: Any?) {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.zip]
+        panel.allowsMultipleSelection = false
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.prompt = "Import CodePen Export"
+        panel.message = "Choose a CodePen 2.0 exported ZIP. EXP renders its last successful dist build and preserves source/configuration without running build scripts."
+        guard panel.runModal() == .OK, let url = panel.url,
+              let viewports = askRenderedHTMLViewports() else { return }
+
+        let token = InteropCancellationToken()
+        let progress = InteropImportProgressController(format: .codePen,
+                                                       sourceName: url.lastPathComponent)
+        let importer = CodePenPackageImporter()
+        let importTask = Task { @MainActor in
+            do {
+                let result = try await importer.read(
+                    from: url,
+                    viewports: viewports,
+                    context: InteropContext(cancellation: token) { update in
+                        Task { @MainActor in progress.update(update) }
+                    })
+                progress.finish(.success(result))
+            } catch {
+                progress.finish(.failure(error.localizedDescription))
+            }
+        }
+
+        let response = progress.runModal()
+        if response == .alertFirstButtonReturn {
+            token.cancel()
+            importer.cancel()
+            importTask.cancel()
+            return
+        }
+        switch progress.outcome {
+        case .success(let result):
+            applyRenderedHTMLImport(result, actionName: "Import CodePen Export")
+        case .failure(let message):
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "CodePen Import Failed"
+            alert.informativeText = message
+            alert.runModal()
+        case nil:
+            break
+        }
+    }
+
+    /// File ▸ Import Storybook Build… — discovers a local static build through
+    /// Storybook's index.json and renders isolated iframe stories. No source build,
+    /// package manager, or framework command runs inside EXP.
+    @objc func importStorybookPackageAction(_ sender: Any?) {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.folder]
+        panel.allowsMultipleSelection = false
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.prompt = "Import Storybook Build"
+        panel.message = "Choose a static Storybook build containing index.json and iframe.html. EXP renders its browser-ready stories locally and blocks network access."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        let importer = StorybookPackageImporter()
+        let catalog: StorybookCatalogSummary
+        do {
+            catalog = try importer.discover(from: url)
+        } catch {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "Storybook Discovery Failed"
+            alert.informativeText = error.localizedDescription
+            alert.runModal()
+            return
+        }
+        guard let storyIDs = askStorybookStories(catalog),
+              let viewports = askRenderedHTMLViewports() else { return }
+
+        let token = InteropCancellationToken()
+        let progress = InteropImportProgressController(format: .storybook,
+                                                       sourceName: url.lastPathComponent)
+        let importTask = Task { @MainActor in
+            do {
+                let result = try await importer.read(
+                    from: url, storyIDs: storyIDs, viewports: viewports,
+                    context: InteropContext(cancellation: token) { update in
+                        Task { @MainActor in progress.update(update) }
+                    })
+                progress.finish(.success(result))
+            } catch {
+                progress.finish(.failure(error.localizedDescription))
+            }
+        }
+
+        let response = progress.runModal()
+        if response == .alertFirstButtonReturn {
+            token.cancel()
+            importer.cancel()
+            importTask.cancel()
+            return
+        }
+        switch progress.outcome {
+        case .success(let result):
+            applyRenderedHTMLImport(result, actionName: "Import Storybook Build")
+        case .failure(let message):
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "Storybook Import Failed"
+            alert.informativeText = message
+            alert.runModal()
+        case nil:
+            break
+        }
+    }
+
+    private func askStorybookStories(_ catalog: StorybookCatalogSummary)
+        -> Set<String>? {
+        let controller = StorybookStorySelectionController(
+            stories: catalog.stories, maximumSelection: 100)
+        let alert = NSAlert()
+        alert.messageText = "Choose Storybook Stories"
+        let version = catalog.version.map { " · catalog v\($0)" } ?? ""
+        alert.informativeText = "Found \(catalog.stories.count) stories\(version). Search by component, story, tag, id, or source path."
+        let importButton = alert.addButton(withTitle: "Import Selected")
+        importButton.keyEquivalent = "\r"
+        importButton.isEnabled = false
+        alert.addButton(withTitle: "Cancel")
+        controller.importButton = importButton
+        alert.accessoryView = controller.view
+        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
+        let selection = controller.selectedStoryIDs
+        return selection.isEmpty ? nil : selection
+    }
+
+    /// The app sandbox grants exactly what the person chooses. Asking for the
+    /// containing folder makes the permission match the UI promise that relative
+    /// CSS, fonts, and images can load; inferring a sibling-file grant from a
+    /// single selected HTML file would work outside the sandbox and fail in release.
+    private func askRenderedHTMLSource() -> (file: URL, directory: URL)? {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.folder]
+        panel.allowsMultipleSelection = false
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.prompt = "Choose Folder"
+        panel.message = "Choose the folder containing the HTML entry file and its local CSS, fonts, and images. Remote resources stay blocked."
+        guard panel.runModal() == .OK else { return nil }
+        // When the person navigates *into* a folder and presses Choose Folder,
+        // AppKit can return no selected-item URL. The visible directory is still
+        // the intended choice; treating nil as cancellation made the panel simply
+        // disappear with no next step or error.
+        guard let directory = panel.url ?? panel.directoryURL else {
+            showRenderedHTMLSourceError(
+                "EXP could not determine which folder was selected. Please choose it again.")
+            return nil
+        }
+
+        let accessStarted = directory.startAccessingSecurityScopedResource()
+        defer {
+            if accessStarted { directory.stopAccessingSecurityScopedResource() }
+        }
+
+        let keys: [URLResourceKey] = [.isRegularFileKey, .isHiddenKey, .contentTypeKey]
+        let files: [URL]
+        do {
+            files = try FileManager.default.contentsOfDirectory(
+                at: directory, includingPropertiesForKeys: keys,
+                options: [.skipsHiddenFiles])
+                .filter { url in
+                    guard let values = try? url.resourceValues(forKeys: Set(keys)) else {
+                        return false
+                    }
+                    return values.isRegularFile == true
+                        && values.isHidden != true
+                        && (values.contentType?.conforms(to: .html) == true
+                            || ["html", "htm"].contains(url.pathExtension.lowercased()))
+                }
+                .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+        } catch {
+            showRenderedHTMLSourceError(
+                "EXP could not read that folder: \(error.localizedDescription)")
+            return nil
+        }
+        guard !files.isEmpty else {
+            showRenderedHTMLSourceError(
+                "That folder has no top-level .html or .htm file to render.")
+            return nil
+        }
+        guard files.count > 1 else { return (files[0], directory) }
+
+        let picker = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 360, height: 28))
+        picker.addItems(withTitles: files.map(\.lastPathComponent))
+        if let index = files.firstIndex(where: {
+            $0.lastPathComponent.caseInsensitiveCompare("index.html") == .orderedSame
+        }) {
+            picker.selectItem(at: index)
+        }
+        picker.setAccessibilityLabel("HTML entry file")
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = "Choose the HTML Entry File"
+        alert.informativeText = "This first local import renders one HTML file. Its relative resources may come from the selected folder."
+        alert.addButton(withTitle: "Continue")
+        alert.addButton(withTitle: "Cancel")
+        alert.accessoryView = picker
+        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
+        return (files[picker.indexOfSelectedItem], directory)
+    }
+
+    private func showRenderedHTMLSourceError(_ message: String) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "HTML/CSS Source Unavailable"
+        alert.informativeText = message
+        alert.runModal()
+    }
+
+    private func askRenderedHTMLViewports() -> [RenderedHTMLViewport]? {
+        let presets = ArtboardPreset.all.filter { $0.group == "Mobile" || $0.group == "Web" }
+        let choices = HTMLViewportSelectionController(presets: presets)
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = "Choose Browser Viewports"
+        alert.informativeText = "Each selected width becomes an independent editable artboard. Desktop 1440 is selected by default."
+        alert.addButton(withTitle: "Import")
+        alert.addButton(withTitle: "Cancel")
+        alert.accessoryView = choices.view
+        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
+        let selected = choices.selectedViewports
+        guard !selected.isEmpty else {
+            let warning = NSAlert()
+            warning.alertStyle = .warning
+            warning.messageText = "Choose at Least One Viewport"
+            warning.informativeText = "The browser needs a width and render height before it can resolve the page."
+            warning.runModal()
+            return askRenderedHTMLViewports()
+        }
+        return selected
+    }
+
+    private func applyRenderedHTMLImport(_ result: InteropImportResult,
+                                         actionName: String = "Import HTML/CSS") {
+        guard let document, let imported = result.payload.pages.first,
+              !imported.artboards.isEmpty else { return }
+        var page = imported
+        let frames = page.artboards.map(\.frame) + page.nodes.map(\.frame)
+        guard let firstFrame = frames.first else { return }
+        let bounds = frames.dropFirst().reduce(firstFrame) { $0.union($1) }
+        let hasExistingContent = !currentArtboards.isEmpty || !currentNodes.isEmpty
+        let currentMaxX = hasExistingContent
+            ? document.model.contentBounds(on: activePageID).maxX : -120
+        let delta = CGPoint(x: currentMaxX + 120 - bounds.minX, y: -bounds.minY)
+        for index in page.artboards.indices {
+            page.artboards[index].frame.origin.x += delta.x
+            page.artboards[index].frame.origin.y += delta.y
+        }
+        for index in page.nodes.indices {
+            page.nodes[index].frame.origin.x += delta.x
+            page.nodes[index].frame.origin.y += delta.y
+        }
+
+        var model = document.model
+        guard let pageIndex = model.pageIndex(for: activePageID) else { return }
+        model.pages[pageIndex].artboards.append(contentsOf: page.artboards)
+        model.pages[pageIndex].nodes.append(contentsOf: page.nodes)
+        model.sources.append(contentsOf: result.payload.sources)
+        model.codeBridges.append(contentsOf: result.codeBridges)
+        document.setModel(model, undoManager: undoManager,
+                          actionName: actionName)
+
+        let firstBoard = page.artboards[0]
+        app?.selectedNodeIDs = []
+        app?.selectedArtboardIDs = [firstBoard.id]
+        app?.selectionAnchorID = nil
+        app?.tool = .select
+        fitViewport(to: firstBoard.frame)
+        needsDisplay = true
+        lastImportReport = result.report
+        if result.report.errorCount > 0 || result.report.unsupportedCount > 0 {
+            showImportReport(result.report)
+        }
+    }
+
     // MARK: Figma (sanctioned REST import)
 
     /// File ▸ Import Figma File… — the token is deliberately memory-only in this
@@ -8637,7 +9002,7 @@ final class CanvasNSView: NSView {
         text.drawsBackground = false
         text.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
         text.string = report.detailedText
-        text.setAccessibilityLabel("Adobe XD import fidelity report")
+        text.setAccessibilityLabel("\(report.format.rawValue) import fidelity report")
         scroll.documentView = text
         alert.accessoryView = scroll
 
@@ -8773,14 +9138,15 @@ final class CanvasNSView: NSView {
         let offset = CGPoint(x: 40, y: 40)
         var newBoardIDs: [UUID] = []
         for board in clip.artboards {
-            for original in clip.nodes where Self.boardOwns(board, original.frame) {
-                var c = cloned(original)
-                c.frame.origin.x += offset.x; c.frame.origin.y += offset.y
-                model.pages[pageIndex].nodes.append(c)
-            }
             var nb = board
             nb.id = UUID()
             nb.frame.origin.x += offset.x; nb.frame.origin.y += offset.y
+            for original in clip.nodes where Self.boardOwns(board, original.frame) {
+                var c = cloned(original)
+                c.frame.origin.x += offset.x; c.frame.origin.y += offset.y
+                c.artboardID = nb.id
+                model.pages[pageIndex].nodes.append(c)
+            }
             model.pages[pageIndex].artboards.append(nb)
             newBoardIDs.append(nb.id)
         }
@@ -8843,16 +9209,16 @@ final class CanvasNSView: NSView {
             case .topLevel:
                 if !isSourceScope, let document {
                     let selected = currentNodes.filter { app.selectedNodeIDs.contains($0.id) }
-                    let owners = Set(selected.compactMap { owningArtboard(of: $0.frame)?.id })
-                    let hasWall = selected.contains { owningArtboard(of: $0.frame) == nil }
+                    let owners = Set(selected.compactMap { owningArtboard(of: $0)?.id })
+                    let hasWall = selected.contains { owningArtboard(of: $0) == nil }
                     if owners.count == 1, !hasWall, let owner = owners.first {
-                        app.selectedNodeIDs = Set(currentNodes.filter { owningArtboard(of: $0.frame)?.id == owner }.map(\.id))
+                        app.selectedNodeIDs = Set(currentNodes.filter { owningArtboard(of: $0)?.id == owner }.map(\.id))
                         app.selectedArtboardIDs = []
                         needsDisplay = true
                         return
                     }
                     if owners.isEmpty, hasWall {
-                        app.selectedNodeIDs = Set(currentNodes.filter { owningArtboard(of: $0.frame) == nil }.map(\.id))
+                        app.selectedNodeIDs = Set(currentNodes.filter { owningArtboard(of: $0) == nil }.map(\.id))
                         app.selectedArtboardIDs = []
                         needsDisplay = true
                         return
@@ -8870,7 +9236,7 @@ final class CanvasNSView: NSView {
 
         if !isSourceScope, let document, !app.selectedArtboardIDs.isEmpty {
             app.selectedArtboardIDs = Set(currentArtboards.map(\.id))
-            app.selectedNodeIDs = Set(currentNodes.filter { owningArtboard(of: $0.frame) == nil }.map(\.id))
+            app.selectedNodeIDs = Set(currentNodes.filter { owningArtboard(of: $0) == nil }.map(\.id))
             needsDisplay = true
             return
         }
@@ -8975,7 +9341,7 @@ final class CanvasNSView: NSView {
             let boards = sourcePage.artboards.filter { boardIDs.contains($0.id) }
             guard !boards.isEmpty else { return }
             let owned = sourcePage.nodes.filter { node in
-                guard let owner = model.owningArtboard(of: node.frame, on: sourceID) else { return false }
+                guard let owner = model.owningArtboard(of: node, on: sourceID) else { return false }
                 return boardIDs.contains(owner.id)
             }
             var ownedSubtreeIDs = Set<UUID>()
@@ -9483,7 +9849,7 @@ final class CanvasNSView: NSView {
         guard let document else { return nil }
         if let id = app?.selectedArtboardID, let ab = currentArtboards.first(where: { $0.id == id }) { return ab }
         if let nid = app?.selectedNodeIDs.first, let n = node(nid),
-           let owner = owningArtboard(of: n.frame) { return owner }
+           let owner = owningArtboard(of: n) { return owner }
         return currentArtboards.first
     }
 
@@ -9584,6 +9950,37 @@ final class CanvasNSView: NSView {
             panel.beginSheetModal(for: window, completionHandler: complete)
         } else {
             panel.begin(completionHandler: complete)
+        }
+    }
+
+    /// CodePen currently supports creating a new Pen through a documented form
+    /// POST, not authenticated update-in-place source sync. Open a local,
+    /// accessible review page in the person's browser so no design bytes leave
+    /// EXP until they explicitly press Send to CodePen there.
+    @objc func exportCurrentArtboardToCodePen(_ sender: Any?) {
+        guard let document else { NSSound.beep(); return }
+        let boards = selectedExportArtboards()
+        guard boards.count == 1, let artboard = boards.first else {
+            let alert = NSAlert()
+            alert.alertStyle = .informational
+            alert.messageText = "Choose One Artboard"
+            alert.informativeText = "A new CodePen Pen represents one page. Select one artboard, then try again."
+            if let window { alert.beginSheetModal(for: window) }
+            else { alert.runModal() }
+            return
+        }
+        do {
+            let package = try CodePenPrefillExporter(document: document.model)
+                .makePackage(artboardID: artboard.id)
+            let launcher = FileManager.default.temporaryDirectory
+                .appendingPathComponent("EXP-CodePen-\(UUID().uuidString)")
+                .appendingPathExtension("html")
+            try package.launcherHTML.write(to: launcher, options: .atomic)
+            guard NSWorkspace.shared.open(launcher) else {
+                throw CocoaError(.fileNoSuchFile)
+            }
+        } catch {
+            presentExportError(error, title: "CodePen handoff failed")
         }
     }
 
@@ -9799,13 +10196,19 @@ final class CanvasNSView: NSView {
         func groupInPlace(_ arr: inout [Node]) {
             let selected = arr.filter { ids.contains($0.id) }
             guard !selected.isEmpty else { return }
+            let inheritedOwners = Set(selected.compactMap(\.artboardID))
             let frames = selected.map(\.frame)
             let union = frames.dropFirst().reduce(frames[0]) { $0.union($1) }
             let children = selected.map { n -> Node in
-                var c = n; c.frame = c.frame.offsetBy(dx: -union.minX, dy: -union.minY); return c
+                var c = n
+                c.frame = c.frame.offsetBy(dx: -union.minX, dy: -union.minY)
+                c.artboardID = nil
+                return c
             }
             arr.removeAll { ids.contains($0.id) }
-            let g = Node(name: "Group", frame: union, content: .group(children: children))
+            let g = Node(name: "Group", frame: union,
+                         artboardID: inheritedOwners.count == 1 ? inheritedOwners.first : nil,
+                         content: .group(children: children))
             arr.append(g)
             newGroupID = g.id
         }
@@ -9827,13 +10230,19 @@ final class CanvasNSView: NSView {
             // frames preserve on-screen position).
             let selected = collectSelectedNodes()
             guard !selected.isEmpty else { return }
+            let inheritedOwners = Set(selected.compactMap(\.artboardID))
             let frames = selected.map(\.frame)
             let union = frames.dropFirst().reduce(frames[0]) { $0.union($1) }
             let children = selected.map { n -> Node in
-                var c = n; c.frame = c.frame.offsetBy(dx: -union.minX, dy: -union.minY); return c
+                var c = n
+                c.frame = c.frame.offsetBy(dx: -union.minX, dy: -union.minY)
+                c.artboardID = nil
+                return c
             }
             Self.removeNested(ids, from: &nodes)
-            let g = Node(name: "Group", frame: union, content: .group(children: children))
+            let g = Node(name: "Group", frame: union,
+                         artboardID: inheritedOwners.count == 1 ? inheritedOwners.first : nil,
+                         content: .group(children: children))
             nodes.append(g)
             newGroupID = g.id
         }
@@ -9878,8 +10287,12 @@ final class CanvasNSView: NSView {
                 if sel.contains(arr[i].id), case .group(let kids) = arr[i].content {
                     hoist.append(contentsOf: arr[i].anchoredRelationships)
                     let o = arr[i].frame.origin
+                    let inheritedOwner = arr[i].artboardID
                     let rebased = kids.map { k -> Node in
-                        var c = k; c.frame = c.frame.offsetBy(dx: o.x, dy: o.y); return c
+                        var c = k
+                        c.frame = c.frame.offsetBy(dx: o.x, dy: o.y)
+                        c.artboardID = inheritedOwner
+                        return c
                     }
                     arr.replaceSubrange(i...i, with: rebased)
                     rebased.forEach { freed.insert($0.id) }
@@ -9921,15 +10334,19 @@ final class CanvasNSView: NSView {
 
         func wrap(_ selected: [Node]) -> Node {
             let topID = selected.last!.id          // drawn last = topmost = the mask
+            let inheritedOwners = Set(selected.compactMap(\.artboardID))
             let frames = selected.map(\.frame)
             let union = frames.dropFirst().reduce(frames[0]) { $0.union($1) }
             let children = selected.map { n -> Node in
                 var c = n
                 c.frame = c.frame.offsetBy(dx: -union.minX, dy: -union.minY)
+                c.artboardID = nil
                 c.isMaskShape = (n.id == topID)
                 return c
             }
-            var g = Node(name: "Mask", frame: union, content: .group(children: children))
+            var g = Node(name: "Mask", frame: union,
+                         artboardID: inheritedOwners.count == 1 ? inheritedOwners.first : nil,
+                         content: .group(children: children))
             g.isMask = true
             return g
         }
@@ -10878,9 +11295,12 @@ extension CanvasNSView: NSMenuItemValidation {
         case #selector(showLastImportReportAction(_:)):
             return lastImportReport != nil
         case #selector(placeImageAction(_:)), #selector(importPDFAction(_:)),
-             #selector(importXDAction(_:)), #selector(importFigmaAction(_:)),
+             #selector(importXDAction(_:)), #selector(importRenderedHTMLAction(_:)),
+             #selector(importCodePenPackageAction(_:)), #selector(importStorybookPackageAction(_:)),
+             #selector(importFigmaAction(_:)),
              #selector(runGeometryAuditAction(_:)), #selector(saveDiagnosticReportAction(_:)),
              #selector(exportHandoffPackage(_:)), #selector(exportSemanticHTMLAction(_:)),
+             #selector(exportCurrentArtboardToCodePen(_:)),
              #selector(exportDesignTokensAction(_:)):
             return document != nil
         case #selector(exportSelectedArtboard(_:)):
@@ -10897,6 +11317,227 @@ extension CanvasNSView: NSMenuItemValidation {
         default:
             return true
         }
+    }
+}
+
+@MainActor
+private final class HTMLViewportSelectionController: NSObject {
+    private let presets: [ArtboardPreset]
+    private var buttons: [NSButton] = []
+    private let summary = NSTextField(labelWithString: "")
+    let view: NSView
+
+    init(presets: [ArtboardPreset]) {
+        self.presets = presets
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 7
+        stack.frame = NSRect(x: 0, y: 0, width: 420,
+                             height: CGFloat(70 + presets.count * 25))
+        view = stack
+        super.init()
+
+        let label = NSTextField(labelWithString: "Browser widths")
+        label.font = .systemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
+        stack.addArrangedSubview(label)
+        for preset in presets {
+            let button = NSButton(
+                checkboxWithTitle: "\(preset.name) — \(Int(preset.width)) × \(Int(preset.height))",
+                target: self, action: #selector(selectionChanged(_:)))
+            button.state = preset.name == "Desktop" ? .on : .off
+            button.setAccessibilityLabel("\(preset.name), \(Int(preset.width)) by \(Int(preset.height)) CSS pixels")
+            buttons.append(button)
+            stack.addArrangedSubview(button)
+        }
+        summary.textColor = .secondaryLabelColor
+        summary.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        summary.maximumNumberOfLines = 2
+        summary.lineBreakMode = .byWordWrapping
+        stack.addArrangedSubview(summary)
+        // Auto Layout requires both anchors to share a view hierarchy before a
+        // constraint is activated. Activating this first raises NSGenericException;
+        // AppKit catches it at the File-menu boundary and the import appears to
+        // stop silently immediately after the folder chooser.
+        summary.widthAnchor.constraint(equalTo: stack.widthAnchor).isActive = true
+        updateSummary()
+    }
+
+    var selectedViewports: [RenderedHTMLViewport] {
+        zip(presets, buttons).compactMap { preset, button in
+            guard button.state == .on else { return nil }
+            return RenderedHTMLViewport(name: preset.name,
+                                        width: preset.width,
+                                        renderHeight: preset.height)
+        }
+    }
+
+    @objc private func selectionChanged(_ sender: NSButton) {
+        updateSummary()
+    }
+
+    private func updateSummary() {
+        let count = buttons.filter { $0.state == .on }.count
+        summary.stringValue = count == 0
+            ? "No viewport selected. Choose at least one to import."
+            : "This import will create \(count) artboard\(count == 1 ? "" : "s"). CSS media queries resolve separately at each selected size."
+        summary.setAccessibilityLabel(summary.stringValue)
+    }
+}
+
+@MainActor
+private final class StorybookStorySelectionController: NSObject,
+    NSTableViewDataSource, NSTableViewDelegate, NSSearchFieldDelegate {
+    private let stories: [StorybookStorySummary]
+    private var filtered: [StorybookStorySummary]
+    private let maximumSelection: Int
+    private var selected = Set<String>()
+    private let table = NSTableView()
+    private let search = NSSearchField()
+    private let summary = NSTextField(labelWithString: "")
+    weak var importButton: NSButton? { didSet { updateSummary() } }
+    let view: NSView
+
+    init(stories: [StorybookStorySummary], maximumSelection: Int) {
+        self.stories = stories
+        self.filtered = stories
+        self.maximumSelection = maximumSelection
+        self.view = NSView(frame: NSRect(x: 0, y: 0, width: 640, height: 440))
+        super.init()
+
+        search.frame = NSRect(x: 0, y: 404, width: 640, height: 28)
+        search.placeholderString = "Search stories, components, tags, or source paths"
+        search.delegate = self
+        search.setAccessibilityLabel("Search Storybook stories")
+        search.autoresizingMask = [.width, .minYMargin]
+        view.addSubview(search)
+
+        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("story"))
+        column.width = 620
+        table.addTableColumn(column)
+        table.headerView = nil
+        table.rowHeight = 28
+        table.intercellSpacing = NSSize(width: 0, height: 1)
+        table.dataSource = self
+        table.delegate = self
+        table.selectionHighlightStyle = .none
+        table.setAccessibilityLabel("Available Storybook stories")
+
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 52, width: 640, height: 344))
+        scroll.documentView = table
+        scroll.hasVerticalScroller = true
+        scroll.borderType = .bezelBorder
+        scroll.autoresizingMask = [.width, .height]
+        view.addSubview(scroll)
+
+        let selectVisible = NSButton(title: "Select Visible (up to \(maximumSelection))",
+                                     target: self,
+                                     action: #selector(selectVisibleStories(_:)))
+        selectVisible.frame = NSRect(x: 0, y: 14, width: 190, height: 28)
+        selectVisible.bezelStyle = .rounded
+        selectVisible.setAccessibilityHelp(
+            "Selects matching stories in catalog order until the per-import limit is reached.")
+        view.addSubview(selectVisible)
+
+        let clear = NSButton(title: "Clear", target: self,
+                             action: #selector(clearSelection(_:)))
+        clear.frame = NSRect(x: 196, y: 14, width: 72, height: 28)
+        clear.bezelStyle = .rounded
+        view.addSubview(clear)
+
+        summary.frame = NSRect(x: 278, y: 11, width: 362, height: 34)
+        summary.alignment = .right
+        summary.textColor = .secondaryLabelColor
+        summary.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        summary.maximumNumberOfLines = 2
+        summary.lineBreakMode = .byWordWrapping
+        summary.autoresizingMask = [.width, .maxYMargin]
+        view.addSubview(summary)
+        updateSummary()
+    }
+
+    var selectedStoryIDs: Set<String> { selected }
+
+    func numberOfRows(in tableView: NSTableView) -> Int { filtered.count }
+
+    func tableView(_ tableView: NSTableView,
+                   viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        guard filtered.indices.contains(row) else { return nil }
+        let story = filtered[row]
+        let identifier = NSUserInterfaceItemIdentifier("storybook-story-row")
+        let button: NSButton
+        if let reused = tableView.makeView(withIdentifier: identifier,
+                                           owner: self) as? NSButton {
+            button = reused
+        } else {
+            button = NSButton(checkboxWithTitle: "", target: self,
+                              action: #selector(storyToggled(_:)))
+            button.identifier = identifier
+            button.lineBreakMode = .byTruncatingMiddle
+        }
+        button.title = story.displayName
+        button.toolTip = [story.id, story.importPath].compactMap { $0 }
+            .joined(separator: "\n")
+        button.tag = row
+        button.state = selected.contains(story.id) ? .on : .off
+        button.setAccessibilityLabel("\(story.displayName), story id \(story.id)")
+        button.setAccessibilityValue(button.state == .on ? "Selected" : "Not selected")
+        return button
+    }
+
+    func controlTextDidChange(_ obj: Notification) {
+        let query = search.stringValue.trimmingCharacters(
+            in: .whitespacesAndNewlines).localizedLowercase
+        filtered = query.isEmpty ? stories : stories.filter {
+            $0.searchableText.contains(query)
+        }
+        table.reloadData()
+        updateSummary()
+    }
+
+    @objc private func storyToggled(_ sender: NSButton) {
+        guard filtered.indices.contains(sender.tag) else { return }
+        let id = filtered[sender.tag].id
+        if sender.state == .on {
+            guard selected.count < maximumSelection else {
+                sender.state = .off
+                NSSound.beep()
+                updateSummary(limitReached: true)
+                return
+            }
+            selected.insert(id)
+        } else {
+            selected.remove(id)
+        }
+        sender.setAccessibilityValue(sender.state == .on ? "Selected" : "Not selected")
+        updateSummary()
+    }
+
+    @objc private func selectVisibleStories(_ sender: NSButton) {
+        for story in filtered where selected.count < maximumSelection {
+            selected.insert(story.id)
+        }
+        table.reloadData()
+        updateSummary(limitReached: filtered.count > maximumSelection)
+    }
+
+    @objc private func clearSelection(_ sender: NSButton) {
+        selected.removeAll()
+        table.reloadData()
+        updateSummary()
+    }
+
+    private func updateSummary(limitReached: Bool = false) {
+        importButton?.isEnabled = !selected.isEmpty
+        let visible = "\(filtered.count) shown of \(stories.count)"
+        if limitReached || selected.count == maximumSelection {
+            summary.stringValue = "\(selected.count) selected · \(visible) · \(maximumSelection) per-import limit reached"
+        } else if selected.isEmpty {
+            summary.stringValue = "None selected · \(visible) · choose 1–20 for a quick first import"
+        } else {
+            summary.stringValue = "\(selected.count) selected · \(visible) · \(maximumSelection) maximum"
+        }
+        summary.setAccessibilityLabel(summary.stringValue)
     }
 }
 

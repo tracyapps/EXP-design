@@ -105,7 +105,10 @@ private enum SemanticHTMLPackageCheck {
                 "semantic stylesheet no longer matches the reviewed golden")
         require(sha256(Data(html.utf8)) == "bdbe933a027de5c815fa23bbe36b2b0ffc8cebc5dd2d0638d9ba36765a5a07ad",
                 "semantic HTML page no longer matches the reviewed golden")
-        require(sha256(manifestData) == "7c2645f30fdd44e93ed36e7df5b83ee32d0aef689154876ab9f9fef810c95b49",
+        // Schema 4 and the completed v2.2 document model change only the
+        // design.json bytes/hash recorded here. The reviewed semantic CSS,
+        // HTML, README, fidelity rows, and entry set remain unchanged.
+        require(sha256(manifestData) == "29a8b5e5b075b8bbc263ef8781fb88ec7122cb94fb26f4f27e94436f2b14b569",
                 "handoff manifest no longer matches the reviewed golden")
         require(sha256(Data(readme.utf8)) == "0aca4002dc6c9c9e57c4b9b5bf9f922c3ed8c79b3b20331698a967cdcff8637f",
                 "handoff README no longer matches the reviewed golden")
@@ -264,11 +267,72 @@ private enum SemanticHTMLPackageCheck {
             }
         }
 
+        // BUG-018 — nested landmarks keep the role the designer authored.
+        let nestedDocument = Fixture.nestedLandmarksDocument()
+        let nestedBundle = SemanticHTMLExporter(document: nestedDocument).makeBundle()
+        guard let nestedArtifact = nestedBundle.artifacts.first(where: { $0.mediaType == "text/html" }) else {
+            require(false, "nested-landmark export produced no HTML"); return
+        }
+        let nestedHTML = String(decoding: nestedArtifact.data, as: UTF8.self)
+        func occurrences(_ needle: String, in haystack: String) -> Int {
+            haystack.components(separatedBy: needle).count - 1
+        }
+        // Inside a `region` (→ <section>, sectioning content) each of the three
+        // rescoped landmarks must state its role explicitly, or HTML-AAM
+        // computes sectionheader / sectionfooter / generic instead.
+        for role in ["banner", "contentinfo", "complementary"] {
+            require(occurrences("role=\"\(role)\"", in: nestedHTML) == 1,
+                    "nested \(role) did not emit exactly one explicit role "
+                    + "(BUG-018: expected 1 inside the region host, 0 inside the toolbar host)")
+        }
+        // And the negative: the banner inside a `toolbar` (→ <div>) is still
+        // scoped to body, so a second role="banner" would be the redundant
+        // attribute ARIA in HTML calls NOT RECOMMENDED.
+        require(occurrences("<header", in: nestedHTML) == 2,
+                "nested-landmark fixture should export two <header> hosts")
+
+        let codePen = try CodePenPrefillExporter(document: document)
+            .makePackage(artboardID: Fixture.artboardID)
+        guard let codePenPayload = try JSONSerialization.jsonObject(
+            with: codePen.payloadJSON) as? [String: Any],
+              let codePenHTML = codePenPayload["html"] as? String,
+              let codePenCSS = codePenPayload["css"] as? String,
+              let codePenJS = codePenPayload["js"] as? String else {
+            require(false, "CodePen prefill payload is not valid JSON"); return
+        }
+        require(codePenPayload["title"] as? String == document.artboards[0].name,
+                "CodePen prefill should name the selected artboard")
+        require(Set(codePenPayload.keys) == Set([
+                    "title", "description", "layout",
+                    "html", "html_pre_processor",
+                    "css", "css_pre_processor",
+                    "js", "js_pre_processor"
+                ]),
+                "CodePen prefill should contain only the current documented fields")
+        require(!codePenHTML.contains("<!doctype html>")
+                && !codePenHTML.contains("<head>")
+                && !codePenHTML.contains("href=\"styles.css\"")
+                && codePenHTML.contains("class=\"exp-artboard\""),
+                "CodePen should receive the semantic body fragment without a nested document or package-relative stylesheet link")
+        require(codePenCSS == css && codePenJS.isEmpty,
+                "CodePen should receive the reviewed semantic CSS and no unproven JavaScript")
+        let launcher = String(decoding: codePen.launcherHTML, as: UTF8.self)
+        require(launcher.contains(CodePenPrefillExporter.endpoint.absoluteString)
+                && launcher.contains("name=\"data\"")
+                && launcher.contains("target=\"_blank\"")
+                && launcher.contains("&quot;"),
+                "the local CodePen review page should contain an escaped form POST")
+        require(launcher.contains("nothing is transmitted") == false
+                && launcher.contains("only after you press the button"),
+                "the CodePen review page should state the transmission boundary plainly")
+
         print("ok: standalone stylesheet + artboard page")
         print("ok: deterministic fixed-input package bytes")
         print("ok: manifest byte counts and SHA-256 hashes")
         print("ok: absolute geometry, reading order, and stable instance identity")
         print("ok: hostile HTML/CSS text escaped and wall omission reported")
         print("ok: all 40 native/ARIA hosts, relationships, states, and fidelity reporting")
+        print("ok: nested landmarks keep their authored role (BUG-018)")
+        print("ok: one-artboard CodePen prefill stays static, bounded, and user-confirmed")
     }
 }

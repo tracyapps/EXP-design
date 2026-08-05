@@ -173,7 +173,7 @@ struct ExportRenderer {
         var body = ""
         let page = document.page(containingArtboard: artboard.id)
         for node in page?.nodes ?? [] where node.isVisible
-            && document.owningArtboard(of: node.frame, on: page?.id)?.id == artboard.id {
+            && document.owningArtboard(of: node, on: page?.id)?.id == artboard.id {
             body += svgElement(node, offset: origin, defs: &defs)
         }
         let tokenStyle = svgTokenStyle()
@@ -212,13 +212,16 @@ struct ExportRenderer {
             if s.strokeWidth > 0, s.strokeAlignment != .center {
                 let d = s.strokeWidth / 2 * (s.strokeAlignment == .inside ? 1 : -1)
                 let sr = f.insetBy(dx: d, dy: d)
-                let srx = max(0, s.cornerRadius - d)
-                let fillRx = s.cornerRadius > 0 ? " rx=\"\(num(s.cornerRadius))\"" : ""
+                let radius = s.effectiveRadii.clamped(to: f.size).topLeft
+                let srx = min(max(0, radius - d),
+                              max(0, min(sr.width, sr.height) / 2))
+                let fillRx = radius > 0 ? " rx=\"\(num(radius))\"" : ""
                 let strokeRx = srx > 0 ? " rx=\"\(num(srx))\"" : ""
                 inner = "<rect x=\"\(num(f.minX))\" y=\"\(num(f.minY))\" width=\"\(num(f.width))\" height=\"\(num(f.height))\"\(fillRx)\(paintFillAttr(s.fill, &defs))/>\n"
                     + "<rect x=\"\(num(sr.minX))\" y=\"\(num(sr.minY))\" width=\"\(num(sr.width))\" height=\"\(num(sr.height))\"\(strokeRx) fill=\"none\"\(strokeAttr(s.stroke, s.strokeWidth, s.strokePattern))/>\n"
             } else {
-                let rx = s.cornerRadius > 0 ? " rx=\"\(num(s.cornerRadius))\"" : ""
+                let radius = s.effectiveRadii.clamped(to: f.size).topLeft
+                let rx = radius > 0 ? " rx=\"\(num(radius))\"" : ""
                 inner = "<rect x=\"\(num(f.minX))\" y=\"\(num(f.minY))\" width=\"\(num(f.width))\" height=\"\(num(f.height))\"\(rx)\(paintFillAttr(s.fill, &defs))\(strokeAttr(s.stroke, s.strokeWidth, s.strokePattern))/>\n"
             }
         case .ellipse(let s):
@@ -355,9 +358,10 @@ struct ExportRenderer {
     /// caveat: SVG samples user space, the canvas samples node-local space).
     private func svgEffectsFilter(_ effects: [Effect], _ defs: inout [String]) -> String {
         let shadows = effects.filter { $0.isEnabled && ($0.kind == .dropShadow || $0.kind == .innerShadow) }
+        let layerBlurs = effects.filter { $0.isEnabled && $0.kind == .layerBlur && $0.blur > 0 }
         let dissolves = effects.filter { $0.isEnabled && $0.kind == .dissolve && $0.amount > 0 }
         let noises = effects.filter { $0.isEnabled && $0.kind == .noise && $0.amount > 0 }
-        guard !shadows.isEmpty || !dissolves.isEmpty || !noises.isEmpty else { return "" }
+        guard !shadows.isEmpty || !layerBlurs.isEmpty || !dissolves.isEmpty || !noises.isEmpty else { return "" }
         let id = "fx\(defs.count)"
         var prims = ""
 
@@ -365,9 +369,16 @@ struct ExportRenderer {
             "<feTurbulence type=\"\(e.turbulenceType.rawValue)\" baseFrequency=\"\(num(e.frequency))\" numOctaves=\"\(e.octaves)\" seed=\"\(e.seed)\" result=\"\(result)\"/>\n"
         }
 
-        // 1) Dissolve: threshold turbulence into a hard alpha mask, knock the
-        //    source through it. Chained, so stacked dissolves intersect.
+        // 1) Layer blur: direct SVG round-trip for standalone feGaussianBlur.
         var src = "SourceGraphic"   // what "the node" means for everything below
+        for (i, e) in layerBlurs.enumerated() {
+            let r = "l\(i)"
+            prims += "<feGaussianBlur in=\"\(src)\" stdDeviation=\"\(num(e.blur))\" result=\"\(r)\"/>\n"
+            src = r
+        }
+
+        // 2) Dissolve: threshold turbulence into a hard alpha mask, knock the
+        //    source through it. Chained, so stacked dissolves intersect.
         for (i, e) in dissolves.enumerated() {
             let r = "d\(i)"
             prims += turbulence(e, result: "\(r)t")
@@ -380,7 +391,7 @@ struct ExportRenderer {
             src = r
         }
 
-        // 2) Shadows (cast from the dissolved source's alpha).
+        // 3) Shadows (cast from the filtered source's alpha).
         var under: [String] = []   // drop-shadow results (below source)
         var over: [String] = []    // inner-shadow results (above source)
         for (i, e) in shadows.enumerated() {
@@ -418,7 +429,7 @@ struct ExportRenderer {
         let merge = order.map { "<feMergeNode in=\"\($0)\"/>\n" }.joined()
         prims += "<feMerge result=\"base\">\n\(merge)</feMerge>\n"
 
-        // 3) Noise: turbulence at the effect's amount, clipped to the node,
+        // 4) Noise: turbulence at the effect's amount, clipped to the node,
         //    blended over everything merged so far.
         var base = "base"
         for (i, e) in noises.enumerated() {
@@ -635,7 +646,7 @@ final class ExportRenderView: NSView {
         let off = CGPoint(x: -artboard.frame.minX, y: -artboard.frame.minY)
         let page = document.page(containingArtboard: artboard.id)
         for node in page?.nodes ?? [] where node.isVisible
-            && document.owningArtboard(of: node.frame, on: page?.id)?.id == artboard.id {
+            && document.owningArtboard(of: node, on: page?.id)?.id == artboard.id {
             drawExportNode(node, offset: off, in: ctx)
         }
     }
@@ -669,6 +680,9 @@ final class ExportRenderView: NSView {
             var m: CGFloat = 2
             for e in node.effects where e.isEnabled && e.kind == .dropShadow {
                 m = max(m, max(abs(e.dx), abs(e.dy)) + e.blur * 3 + e.spread + 2)
+            }
+            for e in node.effects where e.isEnabled && e.kind == .layerBlur {
+                m = max(m, e.blur * 3 + 2)
             }
             m += strokeHalfWidth(node.content)
             if node.rotation != 0 { m += hypot(rect.width, rect.height) / 2 }
@@ -772,7 +786,16 @@ final class ExportRenderView: NSView {
             }
         }
 
-        drawExportNodeContent(node, rect: rect, in: ctx)
+        let layerBlurs = enabled.filter { $0.kind == .layerBlur && $0.blur > 0 }
+        if layerBlurs.isEmpty {
+            drawExportNodeContent(node, rect: rect, in: ctx)
+        } else {
+            EffectsRender.drawLayerBlur(layerBlurs,
+                                        bounds: exportPaintBounds(node, offset: offset),
+                                        deviceScale: 1, in: ctx) { blurContext in
+                self.drawExportNodeContent(node, rect: rect, in: blurContext)
+            }
+        }
 
         if let s = sil {
             for e in enabled where e.kind == .innerShadow {
@@ -785,9 +808,7 @@ final class ExportRenderView: NSView {
     private func exportSilhouette(_ node: Node, rect: CGRect) -> Silhouette? {
         switch node.content {
         case .rectangle(let s):
-            return s.hasPerCornerRadii
-                ? Silhouette(rect: rect, shape: .perCornerRect(s.effectiveRadii))
-                : Silhouette(rect: rect, shape: .roundRect(radius: s.cornerRadius))
+            return Silhouette(rect: rect, shape: .perCornerRect(s.effectiveRadii))
         case .ellipse:          return Silhouette(rect: rect, shape: .oval)
         case .polygon(let s):   return Silhouette(rect: rect, shape: .custom(Self.polygonPath(s.vertices(in: rect)).cgPath))
         case .path(let ps) where ps.closed && ps.points.count >= 2:
@@ -800,12 +821,7 @@ final class ExportRenderView: NSView {
     private func drawExportNodeContent(_ node: Node, rect: CGRect, in ctx: CGContext) {
         switch node.content {
         case .rectangle(let s):
-            let path: NSBezierPath
-            if s.hasPerCornerRadii {
-                path = NSBezierPath(cgPath: s.effectiveRadii.path(in: rect))
-            } else {
-                path = NSBezierPath(roundedRect: rect, xRadius: s.cornerRadius, yRadius: s.cornerRadius)
-            }
+            let path = NSBezierPath(cgPath: s.effectiveRadii.path(in: rect))
             PaintRender.fill(s.fill, path: path, bounds: rect, in: ctx)
             if s.strokeWidth > 0 {
                 PaintRender.strokeAligned(path, width: s.strokeWidth,
@@ -913,8 +929,7 @@ final class ExportRenderView: NSView {
         case .group(let kids):
             for k in kids where k.isVisible { appendExportSilhouette(of: k, offset: r.origin, base: m, into: path) }
         case .rectangle(let s):
-            path.addPath(CGPath(roundedRect: r, cornerWidth: s.cornerRadius,
-                                cornerHeight: s.cornerRadius, transform: nil), transform: m)
+            path.addPath(s.effectiveRadii.path(in: r), transform: m)
         case .ellipse:
             path.addPath(CGPath(ellipseIn: r, transform: nil), transform: m)
         case .polygon(let s):

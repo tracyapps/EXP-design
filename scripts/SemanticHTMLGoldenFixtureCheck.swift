@@ -265,6 +265,95 @@ enum Fixture {
         }
         return Document(artboards: [artboard], nodes: nodes, sources: sources)
     }
+
+    /// BUG-018 coverage. Three landmarks that HTML-AAM rescopes when nested, put
+    /// inside BOTH a rescoping host (`region` → `<section>`) and a
+    /// non-rescoping one (`toolbar` → `<div>`), because the fix has to get the
+    /// negative case right too: emitting `role` where the implicit semantics are
+    /// already correct is NOT RECOMMENDED per ARIA in HTML.
+    static func nestedLandmarksDocument() -> Document {
+        let artboard = Artboard(
+            id: roleID(namespace: 0xB1100001, index: 0),
+            name: "Nested landmarks",
+            frame: CGRect(x: 0, y: 0, width: 800, height: 600)
+        )
+        var sources: [ComponentSource] = []
+
+        // Leaf landmark sources: banner, contentinfo, complementary.
+        func landmark(_ role: AriaRole, index: Int) -> ComponentSource {
+            let labelID = roleID(namespace: 0xB1100002, index: index)
+            let source = ComponentSource(
+                id: roleID(namespace: 0xB1100003, index: index),
+                name: "\(role.rawValue) leaf",
+                size: CGSize(width: 200, height: 32),
+                children: [Node(
+                    id: labelID,
+                    name: "\(role.rawValue) label",
+                    frame: CGRect(x: 4, y: 4, width: 180, height: 20),
+                    content: .text(TextContent(runs: [TextRun(string: role.rawValue, fontSize: 14)]))
+                )],
+                a11y: A11ySemantics(role: role, accessibleNameLayerID: labelID)
+            )
+            sources.append(source)
+            return source
+        }
+
+        let banner = landmark(.banner, index: 0)
+        let contentinfo = landmark(.contentinfo, index: 1)
+        let complementary = landmark(.complementary, index: 2)
+
+        func instanceNode(_ source: ComponentSource, index: Int, y: CGFloat) -> Node {
+            Node(id: roleID(namespace: 0xB1100004, index: index),
+                 name: "nested \(source.name)",
+                 frame: CGRect(x: 8, y: y, width: 200, height: 32),
+                 content: .instance(ComponentInstance(sourceID: source.id)))
+        }
+
+        // Rescoping host: region → <section> (sectioning content).
+        let regionLabelID = roleID(namespace: 0xB1100005, index: 0)
+        let regionSource = ComponentSource(
+            id: roleID(namespace: 0xB1100006, index: 0),
+            name: "region host",
+            size: CGSize(width: 240, height: 200),
+            children: [
+                Node(id: regionLabelID, name: "region label",
+                     frame: CGRect(x: 4, y: 4, width: 180, height: 20),
+                     content: .text(TextContent(runs: [TextRun(string: "Region", fontSize: 14)]))),
+                instanceNode(banner, index: 0, y: 30),
+                instanceNode(contentinfo, index: 1, y: 70),
+                instanceNode(complementary, index: 2, y: 110)
+            ],
+            a11y: A11ySemantics(role: .region, accessibleNameLayerID: regionLabelID)
+        )
+        sources.append(regionSource)
+
+        // NON-rescoping host: toolbar → <div>. A banner here is still scoped to
+        // body, so it must NOT receive a redundant explicit role.
+        let toolbarLabelID = roleID(namespace: 0xB1100007, index: 0)
+        let toolbarSource = ComponentSource(
+            id: roleID(namespace: 0xB1100008, index: 0),
+            name: "toolbar host",
+            size: CGSize(width: 240, height: 80),
+            children: [
+                Node(id: toolbarLabelID, name: "toolbar label",
+                     frame: CGRect(x: 4, y: 4, width: 180, height: 20),
+                     content: .text(TextContent(runs: [TextRun(string: "Toolbar", fontSize: 14)]))),
+                instanceNode(banner, index: 3, y: 30)
+            ],
+            a11y: A11ySemantics(role: .toolbar, accessibleNameLayerID: toolbarLabelID)
+        )
+        sources.append(toolbarSource)
+
+        let nodes = [
+            Node(id: roleID(namespace: 0xB1100009, index: 0), name: "Region host instance",
+                 frame: CGRect(x: 24, y: 24, width: 240, height: 200),
+                 content: .instance(ComponentInstance(sourceID: regionSource.id))),
+            Node(id: roleID(namespace: 0xB110000A, index: 0), name: "Toolbar host instance",
+                 frame: CGRect(x: 320, y: 24, width: 240, height: 80),
+                 content: .instance(ComponentInstance(sourceID: toolbarSource.id)))
+        ]
+        return Document(artboards: [artboard], nodes: nodes, sources: sources)
+    }
 }
 
 private func require(_ condition: @autoclosure () -> Bool, _ message: String) {

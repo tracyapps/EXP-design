@@ -13,6 +13,7 @@ xcrun swiftc \
   "$root/EXP [design]/Color/DesignLanguageIO.swift" \
   "$root/EXP [design]/Export/SemanticHTMLContract.swift" \
   "$root/EXP [design]/Export/SemanticHTMLExporter.swift" \
+  "$root/EXP [design]/Export/CodePenPrefillExporter.swift" \
   "$root/EXP [design]/Export/HandoffPackageWriter.swift" \
   "$root/scripts/SemanticHTMLGoldenFixtureCheck.swift" \
   "$root/scripts/SemanticHTMLPackageCheck.swift" \

@@ -1,0 +1,11 @@
+/* Third-party stylesheet (origin A). Pulls a webfont from its own origin.
+   The font is a real, valid woff2 (see ../make-fixture-font.py) — synthetic, so
+   no typeface is redistributed, but it PARSES. That matters: with a broken font
+   file, "the browser fetched it and the manifest missed it" could always be
+   blamed on the parse failure rather than on the reporting gap. */
+@font-face {
+  font-family: "Fixture Brand";
+  src: url("http://127.0.0.1:8732/brand.woff2") format("woff2");
+  font-display: swap;
+}
+h1 { font-family: "Fixture Brand", Georgia, serif; }

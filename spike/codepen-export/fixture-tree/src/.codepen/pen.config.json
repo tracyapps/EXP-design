@@ -1,0 +1,5 @@
+{
+  "version": 2,
+  "blocks": ["sass", "typescript"],
+  "entry": "index.html"
+}

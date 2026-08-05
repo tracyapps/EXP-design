@@ -5,8 +5,8 @@ GitHub auth is off-box, so the owner runs every `git`/`gh` step.
 
 ## Current release
 
-Use **[RELEASE-CHECKLIST-v2.1.md](RELEASE-CHECKLIST-v2.1.md)** for the complete
-v2.1/build 12 path. The older version-specific paths below remain as historical
+Use **[RELEASE-CHECKLIST-v2.2.md](RELEASE-CHECKLIST-v2.2.md)** for the complete
+v2.2/build 13 path. The older version-specific paths below remain as historical
 release records and recovery references.
 
 ## v2.0.1 copy/paste path

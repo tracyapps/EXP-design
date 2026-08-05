@@ -1,0 +1,35 @@
+:root {
+  color: #15213a;
+  background: #f4f7ff;
+  font: 16px/1.5 system-ui, sans-serif;
+}
+
+body { margin: 0; padding: 48px; }
+
+.card {
+  box-sizing: border-box;
+  display: flex;
+  gap: 24px;
+  align-items: center;
+  width: min(680px, 100%);
+  padding: 28px;
+  border: 2px solid #4f6ee8;
+  border-radius: 20px;
+  background: linear-gradient(135deg, #fff 0%, #eaf0ff 100%);
+  box-shadow: 0 12px 32px rgb(38 60 120 / 18%);
+  animation: fixture-reveal 700ms ease 350ms both;
+}
+
+@keyframes fixture-reveal {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: none; }
+}
+
+.card img { width: 96px; height: 96px; }
+.card h1 { margin: 0 0 6px; font-size: 30px; line-height: 1.15; }
+.card p { margin: 0; }
+
+@media (max-width: 520px) {
+  body { padding: 20px; }
+  .card { align-items: flex-start; flex-direction: column; }
+}

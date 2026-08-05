@@ -869,7 +869,7 @@ and the coordinated panel/tool-discoverability pass remain in this release.
 
 ---
 
-## v2.2 — in development
+## v2.2 — feature complete; release preparation
 
 Build 13, `MARKETING_VERSION 2.2`. Primary scope is **Chunk E — code/component
 import**: reconstruct editable EXP documents from rendered HTML/CSS first, then
@@ -878,23 +878,446 @@ HTML contract in reverse, resolve layout and computed styles in a browser engine
 and preserve the import pipeline's visible fidelity reporting; do not imply
 arbitrary source-code or pixel-perfect round-tripping.
 
-- [ ] **E0 — rendered-HTML import contract + technical spike.** Define the
+- [x] **E0 — rendered-HTML import contract + technical spike. COMPLETE 2026-08-01.**
+      Contract written and owner-accepted, spike run to completion, the trust model
+      proven and its limits documented with filenames. Define the
       supported input boundary, browser-engine isolation, DOM/computed-style
       payload, resource/privacy rules, cancellation/size limits, semantic-role
       reverse mapping, and fidelity-report categories. Prove one bounded local
       HTML/CSS fixture end to end before committing to the full importer surface.
-- [ ] **E1 — editable HTML/CSS import.** Map rendered boxes, text, images,
+  - [x] **Contract drafted (2026-07-29):** `docs/HTML-IMPORT-CONTRACT.md` records
+        all seven required sections, a two-pass source-trust model with its Import
+        Session UI, the GitHub/Storybook auth boundary, and the bounded spike design.
+        Owner decisions captured: local file/folder AND URL input (no pasted
+        fragments, no authenticated pages); subresources blocked by default with
+        trust granted per ORIGIN, expandable to individual resources; trust stored
+        per document, opt-in, with no app-wide allowlist; adjusting an import
+        re-renders and REPLACES with an explicit warning (deliberate v2.2 starting
+        position — surgical placeholder-fill recorded as a post-testing follow-up);
+        viewport chosen from the existing `ArtboardPreset` widths. Four §8
+        reverse-mapping rows are verified against ARIA in HTML / HTML-AAM with
+        citations; the remaining ~40 rows, `aria-*` state mapping, and `<a href>`
+        are recorded as UNVERIFIED and explicitly block E1. Four open questions
+        (Q1 folder shape, Q2 duplicate-URL sessions, Q3 default preset, Q4 manifest
+        overflow) need owner answers.
+  - [x] **Owner acceptance of the contract (2026-08-01).** Q1–Q4 answered and the
+        input/privacy boundary confirmed. Q1: folder import puts one artboard per
+        file on ONE canvas page. Q2: re-importing a URL that already has a session
+        offers to adjust it and defaults to adjust, with "Import as new" still
+        available. Q4: exceeding the 2,000-entry manifest cap degrades to
+        same-origin-only with the overflow reported, rather than refusing the import.
+        **Q3 was superseded by a better answer:** the viewport control is a
+        MULTI-SELECT, so one import can produce phone/tablet/desktop artboards
+        together (Desktop 1440 the sole pre-selection). That reshapes the contract
+        rather than setting a default — discovery now runs per viewport with a UNION
+        manifest, trust stays session-wide, the report splits categories 1–5 per
+        viewport, and folder × viewport is a matrix. Written up in
+        `HTML-IMPORT-CONTRACT.md` §1.1 with the knock-ons in §§3, 4, 5, 7, 9, 10.
+  - [x] **Spike. COMPLETE 2026-08-01** — five runs, owner-run in full. Fixture 3's
+        criteria are all settled and the trust model is proven; fixtures 1–2's
+        geometry, text-run and role criteria are **deliberately deferred to E1**
+        (owner decision, 2026-08-01), because they need the mapper that IS E1's
+        substance and a spike does not de-risk a thing by building it. Original note
+        follows. IN PROGRESS, first run done 2026-08-01. Fixture 3 PASSES every
+        criterion testable without an importer — pass-1 purity confirmed against the
+        fixture's own server log, and the iterative-trust case reproduces (4 origins
+        / 6 resources → 5 / 8 once origin A was trusted). Recorder verdict: ship the
+        DOM walk + request instrumentation, treat PerformanceObserver as a pass-2
+        cross-check only. One contract change fell out — §4.1, iterative trust is the
+        NORMAL path, because a blocked or cross-origin stylesheet hides every resource
+        it references. Remaining: rerun fixture 3 with the harness fixes to prove the
+        union manifest, and fixtures 1–2's geometry/text/role criteria stay untickable
+        until a mapper exists. Three fixtures: (1) EXP's own exported semantic HTML, chosen
+        because `data-exp-id` gives ground truth for round-trip accuracy;
+        (2) a hand-written non-EXP page, proving the importer is not merely
+        self-consistent with its own exporter; (3) a multi-origin page with a
+        third-party script and webfont, which is the only one that exercises the
+        trust flow — including the check that pass 1 fetches the document and
+        NOTHING else, and that allowing a script surfaces new manifest entries.
+        Fixture 2 now also carries a width media query and imports at TWO viewports,
+        so the multi-viewport matrix and union manifest are proven on the fixture
+        whose expected result is known by construction. Run the §10 pass criteria.
+- [x] **E1 — editable HTML/CSS import. COMPLETE 2026-08-05.** Map rendered boxes, text, images,
       paint, borders, effects, stacking, and supported layout into native EXP
       pages/artboards/nodes through `InteropCodec`, with one undo step and an
       honest on-demand Import Report for every approximation or omission.
-- [ ] **E2 — Storybook import.** Ingest a static/local Storybook build only
+      **Carries forward from E0:** ship recorders `D` + `I` with `P` or `R` as
+      corroboration (never both); implement §4.1–§4.3 (iterative trust as the normal
+      path, declared-vs-requested attribution per viewport, one named Sources row per
+      unreadable stylesheet); keep the server-log cross-check in the test suite; use
+      measured content height, never `scrollHeight`. **Adjust offers replace-in-place
+      OR import-as-new-artboard** (§5), so sessions track generations rather than one
+      set of ids and each generation is labelled with the viewport/trust that produced
+      it. **Every loss row carries a repair action** (§5.1) — copy URL / copy all,
+      supply a local file (with a "Choose file…" button, never drag-only), open the
+      source in the user's own browser, paste stylesheet text — and any import
+      containing hand-supplied assets or CSS declares that in the report. **§8 element mapping is DONE (2026-08-01):** ~70 rows
+      verified against HTML-AAM 1.0 (W3C WD 29 July 2026) with per-row citations,
+      including all 23 `input` states, tables, lists, and `select`. Four new rules
+      came out of it (§8 rules 6–9). BUG-018 is fixed and owner-verified. **Remaining
+      a11y work before/inside E1:** `aria-*` state mapping (needs WAI-ARIA 1.2 role
+      definitions, not HTML-AAM) and what to do when an explicit `role` contradicts
+      its host element (needs ARIA in HTML's role prohibitions). Fixtures 1–2's geometry/text/role criteria in §10 become
+      checkable as soon as the mapper exists and are E1's first proof.
+  - [x] **E1a — production snapshot seam + first pure mapper slice (2026-08-03).**
+        `RenderedHTMLImporter.swift` now defines the fixed, Codable browser payload,
+        the read-only DOM/computed-style extraction script, and a browser-neutral
+        mapper through `InteropImportResult`. Multiple viewport snapshots become
+        independent editable artboards using viewport width × measured content
+        height; DOM nesting, browser-measured text rect unions, solid/linear-gradient
+        paint, uniform/per-corner radius, inside borders, first box shadow, opacity,
+        blend mode, responsive context notes, and `data-exp-id` identity are retained.
+        Unsupported image bytes, transforms, filters, and authored ARIA data are
+        reported rather than guessed; ARIA reconstruction deliberately waits for the
+        remaining WAI-ARIA/ARIA-in-HTML verification above. The deterministic
+        `verify_rendered_html_importer.sh` fixture proves phone + desktop geometry
+        and editable styling. Full Debug app build, Figma fixture, 11-file XD corpus,
+        semantic HTML contract, and deterministic package suites pass.
+  - [x] **E1b — local-file browser-to-import vertical slice (2026-08-03).** Put the
+        production extraction script behind a per-import non-persistent `WKWebView`,
+        enforce the deadline/cancellation/payload limits, and feed fixture 2's real
+        local HTML/CSS render into E1a (Phone + Desktop) with one document mutation.
+        Keep this first UI narrow: local file + its scoped directory, same-origin
+        resources only. Then layer the iterative remote-origin Sources/session UI on
+        the proven capture-to-map path instead of coupling both unknowns at once.
+        Implemented with a folder-scoped entry-file picker so the release sandbox
+        can actually read relative CSS/images/fonts; a custom `exp-local` scheme
+        preserves a same-origin CSSOM while blocking network/file URLs and resolving
+        symlinks before the folder-boundary check. The real WKWebView fixture proves
+        Phone/Desktop media-query divergence, editable text/paint/shadows, embedded
+        local raster/inline-SVG assets, single-layer CSS image backgrounds, source
+        receipt, cancellation, import-wide caps, and symlink confinement. The File
+        menu flow inserts all viewport artboards in one undoable mutation. **Owner
+        visual acceptance complete (2026-08-03): owner approved both the hand-written
+        fixture and a real Chrome-saved website/package import after text, SVG,
+        animation-state, and local-resource refinements.**
+  - [x] **E1b SVG preservation policy + native path (2026-08-03).** Local and
+        inline SVG assets now enter `SVGImporter` as original sanitized markup,
+        not browser PNG previews. Common SVG logo/texture structure remains native:
+        paths and primitives, gradients, transforms, `symbol`/`use`, repeating CSS
+        SVG backgrounds, and mask clipping. Standalone `feGaussianBlur` maps to a
+        new editable **Layer Blur** effect rendered on canvas and PNG/PDF export and
+        round-tripped to SVG. Unknown filter primitives retain the editable geometry
+        and are named in the Import Report. Architecture decision: add native EXP
+        effects as real imports require them; raster fallback is the explicit last
+        resort. General 4×5 `feColorMatrix` is the first named follow-up, not falsely
+        reported as supported before its native effect exists.
+  - [x] **E1b fidelity-gap inventory (planning, 2026-08-03).**
+        `docs/WEB-SVG-FIDELITY-INVENTORY.md` records the visually meaningful CSS,
+        SVG structure, paint, typography, transform, and filter capabilities that
+        EXP cannot author yet. It separates humane native concepts from low-level
+        filter-graph storage and prioritizes Color Adjust/`feColorMatrix`, general
+        component transfer, morphology, displacement, SVG pattern paint, layered
+        fills, clip/mask round-trip, gradient/stroke fidelity, CSS filter mapping,
+        and performant backdrop blur. Add import telemetry before reordering the
+        list from real usage.
+  - [x] **E1 semantic-role/state cleanup (2026-08-03).** WAI-ARIA 1.2 and the
+        current ARIA-in-HTML host table now govern the mapper instead of an
+        unsupported-semantics placeholder. Native and conforming explicit roles
+        map into tolerant `NodeSemantics`; authored `aria-*` values stay structured
+        and non-executable rather than becoming invented visual states. Prohibited
+        host-role combinations retain the authored token, fall back to the verified
+        implicit role, and report the conflict. Mixed rich text also retains inline
+        `href` on the styled run and semantic export reconstructs the anchor.
+  - [ ] **E1c — controlled rendered-source sessions; owner decision 2026-08-03.**
+        Arbitrary URL import is explicitly **deferred** and is not a v2.2 gate. A
+        good local folder/package import covers that smaller use case with one
+        deliberate download/export step and avoids turning EXP into a browser.
+        **E1c-a** remains the bounded path for user-selected local/static artifacts
+        and explicitly published component-system renders (including hosted
+        Storybook and a future CodePen deployment) with receipts,
+        replace/import-as-new generations, and same-origin defaults. **E1c-b** is a
+        post-v2.2 reconsideration of arbitrary public URLs and the full two-pass
+        growing trust manifest only if connector evidence justifies it.
+        Authenticated pages, persistent login/cookies, form submission, downloads,
+        general crawling, and unrestricted navigation remain outside the boundary.
+- [x] **E2 — Storybook import. COMPLETE 2026-08-05.** Ingest a static/local Storybook build only
       after E1 is stable; create per-story artboards and preserve story metadata
-      such as args as structured notes. Render to DOM first—never pretend a
-      React AST directly describes pixels.
-- [ ] **Supporting v2.2 polish.** Complete the already-scoped font-picker
-      navigation/filtering work (FEAT-008) when it fits the importer lane without
-      displacing Chunk E. Other open backlog items remain candidates, not implicit
-      v2.2 release gates.
+      such as args as structured notes. Prefer the published/static Storybook
+      contract (`index.json` metadata + isolated `iframe.html` story renders), which
+      works across React, Vue 3, Angular, Web Components, Svelte and other supported
+      integrations. Render to DOM first—never pretend a framework AST directly
+      describes pixels. Do not run dependencies/build scripts from an untrusted
+      remote repository inside the app process.
+  - [x] **E2 static-build first slice (2026-08-03).** File ▸ Import Storybook
+        Build… accepts a selected folder containing the published `index.json` +
+        `iframe.html` artifacts, skips docs entries, and renders each
+        `?id=…&viewMode=story` at the selected viewport(s) through a non-persistent,
+        external-network-blocked WebKit seam. Because production Storybook uses ES
+        modules, its selected folder is served briefly through a tokenized,
+        ephemeral IPv4-loopback origin; all other HTTP/file requests remain blocked,
+        path traversal remains impossible, and the listener ends with the import.
+        Capture waits for Storybook's rendered-main state and laid-out story root,
+        failing explicit runtime/no-preview/timeout states rather than creating
+        empty one-pixel artboards. Story/viewport artboards retain
+        title, name, id, tags and importPath. `CodeBridgeManifest` stores the index
+        digest/entry receipt, consumed resources, story behavior-contract slots,
+        and receipt-only DOM bindings. No package manager, framework compiler, or
+        Storybook build runs. The importer discovers the complete catalog without
+        rendering it, then presents a searchable story picker (title, name, id,
+        tags and source path) for up to 100 stories per import; a small 1–20 story
+        slice is recommended while validating an unfamiliar library.
+  - [x] **E2 live GitLab corpus hardening (2026-08-03).** A representative
+        eight-story slice now covers controls, badges, tabs, an accordion, a
+        table, a chart, an illustration, and a play-function-opened modal.
+        Storybook readiness remains stable through interaction phases; hidden
+        preparation/docs shells no longer consume the DOM budget; zero-box
+        portal mounts inherit the union of their visible positioned descendants;
+        fixed overlays extend the artboard to their visible viewport; and
+        same-folder external SVG `<use>` sprites are safely inlined with
+        namespaced IDs so paths, gradients, and filters reach the native editable
+        SVG importer. The corpus produces eight non-empty artboards, retains the
+        modal content and three clipped accessibility labels correctly, and maps
+        six SVGs editably with no SVG raster fallback. Deterministic WebKit tests
+        cover the portal/sprite boundary without depending on the owner's fixture.
+  - [x] **E2a — hidden Interop Provenance Layer / `CodeBridgeManifest`. v2.2
+        foundation COMPLETE 2026-08-05.** Add a
+        versioned, tolerant-decoding structured section inside `.design`, separate
+        from user-facing Notes and ordinary canvas nodes. It records connector and
+        source identity; repository/branch/commit/package paths; Storybook story ids,
+        args and build identity; CodePen Pen/version/config identity; framework,
+        runtime, build-tool and package-manager metadata; file/resource hashes;
+        EXP-node ↔ external-id/source-span/token/DOM bindings with confidence;
+        behavior contracts (props, events, states, relationships and ARIA);
+        ownership/fidelity boundaries; and opaque source/config/JS passthrough that
+        EXP preserves but never executes. Store no credentials or secrets in the
+        document—service tokens belong in Keychain. Preserve the import baseline so
+        future sync is a three-way comparison (imported base vs current EXP vs
+        current code), not a blind overwrite. This foundation lands before any
+        connector claims safe round-trip or write-back.
+    - [x] **Schema + local-HTML receipt slice (2026-08-03).** Document schema 4
+          now persists tolerant-decoding connector/source/runtime fields, resource
+          receipts, SHA-256 hashes, bounded opaque source bytes, node/artboard
+          bindings, behavior-contract slots, ownership/confidence, explicit writable
+          properties, and the import baseline. The local WebKit importer records only
+          resources it actually consumed, retains up to 8 MB of HTML/CSS/JS/config/
+          text-SVG source without interpreting it as canvas behavior, and binds each
+          imported viewport/DOM element. Every rendered binding starts receipt-only
+          with no writable properties. Credentials and absolute local paths are not
+          stored. Import + bridge insertion remains one undoable mutation.
+    - [x] **Storybook runtime/project metadata slice (2026-08-03).** When a
+          published static build includes Storybook's optional `project.json`,
+          retain and hash it, then map its framework/renderer/builder,
+          Storybook version, language, and package-manager identity into the
+          structured source receipt. After each isolated story completes,
+          capture its normalized `initialArgs` as bounded JSON-safe data on the
+          story behavior contract (functions, DOM objects, cycles, excessive
+          depth/count, and payloads over 64 KB are omitted). These values remain
+          source-owned receipts with no executable behavior or writable-property
+          claim. Synthetic and live GitLab fixtures verify the path.
+  - [x] **E2b — CodePen 2.0 handoff connector, export-first. COMPLETE 2026-08-03.** First ship
+        **EXP → new CodePen Pen** through CodePen's supported POST-to-Prefill contract
+        using semantic HTML/CSS/JS output. Record that Prefill currently carries one
+        HTML, CSS and JS payload rather than the full 2.0 filesystem. Add
+        **CodePen-exported ZIP → EXP** through the local importer: render the last
+        successful browser-ready `dist/` artifact while retaining `src/`,
+        `.codepen/pen.config.json`, Blocks/processors, paths and hashes in the bridge
+        manifest. A generated 2.0-ready ZIP can follow for multi-file handoff.
+        CodePen's public deployed `*.codepen.app` pages may later use E1c-a's narrow
+        published-source path. Do **not** promise update-in-place sync until CodePen
+        offers an authenticated file read/write API; editable embeds are an excellent
+        user workflow, not a programmatic source-sync contract.
+    - [x] **EXP → new CodePen first slice implemented (2026-08-03).** File and
+          Handoff expose “Send Current Artboard to CodePen…”. It generates only the
+          chosen artboard's semantic HTML/CSS, removes the package-relative stylesheet
+          link, enforces a 4 MB prefill boundary, and opens an accessible local review
+          page that discloses the transfer before its user-activated POST to CodePen's
+          documented 2.0-prefill endpoint. No credentials or background upload.
+          Opaque imported JavaScript remains preserved in the bridge but is not sent
+          until an explicit behavior/DOM contract makes that honest.
+    - [x] **Owner live CodePen confirmation (2026-08-03 — Tapps approved).** From Xcode, send one representative
+          artboard, press the local review page's Send button, and confirm CodePen 2.0
+          accepts the payload and reproduces the semantic HTML/CSS. Then polish any
+          endpoint/editor-mode mismatch before calling export-first complete. First
+          live attempt reached the endpoint but returned its plain “Something Went
+          Wrong” response. EXP now submits only CodePen's current documented Prefill
+          fields (removing deprecated `editors`/`tags` and invalid `neither` option
+          sentinels), sends the documented HTML body fragment instead of a nested
+          standalone document, and preserves the local review page by opening the
+          result in a new tab. A second owner attempt proved the transitional
+          `/cpe/pen/define/` route itself now returns CodePen's internal-error page
+          after the site-wide 2.0 launch; EXP now targets `/pen/define`, which creates
+          a live Prefill session. The owner confirmed the corrected flow is smooth and
+          the representative SVG artboard reaches CodePen successfully.
+    - [x] **CodePen 2.0 exported-ZIP first slice implemented (2026-08-03).** File
+          exposes **Import CodePen Export…** for a local ZIP. A bounded reader
+          rejects traversal, absolute/platform paths, symlinks, encryption, ZIP64,
+          unsupported compression, ambiguous roots, missing `dist/index.html` or
+          missing sibling `src/`, and per-file/package expansion limits. It handles
+          the normal title/slug wrapper folder, materializes fresh data files in a
+          private temporary directory, renders only `dist/index.html`, then removes
+          that directory. No package manager, compiler, Block, or build script runs.
+          Browser-ready `dist` JavaScript may run only in the existing short-lived,
+          non-persistent, network-blocked WebKit render; authored `src` scripts remain
+          opaque and unexecuted. The full package inventory carries relative paths,
+          roles, byte counts, SHA-256 hashes, and up to 8 MB prioritized text source,
+          including `.codepen/pen.config.json` and other processor configuration.
+          `CodeBridgeManifest` records the archive digest, CodePen Compiler identity,
+          last-successful-dist boundary, and receipt-only bindings. A deterministic
+          wrapped-package fixture proves phone/desktop import, native editable SVG,
+          config/Block preservation, no private temp path retention, and traversal
+          rejection. Existing WebKit/pure HTML, semantic package, SVG/token, 11-file
+          XD corpus, and unsigned Debug build pass.
+    - [x] **Owner live CodePen ZIP confirmation (2026-08-03).** Export the owner-approved Pen from
+          CodePen 2.0, use **File ▸ Import CodePen Export…**, and compare at one or two
+          viewports. The first live package proved the current wrapper + `src/` +
+          `dist/` shape (with no `.codepen/pen.config.json`) is accepted, and exposed
+          BUG-019: offscreen WebKit sampled its entrance animations at opacity 0.
+          The final-state capture fix passes against all 26 live `.section` groups;
+          the owner rebuilt and confirmed the sections are visible. Layers-panel
+          numeric opacity was also owner-verified. E2b's local ZIP import gate is
+          complete; the first static Storybook slice is next after BUG-021 polish.
+  - [x] **E2c — phased framework-generation compatibility matrix. COMPLETE
+        2026-08-05.** Modern,
+        currently supported Storybook integrations come first, but enterprise reach
+        must not silently mean “latest framework only.” Build a measured fixture
+        corpus spanning React/JSX, Vue SFC, modern Angular, Svelte and standards-based
+        Web Components, then representative older Angular generations and AngularJS
+        artifacts where statistically useful. The rendered-DOM/local-artifact seam
+        should remain framework-agnostic even when an old stack cannot run a current
+        Storybook. Record tested framework + build-tool version bands and degrade to
+        visual/local-package import with preserved opaque behavior rather than
+        claiming framework-aware write-back. Legacy support rolls out in phases and
+        is explicit non-gating compatibility work, not excluded scope.
+    - [x] **Second real build + first measured matrix row (2026-08-04).** The
+          published CZI Science Design System `gh-pages` artifact at deployment
+          commit `af4f1a7` adds React + Vite + TypeScript / Storybook 10.5.2 to the
+          existing GitLab Vue + webpack 5 / Storybook 7.6.24 evidence. Its 202-story
+          index-v5 catalog and eight-story representative corpus pass through the
+          same local static-artifact seam at both Phone and Web 1280: 16 non-empty
+          viewport artboards, 130 painted text layers, four editable SVGs, 180
+          semantic roles, 82 retained ARIA attributes, and bounded initial args
+          for every selected story. Measured generation
+          differences are now compatibility rules: terminal runtime phase
+          `completed` **or** `finished`; a bounded visible-descendant union for
+          populated zero-box Storybook roots; and top-level `storybookVersion` as
+          the builder-version fallback when modern `project.json` omits a separate
+          builder package entry. Owner visual evidence added three fidelity rules:
+          selected Storybook height is the minimum artboard height, transparent
+          preview bodies retain the browser's white canvas, and painting/generated
+          pseudo-elements plus wider installed fallback-font metrics must survive.
+          `docs/STORYBOOK-COMPATIBILITY-MATRIX.md` records the exact fixture
+          contracts, counts, limits, reproduction command, and remaining framework
+          rows. **Owner visual acceptance completed 2026-08-04:** after viewport,
+          generated-content, fallback-font leading, percentage-radius, and capsule
+          renderer/path corrections, Tapps confirmed the final CZI re-import fixed.
+          The modern Angular row is now unblocked; repository builds and URL trust
+          did not expand.
+    - [x] **Third real build — modern Angular / Storybook 8 (2026-08-04).**
+          Dell Design System's versioned Angular v3.0.1 deployment adds Angular 17
+          (publicly documented as compatible with Angular 17–20), TypeScript,
+          `@storybook/angular`, webpack 5, and Storybook 8.6.18. Its index-v5
+          catalog contains 46 stories + 113 docs. A representative Accordion,
+          Button, Metrics Card, Modal, Switch, and Sign-in corpus passes
+          through the framework-neutral static-artifact seam at Phone and Web 1280:
+          12/12 opaque viewport artboards, 52 painted editable text layers, six
+          editable SVG-mask carets, 32 semantic roles, 32 retained ARIA attributes,
+          two hidden accessibility
+          labels, and bounded initial args for every selected story. Owner review
+          added framework-neutral overflow-clipping, transformed pseudo-element,
+          and safe deploy-root asset compatibility; no Angular-specific importer
+          branch was required. Because the
+          source repository is not public, reproducibility is pinned to the public
+          v3.0.1 URL and exact `index.json`/`project.json` SHA-256 receipts; the new
+          fetch script downloads only published static output and runs no build.
+          `docs/STORYBOOK-COMPATIBILITY-MATRIX.md` records the contracts, measured
+          limits, and reproduction command. **Owner visual acceptance completed
+          2026-08-04:** after the clipping, root-asset, pseudo-transform, and
+          data-SVG mask corrections, Tapps accepted the final Dell re-import.
+          Svelte + Vite is the next measured row.
+    - [x] **Fourth real build — Svelte 5 / Vite 6 / Storybook 8 (2026-08-04).**
+          Brave's public Leo (Nala) deployment at main commit `b949916` adds
+          Svelte 5.55.7, Svelte CSF v4, Vite 6.4.3, TypeScript, and Storybook
+          8.6.18. Its index-v5 catalog contains 104 stories + 31 docs. Alert,
+          Button, Checkbox, Dialog, Input, SegmentedControl, Tabs, and Toggle pass
+          through the framework-neutral static-artifact seam at Phone and Web
+          1280: 16/16 opaque viewport artboards, 32 painted text layers, 18
+          editable SVG masks, 28 semantic roles, 14 retained ARIA attributes,
+          two editable shadows,
+          bounded initial args for every story, and zero native text overflow.
+          The live runtime settles at `finished`, proving terminal phase cannot
+          be inferred from Storybook major alone: Dell's Storybook 8 settles at
+          `completed`. Leo's internally uneven project versions are retained as
+          published provenance rather than normalized. The new bounded fetcher
+          downloads only same-origin static output, pins catalog/project SHA-256
+          receipts, and runs no build. No Svelte-specific importer branch was
+          required. **Owner visual acceptance completed 2026-08-04:** after the
+          file-backed SVG-mask correction, Tapps accepted the final Leo re-import.
+          Standards-based Web Components + Vite followed as the final measured
+          modern E2c row.
+    - [x] **Fifth real build — Web Components / Vite / Storybook 10 (owner visual
+          acceptance completed 2026-08-05).** Kintone UI
+          Component's public generated `gh-pages` branch at commit `77c9855` adds
+          `@storybook/web-components-vite`, TypeScript, pnpm, and Storybook 10.3.5.
+          Its index-v5 catalog contains 106 stories and no docs entries. Button,
+          Checkbox, Dialog, Dropdown, Readonly Table, Switch, Tabs, and Text pass
+          through the framework-neutral static-artifact seam at Phone and Web 1280:
+          16/16 opaque viewport artboards, 113 painted editable text layers, 18
+          editable SVGs, 134 semantic roles, 78 retained ARIA attributes, six
+          editable shadows, bounded initial args for every story, and zero native
+          text overflow. The runtime settles at `finished`. A bounded fetcher clones
+          only the already-built deployment branch, pins its commit and exact
+          catalog/project receipts, and runs no package or build command. Kintone's
+          Lit base deliberately renders into its custom-element hosts as light DOM;
+          EXP retains those `kuc-*` hosts as editable groups with no framework-
+          specific mapper. Record the honest boundary: this real row does not
+          exercise or claim shadow-root/slot traversal. **Owner visual acceptance
+          completed 2026-08-05:** Tapps accepted all 16 imported artboards with only
+          the already-expected absence of editable component states. The modern
+          matrix is closed; older Angular/AngularJS and a future real open-shadow-root
+          fixture remain explicit non-gating compatibility work.
+- [ ] **First-priority v2.3 discovery — FEAT-008 font-picker navigation and
+      filtering.** Begin the next version by reviewing the owner's font-filter
+      mockups and testing whether the proposed information architecture is useful
+      before implementing it. The already-shipped scroll-to-current behavior stays;
+      the remaining candidate set is document-scoped Fonts Used, persisted Recent
+      Fonts, type-to-jump, and search/filtering over one list. Do not assume all four
+      mechanisms belong in the final control merely because they were previously
+      listed. Set the interaction and accessibility contract from the mockup/test
+      evidence first, including keyboard behavior, VoiceOver naming, filter
+      persistence, and empty states, then implement the smallest coherent result.
+- [ ] **E3 — provenance-bound code handoff/write-back (post-E2; separate scope).**
+      A rendered DOM cannot identify which JSX/template/CSS/token expression should
+      be rewritten. Start only where identity is explicit: `data-exp-id`, Storybook
+      story id + args/argTypes, design-token names, source maps or an opt-in source
+      manifest. First output is a reviewable patch/Handoff Package or GitHub branch +
+      draft PR, never an automatic write to a source branch. Framework adapters for
+      React/JSX, Vue SFC, modern Angular templates, Svelte, and Web Components are
+      independent later work; older Angular/AngularJS adapters are phased from the
+      E2c evidence rather than categorically excluded. Preserve unowned or unsupported
+      source and interactive JavaScript byte-for-byte, apply only high-confidence
+      bound edits, and surface three-way conflicts. Begin with safer patches—tokens,
+      CSS custom properties, Storybook args, bound text/media/visibility/variant/style
+      values—before structural JSX/template transforms. URL capture alone does not
+      provide any of this identity.
+- [ ] **Future research — semantic component/state reconstruction (v2.4+ candidate;
+      not a v2.2 or v2.3 release gate).** Investigate translating related rendered
+      stories and DOM states into actual EXP component definitions, nested component
+      instances, and editable state override diffs. An accordion, for example, could
+      expose its authored collapsed and expanded forms as named EXP states without
+      turning EXP into an interaction-playback or prototyping engine. Use explicit
+      evidence—Storybook stories/args/play receipts, stable source identity, framework
+      metadata, and ARIA roles, states, and relationships such as `aria-expanded`,
+      `aria-controls`, `aria-selected`, and `aria-checked`—rather than inventing
+      variants or exercising arbitrary interactions. Existing ARIA preservation,
+      component states, nested components, and provenance receipts provide useful
+      foundations, but ARIA alone cannot recover source component ownership,
+      conditional rendering, event wiring, transitions, or a safe inverse code edit.
+      Plan this as its own research phase covering state pairing/deduplication,
+      confidence and conflict handling, accessibility-preserving visual editing, and
+      provenance-bound framework export adapters. Commit it to a release only after
+      the evidence establishes a reversible, honest contract.
+- [x] **Supporting v2.2 polish scope closed 2026-08-05.** FEAT-008 was explicitly
+      moved to first-priority v2.3 discovery so the owner's additional font-filter
+      ideas can be mocked up and tested rather than rushed into build 13. Other open
+      backlog items remain candidates, not implicit v2.2 release gates.
+- [ ] **v2.2 final release gate.** Freeze the build-13 source and public feature
+      story, run the complete deterministic importer/regression matrix plus the
+      website and Release build, repeat the condensed owner smoke test, then
+      archive/notarize, byte-verify the shipping zip, generate and publish Sparkle
+      metadata, prove the public v2.1 → v2.2 install/relaunch path, and only then
+      announce. Exact commands and acceptance checks:
+      `docs/RELEASE-CHECKLIST-v2.2.md`.
 
 Figma OAuth/Keychain/Variables, host-specific agent capability packs, and agent
 write-back remain separately scoped follow-ups; opening v2.2 does not silently
@@ -2279,6 +2702,1603 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-08-05 (v2.2/build 13 local release gate green; owner shipping steps
+  remain).** Closed E1, E2, and the v2.2 `CodeBridgeManifest` foundation after
+  the accepted HTML/CSS, CodePen, and five-framework static Storybook work.
+  Added `RELEASE-NOTES-v2.2.md`, the exact
+  `docs/RELEASE-CHECKLIST-v2.2.md` path, and updated the public website's
+  import/handoff diagram and tester feature feed with local HTML/CSS, static
+  Storybook, CodePen package import, and CodePen Prefill export. The complete
+  deterministic component/page/XD/Figma/semantic/SVG/CodePen/rendered-HTML/
+  WebKit/Storybook suite passes; the four still-present public React, Angular,
+  Svelte, and Web Components corpora also re-pass their measured acceptance
+  counts. The owner-supplied private GitLab/Vue fixture was not still present to
+  rerun, so its earlier accepted pinned receipt remains the evidence for that
+  row. Sparkle's 2.2/13 preflight, the production website build, `git diff
+  --check`, and an isolated unsigned universal Release build all pass. One
+  reviewed Handoff-package golden changed only because v2.2 changed the packaged
+  `design.json` bytes/hash; semantic HTML, CSS, README, fidelity rows, and the
+  package entry set stayed byte-identical. Existing Swift concurrency,
+  deprecation, and unused-value warnings remain non-blocking cleanup; no warning
+  was promoted into an error. **NEXT:** owner runs checklist §3 against the
+  Release app, reviews/stages only intended source, then follows §§5–12 for the
+  signed archive, notarization, immutable zip, Sparkle/GitHub/website publication,
+  and the public v2.1 → v2.2 update/relaunch proof before announcement.
+
+- **2026-08-05 (FEAT-008 moved to first-priority v2.3 discovery).** Owner chose
+  not to squeeze the remaining font-picker filters into the v2.2 closeout. More
+  filter ideas need a design mockup and usability testing to establish whether the
+  combined control works and whether every proposed mechanism belongs. The shipped
+  scroll-to-current picker remains unchanged; Fonts Used, Recent Fonts,
+  type-to-jump, and search are now a candidate set to evaluate as one list-navigation
+  system, not a pre-approved implementation checklist. FEAT-008 is promoted from P2
+  to the first product-design priority for v2.3 and removed from the build-13 gate.
+  **NEXT:** finish the v2.2 release audit and prepare build 13 for broader testing
+  and shipment; open v2.3 with the owner's FEAT-008 mockup/research pass.
+
+- **2026-08-05 (E2c modern compatibility matrix complete).** Owner visually
+  accepted the Kintone Web Components/Vite corpus on its first import: all 16
+  Phone/Web artboards looked correct, with only the expected current limitation
+  that rendered stories are editable nodes rather than reconstructed EXP component
+  states. This closes E2c across the measured Vue + webpack, React + Vite, modern
+  Angular + webpack, Svelte + Vite, and light-DOM Web Components + Vite builds.
+  Broader real-world tester feedback is welcome and will drive bounded bug fixes;
+  it does not reopen the compatibility matrix by default. Semantic component/state
+  reconstruction remains the separately logged v2.4+ research candidate, while
+  older Angular/AngularJS and open-shadow-root evidence remain non-gating follow-ups.
+  **NEXT:** audit the remaining v2.2 polish/release checklist, decide whether the
+  already-scoped FEAT-008 font-picker work fits without destabilizing the release,
+  then prepare build 13 for broader testing and shipment.
+
+- **2026-08-04 (E2c Web Components + Vite automated matrix row).** Selected
+  Kintone UI Component's public generated `gh-pages` deployment at commit
+  `77c9855` as the final modern-framework fixture: Web Components renderer, Vite,
+  TypeScript, pnpm, Storybook 10.3.5, and an index-v5 catalog with 106 stories and
+  no docs. Added a commit/receipt-pinned, size-bounded static-artifact fetcher; it
+  runs no package install or build. The eight-story Phone/Web corpus passes 16/16
+  opaque artboards with 113 painted text layers, 18 editable SVGs, 134 semantic
+  roles, 78 retained ARIA attributes, six editable shadows, bounded initial args,
+  and zero native text overflow. The runtime settles at `finished`; no Web-
+  Components-specific mapper was added. Kintone deliberately uses light-DOM
+  custom elements, so shadow-root/slot traversal remains explicitly unmeasured
+  and non-gating rather than silently claimed. The combined React + Angular +
+  Svelte + Web Components corpus, deterministic rendered mapper, real WebKit
+  fixture, and unsigned Debug app build all pass. **NEXT:** owner imports the
+  prepared Kintone fixture and reviews the 16 artboards. If approved, close the
+  modern E2c matrix and proceed to v2.2 importer/release cleanup; older
+  Angular/AngularJS and a real open-shadow-root fixture remain non-gating
+  compatibility work.
+
+- **2026-08-04 (Svelte visual acceptance + future state reconstruction logged).**
+  Owner accepted the corrected Brave Leo Svelte/Vite import after the file-backed
+  SVG-mask pass, closing that compatibility row at 16/16 artboards and 18 editable
+  icon masks. Logged semantic component/state reconstruction as an explicit v2.4+
+  research candidate: related authored states such as collapsed/expanded accordion
+  forms may eventually become real EXP component states and nested instances, while
+  interaction playback remains out of scope. ARIA roles, states, and relationships
+  are valuable evidence, but cannot alone establish component boundaries, behavior,
+  or reversible source edits. This does not expand the v2.2 gate. **NEXT:** complete
+  the basic E2c matrix with a standards-based Web Components + Vite published build,
+  then close the importer scope and proceed to v2.2 release preparation.
+
+- **2026-08-04 (E2c Leo file-backed CSS mask correction).** Owner review found
+  Leo's icons imported as solid squares. Live inspection confirmed each icon is
+  a same-origin SVG mask such as `/icons/close.svg`; EXP supported bounded inline
+  data-SVG masks but intentionally left file-backed masks as their underlying
+  fill box. The generic capture now records a single resolved mask URL, loads it
+  only from the user-selected local package, sanitizes script/`foreignObject`/
+  event/external-reference content, applies the element's computed paint, and
+  imports the silhouette as editable native SVG geometry. The loopback server's
+  root-relative compatibility alias now admits existing nested files while the
+  standardized selected-directory prefix still rejects traversal/outside access.
+  Leo's fetcher includes the six dynamically named corpus icons that Vite chunks
+  cannot expose as literal URLs. Deterministic local-mask coverage passes, and
+  the full Leo corpus remains 16/16 artboards with 32 painted text layers while
+  replacing 18 square boxes with 18 editable SVG masks. **NEXT:** owner refreshes
+  the fixture/rebuilds and re-imports the same eight stories for visual approval.
+
+- **2026-08-04 (E2c Svelte + Vite automated matrix row).** Owner accepted the
+  corrected Dell Angular corpus, closing its visual gate. Selected Brave Leo's
+  public Nala deployment at main commit `b949916` as the next real fixture:
+  Svelte 5.55.7, Svelte CSF v4, Vite 6.4.3, TypeScript, Storybook 8.6.18, and a
+  v5 catalog with 104 stories + 31 docs. Added a receipt-pinned, size-bounded,
+  same-origin static-artifact fetcher; its corrected corpus mirror contains 154
+  published resources (4,523,555 bytes) without cloning source, installing
+  packages, or executing a build. The eight-story Phone/Web corpus passes 16/16
+  opaque artboards with 32
+  painted text layers, 18 editable SVG masks, 28 semantic roles, 14 retained
+  ARIA attributes, two editable shadows, bounded initial args, and zero native
+  text overflow. Live inspection records terminal phase `finished`; no
+  Svelte-specific mapper was
+  added. The full synthetic + Svelte regression passes. **NEXT:** owner imports
+  the prepared Leo fixture and reviews the 16 artboards; if approved, continue
+  E2c with standards-based Web Components + Vite.
+
+- **2026-08-04 (E2c Dell accordion caret / CSS data-SVG mask correction).** Owner
+  re-import confirmed the clipping, root-asset, and switch corrections, then exposed
+  one remaining accordion mismatch: each `span::after` was a solid 20×20 box. Live
+  computed-style inspection showed this was not an icon font; Dell paints a dark
+  background through an inline base64 SVG `mask-image`. EXP retained the background
+  but discarded the mask. Pseudo extraction now boundedly decodes data-SVG masks
+  (≤256 KiB), rejects malformed/external/script/`foreignObject` content, applies the
+  resolved background color, and passes sanitized markup through the existing native
+  SVG importer. The generic mapper now accepts a captured visual asset on generated
+  elements, while unsupported/non-data masks receive an explicit Import Report item
+  and keep the prior box fallback. Deterministic Storybook coverage proves a masked
+  caret becomes an editable vector; the focused and full Dell passes prove all six
+  Phone/Web carets survive. Dell remains 12/12 artboards with 52 painted text layers,
+  now adding six editable SVG masks; the full CZI pass is unchanged geometrically and
+  now honestly reports its 12 unsupported non-data masks. Synthetic Storybook,
+  rendered mapper, real WebKit, full Dell, and full CZI checks pass. **NEXT:** owner
+  rebuilds and confirms the Dell accordion carets visually; if approved, continue
+  E2c with Svelte + Vite.
+
+- **2026-08-04 (E2c Dell Angular owner-review correction — clipping, root asset,
+  pseudo transform).** The owner's first Dell import exposed three independent
+  browser-paint mismatches. Collapsed accordion bodies still had DOM client rects
+  beneath zero-height overflow-hidden ancestors, so EXP resurrected unpainted copy;
+  extraction now intersects descendants with every clipping ancestor before mapping.
+  Dell's versioned preview also requests deploy-root `/dds-icons.svg`; the pinned
+  fetcher had omitted it and EXP's loopback 404 body became editable `404 Not Found`
+  text. The fetcher now includes the sprite, while the ephemeral server admits only
+  an existing root-level selected-catalog file through this compatibility alias;
+  nested/token/path-traversal and remote-resource boundaries stay closed. Finally,
+  pseudo-elements have no DOM box API and the reconstructed switch thumb ignored
+  its `translateY(-50%)`; EXP now applies the computed transform matrix around its
+  resolved origin, centering the 20×20 thumb in the 40×24 control while continuing
+  to report the transform as non-editable. Deterministic Storybook coverage now
+  proves root-asset loading and fully clipped subtree rejection; Dell-specific
+  checks prove the three headings survive, body copy/404 do not, and the thumb stays
+  inside its switch. The corrected Dell corpus passes 12/12 artboards with 52
+  painted text layers, 32 roles, 32 ARIA attributes, and two hidden accessibility
+  labels. The stricter paint rule also removes fully clipped CZI sprite/scroll DOM;
+  its pass is now 130 painted text, four SVG, seven shadows, 180 roles, and 82 ARIA
+  attributes. Synthetic Storybook, rendered mapper, real WebKit, Dell, and full CZI
+  regressions pass; the refreshed static fetcher includes the 447,536-byte SVG;
+  `git diff --check` and the unsigned Debug app + thumbnail + helper build pass. The
+  pasted Xcode log contains only existing WebKit/system sandbox noise; the canvas
+  404 was the real missing sprite request. **NEXT:** owner rebuilds and re-imports
+  the Dell corpus for visual confirmation. If approved, continue E2c with Svelte +
+  Vite, then standards-based Web Components + Vite.
+
+- **2026-08-04 (E2c modern Angular / Storybook 8 matrix row).** Selected Dell
+  Design System Angular v3.0.1 over the initially viable Carbon candidate because
+  Dell provides a genuinely newer runtime contract: Angular 17 (compatible 17–20),
+  Storybook 8.6.18, webpack 5, TypeScript, index v5, and a stable versioned public
+  artifact. The six-story control/content/data/overlay/layout corpus renders 12/12
+  Phone + Web 1280 artboards through the existing framework-neutral seam with 70
+  unclipped text layers, 38 semantic roles, 38 retained ARIA attributes, two hidden
+  accessibility labels, and initial args for every story. No importer code changed.
+  Added an opt-in pinned regression and static-artifact fetcher; it checks exact
+  catalog/project hashes and never clones source, installs dependencies, or runs a
+  build. Default, Dell Angular, and full CZI corpus checks pass; `git diff --check`
+  and the unsigned Debug app/thumbnail/helper build pass. **NEXT:** owner imports
+  the six Dell stories at Phone + Web 1280 for visual acceptance. If approved, add
+  a real published Svelte + Vite build; Web Components + Vite follows before
+  non-gating legacy Angular/AngularJS evidence.
+
+- **2026-08-04 (CZI React/Vite visual acceptance complete).** Owner rebuilt,
+  re-imported, and confirmed the final live InputToggle capsule fix. This closes
+  the visual gate for E2c's Storybook 10.5.2 / React + Vite row: viewport/backdrop,
+  generated flex content, fallback-font line boxes, percentage radii, and live
+  rectangle/converted-path parity are approved. **NEXT:** add one real published
+  modern Angular Storybook artifact as the third measured matrix build. First
+  record its exact Storybook, Angular, builder, index, and runtime contracts; then
+  run a small representative control/content/overlay/data corpus at Phone + Web
+  before changing the framework-neutral importer. Only evidence from that artifact
+  may justify compatibility code. Svelte and standards-based Web Components follow.
+
+- **2026-08-04 (E2c capsule radius renderer/path parity).** The owner's next
+  visual comparison found a highly diagnostic mismatch: the imported 62 × 24
+  InputToggle outline looked like a stretched oval, then snapped into the correct
+  capsule immediately after Object ▸ Path ▸ Convert to Path. The source value is
+  legitimately `border-radius: 20px`. Convert to Path already applied CSS's
+  adjacent-radius overlap rule and reduced the rendered radius to the box's legal
+  12px maximum; the uniform live-rectangle path bypassed that normalization and
+  passed 20px directly to AppKit, whose oversized rounded-rect behavior produced
+  the awkward oval.
+
+  Uniform and per-corner rectangles now share `CornerRadii.path` for canvas and
+  raster/PDF drawing. Shadow, mask, hit/silhouette, and SVG paths use the same
+  normalized effective radii, including stroke-aligned SVG copies. The model keeps
+  the editable authored 20px value while every renderer paints the same 12px
+  capsule Convert to Path produces. The public CZI regression now asserts both the
+  16 × 16 / 50% thumb's 8px circle and the 62 × 24 outer box's normalized 12px
+  capsule. Pure rendered-HTML mapping, the complete React/Vite Storybook corpus,
+  `git diff --check`, and the unsigned Debug app/thumbnail build pass. **NEXT:**
+  owner re-imports InputToggle once more and confirms the live rectangle is already
+  identical to its converted path; if approved, advance E2c to modern Angular.
+
+- **2026-08-04 (E2c CSS fixed-leading semantics + percentage-radius correction).**
+  The owner's fourth CZI comparison isolated the remaining visual mismatch cleanly.
+  The selected 16px Button label truthfully carried WebKit's computed `26px`
+  line-height, but TextKit bottom-anchored the native baseline inside that fixed
+  box; changing the Inspector to `1.3×` only appeared to fix it by substituting a
+  shorter line box. EXP now preserves the authored px/em value and centers its
+  extra leading around the resolved native font box at paint time. Measurement,
+  selection geometry, and HTML export keep the original line-height. Existing
+  saved documents decode to the legacy baseline behavior, while new/imported text
+  opts into the corrected CSS behavior, avoiding an unannounced typography shift.
+
+  `Auto` is now semantically honest end to end: CSS `line-height: normal` imports
+  as Auto, and the Inspector help explains that Auto uses the installed font's
+  native metrics. The hidden 1.3 value is only the seed revealed if Auto is changed
+  to the × unit; it is not applied while Auto is selected. For the system fallback
+  at 16px, AppKit's native line fragment is about 18px (roughly 1.125×), which
+  explains why Auto looked much closer to 1 than 1.3 in the screenshot.
+
+  The square toggle thumb was a separate mapper bug, not a fundamental shape
+  limit: the main CSS surface path accepted px radii but dropped `50%`. Percentage
+  corner radii now resolve against the smaller box dimension, so CZI's 16 × 16
+  thumb imports as an editable 8px-radius circle. The synthetic mapper and complete
+  public React/Vite corpus pass, including the real thumb-radius assertion, all 190
+  finite text boxes, and the focused Tablet controls; the unsigned Debug app and
+  Quick Look build also pass. Remaining honest typography limit: Inter is not
+  installed, so source-webfont glyph shapes/widths still use the reported system
+  fallback even though their line boxes now align. **NEXT:** owner re-imports the
+  CZI Button/ButtonGroup/InputToggle examples and visually checks fixed px leading
+  plus the circular thumb. If approved, advance E2c to a modern Angular artifact.
+
+- **2026-08-04 (E2c control line-box correction + authored mobile chart overflow).**
+  The owner's third comparison showed the reconstructed toggle intact but control
+  text still vertically low, and the StackedBarChart default visibly cropped at
+  Phone. Saved geometry isolated both. WebKit's `Range` puts Button's 14px `Label`
+  ink at y=24 inside a CSS line box beginning at y=20; EXP had started a fresh
+  24px TextKit line box at that ink y, shifting the native glyphs down. Direct text
+  translation now splits the missing CSS leading above and below the browser ink
+  union. At Tablet, the imported Label line box is y=20…45 inside the y=16…48
+  button—centers differ by 0.5px—and ContentCard's multiline box likewise begins
+  at its real line-box top while preserving 24px line-height and zero overflow.
+
+  The chart is not a missed mobile media query. Its published default story
+  explicitly supplies `width: "360px"`; at the 393px viewport, Storybook centers a
+  61px intrinsic wrapper whose fixed 360px child overflows it, producing browser-
+  measured content 133px beyond the right edge before EXP maps anything. Import
+  remains source-faithful instead of inventing a responsive rewrite. The mapper
+  now emits an exact **Viewport overflow** report row naming the overflow side and
+  distance, and the regression asserts both that row and the retained 360px
+  initial-args provenance. Focused chart Phone/Web, Button/ContentCard/InputToggle
+  Tablet, pure mapper, and real WKWebView checks pass. **NEXT:** owner re-imports
+  Button/ContentCard/InputToggle to confirm vertical rhythm; treat the chart crop
+  as published-source behavior unless a responsive story is selected or the
+  source component is changed.
+
+- **2026-08-04 (E2c Tablet visual correction — flex pseudo geometry, CSS outline, multiline fallback layout).**
+  The owner's second acceptance screenshot showed the viewport/backdrop fixes
+  working, then exposed two narrower failures. The newly saved document proved
+  InputToggle's generated `Off` text existed but occupied the switch origin under
+  its thumb, while the 62 × 24 pill had no visible outline. The published component
+  source confirmed `Off` is a static `::after` flex item and the pill is authored
+  with CSS `outline`, not border or shadow. The ContentCard paragraph retained its
+  authored 14px font / 24px line-height / five browser lines, but unavailable Inter
+  fell back to a wider native system face that wrapped into an excluded sixth line.
+  The full Xcode log again contained WebKit sandbox/service diagnostics and no
+  importer exception.
+
+  Static pseudo-elements in flex containers now derive their painted position from
+  already-laid-out in-flow siblings, flex direction, resolved margins, and cross-axis
+  alignment. CSS outline color/style/width/offset enter the snapshot; a lone outline
+  maps to an editable outside EXP stroke, while border+outline and nonzero offset
+  reductions are reported honestly. Imported text retains the authored CSS
+  line-height. Before finalizing its finite frame, the mapper now asks native
+  TextKit how the resolved installed font lays out: a multiline box receives only a
+  small bounded width correction when that preserves the browser line count, or
+  grows in height when it cannot, so no character is silently clipped.
+
+  The public Storybook check now adds the exact owner-evidence subset—ContentCard +
+  InputToggle at Tablet 834 × 1194—and asserts the 24px paragraph line-height, zero
+  excluded native characters, `Off` to the right of the thumb, and a 62 × 24 outside
+  outline. The strengthened Tablet subset, Phone/Web corpus, pure mapper, real
+  WKWebView suite, and unsigned Debug app build pass. **NEXT:** owner re-imports
+  ContentCard/InputToggle at Tablet and visually confirms the paragraph has no red
+  overflow badge and the complete toggle pill/label is visible before E2c advances.
+
+- **2026-08-04 (E2c visual-acceptance correction — viewport, backdrop, pseudo text, native overflow).**
+  Owner screenshots of the first CZI import correctly rejected the non-empty-node
+  test as insufficient. The saved `.design` file proved the button's real
+  1280 × 800 Storybook root was retained inside a wrongly measured 1280 × 32
+  artboard; most other preview bodies also shrink-wrapped their component, and
+  transparent body backgrounds exposed EXP's dark workspace instead of the
+  browser's white canvas. The pasted Xcode log contained OS/WebKit sandbox noise
+  but no importer failure.
+
+  Rendered DOM height now includes the recursive visible captured-tree bottom,
+  while the Storybook boundary independently treats each requested render height
+  as the minimum artboard and restores the browser's opaque white default canvas.
+  The general extractor now retains `::before`/`::after` when they paint generated
+  text, a background, border, or shadow; this restores the CZI InputToggle's `Off`
+  label and inset outline. Single-line EXP text boxes widen only when native
+  fallback-font metrics exceed WebKit's source-webfont ink bounds, preserving
+  wrapped browser lines while eliminating the screenshot's red overflow badges.
+
+  The strengthened public-corpus regression imports all eight stories at Phone
+  393 × 852 and Web 1280 × 800, asserts an opaque backdrop, verifies generated
+  `Off` text, and runs each of 190 text layers through a canvas-equivalent finite
+  TextKit container. It passes with 16 artboards, zero text overflows, 42 editable
+  SVGs, 12 editable shadows, 240 semantic roles, and 120 retained ARIA attributes.
+  All non-table boards equal the requested viewport; the table honestly expands
+  to its taller rendered content. Synthetic Storybook pseudo-content, pure mapper,
+  real WKWebView, full public corpus, and unsigned Debug app build pass.
+  **NEXT:** owner deletes/re-imports the CZI selection at Phone + Web 1280 and
+  visually confirms the corrected white full-height boards, toggle, table, and
+  text. Only then advance to the first modern Angular matrix row.
+
+- **2026-08-04 (E2c begins — real React + Vite / Storybook 10 matrix row).**
+  Added the second real published static build requested by the session checkpoint:
+  CZI Science Design System's 16 MB `gh-pages` artifact at deployment commit
+  `af4f1a7`, with Storybook 10.5.2, React + Vite + TypeScript, index v5, 202
+  stories, and published `project.json`. No repository dependency or build command
+  ran. Its eight-story representative corpus covers accordion, button, dialog,
+  toggle, table, tabs, heatmap, and stacked bar chart. All eight render as non-empty
+  1440 px artboards, retaining 94 text layers, 21 editable SVGs, 120 semantic roles,
+  60 structured ARIA attributes, and bounded initial args for every selected story;
+  no SVG raster fallback occurs.
+
+  The real artifact exposed three generation-contract differences. Storybook 10's
+  successful terminal runtime phase is `finished`, not Storybook 7's `completed`;
+  EXP now accepts both while still rejecting failure phases. Its populated
+  `#storybook-root` can be 1408 × 0 while visible descendants have real geometry;
+  readiness now falls back to a bounded 5,000-element visible-descendant union only
+  for a populated zero-box root, so empty/hidden renders still fail. Finally,
+  modern `project.json` names the Vite builder without listing a separate builder
+  package version; provenance now falls back to the explicit top-level Storybook
+  version (10.5.2) instead of incorrectly storing index schema 5.
+
+  Added `docs/STORYBOOK-COMPATIBILITY-MATRIX.md` with both measured builds, exact
+  contracts/counts, honest mapper limits, reproduction steps, and remaining rows.
+  The CZI corpus explicitly reports its font substitutions, measured-box transform
+  fallback, unsupported CSS backgrounds, reduced per-side border, and unsupported
+  native `rowgroup` role rather than mislabelling them as React/Vite failures.
+  Deterministic Storybook, real WKWebView, the full public corpus, `git diff --check`,
+  and unsigned Debug app build pass. **NEXT:** owner imports the eight CZI stories
+  from `/tmp/exp-sci-storybook.9t6v7T` at Desktop 1440 and compares them with the
+  [published Storybook](https://chanzuckerberg.github.io/sci-components/). If
+  visually approved, add the first modern Angular published build as E2c's next
+  measured row; URL trust, repository builds, full argTypes, and write-back remain
+  deferred.
+
+- **2026-08-04 (session checkpoint — owner happy with first Storybook implementation).**
+  The owner considers the current local/static Storybook import a strong v2.2
+  baseline; further refinement is expected from broader real-world libraries but
+  is not blocking this checkpoint. Verified today: searchable selection from the
+  530-story GitLab UI catalog; eight representative non-empty artboards spanning
+  controls, tabs/accordion, data display, charts, editable SVG media, and a
+  play-function-opened modal; hidden accessibility text retained without painting;
+  fixed/portal geometry; six editable SVGs with no raster SVG fallback; optional
+  `project.json` framework/build/package-manager provenance; and bounded JSON-safe
+  initial story args. Synthetic Storybook, live GitLab corpus, pure mapper, real
+  WebKit portal/sprite, saved-Chrome-page, and unsigned Debug app-build checks pass.
+  Known honest limitations remain: unavailable web fonts use a reported installed
+  fallback; unsupported CSS/SVG effects stay disclosed; imports capture rendered
+  states rather than recreating framework behavior; selection is capped at 100
+  stories per import; unrestricted URL import and code write-back remain deferred.
+  **START HERE NEXT SESSION:** begin E2c with a second *real published static build*,
+  preferably a modern React + Vite Storybook to contrast the current Vue + webpack
+  5 / Storybook 7.6.24 fixture. Record its index/project/runtime versions, run the
+  same small representative corpus, and turn every difference into either a
+  compatibility assertion or an honestly reported limit. Create the compatibility
+  matrix from measured results before adding Angular/legacy generations. Do not
+  expand network trust, execute repository builds, add write-back, or ingest full
+  argTypes/controls until that second fixture supplies evidence they are needed.
+
+- **2026-08-03 (E2 representative Storybook corpus — portals + SVG sprites).**
+  Expanded the live GitLab UI proof from accordion/tabs to eight stories spanning
+  controls, overlays, data display, charts, and SVG media. The modal initially
+  exposed two translation gaps: its Storybook play function completed correctly,
+  but the dialog lived under a zero-size body portal and its fixed overlay extended
+  beyond normal-flow document height. The rendered snapshot now skips truly hidden
+  Storybook preparation shells, derives layoutless wrapper geometry from visible
+  children, and includes visible fixed bounds in artboard height. The modal imports
+  at 1440 × 1024 with title, copy, and actions. GitLab's illustration then exposed
+  external local `<use href="sprite.svg#…">`; the capture now resolves only
+  same-folder references, copies and ID-namespaces the target symbol (including
+  internal paint/filter references), and keeps it on the native SVG path. Full live
+  corpus: 8 artboards, 52 text layers, 6 editable SVGs, zero raster SVG fallbacks.
+  Synthetic Storybook, pure mapper, real WebKit portal/sprite, and saved-Chrome-page
+  checks pass. GitLab Sans/Mono remains an honestly reported installed-font fallback,
+  not a mapper defect. The follow-on E2a slice also retains optional `project.json`
+  framework/builder/renderer/Storybook/package-manager identity and bounded
+  JSON-safe runtime `initialArgs` per story contract, without granting write-back.
+  **NEXT:** add a second Storybook generation/framework fixture for the E2c
+  compatibility matrix, then decide whether controls/argTypes add enough value
+  beyond initial args to justify their much larger payload.
+
+- **2026-08-03 (BUG-023 owner-verified).**
+  Owner rebuilt and reimported `base/tabs / With Counter Badges`; the hidden
+  screen-reader labels no longer spill across the visible tabs, and the resulting
+  Storybook import looks solid. BUG-023 is closed. The live GitLab Storybook path
+  now has owner-verified catalog selection, ES-module runtime rendering, editable
+  artboard creation, and accessibility-only text handling. **NEXT:** continue E2
+  live-corpus refinement with a small representative mix of controls, overlays,
+  media/SVG, and data-display stories; separate genuine mapper defects from the
+  already disclosed installed-font fallback before broadening the framework and
+  Storybook-version compatibility matrix.
+
+- **2026-08-03 (BUG-023 — Storybook screen-reader text spill).**
+  The owner's `base/tabs / With Counter Badges` screenshot provided a clean
+  geometry diagnostic: the apparent duplicate/overlapping labels were GitLab's
+  meaningful `.gl-sr-only` spans (`42 issues`, `15 open issues`, `1 closed issue`).
+  Chrome lays each out as an absolute 1 × 1 px box with both axes overflow-hidden
+  and a zero clip; EXP retained the text but ordinary groups do not clip children,
+  so the full accessibility labels painted across adjacent tabs. The HTML mapper
+  now recognizes this conservative rendered signature (absolute/fixed, ≤2 × 2,
+  both axes hidden/clip, non-empty text), keeps the source text and hierarchy as a
+  named hidden EXP layer, and reports the exact accessibility preservation instead
+  of deleting it. The exact live tabs story asserts all three labels remain hidden;
+  the synthetic Storybook fixture covers the same behavior. Live GitLab Storybook,
+  pure mapper, real WebKit, and unsigned Debug build checks pass. The fixture also
+  confirms the remaining likely typography variance is a separately reported font
+  fallback: the browser loads `GitLab Sans` from local WOFF2, while EXP currently
+  supports installed fonts only; custom/embedded font import remains the existing
+  Phase 9 follow-up rather than being silently treated as exact. **NEXT:** owner
+  reimports this tabs story to verify the overlap is gone, then identify any
+  remaining non-font geometry mismatch from a screenshot.
+
+- **2026-08-03 (BUG-022 — live Storybook runtime capture).**
+  The first selected GitLab stories imported as empty one-pixel artboards because
+  WebKit loaded `iframe.html` but did not execute Storybook's ES-module/webpack
+  runtime on EXP's custom URL scheme; the generic 1 px fallback then disguised the
+  failed render, while uncapped media-query Notes amplified the noise. Storybook
+  now receives a temporary GET/HEAD-only HTTP origin bound to `127.0.0.1`, scoped
+  by an unguessable route token to the selected folder and allowed by WebKit only
+  for that exact prefix; every other network/file request stays blocked and the
+  listener is torn down after import. A Storybook-specific readiness gate waits for
+  `sb-show-main` plus a populated, laid-out story root and reports runtime,
+  no-preview, timeout, or empty-layout failures instead of creating artboards.
+  Artboard Notes cap displayed media-query matches at 20. The owner's exact GitLab
+  index-v4 build now passes end to end for `base-accordion--default`: one 1440 px
+  editable artboard over 100 px tall with Item 1/Item 2 text. Synthetic Storybook,
+  real-WebKit HTML, live GitLab runtime, and unsigned Debug build checks pass.
+  **NEXT:** owner reimports a small visual slice and reports mapping fidelity; then
+  refine from those components and broaden the framework/version fixture matrix.
+
+- **2026-08-03 (E2 live GitLab corpus — scalable story selection).**
+  The owner's production build of GitLab UI proved Storybook index v4 with 649
+  entries (530 stories plus 119 docs entries). Replaced the whole-catalog 100-story
+  rejection with a metadata-only discovery pass and searchable selection sheet;
+  EXP now skips docs, lets the designer find stories by title/name/id/tag/source
+  path, and imports any chosen slice up to the existing 100-story safety limit.
+  Selection is retained while filtering, Select Visible is bounded, and the Import
+  action stays disabled until at least one story is selected. The static-package
+  regression check and unsigned Debug app build pass. **NEXT:** owner imports a
+  small slice from the GitLab corpus and validates visual results/provenance; refine
+  from that live evidence before broadening the framework/version fixture matrix.
+
+- **2026-08-03 (E1 semantics closed; first static Storybook slice).**
+  Closed E1's two remaining accessibility decisions against WAI-ARIA 1.2 and the
+  current ARIA-in-HTML host table. Imported nodes now persist tolerant structured
+  semantics: native/conforming roles map to EXP roles, authored `aria-*` values
+  remain source-owned data rather than invented component variants, and prohibited
+  explicit roles are retained for repair while the verified implicit host role is
+  used and the conflict is reported. Inline rich-text links retain `href` on the
+  run and semantic HTML reconstructs the anchor without re-splitting the box.
+
+  Began E2 with File ▸ Import Storybook Build…. A local static build's published
+  `index.json` discovers stories and `iframe.html?id=…&viewMode=story` renders them
+  through the proven isolated WebKit mapper at selected viewports. Artboards and
+  the hidden bridge retain story ids/titles/names/tags/import paths, index-entry
+  receipts, resource hashes, and receipt-only DOM bindings; EXP runs no build tools.
+  Deterministic pure semantic, real-WebKit, semantic package, and two-story static
+  Storybook checks pass. **NEXT:** owner tries a real static Storybook folder. Then
+  add story selection (rather than always importing up to the 100-story cap) and
+  broaden the framework/Storybook version fixture matrix from live evidence.
+
+- **2026-08-03 (BUG-021 owner-approved; tangent closed).**
+  Owner verified the full artboard-membership behavior and gave Tapps approval:
+  cropped/sliver groups remain attached, full separation returns them to Wall,
+  resized descendants and mask crop bounds register, and explicit Layers drops are
+  usable. BUG-021 is done. This also closes the remaining owner-visual gate on E1b
+  local HTML/package import and formally completes E2b's CodePen export + ZIP-import
+  connector. **NEXT:** return to the main v2.2 line. Finish E1's bounded semantic
+  cleanup—verified `aria-*` state import plus explicit-role/host conflict handling—
+  then start E2's first static Storybook slice (`index.json` discovery + isolated
+  `iframe.html` story render ingestion) on the proven local WebKit mapper. E1c-b
+  arbitrary URL import remains deliberately deferred and is not a gate.
+
+- **2026-08-03 (BUG-021 — artboard membership hysteresis + visible bounds).**
+  Owner confirmed the CodePen animation/opacity fixes, completing the live ZIP gate,
+  then exposed a deeper wall/artboard frustration: membership was recomputed from a
+  top-level node's stored frame with the same >50% threshold in both directions.
+  Resizing descendants could therefore eject an intentionally cropped group, and a
+  mask did not reduce the geometry used by ownership. EXP now persists top-level
+  `artboardID` within v2.2 schema 4 and applies a deliberate hysteresis contract:
+  Wall → board still requires >50%, while board → Wall requires zero remaining
+  visible overlap. Unmanaged groups use current descendant geometry; masks use the
+  mask-shape/content intersection; soft effects do not influence ownership.
+
+  Canvas rendering/carry/delete, Layers grouping and section/row drops, semantic/SVG/raster
+  export, Handoff/agent reads, duplication, group/mask/ungroup, and save/open now use
+  the node-aware resolver. A wall row dropped on an artboard header (including an
+  empty board), or beside/inside one of its layers, explicitly attaches: existing
+  partial overlap stays in place, while zero overlap centers it. The model regression
+  proves exact 50%
+  remains Wall, >50% enters, a 1-point attached sliver remains, zero overlap exits,
+  resized descendants replace stale group bounds, mask crop bounds register, and the
+  assignment round-trips. Canvas-pages, semantic/CodePen package, rendered HTML,
+  all 11 XD packages (644 artboards / 84,208 layers), and unsigned Debug build pass.
+  BUG-021 is `needs-verify`. **NEXT:** owner verifies sliver drag, full detach,
+  child-resize stability, mask crop, Layers Wall → artboard header/row behavior, and
+  save/open; then begin static Storybook `index.json` + isolated story rendering.
+
+- **2026-08-03 (live CodePen ZIP refinement: animation state + Layers opacity).**
+  The owner's exported `pure-css-glassmorphism-liquid-glass-ui-kit.zip` used the
+  supported wrapper/`src`/`dist` package shape and imported successfully, but exposed
+  two real defects. First, its `.section` elements use delayed finite entrance
+  animations from opacity 0; offscreen WebKit could throttle those at the first
+  keyframe, so every imported section group was invisible. Rendered capture now
+  advances finite Web Animations to their stable end state immediately before DOM
+  measurement. Infinite animations are paused at the current sample and disclosed
+  as an approximation in the Import Report. The real-package regression now finds
+  all 26 `section.section` groups at opacity 1.0, and the deterministic fixture also
+  covers a delayed opacity entrance animation at Phone + Desktop.
+
+  Second, selecting a group in Layers left the SwiftUI List as first responder, so
+  its digit events never reached the canvas opacity shortcut. Layers now owns the
+  same unmodified `0`…`9` shortcut at that focus boundary, with canvas and panel both
+  using one recursive opacity mutation and one undo step. CodePen package, live ZIP,
+  real-WebKit, pure HTML, and unsigned Debug build checks pass. BUG-019 and BUG-020
+  are `needs-verify`. **NEXT:** owner rebuilds, re-imports the same ZIP to confirm its
+  sections are visible, then selects a top-level/nested group in Layers and verifies
+  `4` → 40%, `0` → 100%, plus Undo. If green, complete the live ZIP gate and
+  begin static Storybook `index.json` + isolated story-render ingestion.
+
+- **2026-08-03 (CodePen 2.0 ZIP import first slice).**
+  Implemented **File ▸ Import CodePen Export…** through a new bounded ZIP/package
+  boundary and the existing editable rendered-HTML mapper. EXP recognizes one
+  wrapped or flat `dist/index.html` plus sibling `src/`, renders the last successful
+  build at the selected browser viewports, preserves native SVG, and inventories the
+  entire package into `CodeBridgeManifest` with relative paths, roles, sizes,
+  SHA-256 hashes, prioritized bounded source/config bytes, archive digest, and
+  receipt-only bindings. `.codepen/pen.config.json` and processor config remain
+  opaque and lossless; no npm/compiler/Block/build command is run. Browser-ready
+  `dist` JavaScript is explicitly limited to the non-persistent, network-blocked
+  render, while authored `src` scripts are never executed. The extractor refuses
+  traversal/absolute paths, symlinks, encrypted/ZIP64/unsupported compression,
+  ambiguous package roots, and expansion-limit violations, and deletes its private
+  temporary materialization after capture. Also corrected nested local HTML entry
+  resolution and stopped absolute local paths from entering artboard Notes.
+
+  The deterministic CodePen fixture passes at Phone + Desktop with editable SVG and
+  preserved Sass/TypeScript/Block configuration. Existing real-WebKit and pure HTML
+  mapper checks, semantic HTML/CodePen Prefill, SVG/token, the 11-file XD corpus
+  (644 artboards / 84,208 layers), and an unsigned Debug app build all pass.
+  **NEXT:** owner exports the approved live Pen and confirms its real 2.0 ZIP, then
+  begin static Storybook `index.json` + isolated story-render ingestion.
+
+- **2026-08-03 (CodePen export-first owner-approved).**
+  Owner rebuilt and confirmed the corrected `/pen/define` flow successfully creates
+  the new Pen from a representative SVG artboard, with the local disclosure step and
+  new-tab handoff working smoothly. Marked live confirmation complete — “Tapps
+  approved.” **NEXT:** implement CodePen 2.0 exported-ZIP detection/import through
+  the existing local rendered-HTML seam, preserving `dist/`, `src/`, configuration,
+  Blocks/processors, paths, and hashes in `CodeBridgeManifest`; then move into the
+  first static Storybook ingestion slice.
+
+- **2026-08-03 (CodePen live-Prefill compatibility correction).**
+  Investigated the first owner-run export, which reached CodePen but received its
+  plain **Something Went Wrong** response. The accompanying Chrome
+  `Could not establish connection` console line originated in an injected extension
+  iframe, not EXP or the submitted Pen. Re-checked CodePen's current Prefill contract:
+  EXP had carried forward deprecated `editors`/`tags` fields and unsupported
+  `css_starter: neither` / `css_prefix: neither` sentinels. A second owner attempt
+  isolated the remaining failure to CodePen's transitional `/cpe/pen/define/` route:
+  after the July 23 site-wide 2.0 launch it returns an internal error, while the
+  contract's announced successor `/pen/define` creates the Prefill session. EXP now
+  uses that live endpoint and supplies the documented HTML-editor body fragment
+  rather than nesting a complete document. The review form opens CodePen in a new
+  tab so the disclosure/retry page remains available. The semantic-package check
+  locks the exact field set, fragment shape, and form target. **NEXT:** rebuild and
+  owner-retest the one-SVG artboard, then visually verify the resulting Pen.
+
+- **2026-08-03 (E2a bridge foundation + first CodePen 2.0 export slice).**
+  Added the hidden, versioned `CodeBridgeManifest` to document schema 4 with tolerant
+  missing-field decoding. It can retain connector/source/repository/framework/build
+  identity, resource paths and SHA-256 receipts, bounded opaque bytes, EXP node or
+  artboard bindings, behavior-contract payloads, confidence/ownership and explicit
+  writable-property boundaries, plus a future three-way-sync baseline. Existing
+  documents decode with an empty bridge collection; a malformed optional bridge
+  receipt cannot brick the artwork. The bridge is saved inside `.design` but remains
+  absent from the canvas and Notes.
+
+  Wired real local HTML imports into that model. Each viewport and mapped DOM element
+  gets a source binding; anonymous DOM paths are lower confidence than authored
+  `data-exp-id`; and all bindings are receipt-only until a source connector explicitly
+  grants write authority. The folder-scoped WebKit handler now records only resources
+  actually consumed, hashes each one, and retains up to 8 MB of HTML/CSS/JS/config/
+  text-SVG source byte-for-byte. Binary assets retain digest receipts and continue
+  through native image/vector nodes. No absolute local path or credential is stored,
+  and bridge insertion shares the import's one undo step. The live fixture now proves
+  opaque JavaScript preservation in addition to HTML/CSS/SVG.
+
+  Implemented the first user-visible CodePen 2.0 connector. File and Handoff now offer
+  **Send Current Artboard to CodePen…**; the exporter creates one bounded semantic
+  HTML/CSS Prefill payload and an accessible local browser review page. Nothing is
+  transmitted until the person presses **Send to CodePen** there. The connector uses
+  no token, cannot update an existing Pen, and sends no preserved JavaScript because
+  the current reconstructed DOM has no behavior-binding proof. Pure Prefill/escaping/
+  selected-artboard tests pass, as do the real WebKit bridge fixture, XD 11-file
+  corpus, Figma, canvas-page migration, SVG/token, semantic Handoff goldens, and two
+  unsigned Debug app builds. The reviewed Handoff golden changed only for document
+  schema 4's marker/bytes/hash. **NEXT:** owner performs the live CodePen POST and
+  visual comparison; fix any current 2.0 endpoint/editor mismatch, then implement
+  exported-ZIP import or begin static Storybook ingestion.
+
+- **2026-08-03 (connector scope decided + CodePen 2.0/provenance architecture).**
+  Owner confirmed that unrestricted arbitrary-URL import is deferred: a deliberate
+  local download/export step is sufficient, while component-library systems have
+  higher value and a more defensible boundary. E1c now makes that a decision rather
+  than a pending recommendation. E2 now includes three explicit tracks: a hidden,
+  versioned `CodeBridgeManifest` that preserves source identity, node/source
+  bindings, behavior contracts, opaque JS/config and a three-way merge baseline; an
+  export-first CodePen 2.0 connector; and a phased framework-generation fixture
+  matrix that keeps older Angular and AngularJS enterprise artifacts in view without
+  making every historical adapter a v2.2 gate. Secrets remain in Keychain, opaque JS
+  is preserved but never run by the canvas, and future write-back changes only
+  explicit high-confidence bindings with reviewable conflicts.
+
+  Re-checked CodePen's July 2026 2.0 contracts and corrected the earlier shorthand.
+  There is still no general authenticated REST/GraphQL file CRUD API, so true
+  update-in-place sync cannot be promised. There **is** a supported POST-to-Prefill
+  path for EXP to create a new Pen; 2.0 also adds a real filesystem, versioning,
+  deployments, and ZIP exports containing `src/` plus the last successful `dist/`
+  build. Roadmap boundary: ship semantic HTML/CSS/JS → new Pen first; import a
+  user-exported ZIP through the safe local path while retaining source/config in the
+  bridge manifest; consider generated multi-file ZIP and narrow deployed-Pen import
+  later. Editable embeds remain a strong human handoff workflow, not programmatic
+  source synchronization.
+
+- **2026-08-03 (v2.2 web/SVG fidelity audit + connector scope recommendation).**
+  Added `docs/WEB-SVG-FIDELITY-INVENTORY.md`: a native-first inventory of missing
+  effects, filter primitives, paint servers, masks/clips, gradients, strokes,
+  typography, transforms, and CSS appearance, separated into P0/P1/P2 rather than
+  one undifferentiated “support the web” list. P0 starts with Color Adjust/general
+  `feColorMatrix`, component transfer, morphology, displacement, an ordered advanced
+  filter pipeline, SVG pattern paint, layered fills, clip/mask round-trip, gradient
+  and stroke fidelity, multiple shadows/CSS filters, and performant backdrop blur.
+  Added telemetry tasks so real missing pixels/area and user fixtures—not raw CSS
+  property frequency—decide implementation order.
+
+  Honest connector recommendation recorded in E1c/E2/E3: **defer unrestricted
+  arbitrary-URL import as a v2.2 gate**; do local/static Storybook next, then a narrow
+  public-static/hosted-Storybook URL mode if that proves the shared value. The existing
+  non-persistent WebKit/resource-receipt/trust/session work transfers to hosted
+  rendered sources, but the dynamic authenticated-web tail does not solve component
+  identity or source write-back. Write-back is separately gated on provenance
+  (`data-exp-id`, story ids/args, tokens, source manifests/maps) and begins as a
+  reviewable patch or GitHub branch/draft PR—not inferred edits to anonymous
+  JSX/templates. Storybook's current official framework support and publishing APIs,
+  GitHub's permission/content APIs, and CodePen's documented no-traditional-API
+  boundary were checked for this decision.
+
+- **2026-08-03 (E1b editable SVG preservation + Layer Blur) — SVGs stay vectors.**
+  Reworked the HTML capture/import seam so trusted local `<img src="*.svg">`, inline
+  SVG, data-URI SVG, and single local/data SVG CSS backgrounds send sanitized source
+  markup into the existing native SVG importer instead of accepting WebKit's PNG
+  snapshot. Added bounded `symbol`/`use` reference reconstruction (including cycle
+  protection), native repeat tiling with editable mask clipping, and fresh ids for
+  every repeated tile. The real Chrome Complete-page fixture now maps **34 raster
+  image nodes, 13 editable SVGs, 6 editable SVG background layers, and zero raster
+  CSS backgrounds** across Phone + Desktop.
+
+  The saved site includes standalone SVG Gaussian filters, so EXP now has an editable
+  **Layer Blur** effect: tolerant document decoding, inspector add/edit controls,
+  bounded Core Image canvas/raster rendering, viewport/export paint bounds, native
+  SVG import, and `<feGaussianBlur>` SVG export. A regression proves softened raster
+  pixels as well as SVG round-trip. General `feColorMatrix` remains editable geometry
+  plus a specifically named unsupported report row until its 4×5 native effect is
+  implemented. Deterministic mapper/WebKit/Chrome-save checks, Figma fixture, all 11
+  real XD packages (84,208 layers), SVG token/effect bridge, and full unsigned Debug
+  app build pass.
+
+- **2026-08-03 (E1b Chrome Complete-page resources) — local images, SVG, and CSS
+  image layers now render instead of placeholders.** Tested the exact Chrome
+  “Webpage, Complete” folder at `~/Desktop/downloaded-website-tests` against its
+  browser screenshot. The capture now embeds browser-decoded `<img>` pixels (PNG,
+  JPEG, and SVG sources) and sanitized inline SVG into the snapshot, including CSS
+  percentage corner clipping, so circular pattern thumbnails and portraits remain
+  visually shaped and the resulting `.design` file is self-contained. The computed
+  style allowlist now carries background repeat/size/position; single `url(...)`
+  data-image layers are rasterized at their measured box while the box/text/children
+  stay editable. Background-image pseudo-elements are captured as bounded synthetic
+  layers, which restores the page's viewport chevron field instead of leaving the
+  body purple. Multi-layer CSS backgrounds still produce one explicit unsupported
+  row rather than being silently flattened.
+
+  Added `verify_rendered_html_chrome_save.sh`, a production-shaped acceptance check
+  that consumes a caller-supplied Chrome-saved HTML file without checking third-party
+  content into the repository. Phone 393 + Desktop 1440 map **53 image/SVG nodes,
+  including 6 CSS background layers, with zero image placeholders**. Deterministic
+  mapper and real WebKit fixture suites pass; the live fixture now asserts four local
+  SVG image nodes and no placeholder warnings. Full unsigned Debug app build succeeds.
+  **NEXT:** owner re-imports the saved page and compares it visually; then either
+  polish a concrete remaining mismatch or proceed to E1c's Sources/session UI.
+
+- **2026-08-03 (E1b mixed inline text overlap) — merged into native rich text.**
+  Owner's follow-up screenshot showed the fixture paragraph's `<a>`, direct text,
+  `<strong>`, and `<em>` as separate overlapping EXP text boxes. This was not the
+  earlier editor-confirm bug: `TextContent` already persists styled runs correctly;
+  the browser snapshot had discarded the ordering between an element's text nodes
+  and inline child elements, so the mapper could only emit each DOM fragment alone.
+  Snapshot v1 now optionally carries each text/element child-node index. For live
+  captures, paragraph/heading-family containers whose descendants are inline text
+  only—and have no box decoration requiring an independent layer—are reconstructed
+  as one fixed EXP text box with DOM-ordered runs and CSS whitespace collapse.
+
+  Link color/underline, installed font fallback, size, bold and italic faces survive
+  per run; `<br>` survives inside the same box. Nested block/layout content and
+  decorated inline boxes conservatively retain the existing node mapping. Because
+  EXP has no substring-level `href` field yet, the link destination is not guessed:
+  the visual run is retained and the destination limitation appears in the Import
+  Report. The production WKWebView test now asserts exactly one mixed paragraph per
+  viewport, exact string order/spacing, distinct link/bold/italic runs, and zero
+  TextKit-excluded characters. Mapper, full Debug build, Figma, 11-package XD corpus,
+  and both semantic HTML suites pass.
+
+- **2026-08-03 (E1b imported text clipping) — fixed at the translation boundary.**
+  Owner's Phone/Desktop screenshot showed red overflow badges and omitted final
+  lines across headings, paragraphs, navigation, and footer text. The saved design
+  proved the canvas renderer was behaving correctly for the frames it received:
+  the importer had stored browser `Range.getClientRects()` ink unions as finite EXP
+  text boxes. A five-line 16px/24px paragraph therefore arrived as 114pt instead of
+  its five full 24pt line boxes (120pt), and a single 24px/36px heading arrived at
+  the exact boundary TextKit can reject. The importer now retains measured origins,
+  expands only the final missing CSS line-box tail plus a 1pt vertical engine
+  tolerance, and carries a bounded 2pt horizontal tolerance for measured WebKit vs
+  CoreText differences (observed maximum 1.77pt in fixture 2).
+
+  The other reflow source was the fixture's intentional unavailable primary font:
+  computed style retained `"Definitely Not Installed", Helvetica, ...`, but EXP
+  kept the first name and fell back to SF while WebKit had advanced to Helvetica.
+  HTML import now walks the CSS family list to the first installed face, applies
+  requested bold/italic traits, and records the substitution in the fidelity
+  report. Native/authored EXP text rendering and clipping were not loosened.
+  `verify_rendered_html_webkit.sh` now runs every imported fixture text node through
+  a canvas-equivalent finite TextKit layout and fails if any non-whitespace character
+  is excluded; Phone + Desktop pass with zero clipped nodes. Deterministic mapper,
+  full Debug build, Figma, 11-package XD corpus, and both semantic HTML suites pass.
+
+- **2026-08-03 (E1b viewport dialog no-op) — Xcode exception identified and
+  fixed.** After the folder chooser, `HTMLViewportSelectionController` activated
+  a width constraint between its summary label and stack view before adding the
+  label to that stack. AppKit raised `NSGenericException` for anchors with no
+  common ancestor, caught it at the File-menu action boundary, and left the user
+  with no dialog or visible failure; the “Animating backwards in time” messages
+  were incidental animation fallout. The label is now inserted before the
+  constraint is activated. The unsigned Debug build and real WKWebView fixture
+  suite pass.
+
+- **2026-08-03 (E1b folder chooser no-op) — reproduced in the native UI and
+  fixed.** Navigating into the fixture directory and pressing Choose Folder
+  dismissed `NSOpenPanel`, but AppKit supplied the directory as `directoryURL`
+  with no selected-item `url`. The importer treated that valid state as a silent
+  cancellation, so the viewport chooser never appeared. Source selection now
+  falls back to the panel's visible directory, explicitly scopes the directory
+  while enumerating it, recognizes `.html`/`.htm` by extension when Uniform Type
+  metadata is unavailable, and shows an actionable error if neither URL exists.
+  The unsigned Debug app rebuild and real WKWebView fixture suite pass.
+
+- **2026-08-03 (E1b local HTML/CSS vertical slice) — implemented and ready for
+  owner visual acceptance.** Added the production `RenderedHTMLWebKitCapture` and
+  connected File ▸ Import HTML/CSS… to E1a's pure mapper. The flow now asks for
+  the containing folder (the actual App Sandbox permission boundary), selects an
+  HTML entry file when needed, offers the five Mobile/Web artboard presets with
+  Desktop 1440 as the sole default, renders each selected viewport in a short-lived
+  non-persistent WKWebView, and inserts the resulting editable artboards beside the
+  active page in one `Import HTML/CSS` undo step. Progress and cancel use the shared
+  `InteropContext`; failures leave the document untouched; fidelity limits remain
+  available through Show Last Import Report.
+
+  Local resources are served through a same-origin `exp-local` scheme so external
+  stylesheets remain CSSOM-inspectable without granting `file://` or network reads.
+  The handler resolves symlinks and standardizes paths before enforcing the selected
+  folder boundary. Remote HTTP(S)/file resources are blocked, navigation away is
+  cancelled and reported, storage is non-persistent, rendering has a 10-second
+  deadline and settle window, and the 15,000-node / 64 MB caps now apply to the
+  whole multi-viewport import rather than resetting per viewport. Real WebKit also
+  exposed two assumptions that were corrected instead of hidden: CoreGraphics CGRect
+  Codable expects the nested pair shape, and public WKWebView does not let EXP pin
+  backing DPR to 1. Geometry remains CSS px → EXP pt; actual DPR is recorded and its
+  resolution-dependent resource risk is reported.
+
+  `verify_rendered_html_webkit.sh` now runs the handwritten fixture through the
+  exact production browser/capture/mapper path at Phone 393 and Desktop 1440. It
+  proves responsive stacking vs columns, media-query notes, editable measured text,
+  gradient and shadow mapping, cancellation, import-wide truncation reporting, the
+  local Sources receipt, and rejection of a symlinked stylesheet escaping the trusted
+  folder. The deterministic mapper check and unsigned Debug app build pass, as do
+  the Figma fixture, all 11 XD packages (644 artboards / 84,208 layers), semantic
+  HTML contract, and deterministic semantic package suites. **Current honest limits:**
+  local image bytes still become visible placeholders, transforms/filters remain
+  measured-box approximations, and ARIA reconstruction remains deferred to the
+  already-required official-spec verification. **NEXT:** owner-test the File menu
+  flow/visual result/one-step Undo; then E1c adds the iterative remote-origin
+  Sources/import-session UI on this proven seam.
+
+- **2026-08-03 (E1 dev kickoff) — the browser payload now has an executable native
+  destination.** E0 was already complete despite `AGENTS.md`'s stale “Next: E0”
+  line, so work resumed at the actual next unchecked box: E1. Added
+  `Model/RenderedHTMLImporter.swift` with three deliberately separated parts:
+  (1) a fixed Codable snapshot contract for viewport/document/DOM rects, direct-text
+  rect unions, allowlisted computed styles, authored attributes, and `data-exp-id`;
+  (2) a read-only extraction script that measures the already-rendered DOM without
+  fetching or mutating anything; and (3) a pure snapshot → `InteropImportResult`
+  mapper. That seam matters: browser/security behavior can be tested independently
+  from EXP geometry, and fixture payloads can exercise the same production mapper
+  deterministically.
+
+  The first mapper slice creates one page with one static artboard per viewport,
+  using measured content height rather than `scrollHeight`; preserves DOM groups,
+  browser-measured text boxes and heading/paragraph content roles; maps solid and
+  linear-gradient backgrounds, borders, radii, first box shadow, opacity, and blend
+  mode; carries render-height/media-query facts into artboard notes; and reuses valid
+  EXP UUIDs from `data-exp-id`. Image bytes, CSS transforms/filters, and ARIA
+  reconstruction are visibly reported, not silently guessed. The last item is
+  intentional: the remaining explicit-role/state decisions still require the
+  official-spec verification already named in E1, so this geometry slice does not
+  smuggle them in by memory.
+
+  Added `scripts/RenderedHTMLImporterCheck.swift` and
+  `verify_rendered_html_importer.sh`; the two-viewport handwritten-style fixture
+  passes geometry, text, gradient-angle reversal, inside border, radius, shadow,
+  notes, and extraction-metadata escaping. The full unsigned Debug app build passes,
+  as do the Figma importer fixture, all 11 real XD packages (644 artboards / 84,208
+  layers), semantic HTML contract suite, and deterministic semantic package suite.
+  **NEXT:** E1b — put the extraction behind a non-persistent, cancellable local-file
+  WKWebView and prove fixture 2 end to end at Phone + Desktop before adding the
+  remote-origin Sources/session UI.
+
+- **2026-08-01 (component text-override paragraph alignment) — fixed.** Text
+  overrides preserved the source paragraph's center/right alignment value, but the
+  resolver always replaced the node frame with the string's auto-width measurement.
+  With no remaining horizontal space, centered text looked left-aligned. Text-content
+  overrides now measure through the text box mode everywhere: auto-width labels still
+  hug (and auto-layout components can re-hug), while fixed boxes retain their authored
+  width and visibly honor center/right alignment. Component-state editing, runtime
+  instances, and semantic HTML resolution now agree. Full Debug macOS build succeeds;
+  **owner visual verification pending.**
+
+- **2026-08-01 (component-state fixed-text geometry + nested-SVG contrast audit) —
+  corrected both owner screenshot repros [a11y/components].** Applying a state
+  `textStyle` override always re-measured the text node, including paint-only color
+  changes, and always used auto-width measurement. A centered fixed text box could
+  therefore collapse from its authored width to one glyph; resizing the shared base
+  geometry then appeared to do nothing in that state because the preview immediately
+  collapsed it again. Text-style overrides now reflow only for metric-affecting
+  properties, and any such reflow retains a fixed box's authored width. Runtime and
+  semantic-HTML state resolution use the same rule.
+
+  The contrast formula and thresholds were not the fault. The component audit only
+  recognized a direct sibling fill, so an imported SVG group containing the actual
+  dark/green path fell through to the white fallback: white text falsely scored 1:1
+  and black text falsely scored 21:1. It now descends through overlapping container
+  groups to the topmost painted child and includes layer opacity. The inspected
+  default dark fill (`sRGB 0.045`) now resolves to about 19.63:1 against white.
+  Large-text classification is also corrected to 18pt regular / 14pt bold, per
+  [WCAG 2.2 SC 1.4.3](https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html).
+  The audit remains deliberately advisory: gradients use a representative stop and
+  vector overlap is bounds-based rather than pixel-sampled. Full Debug macOS build
+  succeeds; **owner visual verification pending.**
+
+- **2026-08-01 (group stroke state + rotated-group resize regression) — corrected
+  both repros from the owner screenshots.** The first stroke-button diagnosis was
+  disproved and its `EXPSegmented` refresh workaround was removed. The actual issue
+  was the inspector's representative-value getter: `flattenStyleTargets` visits a
+  selected group before its children, and a plain group returned hard-coded Solid /
+  Center defaults even though the recursive setter correctly updated its stroked
+  descendants. Plain containers now defer to the first applicable child; auto-padding
+  groups still report their own border.
+
+  The rotated-group screenshot came from two competing transform systems. In the
+  inspected `paper&pencil-ui.design` repro, a roughly 1201×172 group contains two
+  paths rotated 270°, so the legacy raw-frame box was horizontal while the newer
+  child-aware visual box was vertical. A selected group now draws only the
+  rotation-aware unified box, and the hidden legacy resize/rotate hit targets are
+  disabled whenever that unified transform is active. Full Debug macOS build
+  succeeds; **owner visual verification pending.**
+
+- **2026-08-01 (§8 complete) — the element table is verified end to end, and most of a
+  real page turns out to have no EXP equivalent [a11y/interop]:** A subagent read the
+  live spec — HTML-AAM 1.0, **W3C WD 29 July 2026** — section by section and returned
+  ~70 element→role rows verbatim, including all 23 `input` states. `web_fetch`
+  truncates the document at §3.5.47 no matter which mirror is used, which is why this
+  needed a different approach rather than more attempts.
+
+  **The assumption I shipped is now verified.** §3.5.50: `<header>` scoped to `main`
+  or sectioning content → **`sectionheader`**, exactly parallel to `<footer>`. BUG-018
+  put `banner` into `needsExplicitRoleWhenNested` on reasoning-by-symmetry with a
+  comment naming itself as the line to change if wrong. The reasoning was right, and
+  the comment now carries the citation instead of the hedge. §3.5.114 independently
+  re-confirms `<section>` → `region` only with an accessible name.
+
+  **Four new rules, each forced by something the spec actually says.**
+  (6) **`generic` and `paragraph` are the DEFAULT, not a loss.** Every `<div>` is
+  `generic` and every `<p>` is `paragraph`; reporting each under rule 5 would bury the
+  Import Report in thousands of rows — the same failure the 2,000-entry manifest cap
+  exists to prevent. Rule 5 now applies to NON-generic roles with no EXP equivalent:
+  `sectionheader`, `sectionfooter`, `status`, `row`, `cell`, `gridcell`, `rowgroup`,
+  `columnheader`, `rowheader`, `combobox`, `article`. (7) **Never infer a role from an
+  element name where the spec disagrees** — `<menu>` is `list`, NOT `menu` (§3.5.91);
+  an importer that inverted the forward table by name would get this exactly backwards
+  on any non-EXP page. (8) **Some roles depend on rendering or ancestry, not markup**,
+  and since the importer HAS the rendered tree it must resolve them rather than guess:
+  `<select>` splits on how it renders (listbox vs combobox), `<td>`/`<th>` take
+  `cell` vs `gridcell` from the ancestor table's role, `<li>` is `generic` outside
+  `ol`/`menu`/`ul`, `<summary>` depends on position within `details`. (9) **`alt=""`
+  alone does not mean presentational** (§3.5.57) — an empty-alt `<img>` reverts to
+  `image` if it has an accessible name from another mechanism.
+
+  **Nine `input` types have no ARIA role at all** — Color, Date, Local Date and Time,
+  File Upload, Hidden, Month, Password, Time, Week — computing to non-ARIA tokens like
+  `html-input-date`. These are ordinary form controls, so any importer assuming
+  `input` always yields an ARIA role is wrong nine ways.
+
+  **The scoping consequence worth sitting with.** Counting what EXP can actually
+  represent: `row`, `cell`, `rowgroup`, `columnheader`, `rowheader`, `combobox`,
+  `status`, `paragraph`, `article`, `sectionheader`/`sectionfooter` — a real page's
+  tables, forms and prose land largely outside EXP's role vocabulary. That is not a
+  reason to widen the vocabulary; it is the reason rule 5 exists and why rule 6 had to
+  be written before the mapper, or the report would have been unusable on the first
+  real page.
+
+  ARIA note per WORKING-AGREEMENT: everything above is cited to a numbered HTML-AAM
+  section against a dated Working Draft. NOT verified and still open: `aria-*` state
+  mapping (needs WAI-ARIA 1.2 role definitions) and explicit-role-contradicts-host
+  (needs ARIA in HTML role prohibitions). Elements outside the current forward table
+  (`details`, `fieldset`, `dl`, `label`, `meter`, `svg`, …) were not requested and are
+  unchecked.
+
+  NEXT: E1's mapper. The a11y groundwork it depends on is done.
+
+- **2026-08-01 (BUG-018) — nested landmark export fixed, and my own bug report
+  corrected [a11y/export]:** DONE — owner ran `verify_semantic_html_package.sh` and
+  all seven checks pass, including the new
+  `ok: nested landmarks keep their authored role (BUG-018)`. First try, no build
+  fixes needed.
+
+  **First, the correction.** The original BUG-018 entry claimed the exporter had no
+  landmark ancestry check at all. **That was wrong.** `SemanticHTMLExporter` already
+  carried `if (role == .banner || role == .contentinfo), !semanticAncestors.isEmpty`.
+  I had grepped for `ancestry`, `landmark`, and `sectioning`; the code says
+  `semanticAncestors`, so the search missed it and I reported absence rather than
+  saying I could not find it. The backlog entry now leads with the correction, because
+  a wrong bug report that quietly becomes a right one teaches the next reader nothing.
+
+  **What was genuinely broken, and is now fixed.** Two things. (1) **`complementary`
+  was never escalated.** HTML-AAM §3.5.10: an `<aside>` inside sectioning content
+  computes as `complementary` ONLY with an accessible name, `generic` otherwise. So a
+  nested EXP `complementary` exported as a bare `<aside>` and lost its role silently,
+  with nothing reported. (2) **`!semanticAncestors.isEmpty` was a proxy, not the
+  rule.** Only sectioning content and `main` rescope a nested header/footer/aside — an
+  EXP `banner` inside a `group`, `toolbar`, or `list` (all `div` hosts) is still scoped
+  to `body` and already computes as `banner`, so the old condition emitted a redundant
+  `role` attribute that ARIA in HTML calls NOT RECOMMENDED. Added
+  `AriaRole.hostRescopesNestedLandmarks` (host tag in `article`/`aside`/`nav`/
+  `section`/`main`; `search` and `form` deliberately excluded — landmarks, but not
+  sectioning content, so they do not rescope a descendant) and
+  `AriaRole.needsExplicitRoleWhenNested` (`banner`, `contentinfo`, `complementary`).
+
+  **Test covers the negative as well as the positive**, because the tightening half of
+  this fix is only observable as an ABSENCE. `Fixture.nestedLandmarksDocument()` puts
+  the same three landmarks inside a `region` host (`<section>`, rescoping) and the same
+  banner inside a `toolbar` host (`<div>`, not rescoping); the check asserts exactly
+  ONE explicit role each and exactly two `<header>` hosts. A test that only checked
+  "role is present" would pass on the buggy code.
+
+  **Still not verified, and left visible in the code.** `<header>` scoped to sectioning
+  content is HTML-AAM §3.5.50, which the truncated spec fetch never reached, so
+  `banner` sits in `needsExplicitRoleWhenNested` by the same reasoning as `<footer>`
+  §3.5.44 rather than by citation. The doc comment says so and names itself as the one
+  line to change if that reasoning is wrong.
+
+  Knock-on for E1: EXP's own exports now state nested landmark roles explicitly, which
+  simplifies fixture 1's round trip — §8 rule 1 (read the explicit `role` first) does
+  the work, with no ancestry inference needed on the import side for EXP-authored HTML.
+
+  NEXT: owner runs `scripts/verify_semantic_html_package.sh`; then either the remaining
+  §8 rows (resume at HTML-AAM §3.5.50) or E1's mapper.
+
+- **2026-08-01 (ARIA verification) — the reverse check found a forward bug, and
+  corrected a row we had already marked verified [a11y/export/interop]:** Worked §8
+  against HTML-AAM 1.0 ahead of E1's mapper, on the reasoning that verifying rows
+  while trying to make a mapper compile is exactly when "verified, not remembered"
+  erodes. Two findings justify the order.
+
+  **A row recorded as VERIFIED on 2026-07-29 was wrong.** That session recorded
+  "`<footer>` → `contentinfo` … otherwise `generic`." HTML-AAM §3.5.44 maps a
+  `<footer>` scoped to `main` or sectioning content to **`sectionfooter`**, not
+  `generic`. The wrong version would have had the importer silently produce a plain
+  group and discard the semantic; the right version trips rule 5 — report it, never
+  approximate — because `sectionfooter` has no EXP equivalent. First time that rule
+  does real work. I did NOT fix `<header>` by symmetry even though §3.5.50 is almost
+  certainly `sectionheader`: reasoning by symmetry is what produced the original
+  error, so it is recorded as unverified.
+
+  **BUG-018, P1: nested landmark roles are silently downgraded on EXPORT.** Checking
+  the reverse mapping meant checking what the forward exporter emits, and
+  `AriaRole.semanticHTMLMapping` returns `header`/`footer`/`aside` with
+  `explicitRole: nil` **unconditionally**. So a nested EXP `banner` exports as a
+  nested `<header>` that computes as `sectionheader`, a nested `contentinfo` as
+  `sectionfooter`, and an unnamed nested `complementary` as `generic` (§3.5.10 —
+  `aside` in sectioning content needs an accessible name). The authored role is lost
+  and nothing in the handoff says so. SEMANTIC-HTML-CONTRACT.md claims "B2 performs
+  the ancestry check and emits an explicit role only when necessary"; I could not find
+  that check — two call sites, no context parameter, no landmark/ancestry logic
+  anywhere outside the unrelated `phrasingOnly` branch. Logged with the search I
+  actually ran so the next person can disprove it cheaply rather than trust me. **This
+  is a shipped-v2.1 accessibility fidelity bug, not just an importer concern.**
+
+  **Progress and honest remainder.** 15 rows verified with per-row HTML-AAM section
+  citations (`a` with/without `href`, `article`, both `aside` scopings, `button`,
+  `dialog`, `div`, `figure`, both `footer` scopings, `form`, `h1`–`h6`, `header`
+  scoped to body, `section`). One of the four open questions is settled: `<a>` without
+  `href` → `generic` (§3.5.3). The rest is blocked by a tooling limit rather than a
+  judgement — the spec fetch truncated at §3.5.49, so everything alphabetically after
+  `header` was not read. Recorded that way specifically, so the next session resumes
+  at a known point instead of re-deriving what was covered.
+
+  NEXT: BUG-018 before more rows, because how the exporter resolves nested landmarks
+  changes what the reverse table should say.
+
+- **2026-08-01 (post-spike design) — the import report gets hands: repair actions, and
+  adjust stops being destructive-only [interop/import/ux]:** Owner asked whether the
+  importer could work like a scrape tool they built previously — show the links it
+  found, let the user fix by hand what didn't transfer. The answer is yes, and §4.3
+  turns it from a convenience into a requirement: a webfont declared in a cross-origin
+  stylesheet **cannot be enumerated by any means**, so for that class the manual path
+  is not a fallback for weak automation, it is the only path that exists. New §5.1.
+  Governing rule, owner's words: **if a fix takes one or two steps, the UI offers it.**
+  Actions: copy URL / copy all unresolved; supply a local file onto a placeholder;
+  open the source in the user's OWN browser (EXP never fetches it, so the
+  credential-free posture is untouched); paste stylesheet text.
+
+  **Pasting CSS needed a boundary, not a shrug.** §1 refuses pasted fragments, so this
+  looked like a contradiction. It is not, and the distinction is written down: §1
+  refuses a fragment as the ROOT of an import — no `<head>`, no font context, no
+  unambiguous root box. §5.1 supplements an import that already has a rendered
+  document and a real box tree; the CSS is resolution data, not a document. One
+  honesty requirement falls out and is now §9 category 9: an import containing
+  hand-supplied assets or CSS **declares that in the report**, because a handoff
+  artifact that quietly blends served and hand-edited sources is exactly the silent
+  guess §0 refuses.
+
+  **The owner dissolved a collision I had framed as a fork.** Repair actions conflict
+  with the 2026-07-29 "adjust re-renders and REPLACES" decision, since repairs are
+  edits to imported content and would be destroyed. I offered three ways to resolve
+  it; the owner supplied a fourth and better one: **adjust offers replace-in-place OR
+  import-as-new-artboard beside the original.** Nothing has to become non-destructive,
+  because nothing gets overwritten — the repaired artboard survives by being left
+  alone. Cost recorded rather than glossed: repairs are NOT carried forward into the
+  new generation, so ten hand-supplied assets means keeping the old artboard or
+  re-supplying them. What it buys is that the choice is the designer's and is visible.
+  Consequences: the session now records GENERATIONS with the viewport and trust set
+  that produced each, each generation labelled so two artboards from one URL are
+  distinguishable, undo still one step per adjust. This **supersedes surgical
+  placeholder-fill for the manual-repair case** — its main justification — leaving it
+  open only as an optimisation for newly-trusted resources.
+
+  Accessibility is specified inline rather than left implied: no repair action is
+  drag-only (a "Choose file…" button sits beside every drop target, because drag-only
+  is unusable by keyboard and by anyone with a motor impairment), none conveyed by
+  colour alone, all labelled in text.
+
+  ARIA note per WORKING-AGREEMENT: nothing verified, nothing claimed; §8 untouched and
+  the ~40 unverified rows still block E1.
+
+- **2026-08-01 (fifth run) — confound removed, finding confirmed: E0's trust half is
+  closed [interop/import/spike]:** With a real, valid woff2 in place the FontFaceSet
+  reports `Fixture Brand — loaded`, the server log still shows `GET /brand.woff2` at
+  both viewports, and the manifest still does not contain it. **A font that loads
+  perfectly is fetched and never listed.** The parse-failure explanation is eliminated;
+  §4.3's qualifier is gone and the finding stands unqualified.
+
+  `R` returned exactly what `P` returned on every run (0 of 6, then 5 of 9), which is
+  the expected result for two readouts of the same buffer — so E1 ships ONE of them,
+  and the pair existed only to prove the buffer rather than the wiring omits the font.
+
+  **The §10 criterion itself was wrong and has been rewritten.** It said "every
+  subresource the server served appears in the manifest," which the platform makes
+  impossible — a criterion no implementation could ever satisfy is not a standard, it
+  is a promise to eventually lie about. The honest form: every served subresource
+  either appears in the manifest OR falls into a class the report names as
+  unenumerable. Recorded as a RESOLVED LIMIT rather than a pass, with the automated
+  cross-check kept loud so that if the unlisted set ever grows past the known class,
+  someone finds out.
+
+  **E0's trust half is done.** Every fixture-3 criterion is settled: pass-1 purity,
+  origin grouping including port and punycode, blocked-stays-blocked, the iterative
+  case, per-viewport declared-vs-observed attribution, and the enumeration limit.
+  Recorder verdict for E1: **`D` + `I`, with `P` or `R` as corroboration.** Three
+  contract subsections came out of the spike that no amount of design discussion would
+  have produced — §4.1 (iterative trust is normal), §4.2 (declared ≠ requested), §4.3
+  (the receipt is incomplete, which is why trust is per origin).
+
+  **Scope fork, resolved same session.** Fixtures 1 and 2's geometry, text-run and role
+  criteria cannot be checked without a mapper, and the mapper is E1's substance. Owner
+  decision: **E0 closes now; geometry fidelity is proven inside E1.** A spike does not
+  de-risk a thing by building it — E0's job was the mechanism, and the mechanism is
+  settled. Accepted risk, named rather than glossed: if a browser box tree maps badly
+  onto EXP's model, that surfaces further in than it would have with a throwaway mapper
+  built first. Fixtures 1–2's §10 criteria become E1's first proof.
+
+  **Second owner decision: the unenumerable-resource limit surfaces as ONE NAMED ROW
+  per unreadable stylesheet**, in the Sources pane and the Import Report, located with
+  the origin it belongs to — not a standing note on every import (becomes boilerplate
+  nobody reads, the exact failure the 2,000-entry cap exists to prevent) and not only
+  when something visibly broke (that would couple a privacy-receipt fact to a
+  visual-fidelity trigger, so a hidden tracker pixel would go unmentioned). The row
+  appears whenever the stylesheet is unreadable, whether or not anything looks wrong.
+
+  ARIA note per WORKING-AGREEMENT: nothing verified, nothing claimed; §8 untouched and
+  the ~40 unverified reverse-mapping rows still block E1 regardless of which fork is
+  taken.
+
+- **2026-08-01 (fourth run) — the blind spot is WebKit's, not ours; and a confound in
+  my own fixture had to be removed before saying so [interop/import/spike]:** The
+  diagnostic added last round answered its question. `R` (polled resource timing) and
+  `P` (PerformanceObserver) returned **identical** counts — 5 of 9, neither including
+  `brand.woff2`. Two independent readouts of the same buffer agreeing means the
+  omission is not a wiring bug on our side: the resource-timing buffer does not
+  contain the font. `document.fonts` DOES name it, but only as a family
+  (`"Fixture Brand"`), never a URL — so it can report that a font was used and never
+  which file was fetched. The automated server-log cross-check now prints the finding
+  directly: `⚠ FETCHED BUT NEVER LISTED — http://127.0.0.1:8732/brand.woff2`.
+
+  **A confound in the fixture, found before the claim was written down.** The font was
+  a placeholder text file that could not parse, and the readout said
+  `font-face: Fixture Brand — error`. That leaves a hole in the reasoning: the
+  omission might follow from the parse FAILURE rather than from the cross-origin
+  declaration, and the contract would have been asserting more than the evidence
+  supported. Replaced it with a real, valid woff2 — synthetic, four glyphs, built by
+  `spike/html-import/fixture3-multiorigin/make-fixture-font.py`, so no third-party
+  typeface is redistributed but the file genuinely parses — and made the `h1` actually
+  use it. §4.3 records the finding with an explicit **"pending one confirming run"**
+  rather than stating it flat. If the manifest still misses a font that loads cleanly,
+  the finding stands unqualified.
+
+  Everything else held on this run: pass-1 purity (one `GET /` per viewport), the
+  iterative case, per-viewport declared-vs-observed attribution on `phone-hero.svg`,
+  and the unreadable-stylesheet row. `D` and `I` remain the load-bearing recorder pair;
+  `P` and `R` are interchangeable corroboration, so E1 ships one of them, not both.
+
+  ARIA note per WORKING-AGREEMENT: nothing verified, nothing claimed; §8 untouched,
+  ~40 rows still block E1. NEXT: one `fixture3` run with the valid font — if
+  `brand.woff2` is still unlisted, drop the "pending" qualifier from §4.3 and E0's
+  trust half is closed.
+
+- **2026-08-01 (third run) — a font was fetched and never listed; trust-per-origin is
+  vindicated by the failure [interop/import/spike]:** Per-viewport attribution works —
+  `phone-hero.svg` now reads "393×852 declared C · observed P / 1440×1024 declared C ·
+  NOT requested here", so §4.2's declared-vs-requested distinction is demonstrated and
+  the union-manifest criterion is fully met. But the pass-2 server log, which survived
+  for the first time after the `sed` fix, produced the real result.
+
+  **`GET /brand.woff2` was served at both viewports and appears in NO recorder and NO
+  manifest row.** A file was fetched over the network and never listed. Being precise
+  about what broke, because the distinction is the whole finding: the **security model
+  held** — the font came from `:8732`, an origin the user had trusted, so no
+  unauthorised byte moved. The **receipt did not**. §9 category 7 calls the Sources
+  report "the trust step's receipt, readable after the fact," and a receipt that omits
+  a fetched file is not a receipt. Cause is §4.1's: the font is declared inside a
+  cross-origin stylesheet whose `cssRules` cannot be read, and `document.fonts` exposes
+  a font FAMILY, never the URL it came from. Nothing in the page's readable surface
+  ever names it.
+
+  **This retroactively justifies granting trust per ORIGIN rather than per resource.**
+  Per-resource trust sounds stricter and more respectful; the spike shows it would be
+  **unimplementable as an honest promise**, because you cannot ask someone to approve a
+  list of files when files can be fetched that the list can never contain. Origin-level
+  is the finest granularity that can be stated truthfully. The owner decided this on
+  2026-07-29 for readability reasons — it turns out to have been the only correct
+  option available. New §4.3, with three non-optional requirements: the Sources report
+  names what it could NOT enumerate; no UI text anywhere claims completeness (a count
+  is a count of what was *seen*); and the E1 test suite keeps a server-log cross-check.
+
+  **The methodological point, which generalises past this feature.** Every in-page
+  recorder missed the font. It surfaced only because an independent observer — the
+  fixture's own web server — was asked what it actually served. Self-reported
+  completeness is not evidence. That check is now automated in
+  `verify_html_import_spike.sh` (manifest JSON vs server log, both directions) and
+  currently FAILS on purpose, so the blind spot cannot regress into silence. Added a
+  polled resource-timing recorder (`R`) alongside the observed one and a FontFaceSet
+  readout, to separate "our PerformanceObserver missed it" from "WebKit never had it"
+  — a diagnostic rather than a theory, since the cause is not yet established.
+
+  ARIA note per WORKING-AGREEMENT: nothing verified, nothing claimed; §8 untouched and
+  the ~40 unverified rows still block E1. NEXT: one run to see whether `R` or the
+  FontFaceSet names the font at all. Either way E0's trust half is settled — the model
+  is sound and its limits are now written down with filenames. E1's mapper is what
+  remains, and it is what makes fixtures 1 and 2's geometry/text/role criteria
+  checkable at last.
+
+- **2026-08-01 (later) — Union manifest works; the sharper finding is that DECLARED
+  and REQUESTED are different facts [interop/import/spike]:** Second fixture-3 run
+  with the three harness fixes in.
+
+  **Both open criteria moved.** `phone-hero.svg` appeared once the document's own
+  origin was pre-allowed, and the media query is visibly resolving `true` at 393 and
+  `false` at 1440 — the multi-viewport render is doing what §1.1 says. Content height
+  now reads 442/406 against a viewport-clamped 852/1024, so the `scrollHeight` trap is
+  confirmed as real and avoided.
+
+  **But the union manifest didn't prove what it looked like it proved.** The CSSOM
+  walk found `phone-hero.svg` at BOTH viewports, because the rule exists in the
+  stylesheet at both — while the browser only *requested* it at 393. The manifest was
+  unioning recorders and viewports separately, so the pairing was lost and "which
+  viewport actually asked for this" was unanswerable. New §4.2. The framing that came
+  out of it is worth keeping: **recorders are of two kinds.** `D` and `C` read what
+  the page DECLARES; `I` and `P` OBSERVE what it requested. In pass 1 nothing is
+  fetched, so everything is declaration-only by definition; in pass 2, a row still
+  declaration-only at a viewport is one that viewport never requested. Both failure
+  modes are real — under-listing hides something the designer should rule on, and
+  over-listing inflates the trust list, which is how a list stops being read at all
+  (the same failure the 2,000-entry cap exists to prevent). So rows are listed AND
+  attributed. This also earns `C` its place despite catching almost nothing: it can
+  see what an unselected viewport WOULD request, so adding a viewport can be warned
+  about before the re-render that would discover it.
+
+  **§4.1 confirmed with a concrete missing file.** `brand.css` was trusted, fetched
+  and rendered — and its `cssRules` still threw, because it is cross-origin without
+  CORS. The webfont it declares, `brand.woff2`, appears **nowhere** in the pass-2
+  manifest despite its origin being trusted. A trusted third-party stylesheet can hide
+  its subresources completely. That is no longer a predicted risk, it is an observed
+  one with a filename.
+
+  **Fixes this round.** Per-viewport recorder attribution (viewport → recorders, kept
+  paired). Resource type normalised to one vocabulary — PerformanceObserver's
+  `initiatorType` was overwriting the DOM's, so the same file read "style-sheet" in
+  pass 1 and "link" in pass 2; §4 calls resource type per row a security detail, so it
+  cannot drift between passes. Declaration recorders now win on type, since they know
+  which element declared it. BSD `sed` aborted on the pass-2 server log
+  (`Assertion failed: (advance > 0)`) and destroyed the ground truth for that pass —
+  now stripped to printable ASCII under `LC_ALL=C`, and both raw logs are copied out
+  so a crash in the pretty-printer can never eat the evidence again.
+
+  ARIA note per WORKING-AGREEMENT: nothing verified, nothing claimed; §8 untouched and
+  the ~40 unverified rows still block E1. NEXT: one more `fixture3` run to confirm the
+  DECLARED vs OBSERVED block reads correctly, then E1's mapper — at which point
+  fixtures 1 and 2's geometry, text-run and role criteria finally become checkable.
+
+- **2026-08-01 — Spike ran first try; the trust model survives, and CSS blindness
+  turns iterative trust into the normal path [interop/import/spike]:** Owner built and
+  ran `scripts/verify_html_import_spike.sh`. It compiled and executed on the first
+  attempt across all three fixtures.
+
+  **The headline: the two-pass model reproduces.** Fixture 3's pass 1 saw 4 origins /
+  6 resources with no trace of origin B (`:8733`). Trusting origin A let `widget.js`
+  execute, and pass 2 saw 5 origins / 8 resources including both `:8733` URLs. §4's
+  iterative-trust claim is now demonstrated rather than asserted. Pass-1 purity holds
+  too, and the proof is external: the fixture's own server log shows exactly one
+  `GET /` per viewport and no subresource of any kind. Blocked origins stayed blocked
+  through pass 2. The IDN host arrived **already punycode-encoded**, because URL
+  parsing performs IDNA — so §4's homograph rule is satisfied by construction rather
+  than by remembering to encode, which is a better outcome than the one specified.
+
+  **The finding that changes the contract (§4.1, new).** The CSSOM recorder caught
+  ZERO resources, and the reason matters more than the number: **a blocked stylesheet
+  has no rules to walk, so everything it references is invisible.** Webfonts,
+  `background-image`, `border-image`, `mask-image` — none can appear in pass 1's
+  manifest, because the CSS naming them was never fetched. Worse, a stylesheet that IS
+  fetched but is cross-origin without CORS is equally unreadable (`cssRules` throws),
+  so its resources stay hidden even after its own origin is trusted. Nearly every real
+  page uses CSS backgrounds or webfonts, which means **the first trust list is
+  structurally incomplete for almost every page** — not occasionally, as §4's original
+  caveat implied. Three consequences now binding on E1: the Import Session UI must
+  present the list as a starting point rather than an inventory; an unreadable
+  stylesheet becomes its own manifest ROW naming what it hides (skipping it silently
+  would conceal the resources AND the reason, so the designer could not tell a gap
+  existed); and the revisitable session, justified as a convenience, is actually
+  load-bearing, because a single-shot dialog cannot express a list that is knowably
+  incomplete when shown. This is a UI-honesty problem, not a structural one, so E1
+  absorbs it rather than being rescoped.
+
+  **Recorder verdict, measured.** `D` (DOM walk) is load-bearing — 6 of 6 in pass 1,
+  7 of 8 in pass 2. `P` (PerformanceObserver) reports NOTHING while blocked (0 of 6 in
+  pass 1, 3 of 8 in pass 2), which answers the version-dependence question in the §2
+  table: it is a pass-2 cross-check, never a discovery mechanism. `I` (instrumentation)
+  caught only 2 of 8 but was the ONLY recorder that saw `config.json`, so it is small
+  in count and irreplaceable in kind — script-initiated `fetch`/XHR has no other
+  witness. E1 ships D + I with P as corroboration.
+
+  **Three harness bugs found and fixed.** (1) `file://` URLs have no host, so every
+  local resource was dropped and fixtures 1 and 2 reported empty manifests — fixed by
+  treating the security-scoped DIRECTORY as the unit of trust, which is honest because
+  it is exactly what §2's scoped read grants. (2) Pass 2 never pre-allowed the
+  document's OWN origin (§4 says it is pre-allowed in the trust step), so the page's
+  own stylesheet stayed blocked — which is what silently disabled the CSSOM recorder
+  and left the union-manifest criterion untested. (3) An unreadable stylesheet was
+  skipped in silence; it now reports itself, which is what turned bug 2 into finding
+  §4.1. Also fixed: `grep` treated the pass-2 server log as binary and swallowed the
+  ground truth, and fixture 1 was being probed at two web viewports when an EXP export
+  is fixed-geometry — that measures the exporter's CSS reflow, not round-trip accuracy,
+  so it now runs at one size.
+
+  **A quieter finding with real consequences.** `scrollHeight` floors at the viewport
+  height, so a page shorter than its viewport reports the viewport's height. §1.1 says
+  the artboard is cut to full DOCUMENT height; using `scrollHeight` would have added
+  trailing empty space that never existed in the browser. The probe now reports
+  measured content height and the clamped value side by side.
+
+  **Not proven, and deliberately not ticked.** Fixtures 1 and 2 currently show only
+  that extraction runs and that layout differs correctly across viewports. Their
+  geometry, text-run, and role criteria cannot be checked until a mapper exists — a
+  probe that reports a box tree is not an importer that reproduces one. The
+  union-manifest criterion needs the rerun. Session persistence and single-undo
+  criteria are untestable outside the app.
+
+  ARIA note per WORKING-AGREEMENT: nothing verified, nothing claimed; no §8 rows were
+  touched and the ~40 unverified rows still block E1. NEXT: rerun
+  `scripts/verify_html_import_spike.sh fixture3` with the fixes and confirm (a) the
+  phone-only `background-image` appears attributed to one viewport, and (b) the
+  now-readable same-origin stylesheet lights up recorder `C`.
+
+- **2026-08-01 — Spike fixtures and probe harness written; the real finding is that
+  WKWebView cannot report subresource requests [interop/import/spike]:** Built the E0
+  spike apparatus. **Not yet built or run by the owner — nothing here is proven.**
+
+  **The finding that shaped everything else.** `WKWebView` has no delegate for
+  SUBRESOURCE requests — `WKNavigationDelegate` sees navigations only. Pass 1 of the
+  trust model has to do two things simultaneously: block everything, and record what
+  was attempted. Blocking is solved and is the half carrying the privacy guarantee
+  (`WKContentRuleList` blocking every resource-type EXCEPT `document`, which is what
+  lets the initial navigation through while nothing else moves). **Recording has no
+  clean API at all.** Four candidate mechanisms exist and every one has a blind spot:
+  a DOM walk misses runtime-constructed URLs; a CSSOM walk cannot read cross-origin
+  stylesheets; patched `fetch`/XHR/`Image` miss markup-declared resources and can be
+  defeated by a page that captures the originals first; `PerformanceObserver` may or
+  may not report blocked entries depending on WebKit version. So the harness runs
+  **all four at once and prints which caught what**, and the run ends with a RECORDER
+  COVERAGE block naming every resource caught by exactly one recorder — that recorder
+  is then load-bearing and cannot be dropped. This is why §4 already says "requests
+  observed during the render window" rather than promising an exhaustive list; the
+  wording was written before the mechanism was understood and it turns out to be
+  exactly right. Anything the server log shows but no recorder caught is a blind spot
+  to NAME in §4, not to quietly tolerate. Contract §2 now carries the mechanism table.
+
+  **Fixtures.** Fixture 1 is generated rather than committed: the runner compiles the
+  existing `SemanticHTMLPackageCheck` and exports the golden-fixture document, so
+  ground truth via `data-exp-id` costs nothing and needs no app run. Fixture 2 is
+  hand-written with exactly ONE media query at 768px, so any difference between the
+  393 and 1440 imports traces to one rule — plus a guaranteed font fallback, gradient,
+  radius, shadow, mixed bold/italic runs, and prose long enough to wrap differently at
+  the two widths, which is how an importer that re-ran line breaking instead of
+  measuring gets caught. Fixture 3 runs **three loopback origins on different ports**
+  via a small `serve.py`: same host, different port is still a distinct origin, which
+  also checks the manifest groups by scheme+host+PORT rather than host alone. Origin B
+  (:8733) is reachable only once origin A's `widget.js` is trusted and executes —
+  making §4's iterative-trust claim reproducible rather than asserted. If pass 2's
+  manifest does not grow, the two-pass model is wrong and E1 gets rescoped. Also in
+  there deliberately: a `background-image` inside the phone media query (one resource
+  at one viewport only, proving the union manifest), a never-resolving IDN host for
+  punycode, and one real remote origin so the manifest is not purely loopback. The
+  server's own request log is the ground truth for "pass 1 fetched the document and
+  NOTHING else" — an external check, not the harness marking its own homework.
+
+  **Owner scope decision, and it bounds E1.** Responsive behaviour is READ, then
+  DISCARDED. Media queries resolve each viewport's layout and nothing more; EXP nodes
+  never carry breakpoints, container queries, or fluid rules, and three viewports
+  produce three independent static artboards rather than one that reflows. Where a
+  media query materially changed a layout, that is Import Report prose and optionally
+  artboard NOTES text — description, never mechanism. Owner's rationale: responsive
+  behaviour belongs in code, where it is written, tested and shipped; modelling it on
+  canvas would be a worse CSS inside a design tool, and would make the export LESS
+  faithful because it would have to invent breakpoint syntax nobody asked for. Useful
+  side effect for E1: the importer never has to decide which of several competing
+  rules wins, because it only ever reads a resolved render.
+
+  **Housekeeping.** `docs/*` is gitignored with an allowlist and
+  `HTML-IMPORT-CONTRACT.md` was never added to it, so the E0 deliverable was sitting
+  untracked in one working copy. Added. (`WORKING-AGREEMENT.md`, `DESIGN-ASSETS.md`,
+  `BACKLOG.md`'s siblings and the PERF docs are still untracked — left alone, since
+  that may be deliberate. Worth a decision.) Spike-generated artifacts are ignored;
+  the fixtures themselves are tracked. Harness compiles with `-swift-version 5` on
+  purpose — throwaway delegate callbacks are not where Swift 6 concurrency
+  annotations earn their keep, and shipped E1 code does not get that exemption.
+
+  ARIA note per WORKING-AGREEMENT: **nothing verified this session, nothing claimed.**
+  No §8 rows were touched; the ~40 unverified reverse-mapping rows, `aria-*` state
+  mapping, `<search>`, and `<a href>` still block E1. NEXT: owner runs
+  `scripts/verify_html_import_spike.sh` and reads the output against §10 — this is the
+  first code in Chunk E, so expect the build to need a pass or two.
+
+- **2026-08-01 — E0 contract accepted; the viewport answer turned out to be an
+  architectural change [interop/import/docs]:** The owner read
+  `HTML-IMPORT-CONTRACT.md` and answered the four open questions, unblocking the
+  spike. Three were straightforward. The fourth was not, and it is the one worth
+  remembering.
+
+  **Q3 was asked as "which viewport preset is the default?" and answered "make it a
+  multi-select."** That is not a default-value change. Importing one page at three
+  widths means: discovery must run once PER viewport and produce a UNION manifest,
+  because a responsive page genuinely requests different resources at different widths
+  (`srcset`, `<picture>`, media-queried `@font-face`, `matchMedia`-driven scripts) —
+  discovering at one width and rendering at three would hand the designer a trust list
+  that is quietly incomplete, which is exactly the failure the two-pass model exists to
+  prevent. Each manifest row therefore records WHICH viewports asked for it, while
+  trust stays granted per SESSION rather than per viewport: splitting it per width
+  would multiply the decisions without making any one of them better informed.
+  Downstream, the preview pane becomes per-viewport (keyboard-reachable switcher,
+  width labelled in text), report categories 1–5 split per viewport while 6/7 stay
+  session-wide, the render deadline is per pass per viewport while node/payload/manifest
+  caps stay import-wide, and folder × viewport becomes a matrix — 6 files × 3 widths is
+  18 artboards, so the sheet states the count before running. Two smaller calls made
+  while writing it up, both reversible by one sentence from the owner: the viewport
+  list is filtered to the `Mobile` and `Web` `ArtboardPreset` groups (A4 and Story are
+  not browser viewports), and preset HEIGHT is used for the render — so `vh` and height
+  media queries resolve against something real — while the artboard is cut to full
+  document height, with the report naming the height each viewport resolved against.
+  Cap of 5 viewports per import, so "select all" has a known worst case.
+
+  **The other three.** Q1: folder import puts one artboard per file on ONE canvas page
+  — side-by-side comparison is the point of importing a folder; a crowded page with a
+  large folder is filed as the known cost. Q2: re-importing a URL that already has a
+  session defaults to ADJUSTING that session (reuses trust decisions, stops identical
+  sessions accumulating) while keeping "Import as new" for the deliberate second
+  import. Changing the viewport selection is likewise an adjust — re-render and
+  replace, one undo step, same warning; appending only the newly-selected width is
+  filed with the surgical-fill follow-up rather than built. Q4: passing the 2,000-entry
+  manifest cap degrades to same-origin-only with the unlisted count reported, instead
+  of refusing — refusal turns one heavy page into a dead end. The reverse risk is
+  named in the contract: a page could exceed the cap precisely to bury a third-party
+  origin, which is why overflow BLOCKS third parties rather than waving them through.
+
+  §11 now records decisions instead of questions. ARIA note per WORKING-AGREEMENT:
+  **this session touched no §8 rows and verified nothing new** — the ~40 unverified
+  reverse-mapping rows, `aria-*` state mapping, `<search>`, and `<a href>` still block
+  E1 and remain spec work against WAI-ARIA 1.2 / ARIA in HTML / HTML-AAM. Docs only;
+  no code changed, nothing to build. NEXT: the three-fixture spike.
+
+- **2026-07-29 — E0 rendered-HTML import contract drafted, incl. a two-pass source
+  trust model [interop/import/docs]:** Wrote `docs/HTML-IMPORT-CONTRACT.md` (394
+  lines) as the E0 deliverable: input boundary, WKWebView isolation, DOM/computed-style
+  payload allowlist, resource/privacy rules, cancellation/limits, semantic-role reverse
+  mapping, fidelity-report categories, and a three-fixture bounded spike.
+
+  **The architectural consequence worth remembering.** The owner asked for a UI that
+  shows every source a URL import pulls from, so each can be trusted individually. You
+  cannot enumerate a page's sources without rendering it, and rendering is the thing
+  being gated — so the import is **two passes**: pass 1 renders with everything blocked
+  while RECORDING each attempted request (nothing is fetched, so the page neither
+  receives nor sends data), the trust step presents that manifest grouped by origin,
+  then pass 2 re-renders with only the allowed origins. Two honesty requirements fall
+  out and are written into the contract: the manifest is "requests observed in the
+  render window," not exhaustive (lazy loading), and **allowing a script can reveal
+  requests pass 1 never saw** — which makes the trust list iterative by nature, and is
+  why the revisitable Import Session is load-bearing rather than a convenience.
+
+  **Owner decisions.** Trust granted per ORIGIN (expandable to resources; origin is
+  the unit a person can reason about, the file list justifies the choice). Trust stored
+  per document, opt-in, deliberately NO app-wide allowlist because a global one becomes
+  "allow everything" as it outgrows anyone reading it. Adjusting an import re-renders
+  and REPLACES as one undo step behind an explicit warning — owner rationale: a clean
+  predictable import is the priority until real use cases exist. Surgical
+  placeholder-fill (newly-trusted resources land in boxes already holding their space,
+  preserving post-import edits) is recorded in the contract as a follow-up rather than
+  discarded, with `data-exp-id` diff/merge noted as a third option and a project in
+  its own right. Security specifics pinned down: punycode display so an IDN homograph
+  cannot masquerade, resource type per row, status never conveyed by colour alone, and
+  "trust" defined precisely as anonymous asset fetch for this import only — never a
+  login, since the data store is non-persistent.
+
+  **Auth boundary made explicit.** The owner's motivation is reaching online
+  repositories of design code (hosted Storybook, GitHub Pages). Public ones work.
+  Private repos and SSO-gated Storybooks are OUT, because storing tokens would undo
+  the no-keys posture Chunk F was designed around — and the better path already exists
+  in the plan: the designer's own agent has repo access, fetches the build, and hands
+  EXP a local file or EXP Source. Same division of labour as the Agent Bridge: EXP
+  does not reach out to services, agents and services reach in.
+
+  ARIA note per WORKING-AGREEMENT: four reverse-mapping rows verified against ARIA in
+  HTML / HTML-AAM with citations (`header`/`footer` ancestry scoping, `section`
+  requiring an accessible name, `h1`–`h6`); the remaining ~40 rows, `aria-*` state
+  mapping, `<search>`, and `<a href>` are recorded as NOT verified and explicitly
+  block E1. NEXT: owner reads the contract and answers Q1–Q4, then the three-fixture
+  spike.
+
+- **2026-07-29 — Artboard notes overhaul, artboard placement commands, and a
+  command-dispatch root cause [notes/artboards/chrome/infra]:** A long owner-driven
+  session across nine areas; every item below was built, owner-built in Xcode, and
+  owner-confirmed working unless noted.
+
+  **Command dispatch (the important one).** `sendCanvasAction` only ever walked the
+  responder chain UPWARD from the first responder, so when focus sat in the Layers
+  panel or the Inspector — sibling subtrees, never ancestors of `CanvasNSView` — menu
+  and panel commands silently did nothing. The menu items still looked ENABLED because
+  enablement comes from `.focusedSceneValue(\.editorMenu)`, which is scene-scoped and
+  survives focus moves; enablement and dispatch used different mechanisms and could
+  disagree. An earlier fix had covered the across-WINDOWS half (floating tray becomes
+  key → fall back to `NSApp.mainWindow`); this covers the within-one-window half by
+  searching DOWN the key and main windows' view trees breadth-first, and logging
+  `[EXP command] no target for <selector>` to DiagnosticLog instead of dropping the
+  action with no trace — which is precisely why these were unreproducible. Six other
+  raw `NSApp.sendAction(to: nil)` sites now route through it, including `selectAll:`
+  fired from inside LayersPanel, which failed by construction rather than
+  intermittently. Owner reports the symptom has not recurred; because it was
+  intermittent this is not yet a definitive confirmation. Note SwiftUI `CommandMenu`
+  buttons bypass AppKit responder validation, so `validateMenuItem` only gates the
+  AppKit right-click menus, never menu-bar items.
+
+  **Artboard notes.** Typing no longer touches the model: a local draft commits on a
+  ~400ms idle debounce and on end-editing. It previously called `setModel` per
+  KEYSTROKE — a full `Document` copy, a `resolveGeneration` bump invalidating the
+  canvas instance cache, and one undo entry per character. A typing burst is now one
+  "Edit Notes" step (first commit registers the undo, later commits in the session
+  skip it, so an interrupted session is still recoverable). Notes buttons are culled
+  to `visibleDocumentRect`; boards with notes always keep theirs, empty boards show
+  the affordance only above 120pt on-screen width. The panel now pins its TOP-RIGHT
+  34pt inside the board's left edge so it grows left into empty canvas instead of
+  burying the board, resizes from the left edge / bottom edge / bottom-left corner
+  against that pin (`pointerStyle(.frameResize(...))`), defaults to 320×180, reads
+  "Notes for <board>", and gets a two-shadow elevation over an opaque fill (no
+  material, so Reduce Transparency stays honest). Light formatting — bold, italic,
+  one heading level, bullets, checkboxes — is drawn as ATTRIBUTES over the plain
+  string via an `NSTextStorageDelegate`, restyled only on the edited paragraph and
+  disabled above 20k characters. No rich text, no Markdown library, no renderer, so
+  `Artboard.notes` stays a plain `String` and the model, codec, and agent contract are
+  untouched. ⌘B/⌘I wrap the selection (Type ▸ Bold/Italic are disabled unless canvas
+  text is being edited, so they don't collide) and a right-click Format menu exposes
+  Heading/Bullet/Checklist so formatting is not keyboard-only.
+
+  **Artboard placement.** Added an `exp.pref.artboardSpacing` preference (default 160,
+  Settings ▸ Canvas) read live by both new-board placement and Clean Up. Align and
+  Distribute now route by selection inside the EXISTING `align(_:)` /
+  `distribute(horizontal:)` commands rather than shipping a parallel set — the owner's
+  framing was that aligning boards is not a different verb from aligning layers.
+  `moveArtboards` carries owned child nodes, capturing containment ownership BEFORE
+  anything moves and applying one rounded delta to board and children together. Clean
+  Up stays its own command (Finder's "Clean Up", not Align): it clusters boards into
+  the rows they already roughly form, keeps each row's left-to-right order and the
+  set's top-left origin, and re-flows at the spacing preference. Wired through Arrange,
+  the artboard context menu, `validateMenuItem`, and a Properties Align section for a
+  multi-board selection (scope row omitted for boards — a board has no enclosing board
+  to align to).
+
+  **Navigation.** "Zoom to Fit" never zoomed: it set `zoom = 1.0` then only CENTERED,
+  so on any document spanning more than a screen at 100% it reliably landed in the gap
+  BETWEEN boards. It now fits through `fitViewport(to:)` over boards ∪ loose nodes
+  (`contentBounds` unions artboards only, and loose wall artwork is exactly what you're
+  hunting when lost), and an empty page lands at the origin rather than adrift. Added
+  Center Selection in View (⌘2), which preserves zoom unless the selection cannot fit —
+  node bounds via `alignmentItems(documentSpace: true)`, since a nested node's own
+  frame is parent-local. Canvas `keyDown` ⌘0/⌘1 had contradicted the View menu and now
+  agrees (⌘0 actual, ⌘1 fit, ⌘2 center).
+
+  **Layers + chrome.** Artboard section-header names are real controls: click selects,
+  ⌘-click toggles, ⇧-click extends across displayed section order (its own anchor,
+  deliberately not `app.selectionAnchorID`, with a fallback to the topmost selected
+  board so a canvas selection can still anchor a range), double-click also centers, and
+  right-click offers Select / Center / Rename / Duplicate / Copy / Move-or-Duplicate to
+  Page / Expand-Collapse / Delete. Gestures are on the NAME only so the List's
+  disclosure chevron survives. Selected boards now take the same `rowSelected` highlight
+  a selected layer row does — they previously showed nothing, because `activeSectionID`
+  resolves through `selectedArtboardID`, the single-selection accessor that is nil
+  whenever more than one board is selected. Canvas page tabs rename on double-click
+  (`simultaneousGesture`, since a Button consumes plain taps), with a named Rename
+  accessibility action.
+
+  **New artboard tool.** `Tool.artboard` (`plus.viewfinder`, alone at the bottom of the
+  strip; the New Artboard menu button adopted the same symbol). Click places the same
+  375×667 default the menu's primary action uses; drag gives exact bounds. Because node
+  ownership is by CONTAINMENT, artwork the new board encloses is adopted on release — no
+  move or reparent step, which was the whole point. Shortcut **F** (Figma's Frame key),
+  with **⇧A** aliased for Sketch/XD muscle memory; plain A remains Edit Points
+  (Illustrator's Direct Selection).
+
+  **Numeric fields.** `numericStepping` lived in a `private extension View` inside
+  MainWindow.swift, so every numeric field OUTSIDE that file had no arrow-key stepping
+  at all — a visibility wall, not a per-site omission. Made internal; the gradient Angle
+  and gradient stop Position fields in PaintEditor.swift are now wired. Gradient angle
+  wraps rather than clamps in BOTH directions of its binding, so typing -45 yields 315,
+  400 yields 40, and a legacy/imported negative angle displays correctly without
+  rewriting the document. Swept bounds for consistency: text-layer stroke width was the
+  only stroke field clamped at `min: 1` (now 0, matching the other four), `DimField`
+  gained an optional `min` so W/H pass 0 while X/Y stay unbounded, and point rotation
+  now wraps like the other two rotation fields (delta still taken pre-wrap, so the turn
+  applied is unchanged).
+
+  Filed BUG-017, FEAT-019, FEAT-020, INFRA-003 for the loose ends. NEXT: unchanged —
+  E0, the rendered-HTML import contract, proving one bounded local HTML/CSS fixture
+  through the browser-to-`InteropCodec` path.
 
 - **2026-07-29 — v2.1 shipped; v2.2/build 13 development opened [release/docs]:**
   Closed the v2.1 final release gate after the owner confirmed shipment; the

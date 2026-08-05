@@ -29,6 +29,7 @@ enum SVGImporter {
               let root = doc.rootElement(), root.name == "svg" else { return nil }
 
         var ctx = Context()
+        collectReferencedElements(in: root, into: &ctx)
         collectStylesheets(in: root, into: &ctx)
         collectGradients(in: root, into: &ctx)
         collectFilters(in: root, into: &ctx)
@@ -63,6 +64,9 @@ enum SVGImporter {
         /// `<filter id>` → the Effects we could reconstruct from its primitives
         /// (feTurbulence noise/dissolve chains, drop/inner shadow chains).
         var filters: [String: [Effect]] = [:]
+        /// SVG logos commonly define a mark once and place it through `<use>`.
+        /// Retaining the referenced element is what keeps those logos editable.
+        var elementsByID: [String: XMLElement] = [:]
         /// Ordered author rules from SVG `<style>` elements. Many Illustrator
         /// exports put every paint in `.cls-N` rules and leave only `class` on
         /// the geometry; without this cascade those shapes silently use SVG's
@@ -121,8 +125,10 @@ enum SVGImporter {
     // MARK: Element → nodes
 
     private static func nodes(for el: XMLElement, ctm parentCTM: CGAffineTransform,
-                              inherited: Style, ctx: Context) -> [Node] {
-        var out = rawNodes(for: el, ctm: parentCTM, inherited: inherited, ctx: ctx)
+                              inherited: Style, ctx: Context, depth: Int = 0) -> [Node] {
+        guard depth < 32 else { return [] }
+        var out = rawNodes(for: el, ctm: parentCTM, inherited: inherited,
+                           ctx: ctx, depth: depth)
         // filter="url(#…)" (attribute or style declaration) → re-attach any
         // effects we reconstructed from that filter's primitives.
         if let fx = filterEffects(el, ctx: ctx), !fx.isEmpty {
@@ -136,20 +142,32 @@ enum SVGImporter {
     }
 
     private static func rawNodes(for el: XMLElement, ctm parentCTM: CGAffineTransform,
-                                 inherited: Style, ctx: Context) -> [Node] {
+                                 inherited: Style, ctx: Context, depth: Int) -> [Node] {
         // A child point maps as parentCTM(elementTransform(point)).
         let local = transform(el).concatenating(parentCTM)
         let style = resolveStyle(el, inherited: inherited, ctx: ctx)
         let name = el.name ?? ""
 
         switch name {
-        case "g", "svg", "a":
+        case "g", "svg", "a", "symbol":
             var kids: [Node] = []
             for c in el.children?.compactMap({ $0 as? XMLElement }) ?? [] {
-                kids.append(contentsOf: nodes(for: c, ctm: local, inherited: style, ctx: ctx))
+                kids.append(contentsOf: nodes(for: c, ctm: local, inherited: style,
+                                              ctx: ctx, depth: depth + 1))
             }
             guard !kids.isEmpty else { return [] }
             return [groupNode(kids, name: el.attribute(forName: "id")?.stringValue ?? "Group")]
+
+        case "use":
+            let href = el.attribute(forName: "href")?.stringValue
+                ?? el.attribute(forName: "xlink:href")?.stringValue
+            guard let href, href.hasPrefix("#"),
+                  let target = ctx.elementsByID[String(href.dropFirst())],
+                  target !== el else { return [] }
+            let placement = CGAffineTransform(translationX: num(el, "x"), y: num(el, "y"))
+                .concatenating(local)
+            return nodes(for: target, ctm: placement, inherited: style,
+                         ctx: ctx, depth: depth + 1)
 
         case "path":
             guard let d = el.attribute(forName: "d")?.stringValue else { return [] }
@@ -189,9 +207,20 @@ enum SVGImporter {
             if name == "defs" || name == "linearGradient" || name == "radialGradient" || name == "filter" { return [] }
             var kids: [Node] = []
             for c in el.children?.compactMap({ $0 as? XMLElement }) ?? [] {
-                kids.append(contentsOf: nodes(for: c, ctm: local, inherited: style, ctx: ctx))
+                kids.append(contentsOf: nodes(for: c, ctm: local, inherited: style,
+                                              ctx: ctx, depth: depth + 1))
             }
             return kids
+        }
+    }
+
+    private static func collectReferencedElements(in root: XMLElement,
+                                                   into ctx: inout Context) {
+        guard let nodes = try? root.nodes(forXPath: "//*[@id]") else { return }
+        for case let element as XMLElement in nodes {
+            if let id = element.attribute(forName: "id")?.stringValue, !id.isEmpty {
+                ctx.elementsByID[id] = element
+            }
         }
     }
 
@@ -483,7 +512,7 @@ enum SVGImporter {
         }
     }
 
-    // MARK: Filters (feTurbulence noise / dissolve, shadow chains)
+    // MARK: Filters (layer blur, feTurbulence noise / dissolve, shadow chains)
 
     /// Read `filter="url(#id)"` through the same presentation-attribute /
     /// stylesheet / inline-style cascade as paint, then reattach reconstructed
@@ -532,7 +561,6 @@ enum SVGImporter {
                 // Walk the chain this turbulence feeds.
                 var cursor = attr(turb, "result")
                 var hops = 0
-                var sawThreshold = false
                 while let r = cursor, let next = consumer(of: r), hops < 6 {
                     hops += 1
                     switch next.name {
@@ -555,7 +583,6 @@ enum SVGImporter {
                                 e.kind = .dissolve
                                 e.amount = CGFloat(min(1, max(0, (0.5 - intercept) / slope)))
                                 e.monochrome = true
-                                sawThreshold = true
                             }
                         }
                     case "feBlend":
@@ -604,6 +631,25 @@ enum SVGImporter {
                     e.color = c
                 }
                 effects.append(e)
+            }
+
+            // — standalone feGaussianBlur → editable layer blur —
+            // A Gaussian that feeds feOffset belongs to a reconstructed shadow
+            // above. Everything else operating directly on SourceGraphic (the
+            // overwhelmingly common SVG texture/logo case) is a layer blur.
+            let shadowBlurResults = Set(prims.compactMap { primitive -> String? in
+                guard primitive.name == "feOffset", let input = attr(primitive, "in") else { return nil }
+                return input
+            })
+            for gaussian in prims where gaussian.name == "feGaussianBlur" {
+                if let result = attr(gaussian, "result"), shadowBlurResults.contains(result) { continue }
+                let input = attr(gaussian, "in")?.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard input == nil || input == "SourceGraphic" else { continue }
+                var e = Effect(kind: .layerBlur)
+                // SVG stdDeviation is Gaussian sigma. Keep that value directly;
+                // unlike CSS shadow blur, it is not a diameter-like blur amount.
+                e.blur = CGFloat(max(0, dnum(gaussian, "stdDeviation", 0)))
+                if e.blur > 0 { effects.append(e) }
             }
 
             if !effects.isEmpty { ctx.filters[id] = effects }

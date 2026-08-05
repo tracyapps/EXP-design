@@ -15,7 +15,37 @@ docs/*
 !docs/BACKLOG.md
 !docs/HANDOFF-SCHEMA.md
 !docs/RELEASE-CHECKLIST.md
-!docs/RELEASE-CHECKLIST-v2.1.md
+!docs/RELEASE-CHECKLIST-v*.md
 !docs/ROADMAP.md
 !docs/V2-INTEROP-PLAN.md
 !docs/SEMANTIC-HTML-CONTRACT.md
+# The allowlist had drifted: these were already tracked (git keeps tracking a file
+# regardless of ignore rules), so the list did not match reality and a fresh clone
+# would have looked different from this working copy.
+!docs/DESIGN-ASSETS.md
+!docs/WORKING-AGREEMENT.md
+!docs/VISUAL-HANDOFF.md
+!docs/PERF-HANDOFF.md
+# The E0 import contract is a durable deliverable that CLAUDE.md and ROADMAP.md
+# both point at, so it belongs in the repo rather than in one working copy.
+!docs/HTML-IMPORT-CONTRACT.md
+!docs/WEB-SVG-FIDELITY-INVENTORY.md
+!docs/STORYBOOK-COMPATIBILITY-MATRIX.md
+# PERF-LOG.md and PERF-TODO.md stay untracked — deliberately local scratch. Say so
+# here so the next person does not "fix" it.
+
+# Per-directory agent settings are machine-local. Anchored patterns miss
+# nested ones (this was written as `.claude/...` first and did not match
+# `scripts/.claude/`), so match at any depth.
+**/.claude/settings.local.json
+
+# E0 spike artifacts. The fixtures are source and ARE tracked; everything the
+# runner generates from them is not.
+spike/html-import/fixture1-exp-export/
+spike/html-import/**/probe*.json
+spike/html-import/**/server-pass*.log
+
+# Browser acceptance logs/screenshots are reproducible local evidence, not
+# release source. Keep them on disk without letting `git add -A` publish them.
+.playwright-cli/
+output/playwright/

@@ -21,7 +21,7 @@ struct GradientStop: Codable, Equatable, Identifiable, Sendable {
     var color: RGBAColor
     var position: Double
 
-    init(id: UUID = UUID(), color: RGBAColor, position: Double) {
+    nonisolated init(id: UUID = UUID(), color: RGBAColor, position: Double) {
         self.id = id
         self.color = color
         self.position = position

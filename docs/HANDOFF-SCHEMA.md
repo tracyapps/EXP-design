@@ -55,6 +55,11 @@ The importer is intentionally tolerant for interop:
     `nodes[].relationships`, and `nodes[].publicProps`. A v2 reader can read
     a v1 file by treating `states`, `relationships`, and `publicProps` as
     empty/default. Saving in v1.6+ migrates a file's declared version to `2`.
+  - `3` — v2.1 stores independent canvas `pages[]`, each with its own artboards,
+    nodes, guides, and root relationships.
+  - `4` — v2.2 adds hidden `codeBridges[]` provenance/receipt data and persistent
+    top-level `nodes[].artboardID` membership. Missing `artboardID` is migrated from
+    the legacy >50% geometry rule; nested nodes inherit their top-level container.
 - `design.json.formatVersion`: the internal EXP model migration version. Treat
   this as implementation detail unless you are opening the file in EXP.
 
@@ -90,12 +95,29 @@ range values, or unresolved relationship target.
 
 - `schemaVersion`: integer public schema marker.
 - `formatVersion`: integer internal model marker.
-- `artboards`: array of artboard objects.
-- `nodes`: array of top-level document nodes in z-order, back to front.
+- `pages`: array of canvas-page objects. Each page contains `artboards`, top-level
+  `nodes` in back-to-front z-order, `guides`, and `anchoredRelationships`.
 - `sources`: array of component source definitions.
-- `guides`: array of document guide objects.
+- `codeBridges`: optional v2.2 source receipts/bindings for code imports. It contains
+  no credentials; service credentials belong in Keychain.
 - `designLanguage`: native EXP design-language data. `tokens.json` is the
   standards-shaped companion for downstream token pipelines.
+
+Schema 1‖2 single-canvas files may instead carry root `artboards`, `nodes`, `guides`,
+and `anchoredRelationships`; EXP migrates those into one page on open.
+
+### Code-bridge receipts (schemaVersion 4)
+
+Each `codeBridges[]` entry is hidden provenance, not canvas content or executable
+code. `source` records the connector and, where a published artifact supplies it,
+framework/build-tool/version/package-manager identity. `resources[]` carries
+relative paths, hashes, MIME/role data, and bounded preserved source bytes;
+`bindings[]` associates EXP ids with source-owned external ids/DOM paths and starts
+with no writable properties. `behaviorContracts[]` stores bounded component/story
+contracts. Storybook contracts may include `initialArgsJSON`, a JSON-safe snapshot
+of published initial args; functions, DOM objects, cycles, excessive depth/count,
+and values over 64 KB are omitted. `project.json` is retained and hashed when the
+static build publishes it. None of these fields grants code execution or write-back.
 
 ## Identity Rules
 
@@ -106,6 +128,12 @@ for humans and may change; z-order is meaningful for drawing, not identity.
 Component instances reference `sources[].id` through their `sourceID`. Artboard
 notes live on the owning artboard. Component ARIA categories live on
 `sources[].a11y.role`.
+
+Top-level `nodes[].artboardID` is an explicit UUID reference to an artboard on the
+same canvas page. `null`/omitted means Wall. EXP uses hysteresis when geometry is
+edited: an unattached layer enters above 50% overlap, an attached layer stays while
+any positive visible geometry overlaps, and it detaches at zero overlap. Unmanaged
+groups resolve membership from current descendants; masks resolve from their crop.
 
 ## Node Behavior Contract (schemaVersion 2)
 

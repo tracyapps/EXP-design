@@ -1,0 +1,12 @@
+body { font-family: Inter, Helvetica, Arial, sans-serif; margin: 24px; color: #14213d; }
+h1 { font-size: 32px; margin: 0 0 16px; }
+
+.hero { height: 120px; border-radius: 8px; background: #e6ecfb; }
+
+/* Requested ONLY when the phone viewport matches. A background-image inside a
+   non-matching media block is genuinely not fetched, unlike a <link media=...>
+   which browsers may download anyway at low priority. That distinction is why
+   the union-manifest test uses this and not a media-attributed stylesheet. */
+@media (max-width: 768px) {
+  .hero { background-image: url("http://127.0.0.1:8732/phone-hero.svg"); }
+}

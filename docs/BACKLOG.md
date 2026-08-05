@@ -28,6 +28,147 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 
 ## 🐞 Bugs
 
+### BUG-021 — Cropped groups jump to the wall after child resize; masks do not reduce ownership bounds
+- Type: bug
+- Priority: P1
+- Area: canvas · layers · model
+- Status: done (owner verified 2026-08-03 — "Tapps approves")
+- Repro/Detail: attach a group to an artboard, resize/move its children so the group
+  becomes much wider than the board, then place it with only a small intentional
+  sliver visible. EXP re-runs the >50% test as if the group had never belonged to
+  the board, moves it into Wall, and removes the crop. "Mask with Top Shape" does
+  not help because membership still uses the mask container's original union frame.
+  A wall layer dragged into an artboard's Layers rows also has no explicit way to
+  establish membership when its current geometry is below 50% overlap.
+- Root cause: artboard membership was stateless and read only `node.frame`. The same
+  >50% threshold controlled both entry and exit, unmanaged group descendant bounds
+  were ignored, and mask content outside the clip still inflated the test geometry.
+- Fix applied: schema-4 nodes now persist top-level `artboardID` membership. A wall
+  layer still enters only above the existing 50% threshold, but an attached layer
+  remains attached while any positive visible geometry overlaps and detaches only at
+  zero overlap. Membership bounds use current descendants for unmanaged groups and
+  the mask-shape/content intersection for masks; effects remain excluded. Canvas,
+  Layers, export, Handoff, duplication, save/open, and artboard carry/delete paths
+  use the node-aware resolver. Dropping a wall row on an artboard section header or
+  beside/inside one of its rows explicitly attaches it: partial overlap preserves
+  position; zero overlap centers it on the board. Group/mask creation and ungrouping
+  preserve membership; header drop also covers an otherwise-empty artboard.
+- Acceptance: (1) an unattached item at exactly 50% stays on Wall and above 50%
+  attaches; (2) an attached group can be dragged to a 1-point visible sliver without
+  leaving the artboard, but fully clearing the board moves it to Wall; (3) resizing a
+  child does not cause a cropped group to jump; (4) a mask uses its crop bounds; (5)
+  Layers drag from Wall into an artboard header/row preserves a partial-overlap
+  position or centers a fully off-board layer; (6) save/open and Undo preserve it.
+
+### BUG-020 — Number-key opacity shortcuts fail while the Layers panel owns focus
+- Type: bug
+- Priority: P1
+- Area: layers · canvas · keyboard
+- Status: done (owner verified 2026-08-03)
+- Repro/Detail: activate Select, choose a group from the Layers panel, then press a
+  number key. `1`…`9` should set 10%…90% opacity and `0` should set 100%, but the
+  shortcut only worked after selecting the same group directly on the artboard.
+- Root cause: the focused SwiftUI `List` consumes the digit key event before the
+  sibling AppKit canvas's `keyDown` can see it. This is the same responder-chain
+  boundary already handled explicitly for Delete, arrow nudging, and copy/paste.
+- Fix applied: Layers now handles unmodified digit presses at its own focus boundary
+  and routes them through the same recursive `LayerOpacityMutation` used by the
+  canvas. Nested layers and groups update in one undoable **Opacity** mutation;
+  Command/Control/Option combinations remain available to the system/app.
+- Acceptance: select a top-level and a nested group from Layers, press `4`, confirm
+  each becomes 40%, press `0`, confirm each returns to 100%, and confirm one Undo
+  restores each change. Canvas-selected opacity shortcuts must continue to match.
+
+### BUG-019 — Offscreen HTML capture imports entrance-animation groups at 0% opacity
+- Type: bug
+- Priority: P1
+- Area: import · WebKit · CodePen
+- Status: done (owner verified 2026-08-03; live CodePen ZIP sections visible)
+- Repro/Detail: import the owner's CodePen 2.0 ZIP
+  (`pure-css-glassmorphism-liquid-glass-ui-kit.zip`). Every `.section` group imports
+  at 0% opacity even though the finished page shows those sections. Its CSS applies
+  a delayed `cascade-in` entrance animation with an opacity-0 first keyframe and an
+  opacity-1 destination.
+- Root cause: WebKit may throttle an offscreen window's animations, so the importer
+  sampled the finite entrance animation at its first frame after the normal settle
+  interval. The CSS was rendered correctly; the captured point in time was not.
+- Fix applied: immediately before DOM measurement, rendered-HTML capture enumerates
+  Web Animations. It advances every finite animation to its computed end time and
+  pauses it, producing the stable destination design. Infinite animations have no
+  honest final state, so EXP pauses them at the current browser sample and reports
+  that approximation in the Import Report instead of pretending to preserve motion.
+- Acceptance: the live ZIP check finds all 26 imported `section.section` groups at
+  opacity 1.0; the deterministic delayed-animation fixture passes at Phone and
+  Desktop; owner re-import confirms the page sections are visible. Existing pure
+  HTML and real-WebKit importer regressions remain green.
+
+### BUG-018 — Nested landmark roles: `complementary` dropped, and the ancestry test was a proxy
+- Type: bug
+- Priority: P1
+- Area: export
+- Status: done (owner-verified 2026-08-01 — full package check green, including the
+  new negative-case assertion)
+- **Correction to the original entry (2026-08-01).** The first version of this entry
+  claimed no ancestry check existed at all. **That was wrong.** `SemanticHTMLExporter`
+  line ~345 already had
+  `if (role == .banner || role == .contentinfo), !semanticAncestors.isEmpty`.
+  I searched for `ancestry`/`landmark`/`sectioning` and the code says
+  `semanticAncestors`, so the grep missed it. The bug is real but **narrower** than
+  first written, and SEMANTIC-HTML-CONTRACT's B2 claim is accurate for two of the
+  three roles.
+- Repro/Detail: two genuine defects remained.
+  1. **`complementary` was never escalated.** Give a component the role
+     `complementary`, nest its instance inside a component whose role exports as
+     sectioning content (`region` → `<section>`, `navigation` → `<nav>`, another
+     `complementary` → `<aside>`, `tabpanel` → `<section>`), and export. The result is
+     a bare nested `<aside>` with no `role`. Per HTML-AAM §3.5.10 an `<aside>` inside
+     sectioning content computes as `complementary` ONLY with an accessible name, and
+     `generic` otherwise — so the authored role is silently lost, with nothing
+     reported in the handoff.
+  2. **`!semanticAncestors.isEmpty` is not the spec's rule.** Only sectioning content
+     and `main` rescope a nested header/footer/aside. An EXP `banner` inside an EXP
+     `group`, `toolbar`, `list`, or any other `div`-hosted role is still scoped to
+     `body` and already computes as `banner` — but the old condition added a
+     redundant `role="banner"` anyway, which ARIA in HTML calls NOT RECOMMENDED.
+- Fix applied: `AriaRole.hostRescopesNestedLandmarks` (true when the role's host tag
+  is `article`/`aside`/`nav`/`section`/`main` — `search` and `form` deliberately
+  excluded, since they are landmarks but not sectioning content) and
+  `AriaRole.needsExplicitRoleWhenNested` (`banner`, `contentinfo`, `complementary`)
+  in `SemanticHTMLContract.swift`; the exporter condition now uses both.
+- Acceptance: `scripts/verify_semantic_html_package.sh` passes, including the new
+  `Fixture.nestedLandmarksDocument()` case — three landmarks inside a `region` host
+  each emit exactly ONE explicit role, and the same banner inside a `toolbar` host
+  emits none, so both the positive and negative are covered.
+- Still open, deliberately: `<header>` scoped to sectioning content (HTML-AAM §3.5.50)
+  was **not read** — the spec fetch truncated at §3.5.49 — so `banner` is included by
+  the same reasoning as `footer`/§3.5.44 rather than by citation. If that turns out to
+  be wrong, `needsExplicitRoleWhenNested` is the one line to change. Also not changed:
+  whether `complementary` should carry an `.accessibleName` requirement (APG advises
+  naming when several exist; not a spec requirement, so not invented here).
+- Found by: HTML-IMPORT-CONTRACT §8 reverse-mapping verification, 2026-08-01.
+
+### BUG-017 — Artboard notes reach semantic HTML as an opaque HTML comment
+- Type: bug
+- Priority: P2
+- Area: export
+- Status: open
+- Repro/Detail: put formatted notes on an artboard (heading, bullets, bold) and export
+  standalone semantic HTML. `SemanticHTMLExporter` emits the whole note as a single
+  `<!-- EXP artboard notes: ... -->` comment, so the structure a developer or a model
+  would read is flattened into one escaped blob. The Handoff Package already does this
+  correctly — `HandoffPackageWriter.orientationMarkdown` passes notes through
+  `markdownBlockquote`, which does NOT escape, so `**bold**`, `# heading`, and
+  `- bullet` survive as live Markdown. The two exporters disagree.
+- Hypothesis: the comment predates notes carrying any structure. Notes should reach the
+  HTML as real markup (or a structured `data-` payload / `<template>`) rather than a
+  comment, since the point of the handoff package is that the artifact is readable.
+  Changing this touches the semantic HTML contract and the deterministic package
+  goldens, so it needs a contract decision first, not just an exporter edit.
+- Acceptance: formatted notes appear in exported semantic HTML with their structure
+  intact; SEMANTIC-HTML-CONTRACT.md records the chosen representation; golden fixtures
+  updated deliberately; a note containing HTML-special characters is still escaped
+  safely.
+
 ### BUG-016 — Layer copy/paste fails while the Layers list owns focus
 - Type: bug
 - Priority: P1
@@ -707,6 +848,42 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 > plainly what was NOT verified. Full text in `docs/WORKING-AGREEMENT.md` →
 > "Accessibility decisions are verified, not remembered."
 
+### FEAT-019 — Notes checkboxes should round-trip as GFM task lists
+- Type: feature
+- Priority: P3
+- Area: export · notes
+- Status: open
+- Repro/Detail: the notes editor writes checkboxes as `[ ] ` / `[x] ` at the start of a
+  line and styles them in place (checked lines strike through). The Handoff Package
+  emits notes as live Markdown inside a blockquote, but GitHub-flavoured Markdown needs
+  `- [ ] ` to render a task list — a bare `[ ] ` renders as literal text. So checkboxes
+  are the one notes affordance that does not survive the round trip.
+- Hypothesis: either write `- [ ] ` in the editor (and style the leading `- ` as part of
+  the marker so it still reads as a checkbox, not a bullet-plus-brackets), or normalize
+  `[ ] ` to `- [ ] ` at package-write time. Prefer the editor, so what is stored is what
+  is exported — the model stays a plain String either way.
+- Acceptance: a checklist typed in artboard notes renders as a real task list in the
+  Handoff Package's orientation Markdown; existing notes with bare `[ ] ` still render
+  acceptably; the notes editor's checkbox styling and Return-continuation are unchanged.
+
+### FEAT-020 — Select All Artboards command
+- Type: feature
+- Priority: P2
+- Area: chrome · canvas
+- Status: open
+- Repro/Detail: Arrange ▸ Clean Up (and artboard Align/Distribute) require 2+ boards
+  SELECTED, by deliberate design — they never fall back to acting on the whole page, so
+  a stray keystroke cannot rearrange a document. The gap is that tidying a whole page
+  therefore means selecting every board by hand, and Select All targets nodes.
+- Hypothesis: add `selectAllArtboardsAction:` on `CanvasNSView` (document scope only),
+  with an Edit-menu item near Select All, a canvas context-menu entry on empty canvas,
+  and a `validateMenuItem` case requiring a non-empty artboard list. Full
+  command-coverage wiring per CLAUDE.md; no Inspector control needed (no parameters).
+  ⇧⌘A is the conventional neighbour to ⌘A if it is free.
+- Acceptance: one command selects every artboard on the active page; Clean Up and
+  artboard Align/Distribute then work page-wide in one further step; the command is
+  disabled on a page with no artboards and in component-source scope.
+
 ### FEAT-012 — Anchored relationships: endpoints as instance paths, stored at the nearest common ancestor
 - Type: feature (model)
 - Priority: P1 — blocks BUG-008 acceptance, and everything downstream of Chunk I
@@ -1241,9 +1418,9 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 
 ### FEAT-008 — Font picker: remember scroll position, plus "Fonts used" and "Recent fonts" filters
 - Type: feature
-- Priority: P2
+- Priority: P1 for v2.3 discovery/design
 - Area: inspector · chrome
-- Status: open
+- Status: open — explicitly deferred from v2.2; first priority for v2.3
 - Repro/Detail: Owner request 2026-07-24. Changing a font means scrolling the
   whole font list from the top every single time. Designers routinely have
   hundreds of families installed, so the list is long and the same handful of
@@ -1267,12 +1444,19 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   irritation. (b) reuses the same document walk the Design Language panel and
   the handoff type audit already do to enumerate faces in use. (c) needs a small
   UserDefaults MRU list, capped, deduped by family.
+- Owner scope decision 2026-08-05: do not implement (b)–(e) for v2.2. The owner
+  has additional font-filter ideas and wants to mock up and test the combined
+  design before deciding whether it works or whether every mechanism should ship.
+  v2.3 therefore begins with discovery/design, not with the four remaining ideas
+  treated as an already-approved UI specification.
 - Acceptance: opening the picker lands on the current font with it visibly
   marked; the two filters narrow the list and are reachable by keyboard with
   correct VoiceOver labels; filter choice persists sensibly between openings;
   an empty "Fonts used" or "Recent" state explains itself rather than showing a
-  blank list.
-- Fit: (b) and (c) stay in **v2.2** with the panel/tool-discoverability work.
+  blank list. **Revalidate this acceptance contract against the owner's v2.3
+  mockups before implementation; it is not frozen.**
+- Fit: first-priority **v2.3 discovery/design**, followed by implementation only
+  after the filter/navigation model is tested. It is not a v2.2 release gate.
 - **(a) PULLED FORWARD into v2.1, WRITTEN 2026-07-24, needs owner build.** Owner
   call: keep v2.1 focused but take the cheap relief now.
   Implemented as `UI/FontFamilyPicker.swift`, a shared popover replacing the two
@@ -1541,6 +1725,20 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   respect the new range.
 
 ## 🛠 Infrastructure
+
+### INFRA-003 — Orphaned doc comment above `sendCanvasAction`
+- Type: chore
+- Priority: P3
+- Area: infra
+- Status: open
+- Repro/Detail: in MainWindow.swift a `/// Right panel — the Inspector. X/Y/W/H are
+  two-way...` doc comment sits directly above the `sendCanvasAction` function, which it
+  does not describe. It documents the Inspector view further down the file; something
+  was inserted between them. Harmless, but it is actively misleading in a file this
+  large, and `sendCanvasAction` is a function people now arrive at while debugging
+  command routing.
+- Acceptance: the comment sits on the declaration it describes, or is removed if that
+  declaration already carries its own; no behavior change.
 
 ### INFRA-001 — One-command "approve → Roadmap → website" triage sync
 - Type: feature (workflow/tooling)

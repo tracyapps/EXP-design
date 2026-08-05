@@ -93,6 +93,7 @@ struct LayersPanel: View {
         case .document:
             guard let pageIndex = model.pageIndex(for: app.activeCanvasPageID) else { return }
             model.pages[pageIndex].nodes = nodes
+            model.reconcileArtboardOwnership(on: model.pages[pageIndex].id)
         case .source(let sid):
             guard let si = model.sources.firstIndex(where: { $0.id == sid }) else { return }
             let fitSourceBounds = model.sourceUsesManagedBounds(model.sources[si])
@@ -198,43 +199,7 @@ struct LayersPanel: View {
                             .listRowSeparator(.hidden)
                         }
                     } header: {
-                        let active = group.id == activeSectionID
-                        // A section id is the artboard's UUID string; the Wall and
-                        // source sections have no board behind them, so they stay
-                        // inert text and can never read as selected.
-                        let boardID = UUID(uuidString: group.id)
-                        // Two DIFFERENT signals, deliberately not merged:
-                        //  · active   — this section owns the current LAYER selection
-                        //  · selected — the BOARD itself is selected
-                        // `activeSectionID` cannot carry `selected`, because it
-                        // resolves through `app.selectedArtboardID`, the SINGLE-
-                        // selection accessor that returns nil unless exactly one
-                        // board is selected. That is why multi-selected boards lit
-                        // up on the canvas but showed nothing in the panel.
-                        let selected = boardID.map { app.selectedArtboardIDs.contains($0) } ?? false
-                        HStack(spacing: 6) {
-                            // Clear (not absent) when inactive so the title never
-                            // shifts; the border simply reveals on the active board.
-                            Rectangle()
-                                .fill(active || selected ? LayersActiveStyle.tint : Color.clear)
-                                .frame(width: LayersActiveStyle.borderWidth)
-                                .frame(maxHeight: .infinity)
-                                .accessibilityHidden(true)
-                            if let boardID {
-                                artboardHeaderName(group.title, id: boardID,
-                                                   active: active, selected: selected,
-                                                   expanded: sectionExpanded(group.id))
-                            } else {
-                                Text(group.title)
-                                    .font(.system(size: EXPType.small, weight: active ? .medium : .regular))
-                                    .foregroundStyle(active ? EXPColor.accent : EXPColor.textSecondary)
-                                    .accessibilityLabel(group.title)
-                            }
-                            Spacer(minLength: 0)
-                        }
-                        // Same row highlight a selected LAYER row gets, so a selected
-                        // board reads the same as everything else in the panel.
-                        .background(selected ? EXPColor.rowSelected : Color.clear)
+                        layerSectionHeader(group, active: group.id == activeSectionID)
                     }
                 }
             }
@@ -260,6 +225,31 @@ struct LayersPanel: View {
             // events, so the canvas's keyDown never sees them — same focus gap the
             // onDeleteCommand above works around. ⇧ = 10pt step (via current event).
             .onMoveCommand { direction in nudgeSelectedLayers(direction) }
+            // Like Delete and arrow keys above, opacity digits are consumed by
+            // the focused List before the canvas can see them. Handle the same
+            // 0→100%, 1…9→10…90% contract at the panel focus boundary.
+            .onKeyPress(phases: [.down]) { press in
+                guard !press.modifiers.contains(.command),
+                      !press.modifiers.contains(.control),
+                      !press.modifiers.contains(.option) else { return .ignored }
+                let digit: Int
+                switch press.key {
+                case "0": digit = 0
+                case "1": digit = 1
+                case "2": digit = 2
+                case "3": digit = 3
+                case "4": digit = 4
+                case "5": digit = 5
+                case "6": digit = 6
+                case "7": digit = 7
+                case "8": digit = 8
+                case "9": digit = 9
+                default: return .ignored
+                }
+                setOpacityOnSelectedLayers(
+                    digit == 0 ? 1 : Double(digit) / 10)
+                return .handled
+            }
             // A focused SwiftUI List is otherwise a responder-chain dead end for
             // the standard Copy/Paste menu commands. Register native command
             // handlers so keyboard shortcuts AND Edit-menu clicks use the same
@@ -317,6 +307,37 @@ struct LayersPanel: View {
     }
 
     // MARK: Artboard section header — the name is a real control
+
+    /// Kept outside `body` so the large recursive List remains tractable for the
+    /// Swift type checker. The header itself is also a drop target, which makes an
+    /// empty artboard reachable from Wall without requiring an existing row.
+    @ViewBuilder
+    private func layerSectionHeader(_ group: LayerGroup, active: Bool) -> some View {
+        let boardID = UUID(uuidString: group.id)
+        let selected = boardID.map { app.selectedArtboardIDs.contains($0) } ?? false
+        HStack(spacing: 6) {
+            Rectangle()
+                .fill(active || selected ? LayersActiveStyle.tint : Color.clear)
+                .frame(width: LayersActiveStyle.borderWidth)
+                .frame(maxHeight: .infinity)
+                .accessibilityHidden(true)
+            if let boardID {
+                artboardHeaderName(group.title, id: boardID,
+                                   active: active, selected: selected,
+                                   expanded: sectionExpanded(group.id))
+            } else {
+                Text(group.title)
+                    .font(.system(size: EXPType.small, weight: active ? .medium : .regular))
+                    .foregroundStyle(active ? EXPColor.accent : EXPColor.textSecondary)
+                    .accessibilityLabel(group.title)
+            }
+            Spacer(minLength: 0)
+        }
+        .background(selected ? EXPColor.rowSelected : Color.clear)
+        .onDrop(of: [.plainText, .text], isTargeted: nil) { _ in
+            acceptLayerDrop(on: boardID)
+        }
+    }
 
     /// The artboard name in a section header behaves like the board itself: click
     /// selects it (the same selection a canvas marquee around the whole board
@@ -514,7 +535,7 @@ struct LayersPanel: View {
         switch scope {
         case .source: return "source"
         case .document:
-            if let ab = document.model.owningArtboard(of: node.frame, on: app.activeCanvasPageID) {
+            if let ab = document.model.owningArtboard(of: node, on: app.activeCanvasPageID) {
                 return ab.id.uuidString
             }
             return "wall"
@@ -589,7 +610,7 @@ struct LayersPanel: View {
             var wall: [Node] = []
             let page = model.page(for: app.activeCanvasPageID)
             for node in page?.nodes ?? [] {
-                if let owner = model.owningArtboard(of: node.frame, on: page?.id) {
+                if let owner = model.owningArtboard(of: node, on: page?.id) {
                     byBoard[owner.id, default: []].append(node)
                 } else {
                     wall.append(node)
@@ -796,7 +817,7 @@ struct LayersPanel: View {
         var sourceOrigin: CGPoint?
         if case .document = scope {
             let owners = Set(copied.compactMap {
-                document.model.owningArtboard(of: $0.frame, on: app.activeCanvasPageID)?.id
+                document.model.owningArtboard(of: $0, on: app.activeCanvasPageID)?.id
             })
             if owners.count == 1, let owner = owners.first,
                let artboard = document.model.page(for: app.activeCanvasPageID)?.artboards.first(where: { $0.id == owner }) {
@@ -879,6 +900,14 @@ struct LayersPanel: View {
         commitNodes(document.model.reflowed(nodes), ids.count == 1 ? "Move Shape" : "Move Shapes")
     }
 
+    private func setOpacityOnSelectedLayers(_ opacity: Double) {
+        let ids = app.selectedNodeIDs
+        guard !ids.isEmpty else { return }
+        var nodes = scopeNodes
+        guard LayerOpacityMutation.apply(opacity, to: ids, in: &nodes) else { return }
+        commitNodes(nodes, "Opacity")
+    }
+
     /// Add `d` to the frame origin of every node in `ids`, recursing into groups
     /// (a node's origin is in its parent's space).
     private static func moveIDs(_ ids: Set<UUID>, by d: CGPoint, in nodes: inout [Node]) {
@@ -945,6 +974,47 @@ struct LayersPanel: View {
         return false
     }
 
+    /// Apply an explicit Layers-panel artboard destination. The node is temporarily
+    /// expressed in document coordinates so the same visible-bounds calculation
+    /// works whether it came from the wall or from inside a group.
+    private func attach(_ node: inout Node, to board: Artboard) {
+        node.artboardID = board.id
+        let bounds = document.model.artboardOwnershipBounds(of: node)
+        let overlap = board.frame.intersection(bounds)
+        guard overlap.isNull || overlap.width <= 0 || overlap.height <= 0 else { return }
+        node.frame.origin.x += board.frame.midX - bounds.midX
+        node.frame.origin.y += board.frame.midY - bounds.midY
+    }
+
+    private func acceptLayerDrop(on boardID: UUID?) -> Bool {
+        guard let boardID, let draggedID = draggingID else { return false }
+        draggingID = nil
+        dropIndicator = nil
+        return moveLayer(draggedID, toArtboard: boardID)
+    }
+
+    /// A section-header drop moves the layer to that artboard's top level. This is
+    /// also the route for an empty board, where there is no child row to target.
+    @discardableResult
+    private func moveLayer(_ draggedID: UUID, toArtboard boardID: UUID) -> Bool {
+        guard case .document = scope,
+              let board = document.model.page(for: app.activeCanvasPageID)?
+                .artboards.first(where: { $0.id == boardID }) else { return false }
+        let original = scopeNodes
+        let oldOffset = parentOffset(of: draggedID, in: original) ?? .zero
+        var nodes = original
+        guard var moved = Self.extract(draggedID, from: &nodes) else { return false }
+        moved.frame.origin.x += oldOffset.x
+        moved.frame.origin.y += oldOffset.y
+        attach(&moved, to: board)
+        nodes.append(moved)
+        commitNodes(nodes, "Move Layer to Artboard")
+        app.selectedNodeIDs = [draggedID]
+        app.selectedArtboardIDs = []
+        collapsedSections.remove(boardID.uuidString)
+        return true
+    }
+
     @discardableResult
     private static func extract(_ id: UUID, from nodes: inout [Node]) -> Node? {
         if let i = nodes.firstIndex(where: { $0.id == id }) { return nodes.remove(at: i) }
@@ -996,6 +1066,14 @@ struct LayersPanel: View {
 
         let original = scopeNodes
         let oldOff = parentOffset(of: draggedID, in: original) ?? .zero
+        // A target row inherits its Layers section from its top-level ancestor.
+        // Carry that destination explicitly so a wall layer can be dropped beside
+        // (or inside) an artboard layer even when less than 50% currently overlaps.
+        let destinationBoard: Artboard? = {
+            guard case .document = scope,
+                  let top = original.first(where: { subtreeContains(targetID, $0) }) else { return nil }
+            return document.model.owningArtboard(of: top, on: app.activeCanvasPageID)
+        }()
 
         // Into a component INSTANCE → add to its shared source (affects all instances).
         if place == .into, case .instance(let inst)? = findNode(targetID)?.content {
@@ -1006,18 +1084,22 @@ struct LayersPanel: View {
         var nodes = original
         guard var moved = Self.extract(draggedID, from: &nodes) else { return }
         let abs = CGPoint(x: moved.frame.minX + oldOff.x, y: moved.frame.minY + oldOff.y)
+        moved.frame.origin = abs
+        if let destinationBoard { attach(&moved, to: destinationBoard) }
 
         if place == .into, case .group? = findNode(targetID)?.content {
             let gAbsOff = parentOffset(of: targetID, in: original) ?? .zero
             let gOrigin = findNode(targetID)?.frame.origin ?? .zero
-            moved.frame.origin = CGPoint(x: abs.x - gAbsOff.x - gOrigin.x, y: abs.y - gAbsOff.y - gOrigin.y)
+            moved.frame.origin = CGPoint(x: moved.frame.minX - gAbsOff.x - gOrigin.x,
+                                         y: moved.frame.minY - gAbsOff.y - gOrigin.y)
             guard Self.insertIntoGroup(moved, group: targetID, in: &nodes) else { return }
         } else {
             // Reorder as a sibling of the target (same parent the target lives in).
             let parentID = parentNodeID(of: targetID, in: original)
             let pAbsOff = parentID.flatMap { parentOffset(of: $0, in: original) } ?? .zero
             let pOrigin = parentID.flatMap { findNode($0)?.frame.origin } ?? .zero
-            moved.frame.origin = CGPoint(x: abs.x - pAbsOff.x - pOrigin.x, y: abs.y - pAbsOff.y - pOrigin.y)
+            moved.frame.origin = CGPoint(x: moved.frame.minX - pAbsOff.x - pOrigin.x,
+                                         y: moved.frame.minY - pAbsOff.y - pOrigin.y)
             guard Self.insertSibling(moved, near: targetID, afterInModel: place == .before, in: &nodes) else { return }
         }
         commitNodes(nodes, "Move Layer")

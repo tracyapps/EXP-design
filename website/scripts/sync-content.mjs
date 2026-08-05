@@ -250,6 +250,18 @@ const testerPhaseCopy = [
 
 const testerLatestReleaseCopy = [
   {
+    phase: "v2.2 — Rendered HTML + CSS import",
+    title: "Rendered pages become editable",
+    status: "done",
+    body: "Import a local or Chrome-saved HTML/CSS package at selected viewports, edit the reconstructed layers, and review an honest report when browser features cannot map exactly.",
+  },
+  {
+    phase: "v2.2 — Static Storybook + CodePen",
+    title: "Component builds in, CodePen both ways",
+    status: "done",
+    body: "Search and import stories from a published static Storybook build without running its toolchain, send an artboard to CodePen, or bring a CodePen export back into EXP.",
+  },
+  {
     phase: "v2.1 — Nested components + semantic containment",
     title: "Nested, stateful components",
     status: "done",

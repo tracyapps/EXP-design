@@ -114,17 +114,38 @@ extension TextContent {
     /// Build the attributed string for drawing/measuring (`applyCase: true`) or for
     /// the inline editor (`applyCase: false` — the editor must show the *original*
     /// characters so casing stays non-destructive).
-    func attributedString(scale: CGFloat = 1, applyCase: Bool = true) -> NSAttributedString {
+    func attributedString(scale: CGFloat = 1, applyCase: Bool = true,
+                          centerFixedLineHeightLeading: Bool = true) -> NSAttributedString {
         let para = paragraphStyle(scale: scale)
         let strings = applyCase ? displayStrings() : runs.map(\.string)
 
         let out = NSMutableAttributedString()
         for (i, run) in runs.enumerated() {
+            let font = run.nsFont(scale: scale)
             var attrs: [NSAttributedString.Key: Any] = [
-                .font: run.nsFont(scale: scale),
+                .font: font,
                 .foregroundColor: PaintRender.nsColor(run.color),
                 .paragraphStyle: para
             ]
+            // CSS distributes the extra space in a fixed line-height equally
+            // above and below the font box. TextKit instead leaves the extra
+            // space above its bottom-anchored baseline, which makes a truthful
+            // imported `26px` line box paint several points too low. Raise the
+            // glyphs by half that difference while keeping the stored line box,
+            // selection frame, and exported CSS value unchanged.
+            if centerFixedLineHeightLeading && centersFixedLineHeightLeading {
+                let targetLineHeight: CGFloat?
+                switch lineHeightUnit {
+                case .px: targetLineHeight = lineHeight * scale
+                case .em: targetLineHeight = lineHeight * run.fontSize * scale
+                case .auto, .multiple: targetLineHeight = nil
+                }
+                if let targetLineHeight {
+                    let naturalLineHeight = NSLayoutManager().defaultLineHeight(for: font)
+                    let offset = max(0, (targetLineHeight - naturalLineHeight) / 2)
+                    if offset > 0.001 { attrs[.baselineOffset] = offset }
+                }
+            }
             if run.underline { attrs[.underlineStyle] = NSUnderlineStyle.single.rawValue }
             if tracking != 0 { attrs[.kern] = tracking * scale }
             out.append(NSAttributedString(string: strings[i], attributes: attrs))
@@ -135,7 +156,8 @@ extension TextContent {
     /// Rebuild runs from an edited NSAttributedString (dividing sizes by `scale`).
     init(attributed: NSAttributedString, scale: CGFloat = 1,
          align: TextAlign, lineHeight: CGFloat, lineHeightUnit: LineHeightUnit,
-         tracking: CGFloat, box: TextBox, textCase: TextCase = .none) {
+         tracking: CGFloat, box: TextBox, textCase: TextCase = .none,
+         centersFixedLineHeightLeading: Bool = true) {
         var newRuns: [TextRun] = []
         let full = NSRange(location: 0, length: attributed.length)
         attributed.enumerateAttributes(in: full, options: []) { attrs, range, _ in
@@ -152,7 +174,8 @@ extension TextContent {
         }
         self.init(runs: newRuns.isEmpty ? [TextRun(string: attributed.string)] : newRuns,
                   align: align, lineHeight: lineHeight, lineHeightUnit: lineHeightUnit,
-                  tracking: tracking, box: box, textCase: textCase)
+                  tracking: tracking, box: box, textCase: textCase,
+                  centersFixedLineHeightLeading: centersFixedLineHeightLeading)
     }
 
     /// Size to fit the same attributed text TextKit draws on canvas. With
@@ -163,7 +186,9 @@ extension TextContent {
     /// overflow badges when a tightly authored/imported frame still drew every
     /// character.
     func measuredSize(maxWidth: CGFloat? = nil) -> CGSize {
-        let a = attributedString()
+        // Baseline correction is paint-only. Measuring the unshifted fixed line
+        // box keeps its authored px/em height instead of shrinking to glyph ink.
+        let a = attributedString(centerFixedLineHeightLeading: false)
         let s = a.length == 0 ? NSAttributedString(string: "Text", attributes: [.font: firstRun.nsFont()]) : a
         if let w = maxWidth, w > 1 {
             let bounds = s.boundingRect(with: CGSize(width: w, height: .greatestFiniteMagnitude),

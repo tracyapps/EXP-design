@@ -515,8 +515,24 @@ function DesignLanguageCallout() {
 }
 
 function ImportHandoffCallout() {
-  const incoming = ["Figma REST", "Adobe XD", "PDF", "SVG + images"];
-  const outgoing = ["PNG / JPEG", "PDF / SVG", "semantic HTML", "design tokens", "Handoff Package", "local agent"];
+  const incoming = [
+    "Figma REST",
+    "Adobe XD",
+    "local HTML + CSS",
+    "static Storybook",
+    "CodePen package",
+    "PDF",
+    "SVG + images",
+  ];
+  const outgoing = [
+    "PNG / JPEG",
+    "PDF / SVG",
+    "semantic HTML",
+    "design tokens",
+    "Handoff Package",
+    "CodePen Prefill",
+    "local agent",
+  ];
 
   return (
     <section id="import-handoff" className="import-handoff-section" aria-labelledby="import-handoff-title">
@@ -525,9 +541,10 @@ function ImportHandoffCallout() {
         <h2 id="import-handoff-title">bring the work in. send the meaning onward.</h2>
         <p>
           Rescue an editable XD document, import a Figma file through its
-          sanctioned API, or bring in the formats already in your workflow. When
-          the design is ready, export pixels, vectors, semantic code, tokens, a
-          complete inspectable package, or let your own local agent read the work.
+          sanctioned API, or turn a local HTML page, static Storybook build, or
+          CodePen export into editable canvas layers. When the design is ready,
+          export pixels, vectors, semantic code, tokens, an inspectable package,
+          a new CodePen, or let your own local agent read the work.
         </p>
         <p className="detail-line">
           EXP does not ask you to rebuild your process around the app. Use the
