@@ -1283,7 +1283,7 @@ promote them into release gates.
 
 ---
 
-## v2.3 — feature complete; release preparation
+## v2.3 — released (2026-08-21)
 
 Build 14, `MARKETING_VERSION 2.3`. The release began as the whole logged backlog,
 then closed at the owner-approved release boundary on 2026-08-21 after Waves 1–6

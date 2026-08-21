@@ -8,6 +8,15 @@
     <channel>
         <title>EXP [design]</title>
         <item>
+            <title>2.3</title>
+            <pubDate>Fri, 21 Aug 2026 16:43:57 -0500</pubDate>
+            <sparkle:version>14</sparkle:version>
+            <sparkle:shortVersionString>2.3</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>26.2</sparkle:minimumSystemVersion>
+            <sparkle:releaseNotesLink>https://expdesign.app/EXP-design-v2.3.html</sparkle:releaseNotesLink>
+            <enclosure url="https://github.com/tracyapps/EXP-design/releases/download/v2.3/EXP-design-v2.3.zip" length="30462182" type="application/octet-stream" sparkle:edSignature="Sqgs5smLlmce0Sba8PMada+I4seIcufTeAQrYuHO3jRS7kYoaYxijn+a67BiyRdQzTcTDRlPjwe09vx5s6txAg=="/>
+        </item>
+        <item>
             <title>2.2</title>
             <pubDate>Wed, 05 Aug 2026 02:25:14 -0500</pubDate>
             <sparkle:version>13</sparkle:version>
@@ -24,15 +33,6 @@
             <sparkle:minimumSystemVersion>26.2</sparkle:minimumSystemVersion>
             <sparkle:releaseNotesLink>https://expdesign.app/EXP-design-v2.1.html</sparkle:releaseNotesLink>
             <enclosure url="https://github.com/tracyapps/EXP-design/releases/download/v2.1/EXP-design-v2.1.zip" length="28987503" type="application/octet-stream" sparkle:edSignature="iflrrddxLefXkzue9JEXgrWAi2VTy+Bd8TMYAkp4USdK64soHWwnESWrZaukd281SfbMajPh8BnHm1qOvWw8Aw=="/>
-        </item>
-        <item>
-            <title>2.0.1</title>
-            <pubDate>Thu, 23 Jul 2026 15:19:01 -0500</pubDate>
-            <sparkle:version>11</sparkle:version>
-            <sparkle:shortVersionString>2.0.1</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>26.2</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://expdesign.app/EXP-design-v2.0.1.html</sparkle:releaseNotesLink>
-            <enclosure url="https://github.com/tracyapps/EXP-design/releases/download/v2.0.1/EXP-design-v2.0.1.zip" length="27947612" type="application/octet-stream" sparkle:edSignature="fLyM7n5ukaO29mDjkINyHa0Suj1NeTapWgMCgGJttXJMsbB3q1Twd72G5w3P4YbZ8YDzHMG3gk89Qu4JrzuAAg=="/>
         </item>
     </channel>
 </rss>
