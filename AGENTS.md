@@ -38,18 +38,18 @@ EXP [design]/
 ```
 
 ## Current status
-Public **v2.2/build 13** is released. **v2.3/build 14 is feature complete and
-owner-verified; release preparation is active.**
+Public **v2.3/build 14** is released and owner-verified.
 The core native editor, component states/behavior contract, semantic Handoff
 Package, agent-bridge spine, nested components, canvas pages, editable XD/Figma
 import, unified Handoff/panel IA, editable rendered HTML/CSS import, CodePen
 handoff/import, and static Storybook import are shipped.
 
-Follow `docs/RELEASE-CHECKLIST-v2.3.md` and stop at the first failed release
-gate. The remaining lower-priority Wave 7 vector/effect queue is explicitly
-deferred to v2.4 and must not be pulled back into build 14 during release prep.
+`docs/RELEASE-CHECKLIST-v2.3.md` contains the completed notarization, GitHub,
+Sparkle, website, and v2.2→v2.3 update receipts. The remaining lower-priority
+Wave 7 vector/effect queue is explicitly deferred to v2.4.
 
-**Next:** complete the signed/notarized GitHub, Sparkle, and website release.
+**Next:** evaluate and prioritize the deferred v2.4 queue with the owner before
+starting implementation.
 Semantic component/state reconstruction is logged as a v2.4+ research candidate;
 older Angular/AngularJS and open-shadow-root evidence are non-gating follow-ups.
 Unrestricted URL import, repository build execution, full argTypes ingestion, and

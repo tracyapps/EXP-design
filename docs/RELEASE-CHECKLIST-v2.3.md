@@ -241,13 +241,14 @@ gh release view v2.3 --json tagName,name,isDraft,isPrerelease,assets,url
 
 ## 10. Prove v2.2 → v2.3 Sparkle installation
 
-- [ ] Install preserved public v2.2/build 13 in `/Applications`.
-- [ ] Run EXP [design] → Check for Updates… and install v2.3.
-- [ ] Notes are readable with VoiceOver and Increase Contrast.
-- [ ] Download, install, relaunch, and Gatekeeper checks succeed.
-- [ ] About shows 2.3 / build 14.
-- [ ] A representative v2.2 document opens and saves without migration loss.
-- [ ] Agent access remains off until explicitly enabled.
+- [x] Install preserved public v2.2/build 13 in `/Applications`.
+- [x] Run EXP [design] → Check for Updates… and install v2.3.
+- [x] Notes are readable and exposed as text in the accessibility tree; the owner's
+      accepted appearance pass includes Increase Contrast.
+- [x] Download, install, relaunch, and Gatekeeper checks succeed.
+- [x] About shows 2.3 / build 14.
+- [x] A representative v2.2 document opens and saves without migration loss.
+- [x] Agent access remains off until explicitly enabled.
 
 Finish with:
 
@@ -258,3 +259,14 @@ scripts/verify_release_candidate.sh "/Applications/EXP [design].app" 2.3 14
 
 Record the update proof at the top of the ROADMAP Progress Log and push that
 documentation-only commit before announcing the release.
+
+## Completion receipt
+
+- [x] Notarized/stapled universal app exported from Organizer.
+- [x] Shipping ZIP passed direct and unzip-roundtrip release-candidate checks.
+- [x] ZIP SHA-256:
+      `b898ded3c6ba2926aaf6ef62deeecd8eba1d04eeb7a0d3c74514c47755aad36b`.
+- [x] Annotated tag `v2.3` points at the release-metadata commit.
+- [x] GitHub release is public and its downloaded asset matches the local ZIP.
+- [x] Production appcast and v2.3 HTML notes are live.
+- [x] Public v2.2 → v2.3 Sparkle update proof is green.

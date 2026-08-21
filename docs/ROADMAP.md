@@ -2877,6 +2877,25 @@ font import → Phase 9, shadows → Phase 10._
 
 ## Progress Log
 
+- **2026-08-21 (v2.3 released — GitHub, Sparkle, website, and update path
+  verified).** v2.3/build 14 is public at tag `v2.3` with the headline
+  “A faster, calmer everyday canvas.” The exported Developer ID app is universal
+  (`arm64` + `x86_64`), notarized, stapled, Gatekeeper-accepted, and strict-signature
+  clean across the app, thumbnail extension, helper, and Sparkle framework. The
+  immutable shipping ZIP and the asset downloaded back from GitHub are byte-for-byte
+  identical: SHA-256
+  `b898ded3c6ba2926aaf6ef62deeecd8eba1d04eeb7a0d3c74514c47755aad36b`.
+
+  PUBLIC/UPDATE PROOF: the production appcast serves 2.3/build 14 with the signed
+  GitHub enclosure and live HTML notes. A preserved notarized v2.2/build 13 install
+  found 2.3 through Check for Updates, exposed the notes through the accessibility
+  tree, downloaded, installed, and relaunched successfully. About reports 2.3 (14),
+  and the installed app again passes the complete release-candidate check. Local
+  agent access remains off. A copied schema-3 v2.2 document opened in v2.3 and saved
+  as schema 5 while preserving its page, artboard ID/name/frame, nodes, and sources.
+  The release boundary remains the owner-accepted Waves 1–6 plus completed Wave 7
+  line/gradient work; the explicitly deferred low-priority queue moves to v2.4.
+
 - **2026-08-21 (v2.3 feature complete — owner acceptance green; release gate
   opened).** The owner verified the final gradient synchronization, font-picker
   VoiceOver behavior, shared Inspector polish, all tooltip verbosity/hover/focus/

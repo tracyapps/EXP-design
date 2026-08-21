@@ -128,8 +128,7 @@ EXP [design]/
 ```
 
 ## Current status
-Public **v2.2/build 13** is released; **v2.3/build 14 is feature complete,
-owner-verified, and in release preparation.**
+Public **v2.3/build 14** is released and owner-verified.
 The native editor, Design Language, component states/behavior contract, semantic
 Handoff Package, agent bridge, nested components, canvas pages, XD/Figma import,
 rendered HTML/CSS import, CodePen handoff/import, static Storybook import, and the
@@ -138,11 +137,11 @@ five-family compatibility matrix are shipped. Documents save as **`.design`**
 
 Waves 1–6 and the completed Wave 7 line/gradient work are accepted. The owner
 explicitly deferred the remaining lower-priority vector/effect queue to v2.4 on
-2026-08-21. Do not add scope during the release gate.
+2026-08-21. `docs/RELEASE-CHECKLIST-v2.3.md` contains the completed notarization,
+GitHub, Sparkle, website, and v2.2→v2.3 update receipts.
 
-**Next:** follow `docs/RELEASE-CHECKLIST-v2.3.md` through signed archive,
-notarization, immutable ZIP, GitHub/Sparkle/website publication, and the v2.2 →
-v2.3 update proof. Stop at the first failed gate.
+**Next:** evaluate and prioritize the deferred v2.4 queue with the owner before
+starting implementation.
 
 **Backlog hygiene:** run `scripts/verify_backlog_ids.sh` before assigning a new id.
 Ids are referenced from ROADMAP, PERF-LOG and PERF-TODO as well as BACKLOG, so
