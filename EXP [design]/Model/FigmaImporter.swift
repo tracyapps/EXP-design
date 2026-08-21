@@ -515,7 +515,10 @@ nonisolated private final class FigmaFileMapper {
                                                 end: CGPoint(x: length, y: 0),
                                                 stroke: stroke.color,
                                                 strokeWidth: max(1, stroke.width),
-                                                strokePattern: stroke.pattern)))
+                                                strokePattern: stroke.pattern,
+                                                strokeCap: stroke.cap,
+                                                startMarker: stroke.marker,
+                                                endMarker: stroke.marker)))
         return (node, Self.normalizedRotation(sourceRotation + localDirection))
     }
 
@@ -587,6 +590,9 @@ nonisolated private final class FigmaFileMapper {
                                              stroke: stroke.color, strokeWidth: stroke.width,
                                              strokeAlignment: stroke.alignment,
                                              strokePattern: stroke.pattern,
+                                             strokeCap: stroke.cap,
+                                             startMarker: closed ? .none : stroke.marker,
+                                             endMarker: closed ? .none : stroke.marker,
                                              contours: mapped.count > 1 ? mapped : nil)))
     }
 
@@ -737,7 +743,11 @@ nonisolated private final class FigmaFileMapper {
         }
     }
 
-    private func strokeStyle(_ object: JSON) -> (color: RGBAColor, width: CGFloat, alignment: StrokeAlignment, pattern: StrokePattern) {
+    private func strokeStyle(_ object: JSON) -> (color: RGBAColor, width: CGFloat,
+                                                  alignment: StrokeAlignment,
+                                                  pattern: StrokePattern,
+                                                  cap: StrokeLineCap,
+                                                  marker: StrokeMarker) {
         let paint = firstVisiblePaint(object["strokes"])
         let color = self.paint(from: paint)?.representativeColor ?? .clear
         let width = Self.number(object["strokeWeight"]) ?? 0
@@ -757,7 +767,20 @@ nonisolated private final class FigmaFileMapper {
         } else {
             pattern = .dashed
         }
-        return (color, width, alignment, pattern)
+        let rawCap = Self.string(object["strokeCap"]) ?? "NONE"
+        let cap: StrokeLineCap
+        let marker: StrokeMarker
+        switch rawCap {
+        case "ROUND":
+            cap = .round; marker = .none
+        case "SQUARE":
+            cap = .square; marker = .none
+        case "LINE_ARROW", "TRIANGLE_ARROW", "ARROW_LINES", "ARROW_EQUILATERAL", "TRIANGLE_FILLED":
+            cap = .butt; marker = .arrow
+        default:
+            cap = .butt; marker = .none
+        }
+        return (color, width, alignment, pattern, cap, marker)
     }
 
     private func cornerRadii(_ object: JSON) -> (uniform: CGFloat, perCorner: CornerRadii?) {

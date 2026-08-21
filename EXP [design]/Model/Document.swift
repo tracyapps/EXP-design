@@ -339,8 +339,9 @@ struct Document: Codable, Sendable {
     /// distinct from `formatVersion`, which tracks internal model migrations.
     /// History: 1 = v1.4 baseline; 2 = v1.6 component contract (states,
     /// relationships, public override props); 3 = document-level canvas pages;
-    /// 4 = hidden code/component bridge provenance.
-    static let currentSchemaVersion = 4
+    /// 4 = hidden code/component bridge provenance; 5 = open-stroke caps and
+    /// independent start/end markers.
+    static let currentSchemaVersion = 5
 
     /// The schema version this in-memory document was DECODED from (kept for
     /// diagnostics), or the current version for new documents. Encoding always
@@ -2569,6 +2570,41 @@ enum StrokePattern: String, Codable, Sendable, CaseIterable {
     }
 }
 
+/// The cap applied to both exposed ends of an open stroke. SVG and Core Graphics
+/// both model this as one whole-stroke property; endpoint decorations are markers.
+enum StrokeLineCap: String, Codable, Sendable, CaseIterable {
+    case butt, round, square
+
+    var label: String {
+        switch self {
+        case .butt: return "Flat"
+        case .round: return "Round"
+        case .square: return "Square"
+        }
+    }
+
+    var cgLineCap: CGLineCap {
+        switch self {
+        case .butt: return .butt
+        case .round: return .round
+        case .square: return .square
+        }
+    }
+}
+
+/// A decoration attached independently to the start or end of an open stroke.
+/// Arrow geometry is expressed in stroke-width units by every renderer.
+enum StrokeMarker: String, Codable, Sendable, CaseIterable {
+    case none, arrow
+
+    var label: String {
+        switch self {
+        case .none: return "None"
+        case .arrow: return "Arrow"
+        }
+    }
+}
+
 /// `strokeWidth == 0` means no stroke (matches a plain filled shape). Custom
 /// decoders default the newer stroke fields so older files still open.
 struct RectangleShape: Codable, Sendable {
@@ -2714,12 +2750,20 @@ struct LineShape: Codable, Sendable {
     var stroke: RGBAColor = .black
     var strokeWidth: CGFloat = 2
     var strokePattern: StrokePattern = .solid
+    var strokeCap: StrokeLineCap = .round
+    var startMarker: StrokeMarker = .none
+    var endMarker: StrokeMarker = .none
 
-    enum CodingKeys: String, CodingKey { case start, end, stroke, strokeWidth, strokePattern }
+    enum CodingKeys: String, CodingKey {
+        case start, end, stroke, strokeWidth, strokePattern, strokeCap, startMarker, endMarker
+    }
     init(start: CGPoint, end: CGPoint, stroke: RGBAColor = .black,
-         strokeWidth: CGFloat = 2, strokePattern: StrokePattern = .solid) {
+         strokeWidth: CGFloat = 2, strokePattern: StrokePattern = .solid,
+         strokeCap: StrokeLineCap = .round,
+         startMarker: StrokeMarker = .none, endMarker: StrokeMarker = .none) {
         self.start = start; self.end = end; self.stroke = stroke
         self.strokeWidth = strokeWidth; self.strokePattern = strokePattern
+        self.strokeCap = strokeCap; self.startMarker = startMarker; self.endMarker = endMarker
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -2728,12 +2772,18 @@ struct LineShape: Codable, Sendable {
         stroke = try c.decodeIfPresent(RGBAColor.self, forKey: .stroke) ?? .black
         strokeWidth = try c.decodeIfPresent(CGFloat.self, forKey: .strokeWidth) ?? 2
         strokePattern = try c.decodeIfPresent(StrokePattern.self, forKey: .strokePattern) ?? .solid
+        strokeCap = try c.decodeIfPresent(StrokeLineCap.self, forKey: .strokeCap) ?? .round
+        startMarker = try c.decodeIfPresent(StrokeMarker.self, forKey: .startMarker) ?? .none
+        endMarker = try c.decodeIfPresent(StrokeMarker.self, forKey: .endMarker) ?? .none
     }
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(start, forKey: .start); try c.encode(end, forKey: .end)
         try c.encode(stroke, forKey: .stroke); try c.encode(strokeWidth, forKey: .strokeWidth)
         if strokePattern != .solid { try c.encode(strokePattern, forKey: .strokePattern) }
+        if strokeCap != .round { try c.encode(strokeCap, forKey: .strokeCap) }
+        if startMarker != .none { try c.encode(startMarker, forKey: .startMarker) }
+        if endMarker != .none { try c.encode(endMarker, forKey: .endMarker) }
     }
 }
 
@@ -2761,10 +2811,14 @@ struct PathShape: Codable, Sendable {
     var strokeWidth: CGFloat = 2
     var strokeAlignment: StrokeAlignment = .center
     var strokePattern: StrokePattern = .solid
+    var strokeCap: StrokeLineCap = .round
+    var startMarker: StrokeMarker = .none
+    var endMarker: StrokeMarker = .none
     var contours: [[PathPoint]]? = nil
 
     enum CodingKeys: String, CodingKey {
-        case points, closed, fill, stroke, strokeWidth, strokeAlignment, strokePattern, contours
+        case points, closed, fill, stroke, strokeWidth, strokeAlignment, strokePattern,
+             strokeCap, startMarker, endMarker, contours
     }
 
     /// Alignment is only meaningful on a closed outline; open paths render center.
@@ -2775,10 +2829,13 @@ struct PathShape: Codable, Sendable {
     init(points: [PathPoint], closed: Bool = false, fill: Paint = .white,
          stroke: RGBAColor = .black, strokeWidth: CGFloat = 2,
          strokeAlignment: StrokeAlignment = .center, strokePattern: StrokePattern = .solid,
+         strokeCap: StrokeLineCap = .round,
+         startMarker: StrokeMarker = .none, endMarker: StrokeMarker = .none,
          contours: [[PathPoint]]? = nil) {
         self.points = points; self.closed = closed; self.fill = fill
         self.stroke = stroke; self.strokeWidth = strokeWidth
         self.strokeAlignment = strokeAlignment; self.strokePattern = strokePattern
+        self.strokeCap = strokeCap; self.startMarker = startMarker; self.endMarker = endMarker
         self.contours = contours
     }
     init(from decoder: Decoder) throws {
@@ -2790,6 +2847,9 @@ struct PathShape: Codable, Sendable {
         strokeWidth = try c.decodeIfPresent(CGFloat.self, forKey: .strokeWidth) ?? 2
         strokeAlignment = try c.decodeIfPresent(StrokeAlignment.self, forKey: .strokeAlignment) ?? .center
         strokePattern = try c.decodeIfPresent(StrokePattern.self, forKey: .strokePattern) ?? .solid
+        strokeCap = try c.decodeIfPresent(StrokeLineCap.self, forKey: .strokeCap) ?? .round
+        startMarker = try c.decodeIfPresent(StrokeMarker.self, forKey: .startMarker) ?? .none
+        endMarker = try c.decodeIfPresent(StrokeMarker.self, forKey: .endMarker) ?? .none
         contours = try c.decodeIfPresent([[PathPoint]].self, forKey: .contours)
     }
     func encode(to encoder: Encoder) throws {
@@ -2798,7 +2858,30 @@ struct PathShape: Codable, Sendable {
         try c.encode(fill, forKey: .fill); try c.encode(stroke, forKey: .stroke)
         try c.encode(strokeWidth, forKey: .strokeWidth); try c.encode(strokeAlignment, forKey: .strokeAlignment)
         if strokePattern != .solid { try c.encode(strokePattern, forKey: .strokePattern) }
+        if strokeCap != .round { try c.encode(strokeCap, forKey: .strokeCap) }
+        if startMarker != .none { try c.encode(startMarker, forKey: .startMarker) }
+        if endMarker != .none { try c.encode(endMarker, forKey: .endMarker) }
         try c.encodeIfPresent(contours, forKey: .contours)
+    }
+
+    /// Endpoint and the nearest point that defines its tangent, in local space.
+    /// Curved paths prefer their Bézier handles so arrowheads follow the curve.
+    var endpointTangents: (start: (tip: CGPoint, interior: CGPoint),
+                           end: (tip: CGPoint, interior: CGPoint))? {
+        guard !closed, !isMultiContour, points.count >= 2,
+              let first = points.first, let last = points.last else { return nil }
+        let second = points[1]
+        let penultimate = points[points.count - 2]
+        func firstDistinct(from tip: CGPoint, _ candidates: CGPoint?...) -> CGPoint {
+            candidates.compactMap { $0 }.first {
+                hypot($0.x - tip.x, $0.y - tip.y) > 0.0001
+            } ?? tip
+        }
+        let startInterior = firstDistinct(from: first.point,
+                                          first.controlOut, second.controlIn, second.point)
+        let endInterior = firstDistinct(from: last.point,
+                                        last.controlIn, penultimate.controlOut, penultimate.point)
+        return ((first.point, startInterior), (last.point, endInterior))
     }
 
     /// Anchors for a rounded rectangle in LOCAL space (v1.3 — fixes "convert

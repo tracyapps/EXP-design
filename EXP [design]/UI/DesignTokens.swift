@@ -133,6 +133,9 @@ enum EXPColor {
     static var borderSoft:   Color { dyn(0xFFFFFF, 0.07, 0x000000, 0.08) }
     static var borderGlass:  Color { dyn(0xFFFFFF, 0.12, 0xFFFFFF, 0.85) } // the lit top edge of glass
     static var borderStrong: Color { dyn(0xFFFFFF, 0.18, 0x000000, 0.16) }
+    /// Opaque control boundary used for popup/dropdown affordances. Against the
+    /// panel surfaces it stays above 3:1 in both authored appearances.
+    static var borderControl: Color { n700 }
     static var hairlineNS:    NSColor { dynNS(0xFFFFFF, 0.09, 0x000000, 0.10) }
 
     // ---- semantics --------------------------------------------------------
@@ -263,6 +266,21 @@ extension View {
         self.font(EXPType.layerFont())
             .fontWeight(active ? .medium : .light)
     }
+    /// Apply the persisted interface size through SwiftUI's native type-size
+    /// environment rather than multiplying every font independently.
+    func expInterfaceTypeSize() -> some View {
+        modifier(EXPInterfaceTypeSizeModifier())
+    }
+}
+
+private struct EXPInterfaceTypeSizeModifier: ViewModifier {
+    @AppStorage(AppPreferences.interfaceTypeSize) private var raw =
+        AppPreferences.defaultInterfaceTypeSize
+
+    func body(content: Content) -> some View {
+        let size = EXPInterfaceTypeSize(rawValue: raw) ?? .standard
+        content.dynamicTypeSize(size.dynamicTypeSize)
+    }
 }
 
 // MARK: - Metrics (spacing · radii · stroke · layout) =======================
@@ -354,12 +372,15 @@ extension EXPColor {
 /// `.textFieldStyle(.exp)`. (Focus shows the text cursor; the accent focus ring
 /// from the spec needs per-field @FocusState and can layer on later.)
 struct EXPFieldStyle: TextFieldStyle {
+    @ScaledMetric(relativeTo: .callout) private var fontSize: CGFloat = EXPType.small
+    @ScaledMetric(relativeTo: .callout) private var controlHeight: CGFloat = EXPMetric.controlH
+
     func _body(configuration: TextField<Self._Label>) -> some View {
         configuration
-            .font(.system(size: EXPType.small))
+            .font(.system(size: fontSize))
             .foregroundStyle(EXPColor.textPrimary)
             .padding(.horizontal, 7)
-            .frame(height: EXPMetric.controlH)
+            .frame(minHeight: controlHeight)
             .background(EXPColor.surfaceField,
                         in: RoundedRectangle(cornerRadius: EXPMetric.radiusField, style: .continuous))
             .overlay(

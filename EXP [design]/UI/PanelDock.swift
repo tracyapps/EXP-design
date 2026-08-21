@@ -124,6 +124,98 @@ struct Workspace: Codable, Sendable {
     }
 }
 
+/// A whole arrangement, captured as a value (FEAT-021).
+///
+/// The catch worth knowing: an arrangement lives in TWO places. The docks, the
+/// workspace mode and dock visibility are per-document-window state on `AppState`;
+/// the floating trays — and crucially their window FRAMES, which is where the
+/// multi-monitor positions actually are — are app-wide on `PanelHub`. A preset that
+/// captured only the first would restore the panel *order* and leave every window
+/// exactly where it was, which is the opposite of the point.
+struct WorkspaceSnapshot: Codable, Sendable {
+    var workspace: Workspace
+    var mode: AppState.WorkspaceMode
+    var showLeft: Bool
+    var showRight: Bool
+    var trays: [PanelTray]
+
+    /// Is the arrangement described by `other` what is on screen right now?
+    ///
+    /// The workspace checkmark used to track `activePresetID`, which is set when a
+    /// preset is applied or saved and never cleared — so it sat beside a workspace
+    /// name permanently, long after the layout had been dragged into something else
+    /// (owner, 2026-08-20: *"a checkmark next to it pretty much always"*). It now
+    /// means what a checkmark is supposed to mean: this is what you are looking at.
+    ///
+    /// `activePresetID` still exists and still drives Update / Rename / Delete —
+    /// those act on the preset you are WORKING ON, which is a different question
+    /// from what is currently displayed. Updating a preset you have drifted away
+    /// from is the whole point of Update.
+    func matches(_ other: WorkspaceSnapshot) -> Bool {
+        guard mode == other.mode, showLeft == other.showLeft, showRight == other.showRight,
+              Self.dockSignature(workspace) == Self.dockSignature(other.workspace),
+              trays.count == other.trays.count,
+              Self.groupSignature(trays) == Self.groupSignature(other.trays)
+        else { return false }
+        // Trays are matched by CONTENT, not by array position: the order in `trays`
+        // is insertion order and says nothing about what the user sees.
+        var unmatched = other.trays
+        for tray in trays {
+            guard let i = unmatched.firstIndex(where: {
+                Self.traySignature($0) == Self.traySignature(tray) && Self.near($0.frame, tray.frame)
+            }) else { return false }
+            unmatched.remove(at: i)
+        }
+        return true
+    }
+
+    /// Frames compare with a tolerance. A workspace should not lose its tick over a
+    /// one-point nudge, and macOS rounds frames itself when it clamps a window onto
+    /// an attached screen (see `PanelHub.clampedToAttachedScreen`).
+    private static func near(_ a: CGRect, _ b: CGRect) -> Bool {
+        let tolerance: CGFloat = 2
+        return abs(a.minX - b.minX) <= tolerance && abs(a.minY - b.minY) <= tolerance
+            && abs(a.width - b.width) <= tolerance && abs(a.height - b.height) <= tolerance
+    }
+
+    private static func traySignature(_ tray: PanelTray) -> String {
+        tray.panels.map(\.rawValue).joined(separator: ",")
+            + "|" + tray.collapsed.map(\.rawValue).sorted().joined(separator: ",")
+    }
+
+    /// Which trays are glued to which, expressed structurally rather than by group
+    /// UUID — re-making the same pairing by hand should read as the same workspace.
+    private static func groupSignature(_ trays: [PanelTray]) -> [String] {
+        var groups: [UUID: [String]] = [:]
+        var out: [String] = []
+        for tray in trays {
+            if let g = tray.groupID { groups[g, default: []].append(traySignature(tray)) }
+            else { out.append("solo:" + traySignature(tray)) }
+        }
+        out += groups.values.map { "glued:" + $0.sorted().joined(separator: "+") }
+        return out.sorted()
+    }
+
+    private static func dockSignature(_ workspace: Workspace) -> String {
+        func column(_ c: DockColumn) -> String {
+            String(format: "%.0f", c.width) + "[" + c.groups.map { g in
+                g.panels.map(\.rawValue).joined(separator: ",")
+                    + ":" + g.activeID.rawValue
+                    + (g.collapsed ? ":c" : "")
+                    + String(format: ":%.2f", g.weight)
+            }.joined(separator: ";") + "]"
+        }
+        return column(workspace.left) + "/" + column(workspace.right)
+    }
+}
+
+/// A named arrangement the user can switch back to ("Laptop", "Dual-monitor").
+struct WorkspacePreset: Codable, Identifiable, Sendable {
+    var id = UUID()
+    var name: String
+    var snapshot: WorkspaceSnapshot
+}
+
 /// A floating "tray" in Multi-Window mode: one macOS window holding a vertical
 /// stack of panels with a grab bar on top. Panels can be merged into a tray,
 /// reordered, torn out into their own tray, and individually collapsed
@@ -135,11 +227,55 @@ struct PanelTray: Identifiable, Codable, Equatable {
     var collapsed: Set<PanelID> = []
     var frame: CGRect = .zero
 
-    init(id: UUID = UUID(), panels: [PanelID], collapsed: Set<PanelID> = [], frame: CGRect = .zero) {
+    // MARK: Glue groups (FEAT-022)
+
+    /// Trays sharing a `groupID` are GLUED: still separate windows, at their own
+    /// sizes and their own positions, that macOS moves and orders together.
+    ///
+    /// **This replaced a one-window/N-columns model, and the reason is worth
+    /// keeping.** Merging two panels into one window forced that window to be the
+    /// UNION of both, which meant: a bounding box spanning most of the screen when
+    /// the two sat at different heights, a huge transparent region that swallowed
+    /// every click aimed at whatever was behind it, and one set of traffic lights
+    /// stranded in empty space belonging to no panel. The owner hit all three within
+    /// a minute of using it (2026-08-20).
+    ///
+    /// `NSWindow.addChildWindow` gives the one thing the merge was for — drag one,
+    /// they all move — without a shared rectangle. And it is NOT the Session 80
+    /// mistake: that moved N windows from OUR code on every drag tick. Here the
+    /// window server does it, and we move exactly one window.
+    var groupID: UUID?
+
+    var isGlued: Bool { groupID != nil }
+
+    init(id: UUID = UUID(), panels: [PanelID], collapsed: Set<PanelID> = [],
+         frame: CGRect = .zero, groupID: UUID? = nil) {
         self.id = id
         self.panels = panels
         self.collapsed = collapsed
         self.frame = frame
+        self.groupID = groupID
+    }
+
+    // MARK: Codable, by hand and on purpose
+    //
+    // A `var` with a default does NOT get that default back from Swift's SYNTHESISED
+    // decoder — a missing key throws. So the moment FEAT-022 added a field, every
+    // tray already in `exp.trays.v1` failed to decode, `loadTrays()` swallowed the
+    // error, and the user's whole panel arrangement silently reverted to the seeded
+    // default. Decoding every post-v1 field with `decodeIfPresent` is what makes the
+    // "old layouts decode unchanged" claim actually true.
+    private enum CodingKeys: String, CodingKey {
+        case id, panels, collapsed, frame, groupID
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        panels = try c.decode([PanelID].self, forKey: .panels)
+        collapsed = try c.decodeIfPresent(Set<PanelID>.self, forKey: .collapsed) ?? []
+        frame = try c.decodeIfPresent(CGRect.self, forKey: .frame) ?? .zero
+        groupID = try c.decodeIfPresent(UUID.self, forKey: .groupID)
     }
 }
 
@@ -1456,6 +1592,113 @@ func makeWindowMenuModel(_ app: AppState) -> WindowMenuModel {
 /// multi-window); the dock column Show/Hide only applies in single-window. The
 /// model falls back to PanelHub's active document, so the menu stays usable even
 /// when a floating panel window is key (which clears the document's scene value).
+/// The workspace-preset commands, in one place so the Window menu and the toolbar
+/// control call exactly the same code (FEAT-021).
+@MainActor
+enum WorkspacePresetCommands {
+    static var presets: [WorkspacePreset] { PanelHub.shared.presets }
+    static var activeID: UUID? { PanelHub.shared.activePresetID }
+    static var activeName: String {
+        presets.first { $0.id == activeID }?.name ?? ""
+    }
+
+    static func saveAs(_ app: AppState) {
+        guard let name = promptForName(title: "Save Workspace",
+                                       message: "Save the current panel arrangement — including where each floating panel sits on which screen.",
+                                       initial: suggestedName(), confirm: "Save") else { return }
+        PanelHub.shared.savePreset(named: name, snapshot: app.workspaceSnapshot)
+    }
+
+    /// Explicit, never automatic. Switching away from a preset you nudged does NOT
+    /// silently overwrite it (Photoshop's rule, and the less surprising one).
+    static func update(_ app: AppState) {
+        guard let id = activeID else { return }
+        PanelHub.shared.updatePreset(id, snapshot: app.workspaceSnapshot)
+    }
+
+    static func rename() {
+        guard let id = activeID,
+              let name = promptForName(title: "Rename Workspace", message: "",
+                                       initial: activeName, confirm: "Rename") else { return }
+        PanelHub.shared.renamePreset(id, to: name)
+    }
+
+    static func delete() {
+        guard let id = activeID else { return }
+        PanelHub.shared.deletePreset(id)
+    }
+
+    static func apply(_ id: UUID, to app: AppState) {
+        guard let preset = presets.first(where: { $0.id == id }) else { return }
+        app.applyWorkspaceSnapshot(preset.snapshot)
+        PanelHub.shared.activePresetID = id
+    }
+
+    private static func suggestedName() -> String {
+        let n = NSScreen.screens.count
+        if n <= 1 { return "Laptop" }
+        return n == 2 ? "Dual-monitor" : "\(n) monitors"
+    }
+
+    /// A standard alert rather than a SwiftUI sheet: this is invoked from the MENU
+    /// BAR, where there is no reliable view to attach a sheet to. An alert is also
+    /// keyboard-operable and VoiceOver-labelled without extra work.
+    private static func promptForName(title: String, message: String,
+                                      initial: String, confirm: String) -> String? {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.addButton(withTitle: confirm)
+        alert.addButton(withTitle: "Cancel")
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+        field.stringValue = initial
+        field.placeholderString = "Workspace name"
+        field.setAccessibilityLabel("Workspace name")
+        alert.accessoryView = field
+        alert.window.initialFirstResponder = field
+        guard alert.runModal() == .alertFirstButtonReturn else { return nil }
+        let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? nil : name
+    }
+}
+
+/// The preset list + save/update/rename/delete, shared by the Window menu and the
+/// toolbar's workspace control so there is one implementation of each command.
+struct WorkspacePresetMenuItems: View {
+    let app: AppState?
+    private var hub: PanelHub { PanelHub.shared }
+
+    var body: some View {
+        // Computed ONCE per menu build, not once per preset.
+        let current = app?.workspaceSnapshot
+        ForEach(hub.presets) { preset in
+            Button {
+                if let app { WorkspacePresetCommands.apply(preset.id, to: app) }
+            } label: {
+                // A checkmark rather than a Toggle: applying a preset is an action,
+                // not a state you can switch off. It marks the preset the current
+                // arrangement actually MATCHES — not merely the last one touched.
+                Label(preset.name,
+                      systemImage: current?.matches(preset.snapshot) == true
+                          ? "checkmark" : "rectangle.3.group")
+            }
+            .disabled(app == nil)
+        }
+        if !hub.presets.isEmpty { Divider() }
+        Button("Save Workspace As…") { if let app { WorkspacePresetCommands.saveAs(app) } }
+            .disabled(app == nil)
+        Button(hub.activePresetID == nil ? "Update Workspace"
+                                         : "Update “\(WorkspacePresetCommands.activeName)”") {
+            if let app { WorkspacePresetCommands.update(app) }
+        }
+        .disabled(app == nil || hub.activePresetID == nil)
+        Button("Rename Workspace…") { WorkspacePresetCommands.rename() }
+            .disabled(hub.activePresetID == nil)
+        Button("Delete Workspace") { WorkspacePresetCommands.delete() }
+            .disabled(hub.activePresetID == nil)
+    }
+}
+
 struct WindowMenuItems: View {
     @FocusedValue(\.windowMenu) private var focused
 
@@ -1486,6 +1729,12 @@ struct WindowMenuItems: View {
                   systemImage: "sidebar.right")
         }
         .disabled(menu == nil || menu?.mode != .single)
+        Divider()
+        Menu {
+            WorkspacePresetMenuItems(app: PanelHub.shared.activeApp)
+        } label: {
+            Label("Workspace", systemImage: "rectangle.3.group")
+        }
     }
 
     private func toggleBinding(_ panel: PanelID) -> Binding<Bool> {

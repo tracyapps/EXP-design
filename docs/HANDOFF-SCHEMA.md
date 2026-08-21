@@ -60,6 +60,11 @@ The importer is intentionally tolerant for interop:
   - `4` — v2.2 adds hidden `codeBridges[]` provenance/receipt data and persistent
     top-level `nodes[].artboardID` membership. Missing `artboardID` is migrated from
     the legacy >50% geometry rule; nested nodes inherit their top-level container.
+  - `5` — v2.3 adds open-stroke endpoint semantics. Line and path payloads may
+    carry `strokeCap` (`butt`, `round`, or `square`) plus independent
+    `startMarker` / `endMarker` values (`none` or `arrow`). Missing fields retain
+    EXP's legacy rounded/no-marker appearance. Standalone SVG maps these directly
+    to `stroke-linecap`, `marker-start`, and `marker-end`.
 - `design.json.formatVersion`: the internal EXP model migration version. Treat
   this as implementation detail unless you are opening the file in EXP.
 

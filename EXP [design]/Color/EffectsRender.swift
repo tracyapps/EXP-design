@@ -61,6 +61,29 @@ struct Silhouette {
 
 enum EffectsRender {
 
+    /// Whether the CANVAS preview can honour a shadow's `spread` for this node.
+    ///
+    /// BUG-034. `Silhouette.path(spread:)` above can only grow or shrink a
+    /// rect / rounded-rect / ellipse outline; a `.custom` path comes back
+    /// unchanged, and text, groups, lines and instances have no silhouette at all
+    /// (their shadow is blurred from rendered content). SVG export takes the other
+    /// road entirely — `ExportRenderer` emits `<feMorphology>` for ANY node type
+    /// whenever spread is non-zero — so canvas and export can legitimately
+    /// disagree. Stage 1 of the fix is to SAY where they disagree (the Effects
+    /// inspector reads this); Stage 2, committed to Wave 7, removes the divergence
+    /// by dilating the alpha mask with the same BOX structuring element
+    /// `feMorphology` uses. Deleting `Effect.spread` was considered and rejected:
+    /// the CSS, Figma and SVG importers all read spread, so dropping the field
+    /// would silently lose imported data.
+    ///
+    /// Keep in sync with `CanvasNSView.nodeSilhouette`.
+    static func previewsSpread(_ node: Node) -> Bool {
+        switch node.content {
+        case .rectangle, .ellipse, .image: return true
+        default: return false
+        }
+    }
+
     private static let ciContext = CIContext(options: [.cacheIntermediates: false])
     /// A bounded bitmap protects the same interaction/export paths that already
     /// guard shadow buffers. Above this limit the caller draws the unblurred

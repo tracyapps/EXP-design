@@ -28,6 +28,7 @@ enum AppPreferences {
     static let smartGuides         = "exp.pref.smartGuides"          // Bool, default true
     static let showSelectionBounds = "exp.pref.showSelectionBounds"  // Bool, default true
     static let snapToGrid          = "exp.pref.snapToGrid"           // Bool, default false
+    static let pixelSnap           = "exp.pref.pixelSnap"            // Bool, default true
     static let gridSize            = "exp.pref.gridSize"             // Double (points), default 50
     static let gridSubdivisions    = "exp.pref.gridSubdivisions"     // Int, default 2
     static let restoreLayout       = "exp.pref.restoreLayout"        // Bool, default true
@@ -38,17 +39,45 @@ enum AppPreferences {
     static let statesBarCompact    = "exp.pref.statesBarCompact"    // Bool, default false (extended chip row)
     static let artboardSpacing     = "exp.pref.artboardSpacing"     // Double (points), default 160
     static let requestedSettingsPane = "exp.settings.requestedPane" // String (SettingsPane raw); "" = none. Lets a window jump Settings to a pane.
+    static let interfaceTypeSize    = "exp.pref.interfaceTypeSize"  // EXPInterfaceTypeSize raw value
+    static let tooltipVerbosity     = "exp.pref.tooltipVerbosity"   // EXPTooltipVerbosity raw value
 
     // Defaults (kept next to the keys so AppState and Settings agree).
     static let defaultSmartGuides         = true
     static let defaultShowSelectionBounds = true
     static let defaultSnapToGrid          = false
+    static let defaultPixelSnap           = true
     static let defaultGridSize: Double    = 50
     static let defaultGridSubdivisions    = 2
     static let defaultRestoreLayout       = true
     static let defaultTextBoxTrim         = "capBaseline"
     static let defaultPerformanceMode     = "balanced"
     static let defaultArtboardSpacing: Double = 160
+    static let defaultInterfaceTypeSize = EXPInterfaceTypeSize.standard.rawValue
+    static let defaultTooltipVerbosity = EXPTooltipVerbosity.full.rawValue
+}
+
+/// User-controlled chrome type size. This rides SwiftUI's Dynamic Type
+/// environment so system accessibility sizing and the app preference compose.
+enum EXPInterfaceTypeSize: String, CaseIterable, Identifiable {
+    case compact, standard, large
+    var id: String { rawValue }
+    var label: String {
+        switch self { case .compact: "Compact"; case .standard: "Standard"; case .large: "Large" }
+    }
+    var dynamicTypeSize: DynamicTypeSize {
+        switch self { case .compact: .medium; case .standard: .large; case .large: .xxLarge }
+    }
+}
+
+/// Hover-help density. Shorter levels never alter accessible names or the full
+/// VoiceOver hint; Option-hover temporarily reveals the complete explanation.
+enum EXPTooltipVerbosity: String, CaseIterable, Identifiable {
+    case full, standard, minimal
+    var id: String { rawValue }
+    var label: String {
+        switch self { case .full: "Full"; case .standard: "Standard"; case .minimal: "Minimal" }
+    }
 }
 
 extension AppPreferences {
@@ -134,6 +163,7 @@ struct SettingsWindow: View {
         }
         // Roomy default so panes have space to grow into; the user can resize.
         .frame(minWidth: 720, idealWidth: 820, minHeight: 460, idealHeight: 560)
+        .expInterfaceTypeSize()
         // Another window (e.g. the Design Language panel) can request a pane by
         // writing this key; jump to it whether Settings was just opened or is open.
         .onAppear { applyRequestedPane() }
@@ -217,9 +247,42 @@ struct SettingsGroup<Content: View>: View {
 private struct GeneralSettingsPane: View {
     @AppStorage(AppPreferences.restoreLayout) private var restoreLayout =
         AppPreferences.defaultRestoreLayout
+    @AppStorage(AppPreferences.interfaceTypeSize) private var interfaceTypeSizeRaw =
+        AppPreferences.defaultInterfaceTypeSize
+    @AppStorage(AppPreferences.tooltipVerbosity) private var tooltipVerbosityRaw =
+        AppPreferences.defaultTooltipVerbosity
+
+    private var interfaceTypeSize: Binding<EXPInterfaceTypeSize> {
+        Binding(get: { EXPInterfaceTypeSize(rawValue: interfaceTypeSizeRaw) ?? .standard },
+                set: { interfaceTypeSizeRaw = $0.rawValue })
+    }
+    private var tooltipVerbosity: Binding<EXPTooltipVerbosity> {
+        Binding(get: { EXPTooltipVerbosity(rawValue: tooltipVerbosityRaw) ?? .full },
+                set: { tooltipVerbosityRaw = $0.rawValue })
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
+            SettingsGroup("Interface",
+                          footnote: "Tooltip detail only changes the hover bubble. Accessible names and full VoiceOver hints always remain available; hold Option while hovering to temporarily show the full explanation.") {
+                LabeledContent("Interface type size") {
+                    Picker("Interface type size", selection: interfaceTypeSize) {
+                        ForEach(EXPInterfaceTypeSize.allCases) { size in
+                            Text(size.label).tag(size)
+                        }
+                    }
+                    .labelsHidden()
+                }
+                LabeledContent("Tooltip detail") {
+                    Picker("Tooltip detail", selection: tooltipVerbosity) {
+                        ForEach(EXPTooltipVerbosity.allCases) { level in
+                            Text(level.label).tag(level)
+                        }
+                    }
+                    .labelsHidden()
+                }
+            }
+
             SettingsGroup("Workspace",
                           footnote: "\u{201C}Reset\u{201D} clears the saved panel arrangement. It takes effect the next time you open an editor window.") {
                 Toggle("Restore the panel layout when the app launches", isOn: $restoreLayout)
@@ -240,6 +303,8 @@ private struct CanvasSettingsPane: View {
         AppPreferences.defaultShowSelectionBounds
     @AppStorage(AppPreferences.snapToGrid) private var snapToGrid =
         AppPreferences.defaultSnapToGrid
+    @AppStorage(AppPreferences.pixelSnap) private var pixelSnap =
+        AppPreferences.defaultPixelSnap
     @AppStorage(AppPreferences.gridSize) private var gridSize =
         AppPreferences.defaultGridSize
     @AppStorage(AppPreferences.gridSubdivisions) private var gridSubdivisions =
@@ -297,6 +362,12 @@ private struct CanvasSettingsPane: View {
 
             SettingsGroup("Grid") {
                 Toggle("Snap to grid by default", isOn: $snapToGrid)
+
+                // BUG-036(b): separate from grid snapping on purpose. Grid snapping
+                // pulls to grid lines, layout-grid columns and guides; this one only
+                // decides whether drags land on whole points. Folding them together
+                // would mean losing guide snapping just to drag by a half point.
+                Toggle("Snap to whole pixels by default", isOn: $pixelSnap)
 
                 LabeledContent("Grid size") {
                     HStack(spacing: 8) {

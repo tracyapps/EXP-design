@@ -88,6 +88,46 @@ extension TextContent {
         return para
     }
 
+    /// The line height this text ACTUALLY renders at, in points at scale 1,
+    /// whatever unit it is authored in. `.auto` reports the font's natural line
+    /// height, because that is what `.auto` draws — which is what makes switching
+    /// off Auto keep the same appearance.
+    var renderedLineHeightPoints: CGFloat {
+        let font = firstRun.nsFont(scale: 1)
+        let natural = NSLayoutManager().defaultLineHeight(for: font)
+        switch lineHeightUnit {
+        case .auto:     return natural
+        case .multiple: return lineHeight * natural
+        case .px:       return lineHeight
+        case .em:       return lineHeight * firstRun.fontSize
+        }
+    }
+
+    /// The number that expresses `points` of line height in `unit`, for THIS
+    /// text's first run — so the unit selector can convert instead of
+    /// reinterpreting. A 64pt line box on 40pt type is about 1.4× or 1.6em; read
+    /// as "64" of either it becomes an absurd line box.
+    ///
+    /// `.multiple` divides by the font's NATURAL line height, not by the font
+    /// size, because that is what `NSParagraphStyle.lineHeightMultiple` multiplies.
+    /// (CSS's unitless `line-height` multiplies the font size instead — a real
+    /// difference, and this app lays out through TextKit, so TextKit's definition
+    /// is the one that has to be inverted here.) `.auto` has no number of its own,
+    /// so the stored one is returned untouched and survives a round trip.
+    ///
+    /// Uses the same `NSLayoutManager.defaultLineHeight(for:)` the fixed-line-height
+    /// leading correction above uses, so the two cannot disagree about "natural".
+    func lineHeightValue(for points: CGFloat, in unit: LineHeightUnit) -> CGFloat {
+        let font = firstRun.nsFont(scale: 1)
+        let natural = NSLayoutManager().defaultLineHeight(for: font)
+        switch unit {
+        case .auto:     return lineHeight
+        case .multiple: return natural > 0 ? points / natural : lineHeight
+        case .px:       return points
+        case .em:       return firstRun.fontSize > 0 ? points / firstRun.fontSize : lineHeight
+        }
+    }
+
     /// Per-run display strings with the non-destructive `textCase` applied. For
     /// `sentence` the capitalize-next state is carried across runs so a sentence
     /// that spans styled spans still reads correctly.
@@ -331,13 +371,20 @@ enum FontCatalog {
     static let systemMonospacedFamily = "System Monospaced"
     static let systemMonospacedRegular = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular).fontName
 
+    /// AppKit's documented family classes. These are intentionally broad: font
+    /// metadata is incomplete in the wild, so an explicit Other bucket is more
+    /// truthful than guessing from a family name and silently hiding misses.
+    enum Category: String, CaseIterable {
+        case sansSerif, serif, monospaced, handwriting, display, symbol, other
+    }
+
     struct Face: Identifiable, Hashable {
         let postScriptName: String
         let faceName: String
         var id: String { postScriptName }
     }
 
-    static let families: [String] = ([systemMonospacedFamily] + NSFontManager.shared.availableFontFamilies)
+    static let families: [String] = Set([systemMonospacedFamily] + NSFontManager.shared.availableFontFamilies)
         .filter { !$0.hasPrefix(".") }
         .sorted()
 
@@ -368,5 +415,99 @@ enum FontCatalog {
 
     static func isSystemMonospaced(_ postScriptName: String) -> Bool {
         postScriptName.hasPrefix(".AppleSystemUIFontMonospaced")
+    }
+
+    static func category(for family: String) -> Category {
+        if family.isEmpty { return .sansSerif }
+        if family == systemMonospacedFamily { return .monospaced }
+        return categoriesByFamily[family] ?? .other
+    }
+
+    /// Font descriptors are stable for the process lifetime. Cache the catalog's
+    /// classifications once instead of reopening hundreds of descriptors whenever
+    /// SwiftUI recomputes a filtered list.
+    private static let categoriesByFamily: [String: Category] = {
+        var result: [String: Category] = [:]
+        for family in families where family != systemMonospacedFamily {
+            result[family] = uncachedCategory(for: family)
+        }
+        return result
+    }()
+
+    private static func uncachedCategory(for family: String) -> Category {
+        guard let face = defaultFace(of: family),
+              let font = NSFont(name: face, size: 12) else { return .other }
+        let traits = font.fontDescriptor.symbolicTraits
+        if traits.contains(.monoSpace) { return .monospaced }
+
+        switch traits.intersection(.classMask) {
+        case .classOldStyleSerifs, .classTransitionalSerifs, .classModernSerifs,
+             .classClarendonSerifs, .classSlabSerifs, .classFreeformSerifs:
+            return .serif
+        case .classSansSerif:
+            return .sansSerif
+        case .classScripts:
+            return .handwriting
+        case .classOrnamentals:
+            return .display
+        case .classSymbolic:
+            return .symbol
+        default:
+            return .other
+        }
+    }
+}
+
+extension Document {
+    /// Installed families actually referenced by this document. This walks every
+    /// canvas page, reusable component source, component-state/instance typography
+    /// override, and saved type style. The picker still filters ONE installed-font
+    /// catalog; unavailable document fonts are therefore not presented as choices.
+    var usedFontFamilies: Set<String> {
+        let installed = Set(FontCatalog.families)
+        var result: Set<String> = []
+
+        func addFontName(_ fontName: String) {
+            if fontName.isEmpty {
+                result.insert("")
+            } else if FontCatalog.isSystemMonospaced(fontName) {
+                result.insert(FontCatalog.systemMonospacedFamily)
+            } else if installed.contains(fontName) {
+                result.insert(fontName)
+            } else if let family = NSFont(name: fontName, size: 12)?.familyName,
+                      installed.contains(family) {
+                result.insert(family)
+            }
+        }
+
+        func addOverride(_ value: InstanceOverride.Value) {
+            guard case .textStyle(let style) = value,
+                  let fontName = style.fontName else { return }
+            addFontName(fontName)
+        }
+
+        func visit(_ nodes: [Node]) {
+            for node in nodes {
+                switch node.content {
+                case .text(let text):
+                    text.runs.forEach { addFontName($0.fontName) }
+                case .group(let children):
+                    visit(children)
+                case .instance(let instance):
+                    instance.overrides.forEach { addOverride($0.value) }
+                    instance.nestedOverrides.forEach { addOverride($0.value) }
+                default:
+                    break
+                }
+            }
+        }
+
+        pages.forEach { visit($0.nodes) }
+        for source in sources {
+            visit(source.children)
+            source.states.flatMap(\.overrides).forEach { addOverride($0.value) }
+        }
+        designLanguage.typeStyles.forEach { addFontName($0.fontName) }
+        return result
     }
 }

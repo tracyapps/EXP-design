@@ -31,6 +31,24 @@ enum SelectionTransform {
 
     // MARK: Bounds
 
+    /// Apply a node's own flips to bounds already gathered in its parent's space
+    /// (BUG-041).
+    ///
+    /// A flip mirrors a group's CHILDREN about the group's stored frame centre — that
+    /// is what `CanvasNSView.parentLocalToDoc` does, flip first and then rotate. When a
+    /// group's content union is not centred on that frame (which is the normal case
+    /// once anything has been moved inside it), leaving the flip out shifts the
+    /// computed bounds by twice the offset between the two centres: bounds the right
+    /// SIZE in visibly the wrong PLACE. A leaf's flip mirrors its content inside its
+    /// own frame, so for leaves this is the identity.
+    private static func mirrored(_ b: CGRect, forFlipsOf n: Node, frame: CGRect) -> CGRect {
+        guard n.flipH || n.flipV else { return b }
+        var out = b
+        if n.flipH { out.origin.x = 2 * frame.midX - b.maxX }
+        if n.flipV { out.origin.y = 2 * frame.midY - b.maxY }
+        return out
+    }
+
     /// The axis-aligned document-space bounds a node occupies on screen. For a
     /// group this is the union of its descendants (so the box matches what's
     /// drawn even if the stored group frame lags), except managed auto-layout /
@@ -50,6 +68,7 @@ enum SelectionTransform {
                     inner = u ?? absFrame
                 }
             }
+            inner = mirrored(inner, forFlipsOf: n, frame: absFrame)
             guard n.rotation != 0 else { return inner }
             // Rotate the (unrotated) bounds' corners about the node centre and take
             // their AABB — the box still encloses the rotated content.
@@ -145,8 +164,13 @@ enum SelectionTransform {
         case .rectangle(let s): return s.strokeAlignment.reach(for: s.strokeWidth)
         case .ellipse(let s):   return s.strokeAlignment.reach(for: s.strokeWidth)
         case .polygon(let s):   return s.strokeAlignment.reach(for: s.strokeWidth)
-        case .line(let s):      return s.strokeWidth / 2
-        case .path(let s):      return s.effectiveStrokeAlignment.reach(for: s.strokeWidth)
+        case .line(let s):
+            return (s.startMarker != .none || s.endMarker != .none) ? s.strokeWidth * 4 : s.strokeWidth / 2
+        case .path(let s):
+            if !s.closed, !s.isMultiContour, s.startMarker != .none || s.endMarker != .none {
+                return s.strokeWidth * 4
+            }
+            return s.effectiveStrokeAlignment.reach(for: s.strokeWidth)
         default:                return 0
         }
     }
@@ -171,6 +195,7 @@ enum SelectionTransform {
                     inner = union ?? absFrame
                 }
             }
+            inner = mirrored(inner, forFlipsOf: n, frame: absFrame)
             guard n.rotation != 0 else { return inner }
             let center = CGPoint(x: absFrame.midX, y: absFrame.midY)
             let corners = [
@@ -182,6 +207,55 @@ enum SelectionTransform {
                           width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!)
         }
         return bounds(node, .zero)
+    }
+
+    /// Union of `paintedBounds` over several nodes in one space.
+    static func unionPaintedBounds(_ nodes: [Node]) -> CGRect? {
+        var u: CGRect?
+        for n in nodes { let b = paintedBounds(n); u = u?.union(b) ?? b }
+        return u
+    }
+
+    /// Per-edge distance from a GEOMETRY rect out to the painted (ink) rect that
+    /// encloses the same content's outlines — BUG-036(a).
+    ///
+    /// The selection box a designer sees is drawn at INK bounds, so an outside
+    /// stroke is never left sticking out of the box that claims to bound it, while
+    /// the model, align/distribute and export keep using geometry. These insets are
+    /// what convert between the two, and they are CONSTANT for the length of a drag:
+    /// resizing does not change stroke widths, so the box can track the cursor
+    /// exactly while the frame written back stays geometry.
+    struct InkInsets: Equatable {
+        var left: CGFloat = 0, top: CGFloat = 0, right: CGFloat = 0, bottom: CGFloat = 0
+        static let zero = InkInsets()
+        var isZero: Bool { self == .zero }
+    }
+
+    static func inkInsets(geometry g: CGRect, ink i: CGRect) -> InkInsets {
+        guard !g.isNull, !i.isNull else { return .zero }
+        return InkInsets(left: max(0, g.minX - i.minX), top: max(0, g.minY - i.minY),
+                         right: max(0, i.maxX - g.maxX), bottom: max(0, i.maxY - g.maxY))
+    }
+
+    /// A node's own geometry→ink insets, independent of where it sits.
+    static func inkInsets(of node: Node) -> InkInsets {
+        inkInsets(geometry: visualBounds(node), ink: paintedBounds(node))
+    }
+
+    static func outset(_ r: CGRect, by k: InkInsets) -> CGRect {
+        guard !k.isZero else { return r }
+        return CGRect(x: r.minX - k.left, y: r.minY - k.top,
+                      width: max(0, r.width + k.left + k.right),
+                      height: max(0, r.height + k.top + k.bottom))
+    }
+
+    /// Inverse of `outset`. Width/height are clamped to 1 so dragging a handle past
+    /// the far edge of a thickly-stroked shape cannot produce a negative frame.
+    static func inset(_ r: CGRect, by k: InkInsets) -> CGRect {
+        guard !k.isZero else { return r }
+        return CGRect(x: r.minX + k.left, y: r.minY + k.top,
+                      width: max(1, r.width - k.left - k.right),
+                      height: max(1, r.height - k.top - k.bottom))
     }
 
     // MARK: Scale

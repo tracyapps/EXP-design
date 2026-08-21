@@ -1283,26 +1283,179 @@ promote them into release gates.
 
 ---
 
-## v2.3 — in development
+## v2.3 — feature complete; release preparation
 
-Build 14, `MARKETING_VERSION 2.3`. The only committed opening scope is the
-evidence-first FEAT-008 font-picker discovery below. Review the owner's mockups
-and usability evidence before deciding which filters or navigation mechanisms to
-ship; do not turn the candidate list into an implementation promise by default.
-The code/component write-back and semantic state-reconstruction lanes remain
-recorded here for continuity but are explicitly non-gating until separately
-researched and promoted.
+Build 14, `MARKETING_VERSION 2.3`. The release began as the whole logged backlog,
+then closed at the owner-approved release boundary on 2026-08-21 after Waves 1–6
+and the completed Wave 7 gradient/line work passed acceptance. The remaining
+lower-priority vector/effect queue is explicitly deferred to v2.4 rather than
+holding back a large, owner-verified quality release.
 
-- [ ] **First-priority v2.3 discovery — FEAT-008 font-picker navigation and
-      filtering.** Begin the next version by reviewing the owner's font-filter
-      mockups and testing whether the proposed information architecture is useful
-      before implementing it. The already-shipped scroll-to-current behavior stays;
-      the remaining candidate set is document-scoped Fonts Used, persisted Recent
-      Fonts, type-to-jump, and search/filtering over one list. Do not assume all four
-      mechanisms belong in the final control merely because they were previously
-      listed. Set the interaction and accessibility contract from the mockup/test
-      evidence first, including keyboard behavior, VoiceOver naming, filter
-      persistence, and empty states, then implement the smallest coherent result.
+**Because it is one release, the internal SEQUENCE is what keeps it honest.**
+Work the waves in order. Wave 1 is cross-cutting canvas/event-handling repair, and
+several later items (FEAT-025 point-tool behavior, FEAT-026 point transform box,
+FEAT-032 on-canvas gradient handles, FEAT-029 pencil) build directly on the input
+and selection layers Wave 1 fixes. Building them first means building on sand and
+re-testing everything twice.
+
+**Wave 1 — input & event handling — ✅ COMPLETE (owner-verified 2026-08-11).**
+BUG-024 first-click swallowed (`acceptsFirstMouse`), BUG-025 Option-drag duplicate
+timing, BUG-026 gradient stop hit target, BUG-027 point-vs-handle tolerance,
+BUG-028 tool-switch shortcut ignored, BUG-037 Shift-constrain on creation (closes
+BUG-005 if the shared fix covers it). These five bugs are ~40% of the owner's list
+by count and close to all of the daily friction; BUG-024 and BUG-025 are the two
+to test first because both have cheap, specific hypotheses recorded.
+
+**Wave 2 — text, layers, effects — ✅ COMPLETE, fully owner-verified 2026-08-19.**
+Owner-verified: BUG-032, BUG-033, BUG-040, **BUG-030** (multi-drag, including
+one-undo restore), **FEAT-024(a)**, **BUG-034 Stage 1** (spread disclosure — the
+owner also confirmed the export half by finding `feMorphology radius` in the SVG),
+and **FEAT-043** (line-height unit conversion + unit-aware arrow stepping, logged
+from feedback during the same verification pass). BUG-031 closed as working as
+designed. **BUG-029 got no code on purpose** — source reading found no defect; the
+entry holds the correction and four discriminating questions instead. BUG-039
+remains a watch item. Wave 3 is next. **BUG-029 is the one item that did
+NOT get code, deliberately** — source reading found no defect to fix (the on-canvas
+editor is a stock `NSTextView` with only `cancelOperation:` intercepted, and neither
+global key route touches arrows), so the backlog entry now carries the correction and
+the four discriminating questions to put to the owner instead of a speculative fix.
+BUG-039 remains a watch item. Wave 3 can start once the owner has exercised the
+three fixes above — BUG-030 is document-mutating and should not stack unverified.
+
+**BUG-034 unblocked 2026-08-11, and it grew a P1 half.** The owner confirmed the
+failing case is a drop shadow on TEXT, so it is not a regression against Phase 10.
+But source reading found a genuine **canvas ≠ export divergence**: `EffectsRender
+.Silhouette.path(spread:)` handles only rect/rounded-rect/ellipse and its own
+comment states arbitrary paths ignore spread, while `ExportRenderer` emits
+`<feMorphology operator="dilate|erode">` for ANY node type whenever spread is
+non-zero. So spread on text shows nothing on canvas and IS applied in SVG export.
+By the project's own fidelity test that outranks the missing-feature framing.
+**Owner decision 2026-08-11, after pushback:** the owner initially proposed removing
+spread entirely for consistency. Checking the importers showed why that was the wrong
+fix — `RenderedHTMLImporter` parses CSS `box-shadow`'s fourth value, `FigmaImporter`
+reads Figma's native shadow spread, and `SVGImporter` reconstructs it from
+`feMorphology`. Deleting the field would not remove spread from the world; it would
+make EXP silently drop it on import from all three, which is a direct hit on job #1
+("read a component in accurately, losing no important data"). Stacking shadows is
+also not a substitute — spread grows the silhouette BEFORE the blur, so a hard
+sticker edge at blur 0 cannot be stacked, and stacking does nothing for imported
+content. Resolution: consistency by ADDING, not removing. `Effect.spread` stays and
+keeps round-tripping. Split accordingly: **Stage 1 in Wave 2** — a disclosure-only
+change (say where spread is not yet previewed; alter no stored values, suppress no
+`feMorphology`). **Stage 2 in Wave 7, now committed** — implement real spread by
+dilating the alpha mask rather than offsetting glyph geometry. The trap to verify first: `feMorphology` uses a BOX structuring
+element, not a circle, so a "nicer" circular dilation on canvas would re-introduce
+the divergence in a subtler form. Also confirm whether raster export follows the
+canvas or the SVG path, and whether inner shadows share the gap.
+
+**Wave 3 — selection & bounds — ✅ COMPLETE, owner-verified 2026-08-19.** BUG-036(b)
+whole-pixel snapping SHIPPED as its own `Snap to whole pixels` preference (owner
+decision: not folded into Snap to Grid, because grid snapping also carries
+layout-grid and guide snapping). **BUG-035 is FIXED** — the unified selection
+transform now runs in the deepest COMMON ANCESTOR's local space instead of document
+space, which is what restores handles to a group inside a group and to any
+multi-selection inside a transformed group. BUG-036(a) ink bounds is IMPLEMENTED on top of it —
+the selection outline, its handles and the resize math all work at ink bounds and
+inset back to geometry before writing. FEAT-026's point-selection transform box was
+built on this same box and owner-verified. BUG-035 missing resize/rotate handles inside
+groups (confirm first whether this is the already-logged Refinement-backlog
+"Nested-selection edge cases" item from Session 61 or a second bug), BUG-036
+bounds excluding outside strokes + whole-pixel resize, then FEAT-026 point-selection
+transform box built on the same box BUG-035 lands.
+
+**Wave 4 — workspaces (the owner's #1 ask) — ✅ COMPLETE, owner-verified
+2026-08-21.** FEAT-021 named workspace presets (Session 83) and FEAT-022 panel
+side-by-side docking + pop-apart (Session 84). Cheaper than it looks: Session 79
+already persists the full arrangement to `exp.workspaceLayout.v1` and `AppState
+.trays` is already the model, so presets are that payload keyed by name. Do NOT
+rebuild free-window magnetism — Session 80 tried it, it was choppy, and Session 82
+replaced it with the tray model on purpose. This is Phase 13d and Phase 13c
+deferrals (a)/(b).
+
+**Wave 5 — type & font picker — ✅ COMPLETE, owner-verified 2026-08-21.** FEAT-008:
+the owner delivered the
+mockup/spec pass on 2026-08-11 (type-to-jump plus a hideable left filter rail
+carrying category filters, document-scoped Fonts Used, and app-level Recent). Five
+open questions were resolved 2026-08-21, then the first owner UI pass replaced the
+two-group/faceted prototype with a single mutually-exclusive icon rail so scope and
+category can never both be active. The header now owns Filters + its show/hide switch
+and a real live Search aligned to the font names. Cached macOS font-trait categories
+retain an honest Other bucket. After the owner approved this as much cleaner, the
+popover also became active-display-aware: 62% of usable screen height, bounded to
+480–780 points. FEAT-046 adds persistent font/size/color memory for the next text
+node. The owner verified both follow-ups as much better and confirmed the final
+accessibility/appearance pass green. FEAT-028 outline-on-live-text is deferred to
+v2.4 with the remaining lower-priority vector work.
+
+**Wave 6 — inspector, hierarchy & tooltips (decide the panel ONCE) — ✅ COMPLETE,
+owner-verified 2026-08-21.** FEAT-010 now includes an
+app-wide Compact / Standard / Large interface-type preference, visible Horizontal /
+Vertical flip actions, and adaptive full-name effect fields. FEAT-035 applies one
+measured high-contrast dropdown boundary (4.82:1 minimum across the recorded base
+surfaces). FEAT-036 replaces Case with a named, arrow-key segmented icon control.
+FEAT-023 moves Duplicate and destructive Remove into a separated actions menu and
+adds context/menu-bar routes. FEAT-037's committed control inventory and shared rich
+tips cover hover, focus, hoverability, persistence, and Escape dismissal; FEAT-038
+adds persisted Full / Standard / Minimal visible copy without changing accessible
+names or full hints. The Align-to and Distribute rows remain visibly separated. The
+owner verified the visual, keyboard, VoiceOver, appearance, tooltip handoff, and
+collapsed-effect behavior; the complete owner test run is green.
+
+**Wave 7 — completed line/gradient work accepted; remaining queue deferred to
+v2.4 by owner decision 2026-08-21.** FEAT-031 line caps/markers, FEAT-032
+on-canvas linear-gradient geometry, and FEAT-045 selected-stop + Inspector-angle
+synchronization are complete and owner-verified. The deferred queue is BUG-034 Stage 2 (alpha-mask dilation
+matching `feMorphology`'s box kernel, separable running-max for speed, radius in
+document points so it survives zoom, plus a golden fixture for text shadow spread),
+FEAT-027 create-outlines on mixed selections, FEAT-029 pencil, FEAT-030 balanced
+handles, FEAT-025 point tool moves whole objects, FEAT-028 live-text outlines, and
+the remaining FEAT-034 Add-to-Design-Language surfaces. None is a v2.3 release gate.
+
+**Explicitly NOT in v2.3 — research and parking lot.** FEAT-033 advanced freeform
+gradient (no SVG/CSS equivalent exists; Illustrator rasterizes it — settle the
+export contract before any UI, per the fidelity test), FEAT-039 EPS import (the
+native macOS path appears to have been removed and the alternatives carry AGPL/GPL
+licensing decisions that are the owner's to make — deliver a verified written
+finding first), FEAT-040 data import, FEAT-041 auto-trace. None of these are
+release gates; three of them start with a question rather than a design.
+
+**Accessibility items in this release that require spec verification before code,
+per WORKING-AGREEMENT → "Accessibility decisions are verified, not remembered":**
+FEAT-037/FEAT-038 tooltips against WCAG 2.1 AA §1.4.13 Content on Hover or Focus
+(and the standing rule that a tooltip is never an accessible name), FEAT-035
+against §1.4.11 Non-text Contrast (3:1, measured and recorded, not eyeballed),
+FEAT-036 against §1.4.1 Use of Color, BUG-026 against the target-size criteria, and
+FEAT-008's rail against the APG pattern it adopts. Record citations in the backlog
+entries and state what was NOT verified.
+
+- [x] **FEAT-008 discovery input received 2026-08-11.** The owner's font-filter
+      mockup/spec pass arrived as part of the backlog dump, closing the discovery
+      gate that opened v2.3. The shipped scroll-to-current behavior stays; the
+      confirmed set is type-to-jump plus a hideable filter rail carrying categories,
+      Fonts Used (document-scoped), and Recent (app-level). A separate always-visible
+      search field is now optional rather than assumed. This established the
+      interaction/accessibility contract gate resolved by the implementation below.
+- [x] **FEAT-008 implementation fully owner-verified 2026-08-21.**
+      One list now supports live Search, persisted Recent, document-scoped Fonts
+      Used, and one collapsible icon filter rail. All scope/category choices are one
+      exclusive set, avoiding the empty-result facet trap the owner's first run made
+      visible. Icon buttons have counts, hover/tooltips, arrow-key traversal, and a
+      native radio-group VoiceOver representation. AppKit family classes drive cached
+      categories and unknown metadata stays in Other. Full app, thumbnail, and helper
+      Debug build passed. The owner verified appearance, height, filtering,
+      text-tool interaction, keyboard navigation, and the live VoiceOver contract.
+- [x] **FEAT-046 text-tool style memory owner-verified 2026-08-21.** The next
+      point-text or dragged text box inherits the last
+      concrete PostScript face, exact size, and color used while editing. The
+      app-wide default persists across documents and relaunches; mixed selections
+      preserve prior concrete components, and an unavailable saved face falls back
+      to System. Full Debug build passed.
+- [ ] **v2.3 backlog intake logged 2026-08-11 — BUG-024…BUG-037 and
+      FEAT-021…FEAT-041** (35 owner-reported items) are written up in
+      `docs/BACKLOG.md` with repro, hypothesis, and acceptance for each. FEAT-008
+      and FEAT-010 were updated in place rather than duplicated. Work them in the
+      wave order above.
+
 - [ ] **E3 — provenance-bound code handoff/write-back (post-E2; separate scope).**
       A rendered DOM cannot identify which JSX/template/CSS/token expression should
       be rewritten. Start only where identity is explicit: `data-exp-id`, Storybook
@@ -1968,10 +2121,19 @@ hybrid.** `AppState.workspaceMode`:
         **pop-out button** tears the panel into its own tray. Cross-window via
         SwiftUI drag-and-drop; the dragged panel id is shared through
         `AppState.trayDraggingPanel`.
-  - [ ] DEFERRED: (a) **side-by-side docking** within one tray (multi-column /
-        vertical insertion line) — panels currently stack vertically only;
-        (b) pure **drag-the-header-OUT** tear gesture (today tear-out is the
-        pop-out button — drop-outside isn't catchable via SwiftUI DnD);
+  - [x] **Side-by-side docking (glued columns)** ✓ Session 84 (FEAT-022) — closes
+        deferral (a). A tray can hold N **columns**; connecting two tray windows
+        MERGES them into one window with two columns rather than syncing two
+        windows, so dragging the group and ⌘` are correct by construction. Drag a
+        tray near another's facing edge → vertical insertion line; PAUSE for the
+        system spring-loading delay (`com.apple.springing.delay`) → the line arms;
+        release → glued. A narrow glue strip spans the shared height, carries the
+        unlink button at its middle, drags the group from its body, and puts the
+        column splitter in a hot zone at each of its edges. A shorter column's
+        leftover area is transparent but a dead zone (owner's call — click-through
+        would need a global mouse-moved monitor).
+  - [ ] DEFERRED: (b) pure **drag-the-header-OUT** tear gesture (today tear-out is
+        the pop-out button — drop-outside isn't catchable via SwiftUI DnD);
         (c) header-click collapse in the single-window dock (still uses the
         chevron there).
 - **13d — Workspaces**
@@ -2714,6 +2876,1508 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-08-21 (v2.3 feature complete — owner acceptance green; release gate
+  opened).** The owner verified the final gradient synchronization, font-picker
+  VoiceOver behavior, shared Inspector polish, all tooltip verbosity/hover/focus/
+  dismissal behavior, and the compact effect disclosures. Their complete test run
+  is green. Waves 1–6 and the completed Wave 7 line/gradient work are accepted.
+  The remaining lower-priority Wave 7 queue—BUG-034 Stage 2, FEAT-025, FEAT-027,
+  FEAT-028, FEAT-029, FEAT-030, and the unfinished FEAT-034 surfaces—is explicitly
+  deferred to v2.4. v2.3/build 14 is feature complete and moves to the signed,
+  notarized GitHub/Sparkle/website release path in
+  `docs/RELEASE-CHECKLIST-v2.3.md`.
+
+  RELEASE PREFLIGHT: project metadata is 2.3 (14); backlog-ID, Sparkle, website,
+  nested-component, relationship, page, XD, Figma, semantic HTML/Handoff, SVG-token,
+  CodePen, rendered-HTML/WebKit, and Storybook checks pass. The Handoff and rendered-
+  import tests had two stale schema-4 expectations; baseline/current artifact review
+  proved schema 5 was the only semantic-package difference, so their reviewed receipts
+  now follow the v2.3 schema. An isolated unsigned Release build succeeded for arm64
+  and x86_64 across the app, thumbnail extension, helper, and Sparkle dependency.
+
+- **2026-08-21 (Wave 6 owner-pass follow-up — tooltip handoff + collapsible effects;
+  owner-verified).** The first owner pass found that a hoverable effect-field
+  tooltip could physically cover the field above it. Because the child panel received
+  the pointer first, that underlying control could not announce itself as the next
+  target and the bubble stayed open. The shared presenter now registers every rich-tip
+  control in window-content coordinates and resolves those bounds against the current
+  screen position. When the pointer reaches a different registered control—even one
+  underneath the tooltip panel—the old bubble closes immediately. The ordinary bridge
+  delay and hoverable behavior remain when the bubble is not covering a control, so
+  the WCAG 2.1 SC 1.4.13 contract is retained rather than fixing access by making the
+  bubble click-through.
+
+  Effect rows now have independent disclosure controls. A collapsed row retains the
+  enable checkbox, effect-type picker, a truncated live summary of the important
+  values, and the separated actions menu; clicking the summary expands the full
+  editor. New/duplicated effects start expanded. Disclosure is Inspector-only state,
+  so it does not alter document data, export, or undo history. The controls have
+  dynamic effect-specific accessible names and explicit Expanded/Collapsed values.
+  VERIFIED: full Debug build and owner acceptance. Moving directly between shadow
+  fields dismisses the prior tip in time; non-control tooltip copy remains hoverable;
+  shadow, blur, noise, and dissolve rows collapse/expand and retain working enable,
+  type, summary, and actions controls in the one-line state.
+
+- **2026-08-21 (Wave 4 owner-verified; gradient sync + Wave 6 implementation
+  completed, subsequently owner-verified).** The owner verified FEAT-021 workspace
+  presets and FEAT-022 glue/pop-apart. Wave 4 is complete.
+
+  FEAT-045's remaining split state is closed in code: the canvas and Inspector now
+  share one selected gradient-stop ID, the canvas gives the selected stop a visible
+  ring, and changing the Inspector angle rotates endpoint-based gradient geometry
+  about its existing midpoint while preserving line length. This fixes the concrete
+  report that the angle value changed without changing the object.
+
+  The FEAT-008 accessibility contract now has four-direction radio traversal, stable
+  full names/counts, and state/result announcements. Wave 6 was implemented as one
+  shared pass: scalable interface type in Settings; consistent measurable dropdown
+  boundaries; icon Case segments with arrow keys; effect Duplicate/Remove separation
+  plus context and Edit-menu routes; clearer Flip and shadow controls; and one rich
+  tooltip presenter with Full / Standard / Minimal visible detail, focus support,
+  pointer hoverability, Option reveal, and Escape dismissal. The control inventory,
+  measured ratios, official criteria, and unverified experiential checks are recorded
+  in `docs/ACCESSIBILITY-CONTROL-AUDIT.md`.
+
+  VERIFIED: `git diff --check`, backlog-ID verification, and a full Debug build for
+  the app, thumbnail extension, helper, and Sparkle dependency. The owner subsequently
+  verified gradient angle/selected-stop sync, Case keys/state, effect actions, every
+  tooltip level/interaction, all three interface type sizes, VoiceOver, keyboard,
+  light/dark, and Increase Contrast. There is no automated test action configured
+  for the scheme (`xcodebuild test` exits 66 before running tests); the owner reports
+  their configured tests green. The remaining Wave 7 queue is deferred to v2.4.
+
+- **2026-08-21 (FEAT-008 adaptive height + FEAT-046 text memory owner-verified).**
+  The owner confirmed the taller, active-display-aware font picker and remembered
+  font/size/color behavior are both much better and verified. FEAT-046 is done;
+  FEAT-008's functional/UI contract is done, with only the dedicated live VoiceOver
+  pass retained as an accessibility release check. The remaining v2.3 work is now
+  the earlier verification queue plus the unbuilt Wave 6/7 backlog, not more font
+  picker iteration.
+
+- **2026-08-21 (FEAT-008 adaptive picker height + FEAT-046 text-tool memory;
+  needs owner verification).** The owner approved the revised font picker as much
+  cleaner, then identified the remaining large-monitor mismatch: a fixed 356-point
+  list still forced needless scrolling. The popover now opens at 62% of the active
+  display's usable height, with a 480-point floor and 780-point ceiling. The active
+  window's screen is used, so moving work between a laptop and large external
+  monitor changes the next opening appropriately without adding a manual size
+  preference.
+
+  New text no longer resets to System 16 pt black. `RememberedTextStyle` persists
+  the last concrete PostScript face, exact size, and color at app scope; point text
+  and dragged text boxes share one creation helper. Inline caret/selection changes,
+  Inspector font/size/color edits, whole-text formatting, and saved Type Style
+  application all feed the same memory. Mixed rich-text selections only update
+  unambiguous components, and a face removed from the Mac falls back to System at
+  creation instead of writing a broken font reference. VERIFIED: `git diff --check`
+  and a full Debug build for app + thumbnail + helper succeed. NEEDS OWNER
+  VERIFICATION: height on both small/large displays, point/box inheritance, mixed
+  rich text, another document, and persistence after relaunch.
+
+- **2026-08-21 (FEAT-008 owner-mockup UI revision — exclusive icon filters +
+  live Search; needs owner verification).** The owner's first run showed that the
+  two stacked radio groups were both visually unusable in a narrow rail and too easy
+  to combine into zero results. The revised picker treats All Fonts, Fonts Used,
+  Recent, and every font category as peer views in ONE exclusive filter set. Choosing
+  one always replaces the previous filter; no disabling/intersection explanation is
+  needed. This matches the single-choice pattern in Apple's Segmented Controls HIG
+  and the W3C APG radio-group contract.
+
+  The rail is now icon-only toggle buttons with count badges, semantic accent
+  selection, hover states, full-name tooltips, and type-rendered S/M/ALL glyphs where
+  they communicate more clearly than a generic symbol. VoiceOver receives a native
+  radio-group representation with full names/counts; keyboard focus stays on the
+  selected filter and Up/Down moves and selects within the group. The leading header
+  cell now says Filters and owns the nearby show/hide switch. Its trailing cell is a
+  real live Search field (not "type to jump" help copy), with its text aligned to the
+  font-name column below and a clear action. Search results update immediately and
+  result-count announcements are debounced.
+
+  The owner does not need to export the rough vector icons for this pass: stable SF
+  Symbols plus type-rendered glyphs cover the set without adding an asset pipeline.
+  VERIFIED: full Debug build succeeded for app + thumbnail + helper. NEEDS OWNER
+  VERIFICATION: visual proportions, icon legibility/meaning, hover + tooltip timing,
+  Search alignment and filtering, filter count/selection behavior, rail show/hide,
+  Up/Down traversal, and VoiceOver names/checked state/result announcements.
+
+- **2026-08-21 (FEAT-008 font-picker navigation implemented; needs owner
+  verification).** The v2.3 opening priority is now a complete testable slice.
+  The existing previewed list and scroll-to-current behavior remain; a collapsible
+  left rail adds one scope radio group (All / Fonts Used / Recent) and one category
+  radio group whose choice filters within that scope. The hidden state keeps any
+  active filter named in the header. Scope, category, and rail visibility persist.
+
+  Fonts Used is document-scoped and walks all pages, reusable sources,
+  state/instance typography overrides, and saved type styles only when the popover
+  opens. Recent is an app-level, deduped 12-family MRU. Type-to-jump uses a timed,
+  case/diacritic-insensitive prefix and visible feedback; the global tool-letter
+  monitor yields while the picker owns typing, preventing A/F/T/etc. from changing
+  tools. Every empty path explains itself and filter changes post a polite result-
+  count announcement.
+
+  Categories use cached `NSFontDescriptor.SymbolicTraits`: serif classes, sans,
+  monospace, scripts/Handwriting, ornamentals/Display, and symbolic; unknown or
+  missing metadata stays visible in Other. The rail uses native radio-group pickers
+  after verification against the W3C APG Radio Group pattern and Apple's SwiftUI
+  radio-group documentation; citations and the complete contract are recorded under
+  FEAT-008 in BACKLOG.md. VERIFIED: full Debug build succeeded for the app,
+  thumbnail extension, and helper. NEEDS OWNER VERIFICATION: visual sizing with the
+  installed font library, type-to-jump, filter intersections/persistence, empty
+  Recent, MRU order across relaunch, rail collapse with an active filter, keyboard
+  traversal/arrow behavior, and VoiceOver names/focus/result announcements.
+
+- **2026-08-21 (FEAT-031 owner-verified; browser SVG is authoritative; BUG-048
+  logged separately).** The owner verified corrected arrow placement on both ends
+  and reported that the SVG export renders cleanly in a browser. FEAT-031 is done.
+
+  The same file does expose downstream compatibility differences: macOS
+  Preview/Quick Look shows small transform variance, and Illustrator/Affinity do
+  not reconstruct the nested transforms and SVG marker geometry faithfully. Source
+  inspection found ordinary nested `<g transform>` values plus the intentional SVG
+  2 marker contract; the browser matches the authored canvas. This is therefore
+  recorded as a non-gating consumer-renderer/import note, not an EXP geometry
+  failure and not a reason to reopen the feature.
+
+  A separate issue surfaced during the same matrix: placed SVG
+  `stroke-dasharray` is not reconstructed correctly. That one is an EXP defect and
+  is now BUG-048. Source inspection already locates the gap — `SVGImporter.Style`
+  has no dash/pattern field and the cascade never resolves `stroke-dasharray` — but
+  no fix was folded into this verification pass. Next release work returns to the
+  roadmap; BUG-048 remains independently schedulable.
+
+- **2026-08-21 (FEAT-031 visual correction — arrow base now owns the endpoint).**
+  The owner's first canvas check caught the arrowheads pointing inward from their
+  authored endpoints: the initial triangle placed its point at the endpoint and
+  its flat base four stroke widths inside the line. The shared Core Graphics
+  builder now places the flat base centre exactly on the endpoint and projects the
+  point four stroke widths outward. That one correction covers canvas, PNG, and
+  PDF for both line ends and curved open-path ends. The SVG marker was reversed to
+  the same base-at-`refX=0` geometry, with `auto-start-reverse` still handling the
+  start side. VERIFIED: full Debug build succeeded for the app, thumbnail extension,
+  and helper; `git diff --check` clean. NEEDS OWNER VERIFICATION: visually confirm
+  the base sits on both endpoint handles before continuing with export comparisons.
+
+- **2026-08-21 (FEAT-031 — line caps and independent endpoint arrows implemented;
+  needs owner verification).** The final v2.3 model decision is now code. `LineShape`
+  and open `PathShape` carry one whole-stroke `StrokeLineCap` (Flat / Round / Square)
+  and independent `startMarker` / `endMarker` slots (None / Arrow). Their tolerant
+  decoders default missing values to Round + None, so the public schema can move to
+  5 without changing legacy artwork.
+
+  The canvas and PNG/PDF exporter use one 4×-stroke-width triangular marker builder;
+  open Bézier paths derive marker direction from their endpoint handles. SVG writes
+  native `stroke-linecap`, `marker-start`, and `marker-end`, with `markerUnits` set
+  to `strokeWidth` and `auto-start-reverse`; EXP's SVG importer restores that native
+  model and approximates third-party path/polygon markers as arrows. Supported Figma
+  stroke-cap/arrow values map into the same fields. Convert to Path preserves cap,
+  pattern, and both markers, while painted bounds and viewport culling include the
+  arrow ink.
+
+  The Stroke inspector exposes keyboard-operable, explicitly labelled cap, Start
+  marker, and End marker controls. In Edit Points, choosing a line endpoint or an
+  open-path first/last anchor narrows the marker row to that selected endpoint; caps
+  stay whole-stroke, matching the format contract. VERIFIED: full Debug build
+  succeeded for the app, Quick Look thumbnail extension, and helper; `git diff
+  --check` and backlog-id verification clean. NEEDS OWNER VERIFICATION: compare
+  Flat / Round / Square on a thick line; set Start and End arrows independently;
+  repeat on a curved open path; select each endpoint with Edit Points and change its
+  marker; save/reopen; export PNG, PDF, and SVG and visually compare; re-import the
+  SVG; and spot-check keyboard + VoiceOver labels.
+
+- **2026-08-21 (BUG-047 owner-verified; FEAT-031 started).** The owner confirmed
+  artboard-bound snapping works as intended, so BUG-047 is closed. Work continues
+  with FEAT-031. The model decision is now made from the SVG 2 contract: butt,
+  round, and square remain one whole-stroke cap property; arrowheads are independent
+  start/end markers whose geometry scales in stroke-width units. That preserves a
+  faithful SVG handoff instead of inventing a per-end cap concept the format cannot
+  represent.
+
+- **2026-08-21 (BUG-047 — artboard-bound snapping completed from both sides).** A
+  tester asked for a subtle default snap to artboard bounds. The feature nominally
+  existed since Phase 11, so this started as a source check rather than a second
+  implementation. The gap was precise: `snapNodeOffset` only considered the board
+  returned by `owningArtboard(of:)`; a layer approaching from the wall has no owner
+  until it overlaps more than 50%, and at the useful flush-OUTSIDE position its
+  overlap is zero. It therefore could snap after entering a board but not while
+  approaching one.
+
+  Nearby artboards now contribute edges and centres whenever they touch the moving
+  selection or fall within the existing 6-screen-point threshold. The candidate
+  probe is two-dimensional, so an artboard far away on screen cannot pull a layer
+  merely because one x/y coordinate happens to match. When Smart Guides are enabled,
+  the existing dashed line spans the matched board bound; no new preference or chrome
+  was added. The moving box now goes through the same visual-bounds path as Align, so
+  nested, rotated and flipped selections use what is actually visible rather than a
+  parent-local stored frame.
+
+  The pass also caught a real BUG-036(b) regression in the same gate: turning OFF
+  `Snap to Whole Pixels` was being treated as `bypassSnap`, disabling ruler, grid,
+  layout-grid, element and artboard snapping too even though the UI and backlog call
+  them separate features. `mouseDragged` now distinguishes ⌘ (bypass everything for
+  this gesture) from the pixel preference (only round to whole points).
+
+  VERIFIED: full Debug app build succeeded; `git diff --check` clean; backlog ids
+  checked. OWNER VERIFIED 2026-08-21.
+
+- **2026-08-20 (FEAT-022, third cut — the one-window model was abandoned, and the
+  owner picked the replacement).** Two cuts had merged glued panels into a single
+  window with columns. The owner's second round killed it: *"the dead space is not
+  going to work. because it's NOT just the narrow space between the panels, but it is
+  removing access to the ENTIRETY of my screen."* Plus stranded traffic lights, plus
+  only the top bar dragging.
+
+  **Three complaints, one fault.** A merged window has to be the UNION of both
+  rectangles. Two panels at different heights therefore produce a bounding box
+  covering most of the screen — a huge transparent region that swallows clicks meant
+  for what is behind it, one set of window buttons floating in empty space attached
+  to no panel, and no drag handle anywhere near an actual panel. Chasing the symptoms
+  would have meant three separate hacks against a container that was wrong.
+
+  **The replacement: `NSWindow.addChildWindow`.** A glued group is N separate windows
+  sharing a `PanelTray.groupID`. Each keeps its own size, position and close button;
+  macOS moves and orders them together. No union rectangle, so no dead area to make
+  click-through and nothing realigned on connect. `TrayColumn` and the whole column
+  layer were deleted rather than left lying around.
+
+  **Why this is not Session 80 coming back, stated precisely.** Session 80 moved N
+  windows from our code every drag tick. Here the window server does it, and the only
+  per-drag work is ONE re-parent at `windowWillMove`: the window the user grabbed is
+  promoted to its group's parent so the rest follow it. `applyGrouping()` is
+  idempotent because it runs on every `trays` change and `trays` changes on every
+  recorded move — in steady state it must touch nothing, or we would have rebuilt the
+  exact failure by accident.
+
+  **A SwiftUI/AppKit trap worth remembering:** a `mouseDownCanMoveWindow` NSView with
+  SwiftUI content drawn ON TOP of it never gets the drag — the hosting view takes the
+  hit test. That is why the seam did nothing while the unlink button sitting on it
+  worked fine. Move areas now sit as SIBLINGS of the controls they share space with.
+
+  Also fixed: every tray window has a grab bar now, even a single-panel one (it used
+  to appear only at 2+ panels, leaving a lone panel with no handle but the empty
+  titlebar).
+
+  **The header-drag conflict, resolved by the owner the same day:** item 6 wants any
+  panel header to drag the group, but a header drag already means "move this panel to
+  another tray". Their call — *"the smaller 'panel header' for moving is fine"* — so
+  the grab bar and the seam move the group and the header keeps moving the panel.
+
+  **Then it crashed, I misdiagnosed it, and it crashed again — the second read is
+  the one worth carrying forward.** EXC_BAD_ACCESS code=2 at a stack address: a
+  ~27,500-frame stack overflow. The trace showed `windowWillMove` →
+  `promoteToGroupParent` → `applyGrouping` → `addChildWindow`, and I read it as our
+  own mutual recursion (`addChildWindow` orders the window it adopts, posting its
+  `willMove`). Guards went in. It crashed in the same place. **The tell I had
+  skipped: the thousands of repeated frames contained none of ours.** Our recursion
+  would have shown our frames.
+
+  The real cause was a parent/child CYCLE. `applyGrouping` detached and attached in
+  one pass over an unordered dictionary, so when the parent role swapped it could
+  attach B to A while A was still a child of B — and AppKit recurses forever trying
+  to order a cycle. Two passes now: every stale link goes before any new one is made.
+
+  **The mid-drag re-parent was also deleted, because it was the wrong idea rather
+  than a buggy one.** Handing the parent role to whichever window was grabbed meant
+  re-parenting live windows during a drag, which is what made the cycle reachable at
+  all. The parent is now stable for the life of the group, and a follower redirects
+  its own drag: `WindowMoveArea` reports `mouseDownCanMoveWindow` only when this
+  window is the one that should move, and otherwise takes the mouse and moves the
+  parent itself. Still one window moved per tick.
+
+  Rules earned: any AppKit call that moves or orders a window is heard by our own
+  window delegates; and **when a stack overflow's repeated frames are all system
+  frames, the recursion is in the framework — look for a structure you handed it
+  that cannot terminate.**
+
+  **Owner tested it: connecting, group-move and chaining a third panel onto a pair
+  all work** (*"line, pause, snapping. no resizing or weird location jumping. A+"*).
+  Two follow-ups fixed the same day.
+
+  **Only the group's parent carried the others**, and fixing it took two goes — the
+  first of which walked straight back into Session 80.
+
+  Why the obvious fix fails: have the follower's grab bar move the parent instead of
+  itself. These windows are `fullSizeContentView`, so the top strip belongs to the
+  TITLEBAR and a drag there never reaches any view of ours.
+
+  Why the second-obvious fix fails: let the follower drag itself, read its movement
+  as a delta, apply it to the parent, let AppKit carry the rest. That is one window
+  moved per tick — and it was still awful. Owner: *"the dragging is super laggy... the
+  panels don't always move at the same pace, so if i stop before one has caught up, it
+  leaves an empty space."* **The count of windows was never the point.** Session 80
+  was slow because the group was animated by our code one tick behind the mouse, and
+  so was this. Anything that reads a position and then writes another position
+  inherits that lag no matter how few windows it touches.
+
+  What works: `performDrag(with:)`. `TrayWindow.sendEvent` catches a left-mouse-down
+  in a follower's drag regions and hands the gesture to AppKit's own window-drag loop
+  running on the PARENT. The follower never moves under its own power — it moves
+  because it is a child window. Zero code per tick, identical to dragging any macOS
+  window by its titlebar. Intercepting in `sendEvent` instead of a view is what makes
+  it cover the titlebar strip as well as our own move areas.
+
+  **Resizing a glued window tore a gap or overlapped its neighbour.** `trayDidResize`
+  slides the rest of the group by the change at whichever edge moved. Two guards keep
+  the three handlers from feeding each other: a move that comes with a size change is
+  not a drag, and the reflow's own window moves are not the user dragging.
+
+  VERIFIED: builds clean. NEEDS OWNER VERIFICATION.
+
+- **2026-08-20 (FEAT-022 rebuilt after first use — two blockers, one of them a design
+  mistake, plus a silent data-loss bug found on the way).** Owner tried it and it was
+  broken in the most visible way possible: *"connecting a panel/group of panels turns
+  the other one into the exact same thing."*
+
+  **Cause: duplicate column ids.** `allColumns` synthesises column 0 with
+  `id: tray.id` — deliberately, so single-column trays keep working — and gluing
+  DEMOTES a whole tray into a column. The merged tray therefore held two columns with
+  the same UUID. `ForEach(id:)` rendered one twice, and every column-keyed hub lookup
+  resolved to column 0. `PanelHub.uniqued(_:trayID:)` now runs inside `rebuilt`, so
+  the invariant is enforced at the single point every write passes through instead of
+  at each call site.
+
+  **The second report was a DESIGN mistake of mine, and worth writing down as one.**
+  Session 84 top-aligned the two windows on connect and left a comment arguing that
+  item 2 ("vertical alignment does not matter") was about the GESTURE, not about
+  refusing to tidy the result. The owner: *"connecting two panels does not honor the
+  individual heights or position where they currently are."* Item 4 already settled
+  it — the glue spans "the height the two panels actually SHARE", which is only a
+  meaningful sentence if they may sit at different heights. `TrayColumn` gained
+  `topFraction`; the merged window is now the vertical UNION of the two rects, each
+  column keeps its exact on-screen rectangle, and the strip spans the INTERSECTION of
+  the two spans rather than the shorter height. A spec sentence that only makes sense
+  under one reading IS the decision; do not reason around it.
+
+  **Found while fixing those, and worse than either: `PanelTray` used synthesised
+  `Codable`.** Swift's synthesised decoder does NOT fall back to a `var`'s default for
+  a missing key — it throws. So the first launch after Session 84 hit
+  `keyNotFound(extraColumns)` on every saved tray, `loadTrays()` swallowed the error,
+  and the entire saved panel arrangement reverted to the seeded default with nothing
+  logged. Both `PanelTray` and `TrayColumn` now decode by hand with `decodeIfPresent`.
+  **Rule: any Codable persisted to UserDefaults here needs hand-written decoding the
+  moment a field is added to it** — the FEAT-021 preset payload is the next one to
+  audit against this.
+
+  VERIFIED: builds clean. NEEDS OWNER RE-VERIFICATION — chiefly that two panels of
+  different heights at different vertical positions connect without moving, and that
+  each column shows its own panels.
+
+- **2026-08-20 (FEAT-022 — panels glue side by side. Wave 4 complete).** The owner
+  arrived with a finished 11-point design, which unstuck an entry that had been
+  circling for weeks.
+
+  **The whole implementation hangs off refusing to take item 6 literally.** "Dragging
+  the glue moves the entire group" implemented as N windows moved together IS what
+  Session 80 shipped and Session 82 deleted for being choppy — it syncs N windows every
+  drag tick. So connecting MERGES the two trays into ONE window with two columns.
+  Every item then falls out of the window instead of being simulated across windows:
+  moving the group is a native window drag (6); ⌘` sees one window because there is one
+  (11); the glue strip and its unlink button are a divider view, so re-spanning and
+  re-centring on resize are ordinary layout (5, 9); the column splitter is a splitter
+  (7); and vertical stacking inside a column is the existing tray code, untouched (8).
+
+  That last one is not luck. `TrayColumn` was added such that **column 0 IS the tray's
+  own `panels`/`collapsed`**, so every operation written before columns existed still
+  runs unchanged on an unglued tray, and old `exp.trays.v1` payloads decode as
+  one-column trays with no migration.
+
+  **Dwell is the system's, read not guessed.** The owner estimated ~1s and asked for a
+  proven standard instead. macOS has one for exactly this gesture class — hold a drag
+  over a target to make it act — in spring-loading: `com.apple.springing.delay`, 0.5s
+  on their machine. Reading the preference rather than hardcoding means someone who
+  lengthened it for motor reasons gets this gesture at their own pace, and someone who
+  turned springing off gets no dwell gesture at all and still reaches the same result
+  through the pop-out button and the drag-a-header-into-a-tray route.
+
+  **The item-3 "blink" is a state change, not a flash.** A looping flash is a
+  vestibular and photosensitivity hazard. Armed reads as 2pt/55% → a 6pt rounded bar at
+  full opacity, no animation, no repeat — which is also why Reduce Motion needs no
+  special case here.
+
+  **The one open detail was decided by the owner, on their own condition.** Item 4's
+  leftover area below a shorter column: transparent-and-click-through matches their
+  sketch but needs a global mouse-moved monitor to hit-test, and this app has an
+  input-to-frame budget. Their instruction was conditional — do the cursor-tracking
+  hack IF it costs nothing, otherwise take the dead spot. It costs something. So the
+  area is genuinely transparent (`isOpaque = false`, nothing drawn) but clicks land on
+  it. No global monitor was added; the connect gesture's own end-of-drag detection is a
+  30 Hz timer that exists only while two panels are near each other, reading
+  `NSEvent.pressedMouseButtons`, because a native window drag runs an event loop a
+  local monitor cannot be relied on to see.
+
+  Unlink is not a second mechanism: `tearOutPanel` on a glued column's last panel
+  routes to `unglue`, so the pop-out button Session 82 shipped is the unlink control.
+
+  VERIFIED: app target builds clean. NEEDS OWNER VERIFICATION: connect from both
+  sides; whether the pause threshold feels right; the **glue strip width**, which item
+  7 explicitly flagged for tuning and which is one constant
+  (`GlueMetric.stripWidth`, 14pt); column resize and column height-drag; unlink from a
+  2- and a 3-column group; ⌘` seeing one window; and a glued arrangement surviving a
+  FEAT-021 preset save/restore.
+
+  Next: **FEAT-031** — lines / arrows / dots, and the caps-vs-markers model decision,
+  the last unmade model call in v2.3.
+
+- **2026-08-19 (workspace mode made app-wide — FEAT-021 follow-up).** Owner spotted it
+  immediately: two documents open, switch one to Multi-Window, and the other stayed
+  single — while still showing the checkmark on the saved preset. The checkmark was
+  not the bug (presets are app-wide and should be); the MODE was, because it lived per
+  document window.
+
+  It genuinely has to be app-wide. Multi-Window has ONE shared set of floating panels
+  pointed at the frontmost document, so a window left in single mode would show docked
+  panels while the shared trays simultaneously claimed to serve it. The VALUE still
+  lives per window — each keeps its own dock arrangement, which is correct — but the
+  CHOICE now propagates: `PanelHub` keeps a weak registry of every open document's
+  state, pushes a mode change to the others, and a guard flag breaks the loop each
+  `didSet` would otherwise start. A document opened while the app is already in
+  Multi-Window joins in that mode rather than appearing with docks.
+
+  Owner's framing of the trade is the right one and worth keeping: single-window mode
+  legitimately shows one set of panels per document window, and that difference
+  between the two modes is expected rather than a wart to design away.
+
+  VERIFIED: builds clean, `git diff --check` clean. NEEDS OWNER VERIFICATION: two
+  documents open, switch modes, confirm both windows follow — including a document
+  opened AFTER the switch.
+
+- **2026-08-19 (FEAT-021 — named workspace presets. Wave 4 opened and its headline
+  item shipped).** Owner jumped the queue for this deliberately: it is their #1 ask.
+
+  **The roadmap's "cheaper than it looks" note was half right, and the missing half
+  was the entire point.** Session 79 persists the docks, mode and dock visibility —
+  but that is per-document `AppState`. The floating trays, and crucially their window
+  FRAMES, live app-wide on `PanelHub` in a different store. A preset built from the
+  first alone would have restored panel ORDER and left every window where it was,
+  which is the opposite of "sick of resizing the panels back to my other monitors."
+  `WorkspaceSnapshot` captures both halves.
+
+  Both decisions the entry asked to be made deliberately were made: **switching does
+  NOT auto-save the outgoing preset** (explicit Update; Photoshop's rule and the less
+  surprising one), and **a preset whose monitor is gone gets clamped onto an attached
+  screen** — requiring a real 80pt overlap so the grab bar is catchable, because macOS
+  will otherwise strand a window with no way back.
+
+  One thing that had to be built rather than reused: `PanelWindowManager` only ever
+  OPENED and CLOSED tray windows, since in normal use frames flow the other way (the
+  window moves, the delegate records it). Restoring a preset is the one case needing
+  the reverse, so `applyTrayFrames()` is an explicit call rather than making reconcile
+  fight the user's dragging. Command coverage is one shared `WorkspacePresetMenuItems`
+  view used by both Window ▸ Workspace and the toolbar control, so the two routes
+  cannot drift.
+
+  VERIFIED: app target builds clean, `git diff --check` clean. NEEDS OWNER
+  VERIFICATION, and the multi-monitor checks are the ones that matter: save a preset,
+  rearrange, switch back, confirm panels return to the right SCREENS; switch between
+  two presets; apply a preset for a monitor that is unplugged and confirm every window
+  is still reachable; confirm presets survive relaunch; confirm rearranging after a
+  switch does not quietly change the saved preset.
+
+  **FEAT-022 (side-by-side docking within a tray) is NOT started** — it is the other
+  half of Wave 4 and a genuinely bigger UI change. Next: lines / arrows / dots
+  (FEAT-031's caps-vs-markers model decision). _[Superseded the same night — the
+  owner delivered the FEAT-022 design and it shipped in Session 84, below.]_
+
+- **2026-08-19 (FEAT-045 final tweak — Copy Color → Add Color to Design Language).**
+  Owner, after using the menu: copying a hex only to paste it into the library was a
+  step that did not need to exist. The stop menu now sends the colour straight to the
+  document's Design Language, using the same `save` + `remember` pair the picker's own
+  Save button uses (with `provenance: "gradient stop"`), so a colour added from the
+  canvas is indistinguishable from one added anywhere else. **This also partly
+  delivers FEAT-034** for this surface. It incidentally settles the Copy-Stop /
+  Copy-Color redundancy noted last entry — by deletion rather than by choosing.
+
+  Everything else in FEAT-045 is owner-confirmed. VERIFIED: builds clean,
+  `git diff --check` clean.
+
+- **2026-08-19 (FEAT-045 owner-verified, then revised twice on use).** Owner confirmed
+  adding, copying and editing stops all work, and asked for two changes that turned out
+  to be one idea: **paste should put the stop where the pointer is**, and — their own
+  catch — that only works if the BARE LINE is right-clickable, since otherwise the
+  empty stretches have nowhere to paste into. Both shipped: the line's menu is Add Stop
+  Here / Paste Stop Here, a stop's menu keeps Edit / Copy Color / Copy Stop / Paste
+  Stop Here / Delete Stop, and the two end knobs deliberately get no menu because they
+  are not stops.
+
+  Loose end logged rather than quietly resolved: paste no longer uses the position
+  stored by Copy Stop, so Copy Stop and Copy Color now mean nearly the same thing and
+  one is probably redundant. Worth deciding after real use rather than guessing now.
+
+  VERIFIED: app target builds clean, `git diff --check` clean. NEEDS OWNER
+  VERIFICATION: right-click an empty stretch of line (including where it crosses a hole
+  in the shape) and paste; paste onto an existing stop and confirm it recolours rather
+  than duplicating.
+
+- **2026-08-19 (FEAT-045 — gradient stops editable on the canvas).** Owner asked
+  whether click-to-add-a-stop would collide with shape points. It does not — anchors
+  are node-tool only, the gradient line is select-tool only — but it DOES collide with
+  dragging the shape, since a click inside a filled shape picks it up and the line runs
+  through the middle of it. Owner's call: **the line wins, and the cursor carries the
+  discoverability** (crosshair over the line, open hand over a knob).
+
+  The requirement worth remembering came next: the line has to be clickable along its
+  whole length *"even when there is technically nothing underneath it"* — across a hole
+  in the shape or past the ink entirely — and clicking it must never deselect what you
+  are editing. That reframes the line as CHROME for the selected object rather than
+  part of it, which is why the hit-test is purely geometric, runs before ordinary
+  picking, and returns early.
+
+  Shipped: click the line to add a stop (in the colour already showing there, so adding
+  is visually a no-op until you move or recolour it — and the same gesture continues
+  as a drag, so click-and-drag places one in a single motion); click a knob to open
+  that stop's editor as a popover anchored to the knob, wrapping the existing
+  `ColorPopover` so the eyedropper, code field, contrast strip and "add to Design
+  Language" all come along; right-click for Edit Stop…, Copy Color, Copy Stop, Paste
+  Stop and Delete Stop, with Delete refused below three stops.
+
+  `AppState.selectedGradientStopID` is the shared idea of "the" stop — it had to be
+  lifted out of `PaintEditor`, where it was `@State` private to the picker. Same shape
+  as BUG-038: state hidden inside a view that the thing needing it cannot see.
+
+  **Two things deliberately NOT shipped, and logged rather than glossed:** the
+  inspector's gradient bar still keeps its own selection, so panel and canvas can
+  disagree about which stop is selected (wiring it means threading a binding through
+  `PaintWell`, which is also used where `AppState` is not in the environment); and
+  Delete/Backspace does not delete a stop, because that key currently deletes the
+  SHAPE and silently changing what it destroys based on an invisible sub-selection is
+  how people lose work. Copy/paste carries colour AND position at the owner's explicit
+  choice, against my recommendation — recorded so a later session does not "fix" it.
+
+  VERIFIED: app target builds clean, `git diff --check` clean, id checked with
+  `scripts/verify_backlog_ids.sh`. NEEDS OWNER VERIFICATION: the cursor over the line;
+  clicking the line where it crosses a HOLE in the shape (must add a stop, must not
+  deselect); click-and-drag adding in one motion; the popover's eyedropper writing to
+  the right stop; Delete Stop refusing at two stops; one undo per action.
+
+- **2026-08-19 (FEAT-032 COMPLETE — on-canvas gradient handles).** Owner verified the
+  export half ("export looks the same") and asked for the UI. Selecting a shape with a
+  linear gradient now draws its gradient line: a knob at each end, one knob per stop
+  along the line filled with that stop's own colour, white over a dark halo so it
+  stays legible on any fill.
+
+  Everything the handles author was already expressible, which is the payoff from
+  doing the model first — dragging an end changes direction AND extent because the
+  model stores a line, not an angle, and `settingLine` refreshes `angle` on every tick
+  so the inspector's numeric field stays live and correct as you drag. That is also
+  how the entry's accessibility requirement is met: the numeric route is not a
+  fallback, it is the same value.
+
+  Two details worth keeping. Shift-snapping and stop projection are BOTH done in the
+  node's LOCAL POINT space rather than unit space: on a non-square shape those are not
+  the same direction, so unit-space maths would snap to a different real angle on every
+  aspect ratio and slide stops to the wrong place. And the line maps through
+  `nodeLocalToView` / `viewToNodeLocal`, the same route the FEAT-026 point box uses, so
+  rotation, flip and ancestor transforms come for free instead of gaining a second
+  coordinate story.
+
+  VERIFIED: app target builds clean, `git diff --check` clean. NEEDS OWNER
+  VERIFICATION: drag both ends on a NON-SQUARE shape (the aspect cases above), drag a
+  stop, Shift-drag for 15° snapping, check the inspector angle tracks live, confirm one
+  undo restores a whole drag, and try it on a shape inside a rotated/flipped group.
+
+- **2026-08-19 (FEAT-032 model + export landed; FEAT-033 unblocked by an owner
+  decision).** Owner verified FEAT-026 and chose gradients next.
+
+  **FEAT-033 no longer starts from an unanswered question.** Its blocker was that
+  freeform gradients have no SVG/CSS equivalent — Illustrator rasterizes them, which
+  by this project's own test made the feature suspect. The owner found the CSS
+  "mesh gradient" technique (csshero.org/mesher): a solid background colour plus a
+  stack of `radial-gradient(at X% Y%, hsla(…) 0px, transparent 50%)` layers. That is
+  the "approximate with layered radial gradients" option the entry listed, promoted
+  from a candidate to the chosen direction — and it means the fill exports as REAL
+  CSS rather than a raster. Scheduled to **v2.4** by the owner. Three things still to
+  verify before any UI, recorded in the entry: the SVG half, canvas performance with
+  N stacked radials, and whether the layer stack can be read back IN as one editable
+  fill (the harder half).
+
+  **FEAT-032 — the model decision the entry demanded, made and implemented.**
+  `GradientFill` now carries an optional `start`/`end` LINE in unit space; `nil`
+  keeps the old angle behaviour, so existing documents are untouched. `angle` is kept
+  in sync with the line, which is what preserves the entry's accessibility
+  requirement — the numeric field stays a full, truthful route — as a property of the
+  model rather than something the UI has to remember.
+
+  **The entry said to check what SVG export emits. It was wrong, and had been.**
+  `svgGradientDef` built the gradient line inside a unit SQUARE while the canvas uses
+  CSS's aspect-aware construction, so on any non-square shape at any angle other than
+  0/90 the exported SVG and the canvas quietly disagreed. Both now derive from one
+  `unitLinearPoints(in:)`. CSS keeps the line too: `linear-gradient` cannot say
+  "start 30% in", but the two lines are parallel, so projecting one onto the other
+  turns offset and length into stop percentages (legal outside 0–100%) — exact, and
+  byte-for-byte unchanged when there is no explicit line. `SVGImporter` also stopped
+  collapsing x1/y1/x2/y2 to an angle, which had been normalising every imported
+  gradient to a centred full-width sweep.
+
+  VERIFIED: app + EXPThumbnail build clean, `git diff --check` clean. NEEDS OWNER
+  VERIFICATION: export a NON-SQUARE shape with a 45° gradient to SVG and compare with
+  the canvas — that is the divergence above, and it should now match; re-import an SVG
+  whose gradient has a partial line; and confirm an existing document with gradients
+  opens looking exactly as before.
+
+  **START NEXT SESSION: the on-canvas gradient handles** — now purely a UI problem,
+  on a model that can already express what the handles will author.
+
+- **2026-08-19 (FEAT-026 built — Wave 3 code-complete).** Owner picked closing out
+  Wave 3 while the transform-box code was fresh, which was the cheap-now choice: the
+  entry had said "Blocked by BUG-035 — build on the same box," and that box was
+  written the same day.
+
+  Selecting 2+ points with the node tool now gets a transform box with eight handles
+  and the usual outside-corner rotate region. The whole thing lives in the path's
+  NODE-LOCAL space — the space `PathPoint.point` already uses — and maps through the
+  existing `nodeLocalToView` / `viewToNodeLocal`. That is what makes it work inside
+  groups and inside rotated/flipped ancestors without one new coordinate case.
+
+  Both design questions the entry left open are now settled: control handles always
+  travel with their selected anchor (already the convention in move/rotate/nudge, now
+  written down), and a handle cannot be transformed on its own because `PointAddress`
+  names anchors only — the data model answers it. Two details worth keeping: the box
+  is PADDED outward, because a tight box puts its corner handle exactly on the extreme
+  anchor and makes that anchor ungrabbable — which is also what makes it safe to
+  hit-test the box before the anchors; and it is drawn DASHED so a point selection
+  cannot be mistaken for an object selection.
+
+  VERIFIED: app target builds clean, no new warnings, `git diff --check` clean.
+  NEEDS OWNER VERIFICATION: two points on a straight line (the degenerate axis), a
+  selection spanning two contours of an outlined glyph, rotation inside a flipped
+  group turning the right way, and one undo restoring a whole gesture.
+
+  **START NEXT SESSION:** owner verifies FEAT-026, then Wave 4 (workspaces — the
+  owner's #1 ask, blocked by nothing) or the two Wave 7 MODEL decisions (FEAT-032
+  gradient endpoints, FEAT-031 caps vs markers), which are the only remaining items
+  that get materially more expensive the later they land.
+
+- **2026-08-19 (owner verification sweep — BUG-036(a), BUG-041, BUG-042, FEAT-044 all
+  closed).** Owner confirmed the ink selection bounds, the flipped-group bounds fix,
+  align/distribute inside transformed groups, and flip buttons for a multi-selection.
+  All marked DONE. **Wave 3 is now one item from complete: FEAT-026**, which its own
+  entry records as "Blocked by BUG-035 — build on the same box." That block is lifted,
+  and the box it should build on (common-ancestor space, ink bounds, one hit-test
+  path) was written today, so it is at its cheapest right now.
+
+  Dependency state of the rest of v2.3, for whoever picks it up: **nothing blocks
+  Waves 4, 5 or 6.** Inside Wave 6, FEAT-038 is blocked by FEAT-037. Inside Wave 7,
+  two items carry MODEL changes that get more expensive the later they land, because
+  they touch the stored format and therefore save/open round trips, SVG+CSS export and
+  four importers: FEAT-032 (`GradientFill` must store two endpoints instead of an
+  angle) and FEAT-031 (line CAPS must be separated from arrow MARKERS). Those are the
+  only real sequencing hazards left in the release. Note also that today's FEAT-044
+  added a Flip row to the multi-selection inspector — one more row for Wave 6's
+  single-pass panel rework to account for.
+
+- **2026-08-19 (BUG-041 verified; BUG-042 + FEAT-044 found and fixed — the flip thread
+  keeps paying out).** Owner confirmed the bounds fix, then found the next two things
+  the same tangle was hiding.
+
+  **BUG-042 — align/distribute inside a transformed group.** Owner: aligning several
+  layers inside a flipped/rotated group clusters them somewhere meaningless, and
+  *"ungrouping flips everything back and then alignment works"* — the giveaway, since
+  ungrouping bakes the ancestor transform into the children. Root cause was a
+  DELIBERATE decision that turns out to be wrong: `align()` used parent-local space
+  for siblings, with a comment explicitly defending it "even if that group is
+  rotated." The math in that space was correct — which is exactly why it survived.
+  What was wrong is what the command MEANS: "Align Left" names a direction the user
+  can see and its button draws a vertical bar, so inside a flipped group it did the
+  literal opposite of what it showed. An affordance-honesty bug, not a geometry bug.
+  Fixed by adding `selectionAncestorsAreTransformed()` to the existing `documentSpace`
+  condition in both align and distribute — reusing the mixed-parent/artboard route
+  that already inverse-transforms each movement on write-back, rather than adding a
+  second path. Trade-off recorded in the entry so it can be reversed on evidence:
+  inside a 30° group, Align Left now gives a screen-vertical line, not a group-axis
+  one.
+
+  **FEAT-044 — flip for a multi-selection.** The capability already existed:
+  `flipSelection(horizontal:)` loops the whole selection in one undo step and
+  `validateMenuItem` enabled it, so the Object and right-click menus worked. Only the
+  INSPECTOR was missing it, which made the panel imply flipping is a single-layer
+  action. Extracted `flipControls(multiple:)` and added it to the multi-selection
+  inspector; single keeps the panel's scoped mutation (needed inside a component-source
+  editor), multi routes through `sendCanvasAction` per the dispatch rule so there is
+  still only one implementation. Worth remembering as a command-coverage lesson: the
+  missing route is usually the one people actually look at.
+
+  VERIFIED: app target builds clean, `git diff --check` clean, ids checked with
+  `scripts/verify_backlog_ids.sh`. NEEDS OWNER VERIFICATION: align/distribute inside a
+  flipped group and inside a rotated group; alignment OUTSIDE any transformed group
+  unchanged; flip buttons on a multi-selection acting as one undo step, including in a
+  source-editor window.
+
+- **2026-08-19 (BUG-036(a) outline confirmed; BUG-041 found and fixed — flips were
+  missing from the bounds math).** Owner confirmed the ink outline works, then caught
+  something else with screenshots: selecting the OUTER group drew a box the right size
+  in visibly the wrong PLACE, while either inner group drew a correct one. Their read
+  was *"either I didn't notice this before... or this is new."*
+
+  **It was not new and not the ink change** — checked before touching anything.
+  `visualBounds` and `paintedBounds` are structurally identical apart from the stroke
+  outset, so on unstroked art they return the same rect; the ink change cannot move a
+  box. What changed is VISIBILITY: BUG-035 started drawing unified boxes for
+  selections that previously drew none.
+
+  Root cause: **neither bounds function handled `flipH`/`flipV`** — both only applied
+  rotation. The renderer disagrees; `parentLocalToDoc` mirrors a group's children about
+  the group's stored frame centre and then rotates. When a group's content union is not
+  centred on that frame — normal once anything inside has moved — omitting the mirror
+  shifts the bounds by twice the gap between the two centres. Right size, wrong place.
+  `drawNodeSelection` already carried its own hand-rolled mirror for the per-node hint,
+  which is exactly why the inner groups looked right and the outer one did not, and a
+  good sign the fix belonged in the shared math. Fixed with one
+  `mirrored(_:forFlipsOf:frame:)` applied in both functions after the union and before
+  the rotation, matching the renderer's flip-then-rotate order.
+
+  **Quietly also fixes align/distribute and the inspector's outer-dimension readout for
+  flipped groups**, since both read these functions — worth verifying rather than
+  assuming. Logged as BUG-041 (id checked with `scripts/verify_backlog_ids.sh`).
+  VERIFIED: app target builds clean, `git diff --check` clean.
+
+- **2026-08-19 (BUG-035 owner-verified; BUG-036(a) implemented — Wave 3 down to
+  FEAT-026).** Owner ran their five-case matrix: all three previously-failing
+  selections now show handles, and the two that already worked did not regress.
+  BUG-035 DONE. They also spotted that the edge-resize CURSOR can look flipped deep
+  inside repeatedly rotated/flipped groups and **explicitly chose not to log it** —
+  nothing broken, rare arrangement, they will report it if it ever costs them
+  function. Noted in one line in the entry only so a later session does not rediscover
+  it and spend time uninvited.
+
+  **BUG-036(a) — ink bounds, implemented as decided.** Pleasant surprise: most of the
+  groundwork already existed, because `SelectionTransform.paintedBounds` and
+  `strokeOutset` were written for the inspector's outer-dimension display. Added
+  `unionPaintedBounds` and an `InkInsets` value (per EDGE, since a group's widest
+  stroke may be on one side only) with `outset`/`inset` helpers. The accent outline
+  and all eight handles — single node, nested node under a transformed ancestor, and
+  the unified box — now draw at ink bounds, and all three hit-tests use the same rect,
+  so grabbing a handle is never offset by the stroke width.
+
+  The part worth remembering: **the resize math runs in INK terms and insets back to
+  geometry before writing.** That is what lets the box track the cursor exactly while
+  the model keeps geometry, and it works because the insets are constant for a drag —
+  resizing does not change stroke width. Whole-pixel snapping is applied to the
+  GEOMETRY rather than the ink, since "whole pixel" should mean the stored frame is
+  whole and a stroke width may legitimately be fractional. Auto-padding bands,
+  instance chrome, the path outline trace, align/distribute, export and the
+  inspector's W/H all stay on geometry deliberately — they describe layout or the
+  authored artifact, not paint. With no stroke every inset is zero and each path is
+  byte-for-byte the old geometry math.
+
+  VERIFIED: both targets build clean, `git diff --check` clean. NEEDS OWNER
+  VERIFICATION: put a fat OUTSIDE stroke on a shape and confirm the box hugs the
+  painted edge and that dragging a handle keeps it under the cursor; check a centre
+  stroke; check an inside stroke changes nothing; confirm a plain unstroked shape
+  resizes exactly as before. Known imprecision, recorded rather than hidden: a node
+  with ASYMMETRIC insets that is ALSO rotated pivots about the ink centre rather than
+  the geometry centre, so its anchored corner can drift by a fraction of the stroke
+  width; uniform strokes are exact.
+
+  **START NEXT SESSION: FEAT-026** — the point-selection transform box, built on the
+  box that now exists (common-ancestor space, ink bounds, handles and hit-tests all in
+  one place).
+
+- **2026-08-19 (BUG-036(b) verified + menu state fixed; BUG-035 FIXED).** Owner
+  confirmed pixel snapping works — the earlier "not responding" was an outlined-stroke
+  path whose fractional numbers predated any drag — and confirmed the fix again by
+  resizing. They also reported a real defect in the same change: **the menu commands
+  had no checked state**, so a toggle command gave no clue what pressing it would do.
+  That applied to Snap to Grid too. Both are now SwiftUI `Toggle`s, which draw a
+  checkmark and, unlike a `Button`, carry a real checked state for VoiceOver; they read
+  the persisted preference (a Commands scene cannot see the focused window's AppState,
+  and every synced toggle writes through to UserDefaults) and still WRITE through the
+  responder chain. "Show / Hide Grid" was deliberately left alone — `showGrid` is
+  session state with no preference for a checkmark to read.
+
+  **BUG-035 — fixed, and the owner's five-case matrix is now the acceptance
+  checklist.** They supplied it with screenshots: one element inside a group ✓, the
+  whole outer group ✓, a group inside a group ✗, multiple layers inside a group ✗,
+  multiple groups inside a group ✗. That matched the source reading exactly. The fix:
+  the unified selection transform now works in the deepest COMMON ANCESTOR's local
+  space rather than document space (new `SelectionSpace` replacing
+  `selectionTransformNodesDoc`). Inside a rotated group everything is axis-aligned
+  again relative to that group, so one honest box exists and the write-back cannot
+  shear. It COLLAPSES to document space whenever the shared ancestors are a pure
+  translation, so every case that already worked takes the identical path — that is the
+  regression guard for the two passing rows. It still refuses, visibly, when a rotated
+  group sits between the common space and a selected node, because no single
+  axis-aligned box is honest about that selection.
+
+  Drawing, hit-testing and both write-backs moved into the space together, which is
+  precisely why this was worth one focused pass: handles are now computed in the space
+  and mapped to view, so they are hit where they are drawn; the space chain is captured
+  at drag start so the math cannot change space mid-gesture; and rotation measures BOTH
+  angles in the space rather than in view space, since a flipped ancestor would
+  otherwise reverse the direction of the turn. The dead view-space `selectionAngle` was
+  deleted. `selectionSpace` runs on every mouse-move through the hit-tests, so it walks
+  with one mutable ancestor stack and copies a chain only for genuinely selected nodes.
+
+  VERIFIED: full Debug build succeeded, no new warnings, `git diff --check` clean.
+  NEEDS OWNER VERIFICATION: re-run the five-case matrix — the two previously-WORKING
+  rows first, since that is where regression risk lives — then check that a handle drag
+  inside a rotated group produces the geometry the handle implies, that rotating a
+  multi-selection turns the right way, and that undo is one step.
+
+  **STILL OPEN in Wave 3: BUG-036(a)** — ink bounds. Decided (ink for the visible box,
+  geometry for align/export); it now sits on top of a much better foundation, since the
+  box, its handles and the resize write-back already share one space. Next after that:
+  FEAT-026, which was always meant to be built on this box.
+
+- **2026-08-19 (Wave 3 opened — BUG-036(b) shipped; BUG-035 + BUG-036(a) diagnosed
+  and paired).** Three decisions taken with the owner, then one fix built.
+
+  **BUG-035 — diagnosis confirmed, and the entry's own question answered.** It is
+  only PARTLY the Session 61 Refinement item, and that item is out of date: nested
+  LEAF nodes were fixed at some point (`drawTransformedSelectionBox` maps handles
+  through rotated/flipped chains, and `hitTestHandle` says so in its comment). Two
+  gaps remain, neither about depth: `isBoxResizable` is a TYPE test that excludes
+  group/instance/line, and `selectionTransformNodesDoc` refuses to engage when any
+  ancestor is rotated or flipped — because it lifts frames into DOCUMENT space, and a
+  doc-space non-uniform scale cannot be written back through a rotated ancestor
+  without shearing. A group inside a rotated group therefore falls through to the
+  type test and draws a bare outline. Owner restated the requirement behaviourally:
+  *"if a group is selected inside a group, the bounds of that group. or multiple
+  layers, ensure the resize and rotate handles surround all that are selected."*
+  The fix written into the entry is to run the unified transform in the deepest
+  COMMON ANCESTOR's local space — which `SelectionTransform`'s own doc comment
+  already anticipates ("the caller chooses the shared coordinate space") — and it is
+  bit-for-bit today's behaviour when nothing above the selection is transformed.
+  Instances are logged as a SEPARATE question, since an instance has no size of its
+  own in the model and making one handle-resizable means inventing a size override.
+
+  **BUG-036(b) — SHIPPED.** Cause was one line: `bypassSnap` was ⌘-only, so
+  whole-pixel rounding ran on every drag and had never been connected to Snap to
+  Grid. Owner chose a SEPARATE `Snap to whole pixels` preference rather than reusing
+  the grid toggle, since grid snapping also pulls to layout-grid columns and guides.
+  Shipped as `AppState.pixelSnap` (persisted, default ON) gating that single line, so
+  all twelve snap sites obey it at once, with full command coverage: an `@objc`
+  action, a View-menu item on ⌥⌘' beside Snap to Grid, the Grid panel toggle, and a
+  Settings default. ⌘ still bypasses for one drag.
+
+  **BUG-036(a) — decided, not built.** Owner chose ink bounds for the visible box and
+  geometry for align/distribute/export. Held back on purpose: the box and its handles
+  must move together, so the resize write-back has to inset by a constant stroke
+  outset — the same code BUG-035 rewrites. Pairing them avoids two conflicting edits
+  to the most delicate geometry in the app.
+
+  VERIFIED: both targets build clean, no new warnings in any touched file,
+  `git diff --check` clean. NEEDS OWNER VERIFICATION: turn Snap to whole pixels off
+  and confirm move/resize/draw run through fractional values and the inspector shows
+  them; turn it on and confirm nothing changed from before; ⌥⌘' toggles it; ⌘ during
+  a drag still bypasses either way.
+
+  **START NEXT SESSION: BUG-035 + BUG-036(a) as ONE pass**, in the common-ancestor
+  space described in the BUG-035 entry, with the stroke outset applied to the drawn
+  box, its handles and the resize inset together.
+
+- **2026-08-19 (Wave 2 CLOSED — every shipped item owner-verified).** Owner confirmed
+  BUG-034 Stage 1: the disclosure note appears on a text node with a non-zero spread,
+  and — unprompted — they went and found `feMorphology radius` in the SVG export,
+  confirming both sides of the divergence in one pass. That is the whole argument for
+  Stage 1 in miniature: the value was always going into the export, and until now the
+  canvas said nothing about it. FEAT-043 confirmed in the same message. Wave 2 is
+  closed with BUG-029 deliberately uncoded (see its entry) and BUG-039 still a watch
+  item. **START NEXT SESSION: Wave 3 — selection & bounds.** BUG-035 first, and its
+  first task is not a fix: confirm whether it is the already-logged Session 61
+  "nested-selection edge cases" Refinement item or a genuinely second bug. Then
+  BUG-036 (bounds excluding outside strokes + whole-pixel resize), then FEAT-026
+  (point-selection transform box) built on the same box BUG-035 lands.
+
+- **2026-08-19 (BUG-030 + FEAT-024 owner-verified; FEAT-043 logged and shipped from
+  the same session).** Owner confirmed the Layers multi-selection drag, explicitly
+  including one undo putting everything back, and confirmed select-all-on-entry. Both
+  DONE. Working in the type inspector immediately afterwards produced a new item.
+
+  **FEAT-043 — the line-height unit selector changed the unit and left the number.**
+  Owner: 64px switched to × stayed "64", which with TextKit's `lineHeightMultiple` is
+  a line box thousands of points tall. Fixed by CONVERTING: two new helpers on
+  `TextContent` in `UI/Typography.swift` (`renderedLineHeightPoints` and
+  `lineHeightValue(for:in:)`) sit next to `paragraphStyle(scale:)`, the code that
+  defines what each unit means, so the two cannot drift; the binding reads points,
+  sets the unit, writes the converted value back rounded to 3 decimals. The detail
+  worth remembering: **`.multiple` divides by the font's NATURAL line height, not by
+  the font size** — `NSParagraphStyle.lineHeightMultiple` multiplies the natural line
+  height while CSS's unitless `line-height` multiplies the font size, and this app
+  lays out through TextKit, so TextKit's definition is the one to invert. Switching TO
+  Auto stays the deliberate exception, since Auto IS a value (the font's own line
+  height); the authored number is preserved so switching back off Auto lands on
+  exactly what Auto was drawing.
+
+  Same entry, second half: arrow-key stepping is now unit-aware — 0.1 for × and em,
+  1 for px, keeping the app-wide Shift 10× / Option 0.1× relationship. A multiplier
+  lives between roughly 0.8 and 2, so whole-number steps were useless there.
+
+  VERIFIED: full Debug builds of both the app target and EXPThumbnail succeeded
+  (`Typography.swift` is shared), no new warnings in either touched file,
+  `git diff --check` clean, `scripts/verify_backlog_ids.sh` run before claiming
+  FEAT-043. NEEDS OWNER VERIFICATION: 64px → × → em → px round trip on large type
+  with the text not moving; arrow/Shift/Option steps in each unit; and the still-open
+  BUG-034 Stage 1 spread note.
+
+- **2026-08-19 (Wave 2 finished on the code side — BUG-030, FEAT-024(a), BUG-034
+  Stage 1; BUG-029 deliberately left uncoded).** Owner asked to close out Wave 2 in
+  one session and settled the one decision the BUG-030 entry had reserved: a
+  mixed-parent multi-selection **reparents to the drop target's parent** (Finder /
+  Illustrator) rather than being refused.
+
+  **BUG-030 — Layers multi-drag.** `handleDrop` moves a RUN of nodes now, not one.
+  New `dragSet(startingAt:)` expands a drag on a selected row to the whole selection
+  (a drag on an unselected row replaces the selection instead), prunes any node whose
+  ancestor is also selected, and returns model order. The run is inserted with a
+  single `insert(contentsOf:)` — simpler than the per-node chaining the entry
+  proposed and immune to the model/display inversion that reverses node-at-a-time
+  insertion. One `commitNodes`, one undo step, selection restored afterwards. Three
+  sibling bugs fell out of the same shape and were fixed with it: `attach` recentres
+  the run as ONE block on its union bounds (per-node centring would pile a
+  multi-selection at the artboard midpoint), the artboard-section-header drop honours
+  the selection, and a drop into a component instance takes the whole run
+  all-or-nothing through the already-array-shaped `canInsert`. The drop delegate now
+  visibly refuses a destination row that is part of the moving selection; dropping
+  onto a descendant of a moving group is still refused silently, which is
+  pre-existing and is recorded in the entry rather than left to be rediscovered.
+
+  **BUG-029 — the hypothesis was wrong, and that is the finding.** The entry said the
+  editor reimplements key handling. It does not: `beginEditingText` builds a stock
+  `NSTextView`, and the delegate intercepts only `cancelOperation:`. No `move*`
+  override exists in the project, no menu item binds an arrow key, `ToolShortcuts`'s
+  monitor declines modified keys and non-letters, and `NumericStepping` is scoped to
+  inspector fields. Writing key handling here would have replaced working AppKit
+  behaviour with a hand-rolled version and broken alternative input methods and
+  remapped bindings — the exact failure the original entry warned about. The entry now
+  carries the correction plus four discriminating questions for the owner (does typing
+  a letter insert or switch tools; does the BOX nudge on arrow; single line or
+  multiple; non-default layout or remapper active). This is the project's
+  check-the-hypothesis rule paying for itself a second time.
+
+  **FEAT-024(a).** Entering a canvas text node's edit mode now selects its full
+  contents; the dead `at viewPoint:` parameter was removed rather than left unused. A
+  further click inside the live editor still places a caret, so precise edits are
+  unharmed. The opening selection is announced with an explicit
+  `.selectedTextChanged` accessibility post, since the range is set as part of taking
+  focus — NOT yet verified with VoiceOver running.
+
+  **BUG-034 Stage 1 — disclosure only, nothing stored or exported changed.** Added
+  `EffectsRender.previewsSpread(_:)` next to `Silhouette.path(spread:)` so the UI's
+  claim cannot drift from the renderer; the Spread field's detail text now states
+  where spread is and is not previewed and that export still applies it; and an
+  `info.circle` note appears under the row only when a non-zero spread sits on a node
+  whose canvas preview ignores it. Text carries the message, not colour (WCAG 2.1 AA
+  §1.4.1); the note reuses the existing tertiary caption token and that token's
+  contrast was NOT re-measured.
+
+  **VERIFIED:** full Debug builds of BOTH the app target and EXPThumbnail succeeded
+  (`EffectsRender.swift` is shared with the extension), no new warnings in any touched
+  file, `git diff --check` clean. **NEEDS OWNER VERIFICATION:** drag a non-contiguous
+  Layers multi-selection and check it lands contiguous and in order; drag a selection
+  spanning a group and the wall and check nothing jumps position; one undo restores
+  the whole move; drag several rows onto an artboard section header; double-click a
+  text node and confirm the contents come up selected and a further click still
+  places a caret; put a non-zero spread on a text node and confirm the note appears.
+
+  **START NEXT SESSION:** owner verification of the three fixes above, then the
+  BUG-029 questions, then **Wave 3 — selection & bounds** (BUG-035 handles inside
+  groups, first confirming whether it is the Session 61 nested-selection item or a
+  second bug; BUG-036 bounds excluding outside strokes; then FEAT-026 built on the
+  same box).
+
+- **2026-08-16 (BUG-033 + BUG-040 owner-verified; next-session handoff).** Owner
+  confirmed both fixes: Unlock is now reachable by right-clicking the locked object
+  directly on the wall, and the reported PNG no longer cycles blurry/sharp or drives
+  excessive idle CPU. BUG-033 and BUG-040 are DONE.
+
+  **START NEXT SESSION: BUG-030 — drag a Layers multi-selection as one ordered,
+  undoable block.** Begin by locking the entry's four behavior decisions before
+  editing `handleDrop`: dragging a selected row moves the full selection; dragging an
+  unselected row replaces the selection and moves only that row; preserve relative
+  visual order despite the model/list inversion; and define/refuse ambiguous mixed-
+  parent or nested selections visibly. Then restructure the drop into one mutation
+  and one undo step. This is the largest remaining Wave 2 daily-friction bug and was
+  deliberately reserved for a fresh session.
+
+- **2026-08-16 (BUG-033 canvas coverage + BUG-040 idle PNG decode loop fixed).**
+  Owner clarified the missing Unlock was on a locked item directly on the canvas,
+  not its Layers row. The context menu already had Unlock, but ordinary hit-testing
+  correctly excluded locked nodes, making the command unreachable from the wall.
+  Added a context-only lock-aware hit path: a locked object now offers Reveal in
+  Layers + Unlock while normal clicks still pass through it; locked groups do not
+  expose their children through the lock. The same report uncovered BUG-040: a PNG
+  cycled blurry/sharp at rest while EXP used excessive CPU. Root cause was an exact
+  mip being evicted from `NSCache`, falling back to 256px, asynchronously decoding,
+  redrawing, and being evicted again in a self-sustaining loop. The latest full
+  render now strongly retains the exact/fallback mips it uses, prunes them when no
+  longer visible, and clamps bucket requests to the source PNG's pixel size so 4K/8K
+  keys cannot duplicate one smaller bitmap. VERIFIED: full Debug app build succeeded;
+  `git diff --check` passed. NEEDS OWNER VERIFICATION: right-click a locked canvas
+  item; then leave the reported PNG visible and confirm it stays sharp and Activity
+  Monitor CPU settles.
+
+- **2026-08-16 (owner verification sweep — BUG-032, FEAT-004, and FEAT-020
+  closed).** Owner confirmed that grouping no longer jumps to the top of the layer
+  stack, 1% zoom-out works, and contextual Select All Artboards followed by Clean Up
+  works well. Marked all three done. The same build also visually confirms FEAT-010's
+  first Noise/Dissolve precision-field slice works much better; the broader inspector
+  responsiveness/hierarchy item remains in progress. No source changes in this pass.
+
+- **2026-08-16 (FEAT-010 first slice — precision fields use the panel width).**
+  Owner supplied a screenshot of the Noise/Dissolve Advanced row and asked for labels
+  above multi-column fields so precision values remain readable. Confirmed the exact
+  cause in `MainWindow.swift`: Frequency/Octaves/Seed inherited the shadow row's fixed
+  40pt fields, and Frequency formatted only two decimals. Rebuilt that Advanced area
+  as two flexible columns with full labels above, monospaced digits, a three-decimal
+  Frequency display, minimum 0.001, and precision-aware arrow stepping (0.01 normally,
+  0.001 with Option). The reusable stepping modifier now accepts a base step; all
+  existing call sites retain their old defaults. VoiceOver keeps one full field label
+  rather than reading the new visible label twice. VERIFIED: full Debug app build with
+  `xcodebuild` succeeded and `git diff --check` passed. NOT verified: the owner has not
+  yet inspected the layout at default/narrow/wide panel widths or with VoiceOver and
+  appearance variants. FEAT-010 remains open; this is its first concrete slice, not
+  the broader inspector/hierarchy pass.
+
+- **2026-08-11 (SESSION CLOSE — v2.3 intake + Wave 1 complete + Wave 2 started).**
+  Whole-session summary, written so the next session can resume cold.
+
+  **Shipped and owner-verified (7):** BUG-025 Option-drag latched at mouseDown;
+  BUG-026 gradient end-stop markers drawn outside the gesture hit-rect; BUG-027 anchor
+  owning its whole grab radius; BUG-028 tool letters unreachable from panel focus
+  (Tools menu + central `ToolShortcuts` monitor); BUG-037 Shift not constraining new
+  shapes/frames; BUG-038 opacity digits swallowing characters typed into layer names.
+  BUG-024 closed as a duplicate of BUG-025; BUG-031 closed as working-as-designed.
+
+  **Written, awaiting owner build (2):** BUG-032 group z-position on creation;
+  BUG-033 Lock/Unlock in the Layers context menu.
+
+  **Backlog state:** 35 owner-reported items logged at intake as BUG-024…BUG-037 and
+  FEAT-021…FEAT-041, plus BUG-038 and BUG-039 found during the work. FEAT-008 and
+  FEAT-010 updated in place. `scripts/verify_backlog_ids.sh` added after a PERF-005
+  collision was found live across four files; PERF-005/006 renumbered by first claim.
+
+  **What this session should be remembered for, beyond the fixes.** Every hypothesis
+  written at intake was checked against source before any code was written, and that
+  step repeatedly paid: BUG-024 had no bug at all (`acceptsFirstMouse` was already
+  correct), BUG-026 was hit-rect geometry rather than a tolerance value, BUG-033's menu
+  entry had simply never existed, BUG-031 was correct behaviour, and BUG-038 was a
+  regression from BUG-020's own fix that nobody had connected to the symptom. Four
+  hypotheses were wrong. None shipped. The durable lesson, recorded in BUG-024:
+  after-the-fact symptom reports are good at locating the FILE and unreliable at
+  identifying the CAUSE, so log the observation and mark the hypothesis AS a hypothesis
+  — a confident-sounding guess in a backlog entry is something a later session will
+  implement.
+
+  **RESUME HERE, in this order:**
+  1. **Owner builds BUG-032 + BUG-033** and reports. Group should keep its top-most
+     member's z-position; right-clicking a locked layer should offer an enabled Unlock.
+  2. **BUG-030 — Layers multi-selection drag.** The biggest remaining Wave 2 item and
+     the one the owner called "pretty big." Deliberately not started at the tail of a
+     long session: `handleDrop` is the panel's most intricate function (parent-offset
+     conversion, artboard attachment, drop-into-group vs drop-into-source, and
+     `insertSibling`'s `afterInModel:` inversion). Four design decisions are already
+     written into the entry — settle those first, then restructure to accumulate into
+     one `nodes` array and commit once. Start fresh, with room.
+  3. **BUG-029 — confirm before coding.** The owner said "all the editing key bugs are
+     fixed," but NO BUG-029 code was ever written, so either something else masked it
+     or the specific behaviours were never re-tested. Check each explicitly on canvas
+     text: up/down to line start/end, Shift+arrow by character, Option+arrow by word,
+     Command+arrow by line/document, and the Shift-extended forms. Close it or fix it —
+     do not leave it ambiguous.
+  4. **BUG-039 — watch only.** Capture the one discriminating observation in the entry
+     (canvas new order + panel old order = stale view; both old = dropped mutation).
+     No fix before that exists.
+  5. Then the rest of Wave 2: BUG-034 Stage 1 (spread DISCLOSURE only — alter no stored
+     values, suppress no `feMorphology`), FEAT-024.
+
+  NOT verified anywhere in this session: no Swift was compiled or run by Claude. Every
+  fix was owner-built and owner-confirmed, per WORKING-AGREEMENT.
+
+- **2026-08-11 (BUG-031 closed as working-as-designed; BUG-039 opened as a watch
+  item).** Owner ran the discriminating test and confirmed the per-parent z-order
+  scoping is right: *"something outside a group would just skip over the group;
+  something in the group goes within that group. Exactly what it should be doing."*
+  BUG-031 is CLOSED. Deliberately did NOT build the feedback affordance that was
+  proposed for it — once the scoping was understood the owner had no complaint, so
+  adding a notice would have solved a problem that turned out not to exist.
+  Spun the one loose thread into **BUG-039** rather than letting it go: a text layer
+  briefly refused to reorder, then started working again. Logged precisely because "it
+  fixed itself" is the signature of a STALENESS bug — transient misbehaviour that
+  resolves untouched usually means the model was right and something downstream had not
+  caught up. Leading hypothesis is a stale Layers panel rather than a dropped mutation,
+  which fits the earlier SwiftUI panel-performance findings and the `resolveGeneration`
+  invalidation invariants, and fits the owner's suspicion about deep nesting. Recorded
+  ONE discriminating observation for next time — does the CANVAS show the new order
+  while the panel shows the old? — because the two answers lead to opposite files, and
+  explicitly instructed against guessing a fix before that observation exists.
+  **NEXT:** owner watches for BUG-039 and builds BUG-032/033. Remaining Wave 2:
+  BUG-030 as its own focused pass (the `handleDrop` restructure), BUG-034 Stage 1
+  (spread disclosure), FEAT-024 (select-all on entry), and BUG-029, which still needs
+  its specific behaviours confirmed since no BUG-029 code was ever written.
+
+- **2026-08-11 (BUG-031 re-investigated: not a logic bug, and my tab hypothesis was
+  wrong).** Owner tested and reported that ⇧⌘[ and ⇧⌘] BOTH work on a multi-selection,
+  which kills the macOS-window-tabbing hypothesis outright and also means the original
+  BUG-031 symptom does not reproduce. What they hit instead was intermittent: stepping
+  down stopped working, stepping up worked, and after reselecting "only one moved."
+  Their own guess — that it cannot jump over a group in bulk — pointed at the right
+  function. Read `reorderInParents` (`CanvasView.swift:2883`): it applies the reorder
+  to EVERY parent array containing a selected node, independently — top level, and
+  each group's children. Deliberate, and matches Illustrator, where z-order is scoped
+  to the containing group. But the Layers panel presents one flat-looking list, so the
+  scoping is invisible, and it produces exactly the two reported effects: a selection
+  spanning a group boundary moves per-parent (so only some rows appear to shift), and a
+  selection already at the back makes Send Backward a correct no-op that is
+  indistinguishable from a dead key. Traced `nudgeOrder`'s swap loops by hand for
+  contiguous, non-contiguous and already-at-extreme selections in both directions —
+  correct in every case. So the fix is almost certainly FEEDBACK, not logic; moving a
+  selection across parent boundaries would mean reparenting layers on a ⌘[ press, which
+  is worse than the confusion. Did NOT code anything: a verbal recount cannot separate
+  "per-parent scoping" from "already at the extreme," so a discriminating test is
+  recorded in the entry for the owner to run first, and the feedback design is a
+  decision to make deliberately rather than guess.
+  Third wrong hypothesis of the session, all three caught by reading source or by owner
+  testing rather than by shipping. Worth noting the pattern in this backlog: symptoms
+  reported after the fact are consistently better at locating the FILE than at
+  identifying the CAUSE.
+  **NEXT:** owner runs the three-part BUG-031 test, and builds BUG-032/033 from the
+  previous entry. BUG-030 still awaits its own focused pass. BUG-029 still needs
+  explicit confirmation of its specific behaviours before being closed.
+
+- **2026-08-11 (Wave 2 opened: BUG-032 and BUG-033 fixed; BUG-030 and BUG-031
+  investigated and deliberately not coded).** Took the layers cluster.
+  **BUG-032 fixed:** `group()` ended both branches in `append`, and later-in-array is
+  higher z, so a new group always jumped to the top. It now inserts at the z-position
+  of its top-most member. The cross-parent branch is partial by design — it anchors
+  only on a top-most TOP-LEVEL selected node and keeps the old append when every
+  selected node is nested; recorded in the entry rather than left to be discovered.
+  **BUG-033 fixed, and the entry's hypothesis was wrong:** `contextMenuEntries` had no
+  lock item at all — not a disabled one, none — so this was never about a menu built
+  from an "is editable" test. Added Lock/Unlock reusing the row's `onToggleLock`,
+  always enabled including on locked rows. Multi-selection and a menu-bar equivalent
+  are NOT done and are flagged for the Wave 6 menu pass.
+  **BUG-031: the entry's hypothesis is wrong and the cause is probably not our code.**
+  `reorderSelection(toFront:)` already moves the selection as an ordered block. The
+  asymmetry the owner reported — plain ⌘[/⌘] work, ⇧⌘[/⇧⌘] do not — cannot be
+  explained by anything in the reorder path, but IS explained by macOS claiming ⇧⌘[
+  and ⇧⌘] as Show Previous/Next Tab, which `DocumentGroup` opts into automatically.
+  Left uncoded pending verification, because if that is right the fix is a product
+  decision (disable automatic window tabbing for everyone, or move EXP's shortcut),
+  not a bug fix.
+  **BUG-030 investigated, fix deliberately deferred.** Confirmed the cause — `.onDrag`
+  carries one id and `handleDrop` moves exactly one node. Did NOT restructure it:
+  `handleDrop` is the panel's most intricate function (parent-offset conversion,
+  artboard attachment, drop-into-group vs drop-into-source, and `insertSibling`'s
+  `afterInModel:` inversion where visual order is the reverse of model order). Making
+  it move N nodes as one undoable block is a real restructure of document-mutating
+  code that cannot be compiled or run here, and the owner already flagged it as
+  "pretty big." Recorded the four design decisions to settle first rather than
+  guessing at them.
+  NOT verified: nothing compiled or run.
+  **NEXT:** owner builds BUG-032/033, and checks the Window menu for "Show Next Tab"
+  with ⇧⌘] to confirm or kill the BUG-031 hypothesis. Then BUG-030 as its own focused
+  pass. Still open in Wave 2: BUG-029 (text caret/selection keys) — owner said on
+  2026-08-11 that "all the editing key bugs are fixed", but no BUG-029 code was ever
+  touched, so its specific behaviours need explicit confirmation before it is closed.
+
+- **2026-08-11 (WAVE 1 COMPLETE — six bugs fixed and owner-verified, one closed as a
+  duplicate).** Owner confirmed the tool shortcuts and, crucially, could no longer
+  reproduce the original complaint at all: *"I can't seem to get close to that feeling
+  of the tools not responding. So I think we got it."* Wave 1 closes.
+  Shipped and verified: **BUG-025** (Option latched at mouseDown → deferred and
+  sampled live), **BUG-026** (gradient end-stop markers drawn half outside the
+  gesture's hit rect; also width-relative tolerance and grab-teleport),
+  **BUG-027** (anchor owned its whole 12pt radius → arbitration with a 3pt bias),
+  **BUG-037** (`.draw`/`.drawArtboard` never consulted Shift), **BUG-038** (regression
+  found mid-wave: BUG-020's opacity digits swallowed numbers typed into layer names),
+  **BUG-028** (tool letters unreachable from panel focus → Tools menu + one central
+  `ToolShortcuts` monitor). **BUG-024 closed as a DUPLICATE of BUG-025.**
+  Two process notes worth carrying forward, both from getting things wrong:
+  1. **BUG-024 should never have been a separate entry.** One owner report was split
+     into two bugs on the strength of a guessed cause, and the guess was wrong about
+     both the split and the mechanism (`acceptsFirstMouse` was already correct at
+     `CanvasView.swift:149`). Worse, the guess was written into the backlog in the
+     register of a finding, where a later session could have implemented it. Log the
+     observation; mark the hypothesis as a hypothesis.
+  2. **Three of the six root causes were NOT what the entry predicted** — BUG-026 was
+     a hit-rect geometry bug rather than a tolerance value, BUG-024 had no bug at all,
+     and BUG-038 was a regression from a previous fix that nobody had connected to the
+     symptom. Reading the source before writing code caught all three. That step is
+     load-bearing, not ceremony.
+  NOT verified: nothing in this wave was compiled or run by Claude; every fix was
+  owner-built and owner-confirmed, per WORKING-AGREEMENT.
+  **NEXT:** Wave 2 — BUG-030/031/032/033 (layers panel) taken as one pass together
+  with the BUG-038 focus-boundary audit of `onDeleteCommand`/`onMoveCommand`, since
+  that is the same file; then BUG-029 (text caret/selection keys) with FEAT-024
+  (select-all on entry); then BUG-034 Stage 1 (spread disclosure, alters no stored
+  values).
+
+- **2026-08-11 (BUG-038 verified; BUG-028 closed out — Wave 1 complete pending
+  builds).** Owner confirmed the rename fix — *"numbered layers, objects. Opacity
+  still works."* BUG-038 is DONE. Finished BUG-028's remaining half with the approach
+  that bug had just settled on evidence. Both earlier candidates were disqualified:
+  menu key equivalents cannot ask whether the user is typing, because the main menu is
+  offered equivalents before the event reaches the first responder; and per-panel
+  `.onKeyPress` is the route BUG-020 took, which is exactly what produced BUG-038.
+  Implemented the third option — `ToolShortcuts`, one local `NSEvent` key monitor in
+  `MainWindow.swift`, installed from `EXP__design_App.init()` before any view renders.
+  It declines on ⌘/⌃/⌥, declines while `isTypingInTextField()`, and declines when the
+  first responder is the canvas, so the existing canvas-focus path is untouched and
+  this can only ADD the missing routes. ⇧A keeps the Artboard alias; unanswered events
+  pass through rather than being eaten. Accepted one wart deliberately and recorded
+  why: with Settings or the ARIA guide key, a tool letter still reaches the document
+  via `sendCanvasAction`'s main-window fallback. A "key window must host a canvas"
+  guard would close it but would also break floating panel trays — the very case
+  BUG-028 is about — so the fallback stays.
+  **Wave 1 is now complete pending owner builds**, except BUG-024, which is waiting on
+  a repro that does not involve Option-drag and should be closed as a duplicate of
+  BUG-025 if none appears.
+  NOT verified: nothing compiled or run.
+  **NEXT:** owner builds and tests tool letters from Layers focus, from a floating
+  tray, and confirms typing still works everywhere. Then Wave 2 opens: BUG-029 (text
+  caret/selection keys) with FEAT-024 (select-all on entry), BUG-030/031/032/033
+  (layers panel), and BUG-034 Stage 1 (spread disclosure only). The
+  focus-boundary audit from BUG-038 — Layers `onDeleteCommand` and `onMoveCommand` —
+  should be folded into the Wave 2 layers work.
+
+- **2026-08-11 (BUG-038 found and fixed — and it settles BUG-028 on evidence).**
+  While the tool-shortcut hazard was being explained, the owner recalled a bug they had
+  hit: *"I couldn't add a number in a layer or object name"* — typing a digit while
+  renaming changed the layer's OPACITY instead of entering the character, so layers
+  could not be named "Button 2". Root cause confirmed: BUG-020's own fix. That fix
+  handled opacity digits at the Layers focus boundary with `.onKeyPress` on the List,
+  returning `.handled` for every unmodified digit — but the rename field's `editing`
+  flag is `@State` inside the ROW (`LayersPanel.swift:1486`) while the handler sits on
+  the CONTAINER (`:231`), so the container could not know a field was open. A
+  focus-boundary shortcut that forgot text entry is also a focus state. Fixed with a
+  shared `isTypingInTextField()` in `MainWindow.swift`, which asks AppKit for the key
+  window's real first responder and checks the FIELD EDITOR as well as `NSTextField` —
+  AppKit installs a shared `NSTextView` field editor rather than making the field
+  itself first responder, so the naive check would have missed the actual case.
+  **This retires the open BUG-028 question.** It is precisely the failure mode
+  predicted for unmodified key equivalents, except already shipped and in the owner's
+  hands, which makes the concern empirical rather than theoretical. It also
+  DISQUALIFIES the per-panel option that was on the table: BUG-020 took that route and
+  produced this regression. Whatever fixes the tool letters must use the same
+  first-responder guard, and one central local key monitor is now the clear choice
+  over repeating the pattern per panel.
+  NOT audited: the other focus-boundary handlers in the Layers panel
+  (`onDeleteCommand`, `onMoveCommand`) may carry the same assumption. `NumericStepping`
+  was checked and is safe — arrow keys only. Logged as follow-up in the entry.
+  NOT verified: nothing compiled or run.
+  **NEXT:** owner builds and confirms renaming with digits, plus the Tools menu. Then
+  the tool-letter monitor using `isTypingInTextField()`, and the remaining
+  focus-boundary audit.
+
+- **2026-08-11 (Wave 1: BUG-026/027/037 verified; BUG-028 half-fixed, half is an
+  owner decision).** Owner built and confirmed all three — *"much smoother. Shift draw
+  is great. Gradient fixed, and curve handle, perfect."* BUG-026, BUG-027 and BUG-037
+  are DONE.
+  **BUG-028 root cause confirmed:** tool letters are handled in
+  `CanvasNSView.keyDown` (`CanvasView.swift:6419`), which only runs when the canvas
+  holds focus, so with focus in a panel or floating tray the key never arrives — the
+  same responder-chain boundary as BUG-016 and BUG-020. Fixed the REACHABILITY half:
+  a new `Tools` menu plus ten `@objc` tool actions routed through `sendCanvasAction`,
+  so any tool can be selected from any focus location. That is what the
+  command-coverage rule wanted regardless, and the tools strip is no longer the only
+  route. No `validateMenuItem` cases were added because a tool is never unavailable;
+  recorded as a decision so it does not read as an oversight.
+  **Deliberately did NOT finish the shortcut half.** The obvious move — put the letter
+  key equivalents on the new menu items — is probably actively harmful: the main menu
+  is offered key equivalents BEFORE the event reaches the window's first responder, so
+  an unmodified letter would likely fire while the user is typing and swallow the
+  character. Handling them in `keyDown` is exactly why typing works today, and that
+  correct behaviour is also what made BUG-028 possible. The precise AppKit arbitration
+  between a plain-letter menu equivalent and an active field editor was NOT verified,
+  and the failure mode if it is wrong is "no letter can be typed anywhere," which is
+  far worse than the bug. Logged the safer alternative for evaluation: one local
+  `NSEvent.addLocalMonitorForEvents(matching: .keyDown)` that handles tool letters only
+  when the first responder is not a text-editing view. Raised to the owner rather than
+  chosen unilaterally.
+  NOT verified: nothing compiled or run.
+  **NEXT:** owner builds and confirms the Tools menu, and decides the shortcut
+  approach. Then Wave 1 closes pending a non-Option-drag repro for BUG-024, and Wave 2
+  opens (BUG-029 text keys, BUG-030/031/032/033 layers, BUG-034 Stage 1, FEAT-024).
+
+- **2026-08-11 (Wave 1 continued: BUG-025 verified; BUG-026, BUG-027, BUG-037
+  fixed).** Owner built and confirmed the Option-drag fix — *"feels much smoother and
+  less picky, exactly what I'm expecting to happen"* — so BUG-025 is DONE. Continued
+  through Wave 1; all three of the next fixes had their root cause confirmed in source
+  first, and one of them was not what the entry predicted.
+  **BUG-026 (gradient stops) was not a tolerance problem.** In `PaintEditor.GradientBar`,
+  markers were centred at `position * w` and offset by -7, so the stops at 0.0 and 1.0 —
+  which every gradient has by default — hung HALF OUTSIDE the bar. The gesture's
+  `.contentShape(Rectangle())` limits hit-testing to that rect, so the overhanging half
+  was visible but not clickable: clicking the outer half of an end stop did nothing,
+  clicking inward worked. That is exactly "active slightly off-centre of the actual
+  circle." Two further bugs sat in the same lines: tolerance was 0.05 in NORMALISED
+  units, so grab difficulty silently tracked panel width, and `setPosition` ran on the
+  first `onChanged`, teleporting a stop under the cursor when grabbed off-centre. Fixed
+  by insetting the track by the marker radius, expressing tolerance in points (12pt =
+  a 24pt target per WCAG 2.2 §2.5.8, visual size unchanged at 14pt), and recording a
+  grab offset for relative dragging. **NOT fixed and explicitly left open:** keyboard
+  cannot reach or select individual stops, so the control is still not keyboard
+  operable — logged in the entry rather than quietly folded into "done."
+  **BUG-027 (point tolerance):** `hitTestPathPoint` returned the instant any anchor
+  fell inside the 12pt grab radius, before the handle loop ran, so the anchor owned
+  that radius outright. Replaced the early return with an arbitration — anchor wins
+  when `anchorDist <= handleDist + 3pt`, converted by zoom like `grab` — which keeps
+  the original intent (a collapsed handle must not steal the anchor's click) while
+  making a nearby handle reachable at 100%.
+  **BUG-037 (Shift constrain):** confirmed the `.draw` and `.drawArtboard` cases never
+  consulted `shift`. Added a shared `squared(from:to:)` applied before the pixel snap,
+  sampled live so Shift works mid-draw. BUG-005 (Shift on a new Pen curve handle) was
+  NOT covered — separate code path, left alone rather than guessed at.
+  NOT verified: nothing compiled or run; no Swift compiler in this environment.
+  **NEXT:** owner builds and tests all three. Remaining Wave 1: BUG-028 (tool-switch
+  shortcut — the keyDown handler is present and correct at `CanvasView.swift:6419`, so
+  this is the responder-chain boundary from BUG-016/BUG-020 and the durable fix is
+  menu-bar items with key equivalents per the command-coverage rule), plus a
+  non-Option-drag repro for BUG-024.
+
+- **2026-08-11 (Wave 1 opened: BUG-025 fixed; BUG-024's hypothesis disproven).**
+  Started v2.3 Wave 1. **Checked the source before writing code, and the BUG-024
+  hypothesis was wrong** — `CanvasView.swift:149` already overrides
+  `acceptsFirstMouse(for:)` to true, `:148` already returns true from
+  `acceptsFirstResponder`, and `mouseDown` already calls
+  `window?.makeFirstResponder(self)` with a comment saying it exists so a click
+  reclaims keyboard ownership from a panel. All three obvious causes were already
+  handled, so the "missing acceptsFirstMouse" theory recorded at intake is dead and is
+  marked DISPROVEN in the entry so it does not get re-filed. Re-reading the owner's
+  report, the entire "only happens the second time" paragraph is actually about
+  Option-drag, which suggests BUG-024 may have been over-read from a single report
+  describing one bug; it now needs a repro that does NOT involve Option-drag before
+  any more work, and should be closed as a duplicate if none exists.
+  **BUG-025 root cause confirmed and fixed.** `mouseDown` read the Option flag ONCE
+  and duplicated immediately, before any drag threshold. macOS delivers `flagsChanged`
+  and `mouseDown` as separate events, so pressing Option and the button at nearly the
+  same instant gives a nondeterministic order — press Option a hair late and you get a
+  move. Exactly the owner's "sometimes I must hit the key and mouse down slightly
+  staggered." The same line caused a second bug: a plain Option-CLICK with no movement
+  minted a copy and registered an undo step. Fix defers the decision out of `mouseDown`
+  and re-samples the modifier live in `mouseDragged`'s `.nodes` case, so Option works
+  pressed before, during, or after mouse-down and releasing it mid-drag reverts to a
+  move. New `setDragCopy(_:startDoc:)` flips by rewinding to `dragBaseline` and
+  re-applying rather than unpicking the copies — the baseline is the model as of
+  mouseDown, so it survives whatever else the drag touched — and runs only on modifier
+  change, never per tick. Undo verified by reading the path: registered once at mouseUp
+  from `dragBaseline`, `withNodes` mutates live without registering, so N flips still
+  yield one step. NOT verified: nothing was compiled or run — no Swift compiler in this
+  environment, per WORKING-AGREEMENT. **NEXT:** owner builds and tests Option-drag
+  (before / during / after mouse-down, release mid-drag, plain Option-click, nested
+  children, undo count), then reports back. Remaining Wave 1: BUG-026, BUG-027,
+  BUG-028, BUG-037, plus a BUG-024 repro.
+
+- **2026-08-11 (PERF-005 id collision resolved; guard script added).** Owner spotted
+  that two different entries both carried PERF-005 and noted the giveaway — *"if it's
+  duplicated, my gut says I've noticed it several times."* Correct: the ambiguity was
+  live in FOUR files, not just BACKLOG. Resolved by first claim, checked against the
+  Progress Log dates: the ruler-redraw entry was filed 2026-07-02 (Session 162d) and
+  KEEPS PERF-005; the instCache-counters entry was filed 2026-07-09 (v1.2.1 kickoff),
+  duplicated the id a week later, and becomes **PERF-006**. They were NOT combined as
+  the owner offered — one is instrumentation verification and the other a ruler
+  invalidation fix, different subsystems, different priorities. Updated every
+  counters-side reference: `BACKLOG.md` heading + the FEAT cross-reference, `PERF-TODO
+  .md` T5, and two Progress Log pointers here; the ruler-side references in
+  `PERF-LOG.md` (×5), `PERF-TODO.md` T3, and this log are correct as-is and were left
+  alone. Historical entries were annotated rather than silently rewritten. Also
+  reordered the Performance section ascending (001→006) so a future duplicate is
+  visible at a glance. **Root cause of the collision, now guarded:** ids are
+  referenced from ROADMAP, PERF-LOG, and PERF-TODO as well as BACKLOG, so an id can be
+  TAKEN without ever appearing as a `### ` heading — "next number after the highest
+  heading" was never a safe rule. Added `scripts/verify_backlog_ids.sh`, which fails on
+  duplicate headings and prints the next free id per prefix scanned across all of
+  `docs/`, and added the rule as step 3 of BACKLOG's "How agents should use this."
+  Current next-free: BUG-038, FEAT-042, PERF-007, INFRA-004.
+  **NEXT:** unchanged — Wave 1, starting with BUG-024 and BUG-025.
+
+- **2026-08-11 (spread: owner proposed removing it; pushed back; Stage 2 committed).**
+  Owner's follow-up call on BUG-034 was to delete spread outright — *"if 'spread'
+  wasn't there, I probably wouldn't miss it... I'd rather remove it for all instead of
+  feeling like something is missing because it's inconsistent"* — with FEAT-023
+  Duplicate plus stacked shadows as the substitute. The consistency instinct was
+  right and the premise was wrong, so this was pushed back on with source evidence
+  rather than logged as asked. Three importers already read spread:
+  `RenderedHTMLImporter.swift:2112` parses CSS `box-shadow`'s FOURTH value,
+  `FigmaImporter.swift:786` reads Figma's native shadow spread, and
+  `SVGImporter.swift:615` reconstructs it from `feMorphology` including erode. The
+  owner does not control whether spread enters their documents — it arrives from
+  imports — so deleting `Effect.spread` would not remove spread, it would make EXP
+  silently DROP it on import from all three sources. That is job #1 of the
+  Architecture decisions failing ("read a component in accurately, losing no
+  important data"), and it outweighs the annoyance of an inert control. Also recorded
+  why stacked shadows are not equivalent: spread grows the silhouette BEFORE the
+  blur, so the hard sticker/outline edge at blur 0 is unreproducible by stacking at
+  any count, and stacking helps imported content not at all. **Owner reconsidered and
+  chose to keep the model field and implement Stage 2**, achieving the consistency
+  they wanted by adding rather than removing. Stage 1 accordingly narrowed to a
+  DISCLOSURE-ONLY change in Wave 2 — state where spread is not yet previewed on
+  canvas, alter no stored values, suppress no `feMorphology` emission, because both
+  would destroy imported data Stage 2 is about to render correctly. No migration is
+  needed since nothing is being removed. Added a second golden fixture requirement:
+  a CSS `box-shadow` with a non-zero fourth value imported and re-exported unchanged,
+  since the import round-trip is the reason the field survives at all.
+  **NEXT:** unchanged — Wave 1, starting with BUG-024 and BUG-025.
+
+- **2026-08-11 (BUG-034 unblocked — and it is a canvas/export fidelity bug, not a
+  missing feature).** Owner confirmed the failing case was a drop shadow on TEXT, so
+  Phase 10's documented limitation applies and it is not a regression. Reading the
+  source, however, showed the two halves of the app disagree:
+  `Color/EffectsRender.swift` → `Silhouette.path(spread:)` supports only rect,
+  rounded-rect, and ellipse (its comment: *"Arbitrary custom paths ignore spread"*),
+  and content-based casters like text go through `ctx.setShadow`, which has no
+  spread concept — so the canvas renders spread as zero. But
+  `Export/ExportRenderer.swift` emits `<feMorphology operator="dilate|erode">` for
+  ANY node type whenever spread is non-zero, so SVG export renders the spread the
+  canvas ignored. Set a spread on text, see nothing, export, and it is there. That is
+  the round-trip infidelity this tool exists to prevent, so the P1 half is the
+  DIVERGENCE, not the missing capability. Split into Stage 1 (Wave 2 — make both
+  sides agree, stop showing a dead control, and decide explicitly what happens to
+  existing documents already carrying a non-zero text spread) and Stage 2 (Wave 7 —
+  implement it properly). Recorded the implementation approach and its main trap:
+  dilate the ALPHA MASK rather than offsetting glyph outlines (Minkowski offsetting
+  of glyphs is hard and unnecessary since text already casts from painted content),
+  and use the same BOX structuring element `feMorphology` specifies — a circular or
+  threshold-of-blur dilation would look better in isolation and silently re-create
+  the divergence. Flagged for verification: the exact feMorphology rx/ry and edge
+  semantics against the SVG spec, whether PNG/PDF raster export follows the canvas or
+  the SVG path, and whether inner shadows share the gap (`drawInnerShadow`'s `hole`
+  is described as the clip shrunk by spread, so probably yes). Noted the separable
+  running-max (van Herk / Gil-Werman) algorithm to keep large radii interactive, the
+  existing noise/dissolve async tile pattern as the caching precedent if needed, and
+  that the radius must be in document points so the shadow does not change shape with
+  zoom. **NEXT:** unchanged — Wave 1, starting with BUG-024 and BUG-025.
+
+- **2026-08-11 (v2.3 backlog intake + release-shape decision; 35 items logged).**
+  Owner delivered a long-accumulated list of bugs and improvements and asked whether
+  it warranted a bug release before the next version or fitted inside it. Triaged the
+  list into 11 clusters and recommended a split — a fast interaction/stability release
+  first (the "second click" cluster is ~40% of the items and nearly all of the daily
+  friction, and it is cross-cutting canvas event handling), with workspaces riding
+  along because Session 79 persistence already did the hard half. **The owner chose a
+  single release instead: v2.3 carries everything.** Trade stated and accepted —
+  fewer cycles, longer wait, bug fixes interleaved with feature code. Mitigated by
+  rewriting the v2.3 roadmap section as seven ORDERED WAVES so the input and
+  selection layers are repaired before FEAT-025/026/029/032 build on them.
+  Logged BUG-024…BUG-037 and FEAT-021…FEAT-041 in `docs/BACKLOG.md`, each with
+  repro, hypothesis, and acceptance. Updated FEAT-008 and FEAT-010 in place rather
+  than duplicating them. **FEAT-008's discovery gate is closed** — the owner's
+  description (type-to-jump plus a hideable left rail carrying category filters,
+  document-scoped Fonts Used, and app-level Recent) is the mockup pass v2.3 was
+  waiting on; five open questions are recorded, chiefly that macOS exposes no
+  reliable handwriting/display font classification so categories will be partly
+  heuristic. Recorded specific hypotheses worth testing first: BUG-024 is very likely
+  a missing `acceptsFirstMouse(for:)` override, which would fire on every trip from a
+  floating tray back to the canvas, and BUG-025 looks like the Option modifier being
+  latched at `mouseDown` instead of sampled through `flagsChanged`. Pushed back on
+  four items rather than logging them as asked: BUG-034 shadow spread may be the
+  limitation Phase 10 already documents ("exact for rect/ellipse; ignored for
+  arbitrary closed paths") rather than a regression — **blocked pending the owner
+  naming the node type**; FEAT-025 must not be treated as the fix for BUG-028, since
+  making the wrong mode less painful would hide a live event-routing bug; FEAT-033
+  freeform gradients have no SVG/CSS equivalent and Illustrator rasterizes them, so
+  the export contract must be settled before any editor is built; FEAT-039 EPS import
+  appears to have lost its native macOS path and the alternatives carry AGPL/GPL
+  licensing consequences that are the owner's decision — a verified written finding
+  comes before any commitment, and the macOS specifics were recorded as
+  needing verification rather than as settled fact. Flagged five items requiring spec
+  verification before code per WORKING-AGREEMENT: tooltips against WCAG 2.1 AA
+  §1.4.13, dropdown borders against §1.4.11 (3:1, measured), the case icon control
+  against §1.4.1, BUG-026's hit target against the target-size criteria, and the
+  FEAT-008 rail against its APG pattern. **NEXT:** owner answers the BUG-034 node-type
+  question, then Wave 1 begins with BUG-024 and BUG-025 — both cheap to test and
+  both likely responsible for the "only works the second time" feel across the whole
+  app.
 
 - **2026-08-05 (v2.2 shipped; v2.3/build 14 development opened).** Owner
   completed the final Release-build acceptance and locally verified the
@@ -5643,7 +7307,7 @@ font import → Phase 9, shadows → Phase 10._
   and layout over a cyclic document returns.
   NEEDS OWNER RUN: build + the two-tab repro, and a look at redraw performance on
   a large document — this runs on the draw path and should ride the existing
-  `resolveGeneration` instance cache (see PERF-005 about the flat hit/miss
+  `resolveGeneration` instance cache (see PERF-006 about the flat hit/miss
   counters). Also logged FEAT-008: font-picker scroll memory plus "Fonts used"
   and "Recent fonts" filters, penciled for v2.2, with the scroll-to-current half
   callable forward on its own.
@@ -7222,7 +8886,8 @@ font import → Phase 9, shadows → Phase 10._
   zip, GitHub release, `generate_appcast`, site deploy — appcast generation
   confirmed working by owner. STILL TO CONFIRM next session: an installed 1.2
   build actually sees + installs 1.2.1 (the end-to-end Phase 20 box). Also
-  logged PERF-005 (instCache counters flat at 0 — verify on an instance-heavy
+  logged PERF-006 (filed that day as PERF-005; renumbered 2026-08-11 because
+  the id was already held by the ruler entry) (instCache counters flat at 0 — verify on an instance-heavy
   doc). NEXT SESSION: v1.3 kickoff (Design Language, Phase 18) + website
   language update for auto-updates.
 - **2026-07-09 — Sparkle auto-updates (Phase 20 kickoff):** Integrated the

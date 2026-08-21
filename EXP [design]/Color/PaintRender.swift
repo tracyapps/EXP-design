@@ -89,6 +89,35 @@ enum PaintRender {
         }
     }
 
+    /// Draw one endpoint marker in the renderer's current coordinate space.
+    /// The 4×2 proportions match the SVG marker emitted by ExportRenderer and
+    /// scale directly from the effective stroke width.
+    static func drawMarker(_ marker: StrokeMarker, endpoint: CGPoint, interior: CGPoint,
+                           strokeWidth: CGFloat, color: NSColor, in ctx: CGContext) {
+        guard marker == .arrow, strokeWidth > 0 else { return }
+        let dx = endpoint.x - interior.x
+        let dy = endpoint.y - interior.y
+        let magnitude = hypot(dx, dy)
+        guard magnitude > 0.0001 else { return }
+        let ux = dx / magnitude
+        let uy = dy / magnitude
+        let length = strokeWidth * 4
+        let halfWidth = strokeWidth * 2
+        // The authored endpoint is the arrow's flat base. Its point projects
+        // outward, away from the stroke, so neither end consumes line length.
+        let tip = CGPoint(x: endpoint.x + ux * length, y: endpoint.y + uy * length)
+        let perpendicular = CGPoint(x: -uy * halfWidth, y: ux * halfWidth)
+
+        ctx.saveGState()
+        ctx.setFillColor(color.cgColor)
+        ctx.move(to: tip)
+        ctx.addLine(to: CGPoint(x: endpoint.x + perpendicular.x, y: endpoint.y + perpendicular.y))
+        ctx.addLine(to: CGPoint(x: endpoint.x - perpendicular.x, y: endpoint.y - perpendicular.y))
+        ctx.closePath()
+        ctx.fillPath()
+        ctx.restoreGState()
+    }
+
     static func fillRect(_ paint: Paint, rect: CGRect, in ctx: CGContext) {
         switch paint {
         case .solid(let c):

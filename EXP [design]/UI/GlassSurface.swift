@@ -269,71 +269,14 @@ private struct GlassSurfaceProof: View {
 #Preview("Glass — Light") { GlassSurfaceProof().preferredColorScheme(.light) }
 #endif
 
-// MARK: - Tooltip (design-system Tooltip: label + keycap shortcut) ===========
-
-/// A hover tooltip matching the design-system `Tooltip`: a translucent popover
-/// with the label and an optional monospaced keycap for the shortcut. Appears to
-/// the RIGHT of the trigger after a short delay (tuned for the left tools rail).
-/// Usage: `.expTooltip(label: "Pan", shortcut: "H")`.
-private struct EXPTooltipModifier: ViewModifier {
-    let label: String
-    let shortcut: String
-    @State private var show = false
-    @State private var hoverTask: Task<Void, Never>?
-
-    func body(content: Content) -> some View {
-        content
-            .onHover { inside in
-                hoverTask?.cancel()
-                if inside {
-                    hoverTask = Task { @MainActor in
-                        try? await Task.sleep(for: .milliseconds(450))
-                        if !Task.isCancelled { show = true }
-                    }
-                } else {
-                    show = false
-                }
-            }
-            .overlay(alignment: .leading) {
-                if show { bubble.offset(x: 40).zIndex(1000) }   // to the right of the rail
-            }
-            .animation(EXPMotion.fast, value: show)
-    }
-
-    private var bubble: some View {
-        HStack(spacing: 7) {
-            Text(label)
-                .font(.system(size: 11, weight: .light))
-                .foregroundStyle(EXPColor.textPrimary)
-            if !shortcut.isEmpty {
-                Text(shortcut)
-                    .font(.system(size: 10, weight: .medium, design: .monospaced))
-                    .foregroundStyle(EXPColor.accent)                      // accent keycap
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 1)
-                    .background(EXPColor.accentSubtle,
-                                in: RoundedRectangle(cornerRadius: 3, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 3, style: .continuous)
-                        .strokeBorder(EXPColor.accent.opacity(0.35), lineWidth: 1))
-            }
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .fixedSize()
-        .background(EXPColor.surfacePopover,
-                    in: RoundedRectangle(cornerRadius: EXPMetric.radiusRow, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: EXPMetric.radiusRow, style: .continuous)
-            .strokeBorder(EXPColor.borderGlass, lineWidth: EXPMetric.strokeHairline))
-        .shadow(color: .black.opacity(0.5), radius: 12, y: 6)
-        .allowsHitTesting(false)
-        .transition(.opacity)
-    }
-}
+// MARK: - Tooltip (shared accessible presenter) ==============================
 
 extension View {
     /// Design-system hover tooltip (label + optional keycap shortcut).
     func expTooltip(label: String, shortcut: String = "") -> some View {
-        modifier(EXPTooltipModifier(label: label, shortcut: shortcut))
+        // Route tool tips through the same child-window presenter as field help so
+        // they are hoverable, Escape-dismissible, persistent, and focus-aware too.
+        expFieldTip(label, shortcut.isEmpty ? "" : "Keyboard shortcut: \(shortcut).")
     }
 }
 
@@ -356,55 +299,129 @@ extension View {
 ///
 /// Accessibility: the detail is ALSO attached as an `accessibilityHint`, so
 /// VoiceOver users get the same explanation the hover bubble shows.
+private struct EXPFieldTipFocusedKey: FocusedValueKey {
+    typealias Value = UUID
+}
+
+private extension FocusedValues {
+    var expFieldTipID: UUID? {
+        get { self[EXPFieldTipFocusedKey.self] }
+        set { self[EXPFieldTipFocusedKey.self] = newValue }
+    }
+}
+
 private struct EXPFieldTipModifier: ViewModifier {
     let title: String
     let detail: String
     let edge: VerticalEdge
     let align: HorizontalAlignment
+    @FocusedValue(\.expFieldTipID) private var focusedTipID
+    @State private var focusID = UUID()
     @State private var hostWindow: NSWindow?
     @State private var anchorFrame = CGRect.zero   // SwiftUI .global (window content, y-down)
     @State private var hoverTask: Task<Void, Never>?
-    @State private var showing = false
+    @State private var presentationID: UUID?
+    @State private var pointerInside = false
 
     func body(content: Content) -> some View {
         content
+            // A focused value travels from the focused descendant back up the
+            // hierarchy. EnvironmentValues.isFocused only describes a focusable
+            // ANCESTOR, so reading it here would miss the control being wrapped.
+            .focusedValue(\.expFieldTipID, focusID)
             .accessibilityHint(detail.isEmpty ? Text(title) : Text(detail))
-            .background(EXPWindowReader { hostWindow = $0 })
-            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { anchorFrame = $0 }
+            .background(EXPWindowReader { window in
+                hostWindow = window
+                registerAnchor(window: window, frame: anchorFrame)
+            })
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame in
+                anchorFrame = frame
+                registerAnchor(window: hostWindow, frame: frame)
+            }
             .onHover { inside in
+                pointerInside = inside
                 hoverTask?.cancel()
                 if inside {
-                    hoverTask = Task { @MainActor in
-                        try? await Task.sleep(for: .milliseconds(600))
-                        guard !Task.isCancelled else { return }
-                        present()
-                    }
-                } else {
-                    dismiss()
+                    EXPFieldTipWindow.shared.beginTarget(id: focusID)
+                    schedulePresentation(after: .milliseconds(600))
+                } else if !isFocused {
+                    dismiss(afterPointerExit: true)
                 }
             }
-            .onDisappear { dismiss() }
+            .onChange(of: focusedTipID) { _, focusedID in
+                hoverTask?.cancel()
+                let focused = focusedID == focusID
+                if focused {
+                    EXPFieldTipWindow.shared.beginTarget(id: focusID)
+                    schedulePresentation(after: .milliseconds(350))
+                } else if !pointerInside {
+                    dismiss(afterPointerExit: true)
+                }
+            }
+            .onDisappear {
+                hoverTask?.cancel()
+                dismiss()
+                EXPFieldTipWindow.shared.unregister(id: focusID)
+            }
+    }
+
+    private var isFocused: Bool { focusedTipID == focusID }
+
+    private func schedulePresentation(after delay: Duration) {
+        hoverTask?.cancel()
+        hoverTask = Task { @MainActor in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled else { return }
+            present()
+        }
+    }
+
+    @MainActor private func registerAnchor(window: NSWindow?, frame: CGRect) {
+        guard let window, !frame.isEmpty else { return }
+        EXPFieldTipWindow.shared.register(id: focusID, frameInContent: frame,
+                                          window: window)
     }
 
     @MainActor private func present() {
-        guard let win = hostWindow, let contentView = win.contentView else { return }
-        // SwiftUI .global (top-left, y-down) → the content view's own space.
-        // NSHostingView is flipped, so the rect passes straight through; the
-        // convert calls then handle any flippedness + the titlebar offset.
-        let inContent = CGRect(x: anchorFrame.minX, y: anchorFrame.minY,
-                               width: anchorFrame.width, height: anchorFrame.height)
-        let inWindow = contentView.convert(inContent, to: nil)
-        let onScreen = win.convertToScreen(inWindow)
-        EXPFieldTipWindow.shared.show(
-            EXPFieldTipBubble(title: title, detail: detail),
-            anchor: onScreen, parent: win, edge: edge, align: align)
-        showing = true
+        guard let win = hostWindow else { return }
+        registerAnchor(window: win, frame: anchorFrame)
+        guard let onScreen = EXPFieldTipWindow.shared.screenAnchor(for: focusID) else { return }
+        let id = focusID
+        let renderedDetail = hoverDetail()
+        let bubble = EXPFieldTipBubble(title: title, detail: renderedDetail) { inside in
+            EXPFieldTipWindow.shared.pointerChanged(inside: inside, for: id)
+        }
+        EXPFieldTipWindow.shared.show(bubble, id: id, anchor: onScreen,
+                                      parent: win, edge: edge, align: align)
+        presentationID = id
     }
 
-    @MainActor private func dismiss() {
-        guard showing else { return }
-        EXPFieldTipWindow.shared.hide()
-        showing = false
+    /// Full remains reachable at every preference level by holding Option while
+    /// the tip opens. VoiceOver always receives `detail` through accessibilityHint.
+    private func hoverDetail() -> String {
+        if NSEvent.modifierFlags.contains(.option) { return detail }
+        let raw = UserDefaults.standard.string(forKey: AppPreferences.tooltipVerbosity)
+            ?? AppPreferences.defaultTooltipVerbosity
+        switch EXPTooltipVerbosity(rawValue: raw) ?? .full {
+        case .full:
+            return detail
+        case .standard:
+            let line = detail.split(separator: "\n", maxSplits: 1,
+                                    omittingEmptySubsequences: true).first.map(String.init) ?? ""
+            guard let end = line.range(of: ". ") else { return line }
+            return String(line[..<end.lowerBound]) + "."
+        case .minimal:
+            return ""
+        }
+    }
+
+    @MainActor private func dismiss(afterPointerExit: Bool = false) {
+        guard let presentationID else { return }
+        if afterPointerExit {
+            EXPFieldTipWindow.shared.scheduleHide(id: presentationID)
+        } else {
+            EXPFieldTipWindow.shared.hide(id: presentationID)
+        }
     }
 }
 
@@ -423,7 +440,7 @@ private struct EXPWindowReader: NSViewRepresentable {
 }
 
 /// The single floating tip window shared by every field tip: borderless,
-/// non-activating, click-through, added as a CHILD of the hovered panel so it
+/// non-activating, pointer-aware, added as a CHILD of the hovered panel so it
 /// tracks window moves and always draws above it. Placement is EDGE-AWARE in
 /// screen space: preferred spot first (above the field, leading- or trailing-
 /// aligned), then slid horizontally inside the screen's visible frame, and
@@ -431,9 +448,54 @@ private struct EXPWindowReader: NSViewRepresentable {
 @MainActor
 private final class EXPFieldTipWindow {
     static let shared = EXPFieldTipWindow()
-    private var panel: NSPanel?
 
-    func show(_ bubble: EXPFieldTipBubble, anchor: CGRect, parent: NSWindow,
+    /// Keep anchors in window-content coordinates and resolve them to the screen
+    /// at event time. Floating panels can move without SwiftUI changing a view's
+    /// `.global` frame, so caching screen rectangles would go stale.
+    private final class RegisteredAnchor {
+        weak var window: NSWindow?
+        var frameInContent: CGRect
+        init(window: NSWindow, frameInContent: CGRect) {
+            self.window = window
+            self.frameInContent = frameInContent
+        }
+    }
+
+    private var panel: NSPanel?
+    private var activeID: UUID?
+    private var anchors: [UUID: RegisteredAnchor] = [:]
+    private var hideTask: Task<Void, Never>?
+    private var escapeMonitor: Any?
+    private var mouseMoveMonitor: Any?
+
+    func register(id: UUID, frameInContent: CGRect, window: NSWindow) {
+        if let anchor = anchors[id] {
+            anchor.window = window
+            anchor.frameInContent = frameInContent
+        } else {
+            anchors[id] = RegisteredAnchor(window: window, frameInContent: frameInContent)
+        }
+    }
+
+    func unregister(id: UUID) {
+        anchors[id] = nil
+        if activeID == id { hide(id: id) }
+    }
+
+    func screenAnchor(for id: UUID) -> CGRect? {
+        guard let anchor = anchors[id], let window = anchor.window,
+              let contentView = window.contentView else { return nil }
+        let inWindow = contentView.convert(anchor.frameInContent, to: nil)
+        return window.convertToScreen(inWindow)
+    }
+
+    /// Moving directly onto another registered control ends the previous tip
+    /// immediately, before the next control's own presentation delay begins.
+    func beginTarget(id: UUID) {
+        if let activeID, activeID != id { hide(id: activeID) }
+    }
+
+    func show(_ bubble: EXPFieldTipBubble, id: UUID, anchor: CGRect, parent: NSWindow,
               edge: VerticalEdge, align: HorizontalAlignment) {
         hide()
         let host = NSHostingView(rootView: bubble)
@@ -444,7 +506,10 @@ private final class EXPFieldTipWindow {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false                 // the bubble draws its own
-        panel.ignoresMouseEvents = true         // never steals the hover
+        // The bubble must be hoverable under WCAG 1.4.13. It remains a
+        // nonactivating panel, so accepting pointer events never steals focus.
+        panel.ignoresMouseEvents = false
+        panel.acceptsMouseMovedEvents = true
         panel.isReleasedWhenClosed = false
         panel.contentView = host
 
@@ -470,13 +535,66 @@ private final class EXPFieldTipWindow {
             panel.animator().alphaValue = 1
         }
         self.panel = panel
+        activeID = id
+        mouseMoveMonitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .mouseEntered]) {
+            [weak self] event in
+            self?.hideIfPointerCoversAnotherControl()
+            return event
+        }
+        escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard event.keyCode == 53 else { return event }
+            self?.hide(id: id)
+            return nil
+        }
     }
 
-    func hide() {
+    func pointerChanged(inside: Bool, for id: UUID) {
+        guard activeID == id else { return }
+        if inside {
+            hideIfPointerCoversAnotherControl()
+            guard activeID == id else { return }
+            hideTask?.cancel(); hideTask = nil
+        }
+        else { scheduleHide(id: id) }
+    }
+
+    /// A hoverable child panel necessarily receives the pointer before a control
+    /// beneath it. If its screen position now lies over a DIFFERENT registered
+    /// field, close the bubble so that field becomes reachable on the next mouse
+    /// event. Ordinary movement onto non-control tooltip text remains hoverable.
+    private func hideIfPointerCoversAnotherControl() {
+        guard let activeID else { return }
+        let pointer = NSEvent.mouseLocation
+        for id in anchors.keys where id != activeID {
+            if screenAnchor(for: id)?.contains(pointer) == true {
+                hide(id: activeID)
+                return
+            }
+        }
+    }
+
+    func scheduleHide(id: UUID) {
+        guard activeID == id else { return }
+        hideTask?.cancel()
+        hideTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(220))
+            guard !Task.isCancelled else { return }
+            hide(id: id)
+        }
+    }
+
+    func hide(id: UUID? = nil) {
+        if let id, activeID != id { return }
+        hideTask?.cancel(); hideTask = nil
         guard let p = panel else { return }
         p.parent?.removeChildWindow(p)
         p.orderOut(nil)
         panel = nil
+        activeID = nil
+        if let mouseMoveMonitor { NSEvent.removeMonitor(mouseMoveMonitor) }
+        mouseMoveMonitor = nil
+        if let escapeMonitor { NSEvent.removeMonitor(escapeMonitor) }
+        escapeMonitor = nil
     }
 }
 
@@ -484,6 +602,7 @@ private final class EXPFieldTipWindow {
 private struct EXPFieldTipBubble: View {
     let title: String
     let detail: String
+    var onHover: (Bool) -> Void = { _ in }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -508,6 +627,7 @@ private struct EXPFieldTipBubble: View {
             .strokeBorder(EXPColor.borderGlass, lineWidth: EXPMetric.strokeHairline))
         .shadow(color: .black.opacity(0.5), radius: 12, y: 6)
         .padding(14)   // room for the shadow inside the borderless window
+        .onHover(perform: onHover)
     }
 
     /// `detail` parsed as inline markdown, with `**bold**` runs lifted to the

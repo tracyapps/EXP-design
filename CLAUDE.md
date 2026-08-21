@@ -71,6 +71,47 @@ Graphics (canvas). Xcode 26.3, Swift 6.2, macOS 26 SDK.
   The durable fix if it keeps recurring: move the engine into an always-shared file
   or stop sharing `Document.swift` with the extension.
 
+- **A glued panel group is N windows, not one window.** FEAT-022 tried merging them
+  into one window with columns twice; both died on the same thing — a merged window
+  must be the UNION of both rectangles, which is most of the screen once the two sit
+  at different heights. `PanelTray.groupID` + `NSWindow.addChildWindow` is the
+  shipped model. `PanelWindowManager.applyGrouping()` MUST stay idempotent: it runs
+  on every `trays` change and `trays` changes on every window move.
+- **Do not restore Session 80's per-tick window chasing.** Connected windows move
+  through AppKit's parent/child relationship; manually reading and rewriting their
+  frames during every drag is the removed, visibly laggy design.
+- **A `mouseDownCanMoveWindow` NSView with SwiftUI content on top of it never gets
+  the drag** — the hosting view takes the hit test. Put a `WindowMoveArea` BESIDE the
+  controls it shares space with, never behind them.
+- **An `NSWindow.sendEvent` override that swallows events is all-or-nothing.** A
+  predicate that is slightly too generous does not degrade gracefully — it removes
+  the window's entire UI. `TrayWindow.shouldDrag` tests for one marker view class and
+  a clamped titlebar height for exactly this reason; do not widen it to a generic
+  `mouseDownCanMoveWindow` check, which `NSHostingView` can answer true to.
+- **Never move a window by chasing another window's position.** Read-a-frame,
+  write-a-frame always lands a tick behind the mouse and reads as lag — that is what
+  made Session 80's window snapping choppy, and FEAT-022 rediscovered it even at ONE
+  window moved per tick. The count was never the point. Hand the gesture to AppKit
+  instead: `performDrag(with:)` on the window that should move, plus
+  `addChildWindow` for anything that should follow it.
+- **Never build a parent/child window CYCLE.** `PanelWindowManager.applyGrouping()`
+  detaches every stale `addChildWindow` link in one pass before attaching any in a
+  second, because attaching B to A while A is still a child of B sends AppKit into
+  unbounded recursion and kills the app (EXC_BAD_ACCESS code=2, ~27,500 frames).
+- **When a stack overflow's repeated frames are ALL system frames, the recursion is
+  in the framework, not in your callback** — look for a structure you handed it that
+  cannot terminate. Misreading this cost a whole extra crash-and-fix cycle on
+  FEAT-022.
+- **Any AppKit call that moves or orders a window is heard by our own window
+  delegates**, so window-delegate handlers that mutate window state need a
+  re-entrancy guard, and "the user is dragging" must be checked
+  (`NSEvent.pressedMouseButtons`), never assumed from the callback.
+- **Anything Codable persisted to UserDefaults needs hand-written decoding.** Swift's
+  synthesised decoder throws on a missing key rather than using the property's
+  default, so adding one field silently wipes every saved payload — that is exactly
+  how FEAT-022 erased saved tray layouts. `PanelTray` decodes by hand;
+  `WorkspaceSnapshot`/`WorkspacePreset` (FEAT-021) still need the same audit.
+
 ## Project structure
 ```
 EXP [design]/
@@ -87,24 +128,32 @@ EXP [design]/
 ```
 
 ## Current status
-Public **v2.2/build 13** is released; local development is **v2.3/build 14**.
+Public **v2.2/build 13** is released; **v2.3/build 14 is feature complete,
+owner-verified, and in release preparation.**
 The native editor, Design Language, component states/behavior contract, semantic
 Handoff Package, agent bridge, nested components, canvas pages, XD/Figma import,
 rendered HTML/CSS import, CodePen handoff/import, static Storybook import, and the
 five-family compatibility matrix are shipped. Documents save as **`.design`**
 (legacy `.exp` opens for migration).
 
-The **v2.3 opening priority is FEAT-008 font-picker discovery**. Start from the
-owner's proposed mockups and usability testing, not implementation. Candidate
-mechanisms are document-scoped Fonts Used, persisted Recent Fonts, type-to-jump,
-and search/filtering over one list. Decide which combination is coherent, then
-specify keyboard navigation, VoiceOver naming, persistence, and empty states
-before coding the smallest supported result.
+Waves 1–6 and the completed Wave 7 line/gradient work are accepted. The owner
+explicitly deferred the remaining lower-priority vector/effect queue to v2.4 on
+2026-08-21. Do not add scope during the release gate.
 
-**Next:** wait for the owner's FEAT-008 mockup/research pass. Semantic
-component/state reconstruction remains a v2.4+ research candidate. Older
-Angular/AngularJS, open-shadow-root evidence, unrestricted URL import, repository
-build execution, full argTypes ingestion, code write-back, agent capability
-packs, and Figma OAuth/Keychain/Variables remain non-gating. See ROADMAP.md for
-the authoritative checklist and newest Progress Log entry; its phase statuses
-feed the public site via `website/scripts/sync-content.mjs`.
+**Next:** follow `docs/RELEASE-CHECKLIST-v2.3.md` through signed archive,
+notarization, immutable ZIP, GitHub/Sparkle/website publication, and the v2.2 →
+v2.3 update proof. Stop at the first failed gate.
+
+**Backlog hygiene:** run `scripts/verify_backlog_ids.sh` before assigning a new id.
+Ids are referenced from ROADMAP, PERF-LOG and PERF-TODO as well as BACKLOG, so
+"next number after the highest heading" is NOT safe — that is how a PERF-005
+collision survived a month across four files.
+
+**A rule this project earned the hard way (2026-08-11):** check every hypothesis
+against the source before writing code, and mark hypotheses AS hypotheses in the
+backlog. Four intake hypotheses were wrong that day — including one bug that did not
+exist and one that was a regression from an earlier fix — and a confident-sounding
+guess left in an entry is something a later session will simply implement.
+
+See ROADMAP.md for the authoritative checklist and newest Progress Log entry; its
+phase statuses feed the public site via `website/scripts/sync-content.mjs`.

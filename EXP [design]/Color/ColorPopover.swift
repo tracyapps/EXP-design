@@ -24,6 +24,41 @@ extension RGBAColor {
     var opaqueSwiftUI: Color { Color(.sRGB, red: r, green: g, blue: b, opacity: 1) }
 }
 
+/// The editor shown when a gradient stop's knob is clicked ON THE CANVAS
+/// (FEAT-045): the full colour picker plus the stop's exact position.
+///
+/// It wraps `ColorPopover` rather than reimplementing anything, so the eyedropper,
+/// the HEX/RGB/OKLCH code field, the WCAG contrast strip and "add to Design
+/// Language" are all present and behave identically to the inspector — the canvas
+/// gets a second PLACE to edit a colour, not a second colour editor.
+struct GradientStopEditor: View {
+    @Binding var color: RGBAColor
+    /// 0…100. A percentage because that is how gradient stops are spoken about, in
+    /// CSS and in the inspector alike.
+    @Binding var positionPercent: Double
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ColorPopover(color: $color, supportsOpacity: true)
+            Divider()
+            HStack(spacing: 8) {
+                Text("Position").font(.callout).foregroundStyle(EXPColor.textSecondary)
+                Spacer(minLength: 8)
+                TextField("", value: $positionPercent,
+                          format: .number.precision(.fractionLength(1)))
+                    .textFieldStyle(.exp)
+                    .frame(width: 56)
+                    .multilineTextAlignment(.trailing)
+                    .numericStepping($positionPercent, min: 0, max: 100)
+                    .accessibilityLabel("Gradient stop position, percent")
+                Text("%").font(.caption2).foregroundStyle(EXPColor.textSecondary)
+            }
+        }
+        .frame(width: 244)
+        .padding(12)
+    }
+}
+
 // MARK: - The swatch button that opens the picker
 
 struct ColorWell: View {

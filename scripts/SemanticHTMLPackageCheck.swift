@@ -105,10 +105,11 @@ private enum SemanticHTMLPackageCheck {
                 "semantic stylesheet no longer matches the reviewed golden")
         require(sha256(Data(html.utf8)) == "bdbe933a027de5c815fa23bbe36b2b0ffc8cebc5dd2d0638d9ba36765a5a07ad",
                 "semantic HTML page no longer matches the reviewed golden")
-        // Schema 4 and the completed v2.2 document model change only the
-        // design.json bytes/hash recorded here. The reviewed semantic CSS,
-        // HTML, README, fidelity rows, and entry set remain unchanged.
-        require(sha256(manifestData) == "29a8b5e5b075b8bbc263ef8781fb88ec7122cb94fb26f4f27e94436f2b14b569",
+        // Schema 5 adds the v2.3 open-stroke cap/marker fields. For this fixture,
+        // only design.json's schemaVersion and its manifest digest change. The
+        // reviewed semantic CSS, HTML, README, fidelity rows, and entry set remain
+        // byte-for-byte unchanged.
+        require(sha256(manifestData) == "f73827afab3be0d7f1bf779f28b33c491ec1e0ff1bae23f82c7118fbda64b153",
                 "handoff manifest no longer matches the reviewed golden")
         require(sha256(Data(readme.utf8)) == "0aca4002dc6c9c9e57c4b9b5bf9f922c3ed8c79b3b20331698a967cdcff8637f",
                 "handoff README no longer matches the reviewed golden")

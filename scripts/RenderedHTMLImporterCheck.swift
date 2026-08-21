@@ -315,7 +315,7 @@ private enum RenderedHTMLImporterCheck {
         let bridgeData = try JSONEncoder().encode(bridgeDocument)
         let decodedBridgeDocument = try JSONDecoder().decode(Document.self,
                                                              from: bridgeData)
-        require(decodedBridgeDocument.schemaVersion == 4
+        require(decodedBridgeDocument.schemaVersion == Document.currentSchemaVersion
                 && decodedBridgeDocument.codeBridges == result.codeBridges,
                 "bridge manifests should round-trip through the .design document")
         let semanticDocument = Document(artboards: page.artboards, nodes: page.nodes)

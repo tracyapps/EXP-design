@@ -196,14 +196,14 @@ struct ExportRenderer {
                 let d = svgRoundedRectData(f, s.effectiveRadii)
                 let shape = "<path d=\"\(d)\""
                 if s.strokeWidth > 0, s.strokeAlignment != .center {
-                    inner = "\(shape)\(paintFillAttr(s.fill, &defs))/>\n"
+                    inner = "\(shape)\(paintFillAttr(s.fill, &defs, rect: f))/>\n"
                         + svgAlignedStrokeCopy(shape: shape, closer: "/>", bounds: f,
                                                stroke: s.stroke, width: s.strokeWidth,
                                                alignment: s.strokeAlignment,
                                                pattern: s.strokePattern,
                                                join: "miter", defs: &defs)
                 } else {
-                    inner = "\(shape)\(paintFillAttr(s.fill, &defs))\(strokeAttr(s.stroke, s.strokeWidth, s.strokePattern))/>\n"
+                    inner = "\(shape)\(paintFillAttr(s.fill, &defs, rect: f))\(strokeAttr(s.stroke, s.strokeWidth, s.strokePattern))/>\n"
                 }
             } else
             // Stroke alignment: SVG only strokes centered, so inside/outside are
@@ -217,43 +217,45 @@ struct ExportRenderer {
                               max(0, min(sr.width, sr.height) / 2))
                 let fillRx = radius > 0 ? " rx=\"\(num(radius))\"" : ""
                 let strokeRx = srx > 0 ? " rx=\"\(num(srx))\"" : ""
-                inner = "<rect x=\"\(num(f.minX))\" y=\"\(num(f.minY))\" width=\"\(num(f.width))\" height=\"\(num(f.height))\"\(fillRx)\(paintFillAttr(s.fill, &defs))/>\n"
+                inner = "<rect x=\"\(num(f.minX))\" y=\"\(num(f.minY))\" width=\"\(num(f.width))\" height=\"\(num(f.height))\"\(fillRx)\(paintFillAttr(s.fill, &defs, rect: f))/>\n"
                     + "<rect x=\"\(num(sr.minX))\" y=\"\(num(sr.minY))\" width=\"\(num(sr.width))\" height=\"\(num(sr.height))\"\(strokeRx) fill=\"none\"\(strokeAttr(s.stroke, s.strokeWidth, s.strokePattern))/>\n"
             } else {
                 let radius = s.effectiveRadii.clamped(to: f.size).topLeft
                 let rx = radius > 0 ? " rx=\"\(num(radius))\"" : ""
-                inner = "<rect x=\"\(num(f.minX))\" y=\"\(num(f.minY))\" width=\"\(num(f.width))\" height=\"\(num(f.height))\"\(rx)\(paintFillAttr(s.fill, &defs))\(strokeAttr(s.stroke, s.strokeWidth, s.strokePattern))/>\n"
+                inner = "<rect x=\"\(num(f.minX))\" y=\"\(num(f.minY))\" width=\"\(num(f.width))\" height=\"\(num(f.height))\"\(rx)\(paintFillAttr(s.fill, &defs, rect: f))\(strokeAttr(s.stroke, s.strokeWidth, s.strokePattern))/>\n"
             }
         case .ellipse(let s):
             if s.strokeWidth > 0, s.strokeAlignment != .center {
                 let d = s.strokeWidth / 2 * (s.strokeAlignment == .inside ? 1 : -1)
-                inner = "<ellipse cx=\"\(num(f.midX))\" cy=\"\(num(f.midY))\" rx=\"\(num(f.width / 2))\" ry=\"\(num(f.height / 2))\"\(paintFillAttr(s.fill, &defs))/>\n"
+                inner = "<ellipse cx=\"\(num(f.midX))\" cy=\"\(num(f.midY))\" rx=\"\(num(f.width / 2))\" ry=\"\(num(f.height / 2))\"\(paintFillAttr(s.fill, &defs, rect: f))/>\n"
                     + "<ellipse cx=\"\(num(f.midX))\" cy=\"\(num(f.midY))\" rx=\"\(num(max(0, f.width / 2 - d)))\" ry=\"\(num(max(0, f.height / 2 - d)))\" fill=\"none\"\(strokeAttr(s.stroke, s.strokeWidth, s.strokePattern))/>\n"
             } else {
-                inner = "<ellipse cx=\"\(num(f.midX))\" cy=\"\(num(f.midY))\" rx=\"\(num(f.width / 2))\" ry=\"\(num(f.height / 2))\"\(paintFillAttr(s.fill, &defs))\(strokeAttr(s.stroke, s.strokeWidth, s.strokePattern))/>\n"
+                inner = "<ellipse cx=\"\(num(f.midX))\" cy=\"\(num(f.midY))\" rx=\"\(num(f.width / 2))\" ry=\"\(num(f.height / 2))\"\(paintFillAttr(s.fill, &defs, rect: f))\(strokeAttr(s.stroke, s.strokeWidth, s.strokePattern))/>\n"
             }
         case .polygon(let s):
             let pts = s.vertices(in: f).map { "\(num($0.x)),\(num($0.y))" }.joined(separator: " ")
             if s.strokeWidth > 0, s.strokeAlignment != .center {
                 // Same trick as the canvas: 2× width clipped/masked to one side.
                 let shape = "<polygon points=\"\(pts)\""
-                inner = "\(shape)\(paintFillAttr(s.fill, &defs))/>\n"
+                inner = "\(shape)\(paintFillAttr(s.fill, &defs, rect: f))/>\n"
                     + svgAlignedStrokeCopy(shape: shape, closer: "/>", bounds: f,
                                            stroke: s.stroke, width: s.strokeWidth,
                                            alignment: s.strokeAlignment,
                                            pattern: s.strokePattern,
                                            join: "miter", defs: &defs)
             } else {
-                inner = "<polygon points=\"\(pts)\"\(paintFillAttr(s.fill, &defs))\(strokeAttr(s.stroke, s.strokeWidth, s.strokePattern)) stroke-linejoin=\"miter\"/>\n"
+                inner = "<polygon points=\"\(pts)\"\(paintFillAttr(s.fill, &defs, rect: f))\(strokeAttr(s.stroke, s.strokeWidth, s.strokePattern)) stroke-linejoin=\"miter\"/>\n"
             }
         case .line(let ls):
             let a = CGPoint(x: f.minX + ls.start.x, y: f.minY + ls.start.y)
             let b = CGPoint(x: f.minX + ls.end.x, y: f.minY + ls.end.y)
-            inner = "<line x1=\"\(num(a.x))\" y1=\"\(num(a.y))\" x2=\"\(num(b.x))\" y2=\"\(num(b.y))\"\(strokeAttr(ls.stroke, ls.strokeWidth, ls.strokePattern))/>\n"
+            let markers = svgMarkerAttrs(start: ls.startMarker, end: ls.endMarker,
+                                         color: ls.stroke, nodeID: node.id, defs: &defs)
+            inner = "<line x1=\"\(num(a.x))\" y1=\"\(num(a.y))\" x2=\"\(num(b.x))\" y2=\"\(num(b.y))\"\(strokeAttr(ls.stroke, ls.strokeWidth, ls.strokePattern, cap: ls.strokeCap))\(markers)/>\n"
         case .path(let ps):
             let d = svgPathData(ps, origin: f.origin)
             let fills = ps.isMultiContour || ps.closed
-            let fill = fills ? paintFillAttr(ps.fill, &defs) : " fill=\"none\""
+            let fill = fills ? paintFillAttr(ps.fill, &defs, rect: f) : " fill=\"none\""
             if ps.strokeWidth > 0, ps.effectiveStrokeAlignment != .center {
                 let shape = "<path d=\"\(d)\""
                 inner = "\(shape)\(fill)/>\n"
@@ -264,7 +266,10 @@ struct ExportRenderer {
                                            join: "round", defs: &defs)
             } else {
                 // Nonzero is SVG's default fill-rule, matching font-glyph winding.
-                inner = "<path d=\"\(d)\"\(fill)\(strokeAttr(ps.stroke, ps.strokeWidth, ps.strokePattern)) stroke-linejoin=\"round\"/>\n"
+                let markers = ps.closed || ps.isMultiContour ? "" :
+                    svgMarkerAttrs(start: ps.startMarker, end: ps.endMarker,
+                                   color: ps.stroke, nodeID: node.id, defs: &defs)
+                inner = "<path d=\"\(d)\"\(fill)\(strokeAttr(ps.stroke, ps.strokeWidth, ps.strokePattern, cap: ps.strokeCap))\(markers) stroke-linejoin=\"round\"/>\n"
             }
         case .text(let t):
             let baseline = f.minY + t.firstRun.fontSize * 0.8
@@ -454,27 +459,38 @@ struct ExportRenderer {
 
     /// Fill attribute for a Paint, registering a gradient `<def>` when needed.
     /// Gradients use objectBoundingBox units so one def fits any element size.
-    private func paintFillAttr(_ paint: Paint, _ defs: inout [String]) -> String {
+    /// `rect` is the element's own frame. It is optional because a few call sites
+    /// have no single frame to speak of; without it the gradient falls back to the
+    /// unit square, which is exact for a square element and for 0/90° in any element.
+    private func paintFillAttr(_ paint: Paint, _ defs: inout [String],
+                               rect: CGRect? = nil) -> String {
         switch paint {
         case .solid(let c):
             return fillAttr(c)
         case .gradient(let g):
             let id = "grad\(defs.count)"
-            defs.append(svgGradientDef(g, id: id))
+            defs.append(svgGradientDef(g, id: id, rect: rect))
             return " fill=\"url(#\(id))\""
         }
     }
 
-    private func svgGradientDef(_ g: GradientFill, id: String) -> String {
+    private func svgGradientDef(_ g: GradientFill, id: String, rect: CGRect? = nil) -> String {
         let stops = g.sortedStops.map { stop -> String in
             "    <stop offset=\"\(num(CGFloat(stop.position)))\" stop-color=\"\(hex(stop.color))\"\(opacityAttr("stop-opacity", stop.color.a))/>\n"
         }.joined()
         switch g.kind {
         case .linear:
-            let a = g.angle * .pi / 180
-            let dx = CGFloat(cos(a)) * 0.5, dy = CGFloat(sin(a)) * 0.5
-            let x1 = 0.5 - dx, y1 = 0.5 - dy, x2 = 0.5 + dx, y2 = 0.5 + dy
-            return "  <linearGradient id=\"\(id)\" x1=\"\(num(x1))\" y1=\"\(num(y1))\" x2=\"\(num(x2))\" y2=\"\(num(y2))\">\n\(stops)  </linearGradient>\n"
+            // FEAT-032. Two fixes in one line: it emits the EXPLICIT gradient line
+            // when there is one, and it derives the angle case from the same
+            // `unitLinearPoints` the canvas draws with.
+            //
+            // The old math (0.5 ± 0.5·cos/sin) built the line inside a unit SQUARE,
+            // while the canvas builds it with CSS's aspect-aware construction — so on
+            // any non-square shape at any angle other than 0/90 the exported SVG and
+            // the canvas quietly disagreed. `unitLinearPoints` is exact for both,
+            // because objectBoundingBox units ARE the rect-normalised coordinates.
+            let (u0, u1) = g.unitLinearPoints(in: rect ?? CGRect(x: 0, y: 0, width: 1, height: 1))
+            return "  <linearGradient id=\"\(id)\" x1=\"\(num(u0.x))\" y1=\"\(num(u0.y))\" x2=\"\(num(u1.x))\" y2=\"\(num(u1.y))\">\n\(stops)  </linearGradient>\n"
         case .radial:
             return "  <radialGradient id=\"\(id)\" cx=\"0.5\" cy=\"0.5\" r=\"0.5\">\n\(stops)  </radialGradient>\n"
         }
@@ -511,11 +527,13 @@ struct ExportRenderer {
     }
 
     private func strokeAttr(_ c: RGBAColor, _ width: CGFloat,
-                            _ pattern: StrokePattern = .solid) -> String {
+                            _ pattern: StrokePattern = .solid,
+                            cap: StrokeLineCap? = nil) -> String {
         guard width > 0 else { return "" }
         let rhythm: String
         switch pattern {
-        case .solid: rhythm = ""
+        case .solid:
+            rhythm = cap.map { " stroke-linecap=\"\($0.rawValue)\"" } ?? ""
         case .dashed:
             rhythm = " stroke-dasharray=\"\(num(max(3, width * 3))) \(num(max(2, width * 2)))\" stroke-linecap=\"butt\""
         case .dotted:
@@ -527,6 +545,23 @@ struct ExportRenderer {
             return " stroke=\"var(--\(binding.variableName), \(fallback))\" stroke-width=\"\(num(width))\"\(rhythm)"
         }
         return " stroke=\"\(hex(c))\"\(opacityAttr("stroke-opacity", c.a)) stroke-width=\"\(num(width))\"\(rhythm)"
+    }
+
+    /// Emit one reusable SVG 2 arrow marker for this node. `context-stroke`
+    /// preserves token colors and opacity, `strokeWidth` keeps the arrow sized
+    /// with the line, and `auto-start-reverse` makes the same definition face
+    /// correctly at either endpoint.
+    private func svgMarkerAttrs(start: StrokeMarker, end: StrokeMarker,
+                                color: RGBAColor,
+                                nodeID: UUID, defs: inout [String]) -> String {
+        guard start != .none || end != .none else { return "" }
+        let id = "exp-arrow-\(nodeID.uuidString.lowercased())"
+        let alpha = color.a < 0.999 ? " fill-opacity=\"\(num(CGFloat(color.a)))\"" : ""
+        defs.append("<marker id=\"\(id)\" viewBox=\"0 -2 4 4\" refX=\"0\" refY=\"0\" markerWidth=\"4\" markerHeight=\"4\" markerUnits=\"strokeWidth\" orient=\"auto-start-reverse\" overflow=\"visible\" data-exp-marker=\"arrow\"><path d=\"M 4 0 L 0 -2 L 0 2 Z\" fill=\"context-stroke\"\(alpha)/></marker>\n")
+        var attrs = ""
+        if start == .arrow { attrs += " marker-start=\"url(#\(id))\"" }
+        if end == .arrow { attrs += " marker-end=\"url(#\(id))\"" }
+        return attrs
     }
 
     /// Standalone SVGs carry the same color-token names as semantic HTML/CSS.
@@ -845,16 +880,22 @@ final class ExportRenderView: NSView {
                                           join: .miter, pattern: s.strokePattern, in: ctx)
             }
         case .line(let ls):
+            let a = CGPoint(x: rect.minX + ls.start.x, y: rect.minY + ls.start.y)
+            let b = CGPoint(x: rect.minX + ls.end.x, y: rect.minY + ls.end.y)
             let path = NSBezierPath()
-            path.move(to: CGPoint(x: rect.minX + ls.start.x, y: rect.minY + ls.start.y))
-            path.line(to: CGPoint(x: rect.minX + ls.end.x, y: rect.minY + ls.end.y))
+            path.move(to: a)
+            path.line(to: b)
             ctx.saveGState()
             ctx.setStrokeColor(ls.stroke.ns.cgColor)
             ctx.setLineWidth(max(0.1, ls.strokeWidth))
             PaintRender.configureStrokePattern(ls.strokePattern,
                                                width: max(0.1, ls.strokeWidth),
-                                               fallbackCap: .round, in: ctx)
+                                               fallbackCap: ls.strokeCap.cgLineCap, in: ctx)
             ctx.addPath(path.cgPath); ctx.strokePath(); ctx.restoreGState()
+            PaintRender.drawMarker(ls.startMarker, endpoint: a, interior: b,
+                                   strokeWidth: ls.strokeWidth, color: ls.stroke.ns, in: ctx)
+            PaintRender.drawMarker(ls.endMarker, endpoint: b, interior: a,
+                                   strokeWidth: ls.strokeWidth, color: ls.stroke.ns, in: ctx)
         case .path(let ps):
             let path = nsPath(ps, origin: rect.origin)
             if ps.isMultiContour || (ps.closed && ps.points.count >= 2) {
@@ -863,8 +904,21 @@ final class ExportRenderView: NSView {
             if ps.strokeWidth > 0 {
                 PaintRender.strokeAligned(path, width: ps.strokeWidth,
                                           alignment: ps.effectiveStrokeAlignment, color: ps.stroke.ns,
-                                          join: .round, cap: .round,
+                                          join: .round, cap: ps.strokeCap.cgLineCap,
                                           pattern: ps.strokePattern, in: ctx)
+            }
+            if ps.strokeWidth > 0, let tangents = ps.endpointTangents {
+                let pointInExport: (CGPoint) -> CGPoint = { point in
+                    CGPoint(x: rect.minX + point.x, y: rect.minY + point.y)
+                }
+                PaintRender.drawMarker(ps.startMarker,
+                                       endpoint: pointInExport(tangents.start.tip),
+                                       interior: pointInExport(tangents.start.interior),
+                                       strokeWidth: ps.strokeWidth, color: ps.stroke.ns, in: ctx)
+                PaintRender.drawMarker(ps.endMarker,
+                                       endpoint: pointInExport(tangents.end.tip),
+                                       interior: pointInExport(tangents.end.interior),
+                                       strokeWidth: ps.strokeWidth, color: ps.stroke.ns, in: ctx)
             }
         case .text(let t):
             t.attributedString().draw(in: rect)

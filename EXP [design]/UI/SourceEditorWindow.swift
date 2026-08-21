@@ -43,6 +43,7 @@ final class SourceEditorWindowManager {
         // through the responder chain automatically.
         let app = AppState()
         let rootView = SourceEditorView(app: app, document: document, sourceID: sourceID)
+            .expInterfaceTypeSize()
         let hosting = NSHostingController(rootView: rootView)
         let window = NSWindow(contentViewController: hosting)
         window.styleMask = [NSWindow.StyleMask.titled, .closable, .miniaturizable, .resizable]

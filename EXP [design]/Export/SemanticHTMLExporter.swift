@@ -1322,7 +1322,14 @@ private struct CSSWriter {
         case .solid(let c):
             return color(c)
         case .gradient(let gradient):
-            let stops = gradient.sortedStops.map {
+            // FEAT-032: positions come from `cssStopPositions`, which projects an
+            // explicit gradient line onto the CSS one. CSS has no syntax for "start
+            // the ramp 30% in", but it does allow stop percentages outside 0–100%,
+            // and the two lines are parallel — so the offset and length survive as
+            // percentages instead of being silently flattened. With no explicit line
+            // this is byte-for-byte the previous output.
+            let rect = CGRect(x: 0, y: 0, width: 1, height: 1)
+            let stops = gradient.cssStopPositions(in: rect).map {
                 "\(color($0.color)) \(number($0.position * 100))%"
             }.joined(separator: ", ")
             switch gradient.kind {

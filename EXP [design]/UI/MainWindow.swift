@@ -77,6 +77,7 @@ struct MainWindow: View {
             }
         }
         .frame(minWidth: 900, minHeight: 600)
+        .expInterfaceTypeSize()
         .environment(app)
         // Publish state for the Window menu (panels + dock visibility). Scene
         // value = active whenever this window is frontmost (no focused control
@@ -646,6 +647,7 @@ struct TopSystemControls: View {
             // Zoom cluster
             Button { app.zoomOut() } label: { Image(systemName: "minus.magnifyingglass") }
                 .help("Zoom out (⌘-)")
+                .accessibilityLabel("Zoom out")
             TextField("", value: zoomPercentBinding, format: .number.precision(.fractionLength(0)))
                 .labelsHidden()
                 .textFieldStyle(.exp)
@@ -653,9 +655,12 @@ struct TopSystemControls: View {
                 .multilineTextAlignment(.trailing)
                 .monospacedDigit()
                 .numericStepping(zoomPercentBinding, min: 5)
+                .accessibilityLabel("Zoom percentage")
                 .help("Zoom %")
+                .accessibilityLabel("Zoom percentage")
             Button { app.zoomIn() } label: { Image(systemName: "plus.magnifyingglass") }
                 .help("Zoom in (⌘+)")
+                .accessibilityLabel("Zoom in")
             Menu {
                 Button("Zoom to Fit") { sendCanvasAction("fitToScreen:") }
                 Button("Actual Size (100%)") { app.zoomActual() }
@@ -669,6 +674,7 @@ struct TopSystemControls: View {
             .menuStyle(.borderlessButton)
             .frame(width: 22)
             .help("Zoom presets")
+            .accessibilityLabel("Zoom presets")
 
             Divider().frame(height: 16)
 
@@ -676,9 +682,11 @@ struct TopSystemControls: View {
             // live in their own windows).
             Button { app.showLeftPanel.toggle() } label: { Image(systemName: "sidebar.left") }
                 .help("Show/hide the left panel")
+                .accessibilityLabel(app.showLeftPanel ? "Hide left panel" : "Show left panel")
                 .disabled(app.workspaceMode == .multiWindow)
             Button { app.showRightPanel.toggle() } label: { Image(systemName: "sidebar.right") }
                 .help("Show/hide the right panel")
+                .accessibilityLabel(app.showRightPanel ? "Hide right panel" : "Show right panel")
                 .disabled(app.workspaceMode == .multiWindow)
 
             Divider().frame(height: 16)
@@ -692,12 +700,17 @@ struct TopSystemControls: View {
                 }
                 .pickerStyle(.inline)
                 .labelsHidden()
+                Divider()
+                // FEAT-021 — the same commands the Window ▸ Workspace menu runs.
+                WorkspacePresetMenuItems(app: app)
             } label: {
                 Image(systemName: app.workspaceMode.icon)
             }
             .menuStyle(.borderlessButton)
             .frame(width: 30)
             .help("Workspace: \(app.workspaceMode.label)")
+            .accessibilityLabel("Workspace mode")
+            .accessibilityValue(app.workspaceMode.label)
         }
     }
 
@@ -732,6 +745,7 @@ struct EditorMenuModel {
     var hasAnySelection: Bool { hasNodes || hasArtboards }
 
     var canDuplicate: Bool
+    var canDuplicateEffect: Bool
     var canCopyStyle: Bool
     var canPasteStyle: Bool
     var pageTransferChoices: [CanvasPageChoice]
@@ -920,6 +934,7 @@ func makeEditorMenuModel(document: ExpDocument, app: AppState, scope: CanvasScop
         hasNodes: hasNodes,
         hasArtboards: hasArtboards,
         canDuplicate: hasNodes,
+        canDuplicateEffect: singleNode?.effects.contains(where: { $0.id == app.selectedEffectID }) == true,
         canCopyStyle: hasNodes,
         canPasteStyle: hasNodes && app.copiedLayerStyle != nil,
         pageTransferChoices: pageTransferChoices,
@@ -996,6 +1011,103 @@ func makeEditorMenuModel(document: ExpDocument, app: AppState, scope: CanvasScop
 /// `validateMenuItem` isn't consulted on the direct-target path, which is fine: the
 /// SwiftUI `.disabled` gate already ran and every action guards its own
 /// preconditions anyway.
+// MARK: - Tool letter shortcuts (BUG-028)
+
+/// Single-letter tool shortcuts (V, A, P, T, R, O, G, L, F, H, plus ⇧A) handled in
+/// ONE place, so they work from any focus location — canvas, Layers, inspector, a
+/// floating tray — instead of only when the canvas happens to hold focus.
+///
+/// **Why a local event monitor rather than menu key equivalents.** The main menu is
+/// offered key equivalents BEFORE the event reaches the window's first responder, so
+/// an unmodified letter equivalent fires while the user is typing and swallows the
+/// character. That is not a hypothetical: BUG-038 was exactly this failure, already
+/// shipped — BUG-020's opacity digits ate the numbers being typed into a layer name,
+/// so layers could not be called "Button 2". A monitor can ask "is the user typing?"
+/// FIRST and decline; a menu key equivalent has no such opportunity.
+///
+/// **Why not per-panel `.onKeyPress`.** That is the route BUG-020 took, and BUG-038
+/// is what it produced: every panel has to repeat the guard, and eventually one of
+/// them forgets. This is the single place that has to be right.
+///
+/// **Known minor behaviour:** with a non-document window key (Settings, the ARIA
+/// guide) a tool letter still reaches the document via `sendCanvasAction`'s
+/// main-window fallback and changes its active tool. Harmless, and the same fallback
+/// is exactly what makes floating panel trays work — a key-window-must-host-a-canvas
+/// guard would break the case this bug is about.
+@MainActor
+enum ToolShortcuts {
+    private static var monitor: Any?
+
+    /// Letter → the `@objc` action on `CanvasNSView`. Keep in sync with the Tools
+    /// menu in `EXP__design_App.swift` and with `CanvasNSView.keyDown`'s own cases,
+    /// which remain the path used when the canvas already has focus.
+    private static let actions: [String: String] = [
+        "v": "selectToolAction:",  "a": "nodeToolAction:",
+        "p": "penToolAction:",     "t": "textToolAction:",
+        "r": "rectangleToolAction:", "o": "ellipseToolAction:",
+        "g": "polygonToolAction:", "l": "lineToolAction:",
+        "f": "artboardToolAction:", "h": "panToolAction:",
+    ]
+
+    static func install() {
+        guard monitor == nil else { return }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            handle(event) ? nil : event
+        }
+    }
+
+    /// Returns true when the event was consumed.
+    private static func handle(_ event: NSEvent) -> Bool {
+        let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        // ⌘/⌃/⌥ combinations belong to other commands.
+        if mods.contains(.command) || mods.contains(.control) || mods.contains(.option) { return false }
+        // FEAT-008: the font popover uses unmodified letters for native
+        // type-to-jump. It owns those keystrokes while open; otherwise A/F/T/etc.
+        // would switch canvas tools before the picker could see the event.
+        if FontPickerKeyboardSession.isActive { return false }
+        // The user is typing. This check is the entire reason this is a monitor.
+        if isTypingInTextField() { return false }
+        // The canvas already handles these in its own keyDown when it has focus.
+        // Declining here leaves the common path bit-for-bit unchanged, so this can
+        // only ADD the missing routes, never alter existing behaviour.
+        if NSApp.keyWindow?.firstResponder is CanvasNSView { return false }
+        guard let key = event.charactersIgnoringModifiers?.lowercased(), key.count == 1 else { return false }
+        // ⇧A is the Sketch/XD Artboard alias; every other tool letter is unshifted.
+        if mods.contains(.shift) {
+            guard key == "a" else { return false }
+            return sendCanvasAction("artboardToolAction:")
+        }
+        guard let selector = actions[key] else { return false }
+        // If nothing answered, let the event continue rather than silently eating a
+        // keystroke — `sendCanvasAction` returns false and logs when it finds no target.
+        return sendCanvasAction(selector)
+    }
+}
+
+/// True when the user is typing into a text field RIGHT NOW, so an unmodified
+/// character shortcut must not fire.
+///
+/// Why ask AppKit instead of tracking it in SwiftUI state: a panel that installs
+/// `.onKeyPress` on its List has no idea whether some descendant row has opened a
+/// rename field, because that `editing` flag is `@State` private to the row. That
+/// is exactly how BUG-038 happened — BUG-020's opacity-digit fix returned
+/// `.handled` for every digit, including the ones being typed into a layer name,
+/// so layers could not be named "Button 2".
+///
+/// Checking the FIELD EDITOR matters and is easy to get wrong: AppKit does not
+/// make the `NSTextField` itself first responder while editing — it installs a
+/// shared `NSTextView` field editor whose delegate is the field. Testing only for
+/// `NSTextField` therefore misses the case that actually matters. Both are checked
+/// here, so this stays correct for SwiftUI `TextField`s, the component-name field,
+/// the canvas's inline text editing, and any field added later — no plumbing
+/// required at the call site.
+@MainActor
+func isTypingInTextField() -> Bool {
+    guard let responder = (NSApp.keyWindow ?? NSApp.mainWindow)?.firstResponder else { return false }
+    if let textView = responder as? NSTextView { return textView.isFieldEditor || textView.isEditable }
+    return responder is NSTextField
+}
+
 @discardableResult
 func sendCanvasAction(_ selectorName: String, from sender: Any? = nil) -> Bool {
     let sel = Selector(selectorName)
@@ -1061,6 +1173,10 @@ struct RightPanel: View {
     /// Noise/Dissolve "Advanced" accordion — remembered across effects, panel
     /// rebuilds, and app launches, so it stays the way the designer left it.
     @AppStorage("inspector.effects.advancedOpen") private var effectsAdvancedOpen = false
+    /// Row disclosure is workspace UI state, not document data. Keep it while this
+    /// Inspector lives; a newly added or duplicated effect starts expanded so its
+    /// editable copy is never hidden unexpectedly.
+    @State private var collapsedEffectIDs: Set<UUID> = []
     /// Per-corner radius accordion (v1.3) — same remembered-disclosure pattern.
     @AppStorage("inspector.corners.advancedOpen") private var cornersAdvancedOpen = false
 
@@ -1185,6 +1301,13 @@ struct RightPanel: View {
     private var selectedNode: Node? {
         guard let id = app.singleSelectedNodeID else { return nil }
         return findScopedNode(id)   // resolves nested children too
+    }
+
+    /// One selection shared by the on-canvas gradient handles and whichever
+    /// selected-object PaintWell is open in the Inspector.
+    private var gradientStopSelection: Binding<UUID?> {
+        Binding(get: { app.selectedGradientStopID },
+                set: { app.selectedGradientStopID = $0 })
     }
 
     /// One pickable end of a relationship, addressed relative to the anchor.
@@ -1539,21 +1662,30 @@ struct RightPanel: View {
                     )
                 }
                 HStack(spacing: 4) {
-                    Text("R").foregroundStyle(EXPColor.textSecondary).frame(width: 14, alignment: .leading)
+                    Text("R").foregroundStyle(EXPColor.textSecondary)
+                        .frame(width: 14, alignment: .leading)
+                        .accessibilityHidden(true)
                     TextField("", value: nodeRotationBinding, format: .number.precision(.fractionLength(0)))
                         .labelsHidden().textFieldStyle(.exp)
                         .multilineTextAlignment(.trailing).monospacedDigit()
                         .frame(width: 64)
                         .numericStepping(nodeRotationBinding)
+                        .expFieldTip("Rotation", "Layer rotation in degrees. Values wrap through 0–359.")
+                        .accessibilityLabel("Rotation")
                     Text("°").foregroundStyle(EXPColor.textSecondary)
+                        .accessibilityHidden(true)
                     Spacer()
                     Text("Opacity").foregroundStyle(EXPColor.textSecondary)
+                        .accessibilityHidden(true)
                     TextField("", value: nodeOpacityBinding, format: .number.precision(.fractionLength(0)))
                         .labelsHidden().textFieldStyle(.exp)
                         .multilineTextAlignment(.trailing).monospacedDigit()
                         .frame(width: 48)
                         .numericStepping(nodeOpacityBinding, min: 0, max: 100)
+                        .expFieldTip("Opacity", "Layer opacity, from 0% transparent to 100% opaque.")
+                        .accessibilityLabel("Layer opacity")
                     Text("%").foregroundStyle(EXPColor.textSecondary)
+                        .accessibilityHidden(true)
                 }
                 .font(.callout)
                 .padding(.horizontal, 12)
@@ -1570,25 +1702,7 @@ struct RightPanel: View {
                 .font(.callout)
                 .padding(.horizontal, 12)
                 .padding(.bottom, 8)
-                HStack(spacing: 6) {
-                    Text("Flip").foregroundStyle(EXPColor.textSecondary)
-                    Button { flipSelectedLayer(horizontal: true) } label: {
-                        Image(systemName: "arrow.left.and.right")
-                    }
-                    .buttonStyle(.borderless)
-                    .help("Flip layer horizontally")
-                    .accessibilityLabel("Flip layer horizontally")
-                    Button { flipSelectedLayer(horizontal: false) } label: {
-                        Image(systemName: "arrow.up.and.down")
-                    }
-                    .buttonStyle(.borderless)
-                    .help("Flip layer vertically")
-                    .accessibilityLabel("Flip layer vertically")
-                    Spacer(minLength: 0)
-                }
-                .font(.callout)
-                .padding(.horizontal, 12)
-                .padding(.bottom, 8)
+                flipControls(multiple: false)
                 if case .group = node.content {
                     Divider()
                     autoLayoutControls()
@@ -1645,6 +1759,10 @@ struct RightPanel: View {
                     w: multiSizeBinding(width: true),
                     h: multiSizeBinding(width: false)
                 )
+                // FEAT-044: flipping several layers at once was only reachable from
+                // the Object menu and the right-click menu, so the panel quietly
+                // implied it was a single-layer action.
+                flipControls(multiple: true)
                 // Font / fill / stroke applied to EVERY selected layer at once.
                 multiStyleControls()
                 if inspectorCanConvertToPath || inspectorCanOutlineStroke || inspectorCanPathfinder {
@@ -1676,7 +1794,10 @@ struct RightPanel: View {
                         DimField(label: "H", value: artboardBinding(\.size.height, action: "Resize Artboard"), min: 0)
                     }
                     Divider()
-                    PaintWell(label: "Background", paint: artboardBackgroundBinding, supportsOpacity: false)
+                    PaintWell(label: "Background", paint: artboardBackgroundBinding,
+                              supportsOpacity: false,
+                              gradientSize: selectedArtboard?.frame.size,
+                              selectedGradientStopID: gradientStopSelection)
                 }
                 .font(.callout)
                 .padding(12)
@@ -1728,13 +1849,17 @@ struct RightPanel: View {
                 .menuStyle(.borderlessButton)
                 .frame(width: 26)
                 .help("Zoom presets")
+                .accessibilityLabel("Zoom presets")
             }
             HStack(spacing: 8) {
                 Button { app.zoomOut() } label: { Image(systemName: "minus.magnifyingglass") }
                     .buttonStyle(.borderless).help("Zoom out (⌘-)")
+                    .accessibilityLabel("Zoom out")
                 Slider(value: zoomSliderBinding, in: 0...1)
+                    .accessibilityLabel("Zoom")
                 Button { app.zoomIn() } label: { Image(systemName: "plus.magnifyingglass") }
                     .buttonStyle(.borderless).help("Zoom in (⌘+)")
+                    .accessibilityLabel("Zoom in")
             }
         }
         .font(.callout)
@@ -1918,6 +2043,47 @@ struct RightPanel: View {
                 mutateScopedNode(id, action: "Blend Mode") { $0.blendMode = v }
             }
         )
+    }
+
+    /// Flip controls, shared by the single- and multi-selection inspectors.
+    ///
+    /// A single layer flips through the panel's own scoped mutation, which is what
+    /// keeps it working inside a component-source editor. A MULTI-selection routes
+    /// through the canvas action instead (per the project's command-dispatch rule),
+    /// so every selected layer flips in ONE undo step using the same code the Object
+    /// menu and the right-click menu already call.
+    @ViewBuilder
+    private func flipControls(multiple: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text("Flip").foregroundStyle(EXPColor.textSecondary)
+                .accessibilityHidden(true)
+            HStack(spacing: 6) {
+            Button {
+                if multiple { _ = sendCanvasAction("flipHorizontalAction:") }
+                else { flipSelectedLayer(horizontal: true) }
+            } label: {
+                Label("Horizontal", systemImage: "arrow.left.and.right")
+            }
+            .buttonStyle(.expCompact())
+            .help(multiple ? "Flip every selected layer horizontally" : "Flip layer horizontally")
+            .accessibilityLabel(multiple ? "Flip every selected layer horizontally"
+                                         : "Flip layer horizontally")
+            Button {
+                if multiple { _ = sendCanvasAction("flipVerticalAction:") }
+                else { flipSelectedLayer(horizontal: false) }
+            } label: {
+                Label("Vertical", systemImage: "arrow.up.and.down")
+            }
+            .buttonStyle(.expCompact())
+            .help(multiple ? "Flip every selected layer vertically" : "Flip layer vertically")
+            .accessibilityLabel(multiple ? "Flip every selected layer vertically"
+                                         : "Flip layer vertically")
+            Spacer(minLength: 0)
+            }
+        }
+        .font(.callout)
+        .padding(.horizontal, 12)
+        .padding(.bottom, 8)
     }
 
     private func flipSelectedLayer(horizontal: Bool) {
@@ -2180,11 +2346,14 @@ struct RightPanel: View {
                 Toggle("", isOn: alEnabledBinding)
                     .labelsHidden().toggleStyle(.switch).controlSize(.mini)
                     .help("Stack the children in a row or column with spacing")
+                    .accessibilityLabel("Auto Layout")
             }
             if let al = selectedAutoLayout {
                 EXPSegmented(selection: alDirectionBinding, segments: [
-                    .init(value: .horizontal, icon: "arrow.right"),
-                    .init(value: .vertical, icon: "arrow.down"),
+                    .init(value: .horizontal, icon: "arrow.right",
+                          accessibilityLabel: "Horizontal layout", help: "Horizontal layout"),
+                    .init(value: .vertical, icon: "arrow.down",
+                          accessibilityLabel: "Vertical layout", help: "Vertical layout"),
                 ])
                 .help("Lay children out in a row or a column")
 
@@ -2199,6 +2368,7 @@ struct RightPanel: View {
                             .labelsHidden().textFieldStyle(.exp)
                             .multilineTextAlignment(.trailing).monospacedDigit()
                             .frame(width: 52).numericStepping(alGapBinding, min: 0)
+                            .accessibilityLabel("Gap between items")
                     }
                     Spacer(minLength: 0)
                 }
@@ -2281,29 +2451,33 @@ struct RightPanel: View {
                 Toggle("", isOn: apEnabledBinding)
                     .labelsHidden().toggleStyle(.switch).controlSize(.mini)
                     .help("Hug the children with padding and a background (button / tag / card)")
+                    .accessibilityLabel("Auto Padding")
             }
             if selectedAutoPadding != nil {
                 Text("Padding (content → background)").font(.caption2).foregroundStyle(EXPColor.textSecondary)
                 HStack(spacing: 4) {
-                    apPadField("T", \.paddingTop)
-                    apPadField("R", \.paddingRight)
-                    apPadField("B", \.paddingBottom)
-                    apPadField("L", \.paddingLeft)
+                    apPadField("T", "Top padding", \.paddingTop)
+                    apPadField("R", "Right padding", \.paddingRight)
+                    apPadField("B", "Bottom padding", \.paddingBottom)
+                    apPadField("L", "Left padding", \.paddingLeft)
                 }
                 Text("Margin (outside background)").font(.caption2).foregroundStyle(EXPColor.textSecondary)
                 HStack(spacing: 4) {
-                    apPadField("T", \.marginTop)
-                    apPadField("R", \.marginRight)
-                    apPadField("B", \.marginBottom)
-                    apPadField("L", \.marginLeft)
+                    apPadField("T", "Top margin", \.marginTop)
+                    apPadField("R", "Right margin", \.marginRight)
+                    apPadField("B", "Bottom margin", \.marginBottom)
+                    apPadField("L", "Left margin", \.marginLeft)
                 }
-                PaintWell(label: "Fill", paint: apFillBinding)
+                PaintWell(label: "Fill", paint: apFillBinding,
+                          gradientSize: selectedNode?.frame.size,
+                          selectedGradientStopID: gradientStopSelection)
                 HStack(spacing: 8) {
                     Text("Corner").foregroundStyle(EXPColor.textSecondary)
                     TextField("", value: apCornerBinding, format: .number.precision(.fractionLength(0)))
                         .labelsHidden().textFieldStyle(.exp)
                         .multilineTextAlignment(.trailing).monospacedDigit()
                         .frame(width: 52).numericStepping(apCornerBinding, min: 0)
+                        .accessibilityLabel("Background corner radius")
                     Spacer()
                     Text("Stroke").foregroundStyle(EXPColor.textSecondary)
                     ColorWell(label: "", color: apStrokeBinding)
@@ -2311,6 +2485,7 @@ struct RightPanel: View {
                         .labelsHidden().textFieldStyle(.exp)
                         .multilineTextAlignment(.trailing).monospacedDigit()
                         .frame(width: 40).numericStepping(apStrokeWidthBinding, min: 0)
+                        .accessibilityLabel("Background stroke width")
                 }
                 if (selectedAutoPadding?.strokeWidth ?? 0) > 0 {
                     EXPSegmented(selection: apStrokePatternBinding,
@@ -2335,13 +2510,17 @@ struct RightPanel: View {
     }
 
     @ViewBuilder
-    private func apPadField(_ label: String, _ kp: WritableKeyPath<AutoPadding, CGFloat>) -> some View {
+    private func apPadField(_ label: String, _ accessibilityLabel: String,
+                            _ kp: WritableKeyPath<AutoPadding, CGFloat>) -> some View {
         HStack(spacing: 2) {
             Text(label).foregroundStyle(EXPColor.textSecondary).font(.caption2)
+                .accessibilityHidden(true)
             TextField("", value: apPadBinding(kp), format: .number.precision(.fractionLength(0)))
                 .labelsHidden().textFieldStyle(.exp)
                 .multilineTextAlignment(.trailing).monospacedDigit()
                 .frame(width: 40).numericStepping(apPadBinding(kp), min: 0)
+                .expFieldTip(accessibilityLabel)
+                .accessibilityLabel(accessibilityLabel)
         }
     }
 
@@ -2828,6 +3007,7 @@ struct RightPanel: View {
                 // A multi-selection has no single family, so the label stays fixed
                 // and nothing is ticked — honest about there being no one answer.
                 FontFamilyPicker(currentFamily: "Mixed", label: "Font",
+                                 fontsUsed: { document.model.usedFontFamilies },
                                  onPick: { applyFontFamilyAll($0) },
                                  onPickSystem: { applyFontFamilyAll("") })
                 .help("Set the typeface on every selected text layer")
@@ -3014,7 +3194,7 @@ struct RightPanel: View {
     }
 
     private func alignOpButton(_ symbol: String, _ help: String, _ selector: String, enabled: Bool = true) -> some View {
-        InspectorIconButton(symbol: symbol, enabled: enabled) {
+        InspectorIconButton(symbol: symbol, accessibilityLabel: help, enabled: enabled) {
             sendCanvasAction(selector)
         }
         .help(help)
@@ -3041,6 +3221,9 @@ struct RightPanel: View {
                     .numericStepping(gridSubdivBinding, min: 1)
             }
             Toggle("Snap to grid", isOn: Binding(get: { app.snapToGrid }, set: { app.snapToGrid = $0 }))
+            Toggle("Snap to whole pixels",
+                   isOn: Binding(get: { app.pixelSnap }, set: { app.pixelSnap = $0 }))
+                .help("Off lets moves and resizes land on fractional values. Hold \u{2318} during a drag to bypass snapping either way.")
         }
         .font(.callout)
         .padding(12).frame(maxWidth: .infinity, alignment: .leading)
@@ -3066,6 +3249,7 @@ struct RightPanel: View {
                     Button("Baseline") { addLayoutGrid(.baseline) }
                 } label: { Image(systemName: "plus.circle") }
                     .menuStyle(.borderlessButton).fixedSize().help("Add a layout grid")
+                    .accessibilityLabel("Add layout grid")
             }
             if grids.isEmpty { Text("No layout grids").font(.caption2).foregroundStyle(EXPColor.textTertiary) }
             ForEach(Array(grids.enumerated()), id: \.element.id) { idx, g in
@@ -3079,15 +3263,18 @@ struct RightPanel: View {
         VStack(spacing: 4) {
             HStack(spacing: 6) {
                 Toggle("", isOn: lgBool(idx, \.visible)).labelsHidden().toggleStyle(.checkbox)
+                    .accessibilityLabel("Show layout grid")
                 Picker("", selection: lgKind(idx)) {
                     Text("Columns").tag(LayoutGrid.Kind.columns)
                     Text("Rows").tag(LayoutGrid.Kind.rows)
                     Text("Baseline").tag(LayoutGrid.Kind.baseline)
                 }.labelsHidden().frame(width: 96)
+                    .accessibilityLabel("Layout grid type")
                 ColorWell(label: "", color: lgColor(idx))
                 Spacer()
                 Button { removeLayoutGrid(grid.id) } label: { Image(systemName: "trash") }
-                    .buttonStyle(.borderless).help("Remove")
+                    .buttonStyle(.borderless).help("Remove layout grid")
+                    .accessibilityLabel("Remove layout grid")
             }
             if grid.kind == .baseline {
                 HStack(spacing: 4) { lgNum("Size", idx, \.size, min: 1); Spacer() }.font(.caption)
@@ -3152,6 +3339,7 @@ struct RightPanel: View {
             TextField("", value: b, format: .number.precision(.fractionLength(0)))
                 .textFieldStyle(.exp).frame(width: 40).multilineTextAlignment(.trailing)
                 .numericStepping(b, min: min)
+                .accessibilityLabel("Layout grid \(label.lowercased())")
         }
     }
     private func lgInt(_ label: String, _ idx: Int, _ kp: WritableKeyPath<LayoutGrid, Int>) -> some View {
@@ -3162,10 +3350,28 @@ struct RightPanel: View {
             TextField("", value: b, format: .number.precision(.fractionLength(0)))
                 .textFieldStyle(.exp).frame(width: 40).multilineTextAlignment(.trailing)
                 .numericStepping(b, min: 1)
+                .accessibilityLabel("Layout grid \(label.lowercased())")
         }
     }
 
     // MARK: Effects (drop / inner shadow) — applies to any node type
+
+    /// BUG-034 Stage 1. SVG export applies shadow spread to every node type; the
+    /// canvas can only grow rectangle, ellipse and image outlines today. Where the
+    /// two disagree, say so — a preview that quietly differs from the exported file
+    /// is the thing this tool exists to prevent. Text, not colour, carries the
+    /// message (WCAG 2.1 AA §1.4.1), and it reuses the established tertiary caption
+    /// token rather than introducing a new colour; that token's contrast was NOT
+    /// re-measured for this change.
+    @ViewBuilder
+    private func spreadNotPreviewedNote() -> some View {
+        Label("Spread isn\u{2019}t previewed on this shape yet \u{2014} the canvas can only grow rectangle, ellipse and image outlines. The value is kept, and it IS applied in SVG export.",
+              systemImage: "info.circle")
+            .font(.caption)
+            .foregroundStyle(EXPColor.textTertiary)
+            .labelStyle(.titleAndIcon)
+            .fixedSize(horizontal: false, vertical: true)
+    }
 
     @ViewBuilder private func effectsControls() -> some View {
         let effects = selectedNode?.effects ?? []
@@ -3184,6 +3390,7 @@ struct RightPanel: View {
                 } label: { Image(systemName: "plus.circle") }
                     .menuStyle(.borderlessButton).fixedSize()
                     .help("Add an effect")
+                    .accessibilityLabel("Add effect")
             }
             .padding(.top, 4)
             if effects.isEmpty {
@@ -3196,15 +3403,32 @@ struct RightPanel: View {
         .padding(.horizontal, 12)
         .padding(.bottom, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .onAppear { selectFirstEffectIfNeeded(effects) }
+        .onChange(of: selectedNode?.id) { _, _ in selectFirstEffectIfNeeded(effects) }
     }
 
     @ViewBuilder private func effectRow(idx: Int, effect: Effect) -> some View {
+        let isCollapsed = collapsedEffectIDs.contains(effect.id)
+        let kindName = effectKindName(effect.kind)
         VStack(spacing: 4) {
             HStack(spacing: 6) {
+                Button {
+                    setEffectCollapsed(effect.id, !isCollapsed)
+                } label: {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .semibold))
+                        .rotationEffect(.degrees(isCollapsed ? 0 : 90))
+                        .frame(width: 12, height: 18)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .expFieldTip(isCollapsed ? "Expand effect" : "Collapse effect")
+                .accessibilityLabel(isCollapsed ? "Expand \(kindName)" : "Collapse \(kindName)")
+                .accessibilityValue(isCollapsed ? "Collapsed" : "Expanded")
                 Toggle("", isOn: effectEnabledBinding(idx)).labelsHidden().toggleStyle(.checkbox)
                     .expFieldTip("Enable effect",
                                  "Temporarily turn the effect off without losing its settings.")
-                    .accessibilityLabel("Enable effect")
+                    .accessibilityLabel("Enable \(kindName) effect")
                 Picker("", selection: effectKindBinding(idx)) {
                     Text("Drop").tag(Effect.Kind.dropShadow)
                     Text("Inner").tag(Effect.Kind.innerShadow)
@@ -3221,19 +3445,68 @@ struct RightPanel: View {
                         Text("Bg Blur (off)").tag(Effect.Kind.backgroundBlur)
                     }
                 }.labelsHidden().frame(width: 84)
+                    .accessibilityLabel("Effect type")
                 // Only the shadows have a color; blur samples the backdrop and
                 // noise/dissolve are procedural grain.
-                if effect.kind == .dropShadow || effect.kind == .innerShadow {
+                if isCollapsed {
+                    Button {
+                        setEffectCollapsed(effect.id, false)
+                    } label: {
+                        Text(effectSummary(effect))
+                            .font(.caption)
+                            .monospacedDigit()
+                            .foregroundStyle(EXPColor.textSecondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .expFieldTip("Expand effect settings",
+                                 "\(kindName): \(effectSummary(effect)). Click to edit all settings.")
+                    .accessibilityLabel("\(kindName) settings: \(effectSummary(effect)). Expand effect")
+                } else if effect.kind == .dropShadow || effect.kind == .innerShadow {
                     ColorWell(label: "", color: effectColorBinding(idx))
+                    Spacer()
+                } else {
+                    Spacer()
                 }
-                Spacer()
-                Button { removeEffect(effect.id) } label: { Image(systemName: "trash") }
-                    .buttonStyle(.borderless)
-                    .expFieldTip("Remove effect", "Deletes this effect and its settings from the layer.",
-                                 align: .trailing)
-                    .accessibilityLabel("Remove effect")
+                Menu {
+                    Button("Duplicate Effect") { duplicateEffect(effect.id) }
+                    Divider()
+                    Button("Remove Effect", role: .destructive) { removeEffect(effect.id) }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .expFieldTip("Effect actions",
+                             "Duplicate makes an editable copy directly above this effect. Remove deletes this effect and its settings.",
+                             align: .trailing)
+                .accessibilityLabel("Actions for \(kindName) effect")
             }
-            HStack(spacing: 4) {
+            if !isCollapsed {
+            if effect.kind == .dropShadow || effect.kind == .innerShadow {
+                // Full labels above flexible fields: four fixed 40pt fields in one
+                // line were the panel's worst label-crushing case.
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 8),
+                                    GridItem(.flexible())], spacing: 6) {
+                    effectAdvancedNum("Horizontal offset", idx, \.dx,
+                                      tip: "Horizontal offset",
+                                      tipDetail: "How far the shadow shifts horizontally, in pixels. Positive moves it right; negative moves it left.")
+                    effectAdvancedNum("Vertical offset", idx, \.dy,
+                                      tip: "Vertical offset",
+                                      tipDetail: "How far the shadow shifts vertically, in pixels. Positive moves it down; negative moves it up.")
+                    effectAdvancedNum("Blur radius", idx, \.blur, min: 0,
+                                      tip: "Blur radius",
+                                      tipDetail: "How soft the shadow's edge is, in pixels. 0 is a hard edge; larger values spread and fade it.")
+                    effectAdvancedNum("Spread", idx, \.spread,
+                                      tip: "Spread",
+                                      tipDetail: "Grows (positive) or shrinks (negative) the shadow before blurring, in pixels. Previewed on canvas for rectangles, ellipses and images; on text, groups, lines and custom paths the canvas cannot draw it yet, but the value is kept and IS applied in SVG export.")
+                }
+                .font(.caption)
+            } else {
+                HStack(spacing: 4) {
                 if effect.kind == .backgroundBlur {
                     effectNum("Amount", idx, \.blur, min: 0,
                               tip: "Blur amount",
@@ -3268,19 +3541,20 @@ struct RightPanel: View {
                                          align: .trailing)
                             .accessibilityLabel("Noise blend mode")
                     }
-                } else {
-                    effectNum("X", idx, \.dx, tip: "Offset X",
-                              tipDetail: "How far the shadow shifts horizontally, in pixels. Positive moves it right; negative moves it left.")
-                    effectNum("Y", idx, \.dy, tip: "Offset Y",
-                              tipDetail: "How far the shadow shifts vertically, in pixels. Positive moves it down; negative moves it up.")
-                    effectNum("Blur", idx, \.blur, min: 0, tip: "Blur radius",
-                              tipDetail: "How soft the shadow's edge is, in pixels. 0 is a hard edge; larger values spread and fade it.")
-                    effectNum("Spr", idx, \.spread, tip: "Spread",
-                              tipDetail: "Grows (positive) or shrinks (negative) the shadow before blurring, in pixels.")
                 }
+                }
+                .font(.caption)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .font(.caption)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            // BUG-034 Stage 1 — DISCLOSURE ONLY. Nothing stored changes and nothing
+            // is suppressed in export; this row exists so the canvas never quietly
+            // contradicts the exported SVG.
+            if effect.kind == .dropShadow || effect.kind == .innerShadow,
+               effect.spread != 0,
+               let node = selectedNode,
+               !EffectsRender.previewsSpread(node) {
+                spreadNotPreviewedNote()
+            }
             if effect.kind == .dropShadow {
                 Toggle("Preserve transparency", isOn: effectPreserveTransparencyBinding(idx))
                     .toggleStyle(.checkbox)
@@ -3308,15 +3582,22 @@ struct RightPanel: View {
                     .accessibilityLabel(effectsAdvancedOpen
                         ? "Hide advanced noise settings" : "Show advanced noise settings")
                     if effectsAdvancedOpen {
-                        let freq = effectNum("Freq", idx, \.frequency, min: 0.01, digits: 2,
-                                             tip: "Frequency",
-                                             tipDetail: "How tightly the noise pattern repeats. **Higher** values make finer, denser grain; **lower** values make larger, softer blobs.\nMaps directly to SVG's baseFrequency.")
-                        let oct = effectIntNum("Oct", idx, \.octaves, min: 1, max: 8,
-                                               tip: "Octaves",
-                                               tipDetail: "Layers of detail stacked onto the base noise, **1–8**. Each octave adds finer detail; more octaves look richer but render slower.\n1–3 covers most uses.")
-                        let seed = effectIntNum("Seed", idx, \.seed, min: 0, max: 9999,
-                                                tip: "Random seed",
-                                                tipDetail: "The starting number for the random pattern, **0–9999**. The same seed always reproduces the exact same grain — change it for a different pattern with the same settings.")
+                        let freq = effectAdvancedNum(
+                            "Frequency", idx, \.frequency,
+                            min: 0.001, digits: 3, step: 0.01,
+                            tip: "Frequency",
+                            tipDetail: "How tightly the noise pattern repeats. **Higher** values make finer, denser grain; **lower** values make larger, softer blobs.\nMaps directly to SVG's baseFrequency. Use Option–Up/Down for 0.001 adjustments."
+                        )
+                        let oct = effectAdvancedIntNum(
+                            "Octaves", idx, \.octaves, min: 1, max: 8,
+                            tip: "Octaves",
+                            tipDetail: "Layers of detail stacked onto the base noise, **1–8**. Each octave adds finer detail; more octaves look richer but render slower.\n1–3 covers most uses."
+                        )
+                        let seed = effectAdvancedIntNum(
+                            "Seed", idx, \.seed, min: 0, max: 9999,
+                            tip: "Random seed",
+                            tipDetail: "The starting number for the random pattern, **0–9999**. The same seed always reproduces the exact same grain — change it for a different pattern with the same settings."
+                        )
                         let dice = Button {
                             updateEffect(idx, action: "Shuffle Seed") { $0.seed = Int.random(in: 1...9999) }
                         } label: { Image(systemName: "die.face.5") }
@@ -3324,23 +3605,35 @@ struct RightPanel: View {
                             .expFieldTip("New random seed",
                                          "Rolls a different random pattern without changing any other setting.")
                             .accessibilityLabel("Shuffle noise seed")
-                        let mono = Toggle("Mono", isOn: effectMonoBinding(idx)).toggleStyle(.checkbox)
-                            .expFieldTip("Monochrome",
-                                         "Grayscale grain. Turn off for independent red, green, and blue noise — a colorful, RGB-static look.")
-                            .accessibilityLabel("Monochrome noise")
-                        // ELASTIC: one line when the panel is wide enough, two
-                        // when it isn't — ViewThatFits tries the layouts in order.
-                        ViewThatFits(in: .horizontal) {
-                            HStack(spacing: 4) {
-                                freq; oct; seed; dice
-                                if effect.kind == .noise { mono }
+                        let mono = VStack(alignment: .leading, spacing: 3) {
+                            Text("Color")
+                                .foregroundStyle(EXPColor.textSecondary)
+                                .accessibilityHidden(true)
+                            Toggle("Monochrome", isOn: effectMonoBinding(idx))
+                                .toggleStyle(.checkbox)
+                                .accessibilityLabel("Monochrome noise")
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .expFieldTip("Monochrome",
+                                     "Grayscale grain. Turn off for independent red, green, and blue noise — a colorful, RGB-static look.")
+
+                        // Two flexible columns give the values the room the panel
+                        // already has. Labels sit above their controls, so widening
+                        // the inspector widens the fields instead of only adding
+                        // empty trailing space; narrow panels keep full labels too.
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack(alignment: .top, spacing: 8) {
+                                freq
+                                oct
                             }
-                            VStack(alignment: .leading, spacing: 4) {
-                                HStack(spacing: 4) { freq; oct }
-                                HStack(spacing: 4) {
-                                    seed; dice
-                                    if effect.kind == .noise { mono }
+                            HStack(alignment: .bottom, spacing: 8) {
+                                HStack(alignment: .bottom, spacing: 4) {
+                                    seed
+                                    dice
+                                        .frame(height: EXPMetric.controlH)
                                 }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                if effect.kind == .noise { mono }
                             }
                         }
                         .font(.caption)
@@ -3349,9 +3642,63 @@ struct RightPanel: View {
                 .font(.caption)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+            }
         }
         .padding(6)
-        .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 6))
+        .background(app.selectedEffectID == effect.id ? EXPColor.rowActive
+                    : Color.primary.opacity(0.04),
+                    in: RoundedRectangle(cornerRadius: 6))
+        .overlay(RoundedRectangle(cornerRadius: 6)
+            .stroke(app.selectedEffectID == effect.id ? EXPColor.accent : Color.clear,
+                    lineWidth: 1))
+        .contentShape(RoundedRectangle(cornerRadius: 6))
+        .simultaneousGesture(TapGesture().onEnded { app.selectedEffectID = effect.id })
+        .contextMenu {
+            Button("Duplicate Effect") { duplicateEffect(effect.id) }
+            Divider()
+            Button("Remove Effect", role: .destructive) { removeEffect(effect.id) }
+        }
+        .animation(EXPMotion.fast, value: isCollapsed)
+    }
+
+    private func setEffectCollapsed(_ id: UUID, _ collapsed: Bool) {
+        if collapsed { collapsedEffectIDs.insert(id) }
+        else { collapsedEffectIDs.remove(id) }
+    }
+
+    private func effectKindName(_ kind: Effect.Kind) -> String {
+        switch kind {
+        case .dropShadow: return "Drop Shadow"
+        case .innerShadow: return "Inner Shadow"
+        case .layerBlur: return "Layer Blur"
+        case .backgroundBlur: return "Background Blur"
+        case .noise: return "Noise"
+        case .dissolve: return "Dissolve"
+        }
+    }
+
+    private func effectSummary(_ effect: Effect) -> String {
+        switch effect.kind {
+        case .dropShadow, .innerShadow:
+            return "X \(compactEffectNumber(effect.dx)) · Y \(compactEffectNumber(effect.dy)) · Blur \(compactEffectNumber(effect.blur)) · Spread \(compactEffectNumber(effect.spread))"
+        case .layerBlur, .backgroundBlur:
+            return "\(compactEffectNumber(effect.blur)) px"
+        case .noise:
+            let texture = effect.turbulenceType == .fractalNoise ? "Fractal" : "Turbulent"
+            let color = effect.monochrome ? "Mono" : "RGB"
+            return "\(texture) · \(Int((effect.amount * 100).rounded()))% · \(effect.blend.label) · \(color)"
+        case .dissolve:
+            let texture = effect.turbulenceType == .fractalNoise ? "Fractal" : "Turbulent"
+            return "\(texture) · \(Int((effect.amount * 100).rounded()))% gone · F \(compactEffectNumber(effect.frequency))"
+        }
+    }
+
+    private func compactEffectNumber(_ value: CGFloat) -> String {
+        let number = Double(value)
+        if abs(number.rounded() - number) < 0.001 { return String(Int(number.rounded())) }
+        return String(format: "%.2f", number)
+            .replacingOccurrences(of: #"0+$"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"\.$"#, with: "", options: .regularExpression)
     }
 
     private func effectNum(_ label: String, _ idx: Int, _ kp: WritableKeyPath<Effect, CGFloat>,
@@ -3388,6 +3735,60 @@ struct RightPanel: View {
         .expFieldTip(tip.isEmpty ? label : tip, tipDetail)
     }
 
+    /// Precision controls in the Noise/Dissolve accordion use the inspector's
+    /// available width instead of inheriting the compact 40pt shadow-field layout.
+    /// The visible label is hidden from accessibility because the field already has
+    /// the full programmatic label; that keeps VoiceOver order concise after moving
+    /// the label above the control.
+    private func effectAdvancedNum(
+        _ label: String, _ idx: Int, _ kp: WritableKeyPath<Effect, CGFloat>,
+        min: Double? = nil, max: Double? = nil, digits: Int = 0, step: Double = 1,
+        tip: String = "", tipDetail: String = ""
+    ) -> some View {
+        let b = effectNumBinding(idx, kp)
+        return VStack(alignment: .leading, spacing: 3) {
+            Text(label)
+                .foregroundStyle(EXPColor.textSecondary)
+                .accessibilityHidden(true)
+            TextField("", value: b, format: .number.precision(.fractionLength(0...digits)))
+                .textFieldStyle(.exp)
+                .multilineTextAlignment(.trailing)
+                .monospacedDigit()
+                .frame(maxWidth: .infinity)
+                .numericStepping(b, min: min, max: max, step: step)
+                .accessibilityLabel(tip.isEmpty ? label : tip)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .expFieldTip(tip.isEmpty ? label : tip, tipDetail)
+    }
+
+    private func effectAdvancedIntNum(
+        _ label: String, _ idx: Int, _ kp: WritableKeyPath<Effect, Int>,
+        min: Double, max: Double,
+        tip: String = "", tipDetail: String = ""
+    ) -> some View {
+        let b = Binding<Double>(
+            get: { Double(effectAt(idx)?[keyPath: kp] ?? 0) },
+            set: { v in updateEffect(idx, action: "Effect") {
+                $0[keyPath: kp] = Int(Swift.min(max, Swift.max(min, v)))
+            } }
+        )
+        return VStack(alignment: .leading, spacing: 3) {
+            Text(label)
+                .foregroundStyle(EXPColor.textSecondary)
+                .accessibilityHidden(true)
+            TextField("", value: b, format: .number.precision(.fractionLength(0)))
+                .textFieldStyle(.exp)
+                .multilineTextAlignment(.trailing)
+                .monospacedDigit()
+                .frame(maxWidth: .infinity)
+                .numericStepping(b, min: min, max: max)
+                .accessibilityLabel(tip.isEmpty ? label : tip)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .expFieldTip(tip.isEmpty ? label : tip, tipDetail)
+    }
+
     /// `Effect.amount` (0–1) shown as a 0–100 percentage.
     private func effectPercent(_ label: String, _ idx: Int,
                                tip: String = "", tipDetail: String = "") -> some View {
@@ -3419,6 +3820,7 @@ struct RightPanel: View {
     }
     private func addEffect(_ kind: Effect.Kind) {
         guard let id = app.singleSelectedNodeID else { return }
+        var addedID: UUID?
         mutateScopedNode(id, action: "Add Effect") { node in
             var e = Effect(kind: kind)
             if kind == .innerShadow { e.color = RGBAColor(r: 0, g: 0, b: 0, a: 0.5) }
@@ -3427,12 +3829,34 @@ struct RightPanel: View {
             if kind == .noise { e.blend = .overlay }    // classic grain-over-fill look
             if kind == .noise || kind == .dissolve { e.seed = Int.random(in: 1...9999) }
             node.effects.append(e)
+            addedID = e.id
         }
+        app.selectedEffectID = addedID
+    }
+    private func duplicateEffect(_ effectID: UUID) {
+        guard let nodeID = app.singleSelectedNodeID else { return }
+        var duplicateID: UUID?
+        mutateScopedNode(nodeID, action: "Duplicate Effect") { node in
+            guard let index = node.effects.firstIndex(where: { $0.id == effectID }) else { return }
+            var copy = node.effects[index]
+            copy.id = UUID()
+            node.effects.insert(copy, at: index)
+            duplicateID = copy.id
+        }
+        app.selectedEffectID = duplicateID
     }
     private func removeEffect(_ effectID: UUID) {
         guard let id = app.singleSelectedNodeID else { return }
+        let nextID = selectedNode?.effects.first(where: { $0.id != effectID })?.id
         mutateScopedNode(id, action: "Remove Effect") { node in
             node.effects.removeAll { $0.id == effectID }
+        }
+        collapsedEffectIDs.remove(effectID)
+        if app.selectedEffectID == effectID { app.selectedEffectID = nextID }
+    }
+    private func selectFirstEffectIfNeeded(_ effects: [Effect]) {
+        if !effects.contains(where: { $0.id == app.selectedEffectID }) {
+            app.selectedEffectID = effects.first?.id
         }
     }
     private func effectEnabledBinding(_ idx: Int) -> Binding<Bool> {
@@ -3534,6 +3958,7 @@ struct RightPanel: View {
                 Text("Font").foregroundStyle(EXPColor.textSecondary).font(.callout)
                 FontFamilyPicker(currentFamily: currentFamilyForPicker,
                                  label: currentFamilyDisplay,
+                                 fontsUsed: { document.model.usedFontFamilies },
                                  onPick: { setTextFamily($0) },
                                  onPickSystem: { setTextFontName("") })
                 .help("Typeface (applies to the whole text, or the selection while editing)")
@@ -3555,6 +3980,7 @@ struct RightPanel: View {
                             Spacer()
                             Image(systemName: "chevron.up.chevron.down").font(.caption2).foregroundStyle(EXPColor.textSecondary)
                         }
+                        .expDropdownChrome()
                     }
                     .help("Weight / style")
                 }
@@ -3600,11 +4026,11 @@ struct RightPanel: View {
                 if (selectedTextContent?.lineHeightUnit ?? .auto) != .auto {
                     TextField("", value: lineHeightBinding, format: .number.precision(.fractionLength(2)))
                         .textFieldStyle(.exp).frame(width: 52).multilineTextAlignment(.trailing)
-                        .numericStepping(lineHeightBinding, min: 0)
+                        .numericStepping(lineHeightBinding, min: 0, step: lineHeightStep)
                 }
                 Spacer()
             }
-            .help("Auto uses the selected font’s native line height. × is a font-size multiplier; px and em preserve fixed authored line boxes.")
+            .help("Auto uses the selected font’s native line height. × is a font-size multiplier; px and em preserve fixed authored line boxes. Changing the unit converts the value so the text keeps the same line height — switching to Auto is the exception, since Auto is the font’s own value. Arrows step by 0.1 for × and em, 1 for px (Shift 10×, Option 0.1×).")
             HStack(spacing: 6) {
                 Text("Spacing").foregroundStyle(EXPColor.textSecondary).font(.callout)
                 TextField("", value: trackingBinding, format: .number.precision(.fractionLength(1)))
@@ -3615,15 +4041,14 @@ struct RightPanel: View {
             }
             HStack(spacing: 6) {
                 Text("Case").foregroundStyle(EXPColor.textSecondary).font(.callout)
-                Picker("", selection: textCaseBinding) {
-                    Text("As typed").tag(TextCase.none)
-                    Text("UPPERCASE").tag(TextCase.upper)
-                    Text("lowercase").tag(TextCase.lower)
-                    Text("Capitalize Each").tag(TextCase.title)
-                    Text("Sentence case").tag(TextCase.sentence)
-                }
-                .labelsHidden()
-                .help("Non-destructive — changes how the text is displayed, not the stored characters")
+                EXPSegmented(selection: textCaseBinding, segments: [
+                    .init(value: .none, label: "—", accessibilityLabel: "As typed", help: "As typed"),
+                    .init(value: .upper, label: "AA", accessibilityLabel: "Uppercase", help: "Uppercase"),
+                    .init(value: .lower, label: "aa", accessibilityLabel: "Lowercase", help: "Lowercase"),
+                    .init(value: .title, label: "Aa", accessibilityLabel: "Capitalize each word", help: "Capitalize each word"),
+                    .init(value: .sentence, label: "Ab.", accessibilityLabel: "Sentence case", help: "Sentence case"),
+                ])
+                .accessibilityHint("Changes display without changing the stored characters.")
                 Spacer()
             }
 
@@ -3651,9 +4076,15 @@ struct RightPanel: View {
 
     private func alignButton(_ a: TextAlign, _ symbol: String) -> some View {
         let active = (selectedTextContent?.align ?? .left) == a
-        return InspectorIconButton(symbol: symbol, active: active) {
+        let label: String = switch a {
+        case .left: "Align text left"
+        case .center: "Align text center"
+        case .right: "Align text right"
+        }
+        return InspectorIconButton(symbol: symbol, accessibilityLabel: label, active: active) {
             updateTextContent(action: "Align", remeasure: false) { $0.align = a }
         }
+        .help(label)
     }
 
     private var boxBinding: Binding<TextBox> {
@@ -3671,12 +4102,39 @@ struct RightPanel: View {
     }
     private var lineHeightUnitBinding: Binding<LineHeightUnit> {
         Binding(get: { selectedTextContent?.lineHeightUnit ?? .auto },
-                set: { u in updateTextContent(action: "Line Height", remeasure: true) {
+                set: { u in updateTextContent(action: "Line Height Unit", remeasure: true) {
+                    // Changing the UNIT must not change how the text looks. Convert
+                    // the number into the new unit rather than reinterpreting it:
+                    // 64px on large type is roughly 1.4×, and reading that "64" as a
+                    // multiplier is a several-thousand-point line box.
+                    //
+                    // Switching TO Auto is the one case that can change the
+                    // rendering, because Auto IS a value — the font's natural line
+                    // height. The authored number is kept untouched there, so
+                    // switching back off Auto lands on exactly what Auto was drawing.
+                    let points = $0.renderedLineHeightPoints
                     $0.lineHeightUnit = u
+                    let converted = $0.lineHeightValue(for: points, in: u)
+                    // Round to the precision the stepper and the field work in, so
+                    // the displayed 1.40 is not secretly 1.3999 when an arrow key
+                    // steps from it.
+                    $0.lineHeight = max(0, (converted * 1000).rounded() / 1000)
                     if u == .px || u == .em {
                         $0.centersFixedLineHeightLeading = true
                     }
                 } })
+    }
+
+    /// Arrow-key step for the line-height field, matched to what the unit means.
+    /// A multiplier lives between about 0.8 and 2, so whole-number steps are
+    /// useless there; points are whole numbers in practice. The modifier
+    /// relationship is the app-wide one — Shift is 10×, Option is 0.1× — so ×/em
+    /// give 0.1 / 1.0 / 0.01 and px keeps 1 / 10 / 0.1.
+    private var lineHeightStep: Double {
+        switch selectedTextContent?.lineHeightUnit ?? .auto {
+        case .multiple, .em: return 0.1
+        case .px, .auto:     return 1
+        }
     }
     private var trackingBinding: Binding<Double> {
         Binding(get: { Double(selectedTextContent?.tracking ?? 0) },
@@ -3743,6 +4201,7 @@ struct RightPanel: View {
     }
 
     private func applyFontName(_ ps: String) {
+        app.rememberTextStyle(fontName: ps)
         if let applyTextStyle = app.applyTextStyle { applyTextStyle(.fontName(ps)) }
         else { updateTextContent(action: "Font", remeasure: true) { $0.applyToAllRuns { $0.fontName = ps } } }
     }
@@ -3757,13 +4216,16 @@ struct RightPanel: View {
     private var fontSizeBinding: Binding<Double> {
         Binding(get: { Double(currentFontSize) },
                 set: { v in
-                    if let applyTextStyle = app.applyTextStyle { applyTextStyle(.fontSize(max(1, CGFloat(v)))) }
-                    else { updateTextContent(action: "Font Size", remeasure: true) { $0.applyToAllRuns { $0.fontSize = max(1, CGFloat(v)) } } }
+                    let size = max(1, CGFloat(v))
+                    app.rememberTextStyle(fontSize: size)
+                    if let applyTextStyle = app.applyTextStyle { applyTextStyle(.fontSize(size)) }
+                    else { updateTextContent(action: "Font Size", remeasure: true) { $0.applyToAllRuns { $0.fontSize = size } } }
                 })
     }
     private var colorBinding: Binding<RGBAColor> {
         Binding(get: { currentTextColor },
                 set: { c in
+                    app.rememberTextStyle(color: c)
                     if let applyTextStyle = app.applyTextStyle { applyTextStyle(.color(c)) }
                     else { updateTextContent(action: "Text Color", remeasure: false) { $0.applyToAllRuns { $0.color = c } } }
                 })
@@ -3814,6 +4276,21 @@ struct RightPanel: View {
                          segments: StrokePattern.allCases.map { .init(value: $0, label: $0.label) })
                 .help("Use a solid, dashed, or dotted line")
                 .accessibilityLabel("Line pattern: solid, dash, or dot")
+            EXPSegmented(selection: lineStrokeCapBinding,
+                         segments: StrokeLineCap.allCases.map { .init(value: $0, label: $0.label) })
+                .help("Choose the cap used at exposed line ends")
+                .accessibilityLabel("Line cap: flat, round, or square")
+            if app.tool == .node, let endpoint = app.selectedStrokeEndpoint {
+                strokeMarkerRow("\(endpoint.label) (selected)",
+                                accessibilityLabel: "\(endpoint.label) marker",
+                                selection: endpoint == .start
+                                    ? lineStartMarkerBinding : lineEndMarkerBinding)
+            } else {
+                strokeMarkerRow("Start", accessibilityLabel: "Start marker",
+                                selection: lineStartMarkerBinding)
+                strokeMarkerRow("End", accessibilityLabel: "End marker",
+                                selection: lineEndMarkerBinding)
+            }
         }
         .padding(.horizontal, 12)
         .padding(.bottom, 12)
@@ -3835,6 +4312,34 @@ struct RightPanel: View {
     private var lineStrokePatternBinding: Binding<StrokePattern> {
         Binding(get: { selectedLineShape?.strokePattern ?? .solid },
                 set: { pattern in updateLineContent { $0.strokePattern = pattern } })
+    }
+    private var lineStrokeCapBinding: Binding<StrokeLineCap> {
+        Binding(get: { selectedLineShape?.strokeCap ?? .round },
+                set: { cap in updateLineContent { $0.strokeCap = cap } })
+    }
+    private var lineStartMarkerBinding: Binding<StrokeMarker> {
+        Binding(get: { selectedLineShape?.startMarker ?? .none },
+                set: { marker in updateLineContent { $0.startMarker = marker } })
+    }
+    private var lineEndMarkerBinding: Binding<StrokeMarker> {
+        Binding(get: { selectedLineShape?.endMarker ?? .none },
+                set: { marker in updateLineContent { $0.endMarker = marker } })
+    }
+
+    private func strokeMarkerRow(_ label: String, accessibilityLabel: String,
+                                 selection: Binding<StrokeMarker>) -> some View {
+        HStack(spacing: 8) {
+            Text(label).foregroundStyle(EXPColor.textSecondary).font(.callout)
+            Spacer()
+            Picker(accessibilityLabel, selection: selection) {
+                ForEach(StrokeMarker.allCases, id: \.self) { marker in
+                    Text(marker.label).tag(marker)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .accessibilityLabel(accessibilityLabel)
+        }
     }
 
     private func updateLineContent(_ change: @escaping (inout LineShape) -> Void) {
@@ -4282,7 +4787,9 @@ struct RightPanel: View {
     private func shapeControls(corner: Bool) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Divider()
-            PaintWell(label: "Fill", paint: shapeFillBinding)
+            PaintWell(label: "Fill", paint: shapeFillBinding,
+                      gradientSize: selectedNode?.frame.size,
+                      selectedGradientStopID: gradientStopSelection)
             if corner {
                 HStack(spacing: 8) {
                     Text("Corner").foregroundStyle(EXPColor.textSecondary).font(.callout)
@@ -4580,12 +5087,17 @@ extension RightPanel {
                             icon: "point.3.connected.trianglepath.dotted")
                         Spacer()
                         Text("R").foregroundStyle(EXPColor.textSecondary)
+                            .accessibilityHidden(true)
                         TextField("", value: pointRotationBinding, format: .number.precision(.fractionLength(0)))
                             .labelsHidden().textFieldStyle(.exp)
                             .multilineTextAlignment(.trailing).monospacedDigit()
                             .frame(width: 56)
                             .numericStepping(pointRotationBinding)
+                            .expFieldTip("Point selection rotation",
+                                         "Rotates the selected path points together, in degrees.")
+                            .accessibilityLabel("Point selection rotation")
                         Text("°").foregroundStyle(EXPColor.textSecondary)
+                            .accessibilityHidden(true)
                     }
                     .font(.callout)
                 }
@@ -4593,7 +5105,9 @@ extension RightPanel {
                 Toggle("Closed", isOn: pathClosedBinding)
                     .font(.callout)
                 if ps.closed {
-                    PaintWell(label: "Fill", paint: pathFillBinding)
+                    PaintWell(label: "Fill", paint: pathFillBinding,
+                              gradientSize: selectedNode?.frame.size,
+                              selectedGradientStopID: gradientStopSelection)
                 }
                 Divider()
                 InspectorSectionTitle(title: "Stroke", icon: "pencil.line")
@@ -4609,6 +5123,23 @@ extension RightPanel {
                              segments: StrokePattern.allCases.map { .init(value: $0, label: $0.label) })
                     .help("Use a solid, dashed, or dotted path stroke")
                     .accessibilityLabel("Path stroke pattern: solid, dash, or dot")
+                if !ps.closed && !ps.isMultiContour {
+                    EXPSegmented(selection: pathStrokeCapBinding,
+                                 segments: StrokeLineCap.allCases.map { .init(value: $0, label: $0.label) })
+                        .help("Choose the cap used at exposed path ends")
+                        .accessibilityLabel("Path cap: flat, round, or square")
+                    if app.tool == .node, let endpoint = app.selectedStrokeEndpoint {
+                        strokeMarkerRow("\(endpoint.label) (selected)",
+                                        accessibilityLabel: "\(endpoint.label) marker",
+                                        selection: endpoint == .start
+                                            ? pathStartMarkerBinding : pathEndMarkerBinding)
+                    } else {
+                        strokeMarkerRow("Start", accessibilityLabel: "Start marker",
+                                        selection: pathStartMarkerBinding)
+                        strokeMarkerRow("End", accessibilityLabel: "End marker",
+                                        selection: pathEndMarkerBinding)
+                    }
+                }
                 if ps.closed || ps.isMultiContour {
                     // v1.3 stroke alignment — closed outlines only (an open
                     // stroke has no interior, so it always renders centered).
@@ -4658,6 +5189,18 @@ extension RightPanel {
         Binding(get: { selectedPathShape?.strokePattern ?? .solid },
                 set: { value in updatePath("Stroke Pattern") { $0.strokePattern = value } })
     }
+    var pathStrokeCapBinding: Binding<StrokeLineCap> {
+        Binding(get: { selectedPathShape?.strokeCap ?? .round },
+                set: { value in updatePath("Stroke Cap") { $0.strokeCap = value } })
+    }
+    var pathStartMarkerBinding: Binding<StrokeMarker> {
+        Binding(get: { selectedPathShape?.startMarker ?? .none },
+                set: { value in updatePath("Start Marker") { $0.startMarker = value } })
+    }
+    var pathEndMarkerBinding: Binding<StrokeMarker> {
+        Binding(get: { selectedPathShape?.endMarker ?? .none },
+                set: { value in updatePath("End Marker") { $0.endMarker = value } })
+    }
 }
 
 /// A small labelled numeric field with accelerated arrow stepping.
@@ -4665,6 +5208,7 @@ extension RightPanel {
 /// distribute). Accent-subtle when active, a soft hover wash otherwise; tool radius.
 private struct InspectorIconButton: View {
     let symbol: String
+    let accessibilityLabel: String
     var active: Bool = false
     var enabled: Bool = true
     let action: () -> Void
@@ -4681,6 +5225,7 @@ private struct InspectorIconButton: View {
                 .contentShape(RoundedRectangle(cornerRadius: EXPMetric.radiusTool, style: .continuous))
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(accessibilityLabel)
         .disabled(!enabled)
         .opacity(enabled ? 1 : 0.4)
         .onHover { hovering = $0 }
@@ -4762,15 +5307,17 @@ private struct InstanceTextRow: View {
     }
 }
 
-/// Arrow-key stepping for any numeric field: ↑/↓ = ±1, ⇧ = ±10, ⌥ = ±0.1, and
-/// holding the key **accelerates** (key-repeat grows the step). Attach to a
-/// focused `TextField` bound to the same value.
-/// Arrow-key stepping for a numeric field: ±1, ⇧±10, ⌥±0.1, with key-repeat
-/// acceleration. Internal, NOT private — see the `View` extension below.
+/// Arrow-key stepping for any numeric field. The default is ↑/↓ = ±1,
+/// ⇧ = ±10, ⌥ = ±0.1; callers with precision values can provide a smaller
+/// base `step` while keeping the same modifier relationship. Holding the key
+/// accelerates. Internal, NOT private — see the `View` extension below.
 struct NumericStepping: ViewModifier {
     @Binding var value: Double
     var min: Double? = nil
     var max: Double? = nil
+    /// Default increment. Modifier keys retain the universal relationship:
+    /// Shift = 10× and Option = 0.1×.
+    var step: Double = 1
     @State private var repeats = 0
 
     func body(content: Content) -> some View {
@@ -4782,10 +5329,10 @@ struct NumericStepping: ViewModifier {
             default:         return .ignored
             }
             if press.phase.contains(.repeat) { repeats += 1 } else { repeats = 0 }
-            let base: Double = press.modifiers.contains(.shift) ? 10
-                             : press.modifiers.contains(.option) ? 0.1 : 1
+            let multiplier: Double = press.modifiers.contains(.shift) ? 10
+                                   : press.modifiers.contains(.option) ? 0.1 : 1
             let accel = Double(1 + repeats / 5)        // grows every 5 repeats
-            var next = value + dir * base * accel
+            var next = value + dir * step * multiplier * accel
             if let m = min { next = Swift.max(m, next) }
             if let m = max { next = Swift.min(m, next) }
             let stepped = (next * 1000).rounded() / 1000   // avoid float drift
@@ -4794,8 +5341,9 @@ struct NumericStepping: ViewModifier {
             // @Published model mid-update — the "Publishing changes from within
             // view updates is not allowed" warning, flooding once per repeat
             // while a key is held. Deferring the write one runloop tick moves
-            // the model mutation outside the update. Step sizes (±1, ⇧±10,
-            // ⌥±0.1), key-repeat acceleration, and undo behavior are unchanged;
+            // the model mutation outside the update. Existing callers retain the
+            // default steps (±1, ⇧±10, ⌥±0.1); custom-step callers keep the same
+            // modifier ratios. Key-repeat acceleration and undo are unchanged;
             // `value` is a Binding (a value type), so the copy captured here
             // still writes through to the live model.
             DispatchQueue.main.async { value = stepped }
@@ -4809,8 +5357,9 @@ struct NumericStepping: ViewModifier {
 // oversight at each call site but a visibility wall. The gradient Angle and stop
 // Position fields in PaintEditor.swift were the visible symptom.
 extension View {
-    func numericStepping(_ value: Binding<Double>, min: Double? = nil, max: Double? = nil) -> some View {
-        modifier(NumericStepping(value: value, min: min, max: max))
+    func numericStepping(_ value: Binding<Double>, min: Double? = nil,
+                         max: Double? = nil, step: Double = 1) -> some View {
+        modifier(NumericStepping(value: value, min: min, max: max, step: step))
     }
 }
 

@@ -458,6 +458,7 @@ struct DesignLanguagePanel: View {
         guard !ids.isEmpty else { return }
         var model = document.model
         guard let pageIndex = model.pageIndex(for: app.activeCanvasPageID) else { return }
+        app.rememberTextStyle(fontName: style.fontName, fontSize: style.fontSize)
         func walk(_ nodes: inout [Node]) {
             for i in nodes.indices {
                 if ids.contains(nodes[i].id), case .text(var tc) = nodes[i].content {

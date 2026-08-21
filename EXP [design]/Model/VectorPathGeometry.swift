@@ -89,7 +89,9 @@ enum VectorPathGeometry {
         case .line(let s):
             return PathShape(points: [PathPoint(point: s.start), PathPoint(point: s.end)],
                              closed: false, fill: .clear, stroke: s.stroke,
-                             strokeWidth: s.strokeWidth)
+                             strokeWidth: s.strokeWidth, strokePattern: s.strokePattern,
+                             strokeCap: s.strokeCap,
+                             startMarker: s.startMarker, endMarker: s.endMarker)
 
         case .path(let s):
             return s
@@ -116,11 +118,11 @@ enum VectorPathGeometry {
         case .line(let s) where s.strokeWidth > 0:
             return VectorStrokeGeometry(color: s.stroke, width: s.strokeWidth,
                                         alignment: .center,
-                                        join: .round, cap: .round)
+                                        join: .round, cap: s.strokeCap.cgLineCap)
         case .path(let s) where s.strokeWidth > 0:
             return VectorStrokeGeometry(color: s.stroke, width: s.strokeWidth,
                                         alignment: s.effectiveStrokeAlignment,
-                                        join: .round, cap: .round)
+                                        join: .round, cap: s.strokeCap.cgLineCap)
         default:
             return nil
         }

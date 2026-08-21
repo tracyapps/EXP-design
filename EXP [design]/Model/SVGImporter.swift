@@ -111,6 +111,9 @@ enum SVGImporter {
         var fill: Paint? = .solid(.black)   // SVG default fill is black
         var stroke: RGBAColor? = nil
         var strokeWidth: CGFloat = 1
+        var strokeCap: StrokeLineCap = .butt
+        var startMarker: StrokeMarker = .none
+        var endMarker: StrokeMarker = .none
         var opacity: Double = 1
         var fillOpacity: Double = 1
         var strokeOpacity: Double = 1
@@ -246,7 +249,10 @@ enum SVGImporter {
         // inspector, and bumping the width later would add an invisible stroke.
         var ps = PathShape(points: localized[0], closed: closed,
                            fill: style.resolvedFill, stroke: style.stroke ?? .black,
-                           strokeWidth: style.stroke == nil ? 0 : style.strokeWidth)
+                           strokeWidth: style.stroke == nil ? 0 : style.strokeWidth,
+                           strokeCap: style.strokeCap,
+                           startMarker: closed ? .none : style.startMarker,
+                           endMarker: closed ? .none : style.endMarker)
         if localized.count > 1 { ps.contours = localized }
         var node = Node(name: name, frame: bounds, content: .path(ps))
         node.opacity = style.opacity
@@ -303,7 +309,9 @@ enum SVGImporter {
         let frame = CGRect(x: minX, y: minY, width: max(1, abs(b.x - a.x)), height: max(1, abs(b.y - a.y)))
         let ls = LineShape(start: CGPoint(x: a.x - minX, y: a.y - minY),
                            end: CGPoint(x: b.x - minX, y: b.y - minY),
-                           stroke: style.stroke ?? .black, strokeWidth: max(1, style.strokeWidth))
+                           stroke: style.stroke ?? .black, strokeWidth: max(1, style.strokeWidth),
+                           strokeCap: style.strokeCap,
+                           startMarker: style.startMarker, endMarker: style.endMarker)
         var node = Node(name: "Line", frame: frame, content: .line(ls))
         node.opacity = style.opacity
         return [node]
@@ -336,6 +344,11 @@ enum SVGImporter {
         if let v = props["fill-opacity"], let d = Double(v) { s.fillOpacity = d }
         if let v = props["stroke-opacity"], let d = Double(v) { s.strokeOpacity = d }
         if let v = props["stroke-width"], let d = Double(v.replacingOccurrences(of: "px", with: "")) { s.strokeWidth = CGFloat(d) }
+        if let v = props["stroke-linecap"], let cap = StrokeLineCap(rawValue: v.lowercased()) {
+            s.strokeCap = cap
+        }
+        if let v = props["marker-start"] { s.startMarker = marker(v, ctx: ctx) }
+        if let v = props["marker-end"] { s.endMarker = marker(v, ctx: ctx) }
         if let v = props["font-size"], let d = Double(v.replacingOccurrences(of: "px", with: "")) { s.fontSize = CGFloat(d) }
         if let v = props["font-family"] { s.fontFamily = v.replacingOccurrences(of: "'", with: "").components(separatedBy: ",").first ?? "" }
         if let v = props["font-weight"] { s.bold = (v == "bold" || (Int(v) ?? 0) >= 600) }
@@ -351,8 +364,25 @@ enum SVGImporter {
     private static let presentationAttributeKeys = [
         "fill", "stroke", "stroke-width", "opacity", "fill-opacity",
         "stroke-opacity", "font-size", "font-family", "font-weight", "font-style",
+        "stroke-linecap", "marker-start", "marker-end",
         "stop-color", "stop-opacity", "filter",
     ]
+
+    /// EXP's exported marker carries an explicit semantic tag. For third-party
+    /// SVG, a marker containing a path or polygon is imported as the nearest
+    /// editable treatment (an arrow) instead of flattening the whole graphic.
+    private static func marker(_ value: String, ctx: Context) -> StrokeMarker {
+        guard value.lowercased() != "none",
+              let hash = value.firstIndex(of: "#") else { return .none }
+        let suffix = value[value.index(after: hash)...]
+        let id = String(suffix.prefix { $0 != ")" && !$0.isWhitespace })
+        guard let element = ctx.elementsByID[id], element.name?.lowercased() == "marker" else {
+            return .none
+        }
+        if element.attribute(forName: "data-exp-marker")?.stringValue == "arrow" { return .arrow }
+        let descendants = (try? element.nodes(forXPath: ".//*[local-name()='path' or local-name()='polygon']")) ?? []
+        return descendants.isEmpty ? .none : .arrow
+    }
 
     /// SVG presentation attributes behave like zero-specificity CSS. Author
     /// stylesheet rules override them; an element's inline `style` wins last.
@@ -507,6 +537,22 @@ enum SVGImporter {
                 let x1 = frac(el, "x1", 0), y1 = frac(el, "y1", 0)
                 let x2 = frac(el, "x2", 1), y2 = frac(el, "y2", 0)
                 g.angle = atan2(y2 - y1, x2 - x1) * 180 / .pi
+                // FEAT-032: keep the LINE, not just its direction. An angle cannot
+                // express where the ramp starts or how long it is, so importing
+                // angle-only silently normalised every gradient to a centred,
+                // full-width sweep — exactly the kind of quiet loss this tool exists
+                // to prevent. objectBoundingBox fractions ARE our unit space, so this
+                // is a direct read.
+                //
+                // ONLY for objectBoundingBox (the SVG default). `userSpaceOnUse`
+                // coordinates are absolute and would be nonsense as unit values, so
+                // those keep the angle-only behaviour. NOT handled either way, and
+                // not newly broken by this: `gradientTransform`.
+                let units = el.attribute(forName: "gradientUnits")?.stringValue ?? "objectBoundingBox"
+                if units == "objectBoundingBox" {
+                    g.start = CGPoint(x: x1, y: y1)
+                    g.end = CGPoint(x: x2, y: y2)
+                }
             }
             ctx.gradients[id] = g
         }

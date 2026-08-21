@@ -74,6 +74,7 @@ struct CanvasView: NSViewRepresentable {
         nsView.documentURL = documentURL
         _ = (app.zoom, app.panOffset, app.tool,
              app.selectedArtboardIDs, app.selectedNodeIDs,
+             app.selectedGradientStopID,
              app.activeCanvasPageID,
              document.model.page(for: app.activeCanvasPageID)?.nodes.count ?? 0,
              document.model.page(for: app.activeCanvasPageID)?.artboards.count ?? 0,
@@ -163,6 +164,11 @@ final class CanvasNSView: NSView {
     /// (contour, index) pair `PathPointTarget.anchor` carries, but `Hashable`
     /// so a Set of these can track the node tool's multi-point selection.
     struct PointAddress: Hashable { let contour: Int; let index: Int }
+    /// An anchor and its two control handles, in node-local space. `PointAddress`
+    /// names ANCHORS only, which is also the answer to FEAT-026's "can a handle be
+    /// transformed on its own" question: there is no such thing as a selected
+    /// handle, so a handle always travels with the anchor that owns it.
+    typealias PointBaseline = [PointAddress: (point: CGPoint, controlIn: CGPoint?, controlOut: CGPoint?)]
 
     /// Default board for a bare click with the artboard tool — the same size the
     /// New Artboard menu's primary action places.
@@ -195,6 +201,18 @@ final class CanvasNSView: NSView {
         // `nodeToolMouseDown`) moves the whole multi-point selection.
         case pathPointGroup(nodeID: UUID, startLocal: CGPoint,
                              originals: [PointAddress: (point: CGPoint, controlIn: CGPoint?, controlOut: CGPoint?)])
+        // node tool: resize / rotate the SELECTED POINTS as a unit (FEAT-026).
+        // `original` is the padded box in NODE-LOCAL space at drag start and
+        // `originals` the points it acts on, so every tick transforms from a stable
+        // baseline instead of accumulating rounding.
+        case resizePoints(nodeID: UUID, handle: Handle, original: CGRect,
+                          originals: PointBaseline)
+        case rotatePoints(nodeID: UUID, centerLocal: CGPoint, startAngle: Double,
+                          originals: PointBaseline)
+        // FEAT-032: drag the on-canvas gradient line. `movingStart` picks the end;
+        // a stop is addressed by its own id because `sortedStops` reorders.
+        case gradientEnd(id: UUID, movingStart: Bool)
+        case gradientStop(id: UUID, stopID: UUID)
         case marquee(startView: CGPoint, additive: Bool)
         // node tool: box-select points of the path currently being edited.
         case pointMarquee(startView: CGPoint, additive: Bool)
@@ -204,6 +222,12 @@ final class CanvasNSView: NSView {
 
     private var dragMode: DragMode = .none
     private var dragBaseline: Document?
+    /// Option-drag-duplicate state for the CURRENT `.nodes` gesture (BUG-025).
+    /// `dragCopyActive` is whether copies are materialized right now;
+    /// `dragCopySourceSelection` is the selection as it stood at mouseDown, so the
+    /// gesture can flip back to moving the originals when Option is released.
+    private var dragCopyActive = false
+    private var dragCopySourceSelection: Set<UUID> = []
     private var didEdit = false
     private var gestureUndoName = "Edit"
     private var lastDragPoint: CGPoint?
@@ -253,14 +277,37 @@ final class CanvasNSView: NSView {
     // The path shape at the start of a resize drag, so points scale from a stable
     // baseline (set when a path's resize handle is grabbed).
     private var resizePathBaseline: PathShape?
+    /// Geometry→ink insets for the node being resized (BUG-036(a)). Captured at drag
+    /// start because they cannot change during the drag: a resize does not alter
+    /// stroke width. The handle drag is computed in INK terms so the box tracks the
+    /// cursor, then inset back to geometry, which is what the model stores.
+    private var resizeInkInsets = SelectionTransform.InkInsets.zero
 
     // Snapshot of each selected top-level node at the start of a selection
     // resize/rotate gesture, so every drag tick transforms from a stable baseline
     // (no cumulative drift). Keyed by node id.
-    private var selectionDragBaseline: [UUID: Node] = [:]   // DOC-space snapshot
-    /// Doc-space offset of each baselined node (ancestor group origins), so the
-    /// transform can convert its doc-space result back to parent-local on write.
+    private var selectionDragBaseline: [UUID: Node] = [:]   // SELECTION-SPACE snapshot
+    /// Offset of each baselined node from the selection space's origin to its own
+    /// parent's, so the transform can convert its result back to parent-local on write.
     private var selectionDragOffsets: [UUID: CGPoint] = [:]
+    /// FEAT-045: the stop a mouse-DOWN landed on. If the mouse comes up without a
+    /// drag it was a click, and a click opens that stop's editor.
+    private var gradientStopClickCandidate: UUID?
+    /// The live gradient-stop editor popover, so a second click closes rather than
+    /// stacking another one.
+    private var gradientStopPopover: NSPopover?
+    /// What a gradient context menu is acting on: the gradient's node, the stop under
+    /// the pointer (nil when the click was on bare line), and `t` — the position along
+    /// the line where the click landed. `t` is what Paste uses, so a stop lands where
+    /// you asked for it rather than where it came from.
+    private var pendingGradientMenu: (nodeID: UUID, stopID: UUID?, t: CGFloat)?
+
+    /// The ancestor chain the in-flight selection transform is expressed in (BUG-035).
+    /// Empty = document space. Captured at drag start so the math cannot change space
+    /// mid-gesture if the selection or tree shifts underneath it.
+    private var selectionDragChain: [Node] = []
+    /// Geometry→ink insets of the unified selection box for the in-flight gesture.
+    private var selectionDragInkInsets = SelectionTransform.InkInsets.zero
 
     private var spaceHeld = false
     private var lastMouse: CGPoint = .zero
@@ -270,6 +317,10 @@ final class CanvasNSView: NSView {
 
     private let handleSize: CGFloat = 8
     private let handleGrab: CGFloat = 12
+    /// How much closer than the anchor a curve handle must be before it wins the
+    /// click (view points). Small on purpose: it only needs to cover a handle
+    /// sitting ON its anchor, not to re-create the old exclusive radius. BUG-027.
+    private static let anchorPriorityBias: CGFloat = 3
     private let rulerThickness: CGFloat = 20
 
     private var didInitialFit = false
@@ -739,7 +790,12 @@ final class CanvasNSView: NSView {
                 }
             }
         }
-        if let bestAnchor { return (sel.id, bestAnchor.target) }
+        // NOTE: the anchor is NOT returned yet — see the arbitration below. This
+        // used to `return` here the moment any anchor fell inside `grab`, which
+        // meant the anchor owned its entire 12pt radius outright and a handle
+        // sitting anywhere inside it was unreachable at any practical zoom
+        // (BUG-027: "changing curve handles that are really close but not on top
+        // of the base point require zooming several hundred percent in").
 
         // Only selected anchors expose handles, so only those handles should be
         // interactive. This also keeps dense imported SVG paths from checking
@@ -762,8 +818,23 @@ final class CanvasNSView: NSView {
                 }
             }
         }
-        if let bestHandle { return (sel.id, bestHandle.target) }
-        return nil
+        // Arbitrate. The original intent — an anchor beats a handle COLLAPSED ON
+        // TOP of it, because the anchor square is what the user sees there — was
+        // right and is preserved by the bias. What was wrong was expressing that as
+        // an exclusive radius rather than as a tie-break: the anchor now wins only
+        // where it is actually the nearer target, plus `anchorBias` of slack.
+        // Worked example at zoom 1, handle 5pt from its anchor: cursor on the
+        // handle → 5 <= 0 + 3 is false, handle wins; cursor on the anchor →
+        // 0 <= 5 + 3 is true, anchor wins; handle fully collapsed onto the anchor →
+        // distances equal, anchor wins. Bias is in view points and converted the
+        // same way `grab` is, so the feel is zoom-independent.
+        let anchorBias = Self.anchorPriorityBias / max(app?.zoom ?? 1, 0.0001)
+        switch (bestAnchor, bestHandle) {
+        case (let a?, let h?): return (sel.id, a.distance <= h.distance + anchorBias ? a.target : h.target)
+        case (let a?, nil):    return (sel.id, a.target)
+        case (nil, let h?):    return (sel.id, h.target)
+        case (nil, nil):       return nil
+        }
     }
 
     /// Recompute a path node's frame to the bbox of its anchors, re-basing all
@@ -1107,6 +1178,50 @@ final class CanvasNSView: NSView {
     private func nodeToolMouseDown(_ p: CGPoint, shift: Bool) {
         guard let app, let document else { return }
 
+        // Lines have two editable points but no PathShape anchor array. Treat
+        // their visible endpoint handles as direct-selection targets so the
+        // Inspector can expose exactly that endpoint's marker slot.
+        if let movingStart = hitTestLineEndpoint(atViewPoint: p),
+           let id = app.singleSelectedNodeID, let n = node(id),
+           let (a, b) = lineEndpointsResolvedDoc(n) {
+            setSelectedPoints([])
+            app.selectedStrokeEndpoint = movingStart ? .start : .end
+            dragBaseline = document.model
+            gestureUndoName = "Edit Line"
+            dragMode = .lineEndpoint(id: id, movingStart: movingStart,
+                                     fixedDoc: movingStart ? b : a)
+            return
+        }
+        app.selectedStrokeEndpoint = nil
+
+        // 0) The point-selection transform box (FEAT-026). Tested FIRST, which is
+        //    safe because the box is padded outward: its handles never sit on an
+        //    anchor, so this cannot steal a click meant for a point. Shift is left
+        //    to the anchor-toggle path below rather than being given a second job.
+        if !shift, selectedPointAddresses.count >= 2,
+           let id = app.singleSelectedNodeID, let n = node(id),
+           case .path(let ps) = n.content {
+            if let rot = hitTestPointBoxRotate(atViewPoint: p) {
+                dragBaseline = document.model
+                gestureUndoName = "Rotate Points"
+                didEdit = false
+                dragMode = .rotatePoints(
+                    nodeID: id, centerLocal: rot.centerLocal,
+                    startAngle: pointBoxAngle(ofViewPoint: p, aroundLocal: rot.centerLocal,
+                                              node: n, chain: ancestorGroups(of: id)),
+                    originals: selectedPointBaseline(ps))
+                return
+            }
+            if let hit = hitTestPointBoxHandle(atViewPoint: p) {
+                dragBaseline = document.model
+                gestureUndoName = "Resize Points"
+                didEdit = false
+                dragMode = .resizePoints(nodeID: id, handle: hit.handle, original: hit.box,
+                                         originals: selectedPointBaseline(ps))
+                return
+            }
+        }
+
         // 1) An anchor or handle of the path currently being point-edited.
         if let hit = perf.measure("hit-points", { hitTestPathPoint(atViewPoint: p) }) {
             switch hit.target {
@@ -1183,6 +1298,14 @@ final class CanvasNSView: NSView {
         perf.measure("select-points") {
             selectedPointAddresses = addrs
             app?.selectedPointCount = addrs.count
+            var endpoint: StrokeEndpoint?
+            if addrs.count == 1, let address = addrs.first, address.contour == 0,
+               let selected = selectedPath(), !selected.ps.closed,
+               !selected.ps.isMultiContour, selected.ps.points.count >= 2 {
+                if address.index == 0 { endpoint = .start }
+                else if address.index == selected.ps.points.count - 1 { endpoint = .end }
+            }
+            app?.selectedStrokeEndpoint = endpoint
             if addrs.isEmpty {
                 app?.applyPointRotation = nil
                 app?.pointSelectionRotation = 0
@@ -1200,6 +1323,7 @@ final class CanvasNSView: NSView {
     /// `CanvasView.updateNSView` so a stale highlighted selection never lingers.
     func syncPointSelectionIfNeeded() {
         guard let app else { return }
+        if app.tool != .node { app.selectedStrokeEndpoint = nil }
         let currentID = (app.tool == .node) ? app.singleSelectedNodeID : nil
         guard currentID != lastEditedPathID else { return }
         lastEditedPathID = currentID
@@ -1680,6 +1804,7 @@ final class CanvasNSView: NSView {
         style.apply(to: &tc)
         var nodes = currentNodes
         guard let i = nodes.firstIndex(where: { $0.id == id }) else { return }
+        app?.rememberTextStyle(fontName: style.fontName, fontSize: style.fontSize)
         nodes[i].content = .text(tc)
         nodes[i].frame.size = tc.measuredSize(boxWidth: nodes[i].frame.width)
         commitNodes(nodes, actionName: "Apply Type Style")
@@ -1797,6 +1922,18 @@ final class CanvasNSView: NSView {
                       width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!)
     }
 
+    /// True when the space the selection shares is not screen-aligned — i.e. some
+    /// ancestor group above it is rotated or flipped (BUG-042).
+    private func selectionAncestorsAreTransformed() -> Bool {
+        guard let app else { return false }
+        for id in app.selectedNodeIDs where !hasSelectedAncestor(id) {
+            if ancestorGroups(of: id).contains(where: { $0.rotation != 0 || $0.flipH || $0.flipV }) {
+                return true
+            }
+        }
+        return false
+    }
+
     private func alignmentItems(documentSpace: Bool) -> [AlignmentItem] {
         guard let app else { return [] }
         return app.selectedNodeIDs.compactMap { id in
@@ -1850,11 +1987,17 @@ final class CanvasNSView: NSView {
         // Aligning to the selection needs 2+ (one item is a no-op); aligning to the
         // artboard works on a single item (e.g. center one thing on the board).
         let minCount = app.alignTarget == .artboard ? 1 : 2
-        // Siblings align in their common parent-local coordinate system—even if
-        // that group is rotated. Mixed parents and artboard alignment use document
-        // space, then inverse-transform each movement on write-back.
+        // Siblings align in their common parent-local coordinate system — EXCEPT
+        // when that space is not screen-aligned. BUG-042: "Align Left" names a
+        // direction the user can SEE, and its button draws a vertical bar. Inside a
+        // flipped group, local-left is screen-RIGHT, so aligning in local space did
+        // the exact opposite of what the control promised; inside a rotated group it
+        // aligned along an axis the user was not looking at. Mixed parents, artboard
+        // alignment, and now any transformed ancestor all use document space, then
+        // inverse-transform each movement on write-back.
         let documentSpace = app.alignTarget == .artboard
             || selectionLevel(for: app.selectedNodeIDs) == .mixed
+            || selectionAncestorsAreTransformed()
         let items = alignmentItems(documentSpace: documentSpace)
         guard items.count >= minCount else { return }
         let ref = alignReference(items.map(\.bounds))
@@ -1875,7 +2018,10 @@ final class CanvasNSView: NSView {
             distributeArtboards(horizontal: horizontal)
             return
         }
+        // Same rule as align (BUG-042): distributing inside a rotated or flipped
+        // group has to space things out along the axis on screen, not the group's.
         let documentSpace = selectionLevel(for: app.selectedNodeIDs) == .mixed
+            || selectionAncestorsAreTransformed()
         let items = alignmentItems(documentSpace: documentSpace)
         guard items.count >= 3 else { return }
         let offsets = SelectionTransform.distributionOffsets(
@@ -2722,6 +2868,379 @@ final class CanvasNSView: NSView {
 
     /// A node-local point (relative to its frame origin) → VIEW, honoring the node's
     /// own rotation AND every ancestor group's transform.
+    // MARK: On-canvas gradient line (FEAT-032)
+
+    /// `line(t)` is a hit on the gradient line itself, `t` being the position along
+    /// it — that is where a click ADDS a stop (FEAT-045).
+    enum GradientHandleHit: Equatable { case start, end, stop(UUID), line(CGFloat) }
+
+    /// The LINEAR gradient fill of a node, if it has one. Radial is excluded on
+    /// purpose: its on-canvas control is a different shape (centre + radius) and is
+    /// not what this feature was asked for.
+    private func linearGradientFill(of node: Node) -> GradientFill? {
+        let paint: Paint?
+        switch node.content {
+        case .rectangle(let s): paint = s.fill
+        case .ellipse(let s):   paint = s.fill
+        case .polygon(let s):   paint = s.fill
+        case .path(let s):      paint = s.fill
+        default:                paint = nil
+        }
+        guard let g = paint?.gradientValue, g.kind == .linear else { return nil }
+        return g
+    }
+
+    private func setGradientFill(_ g: GradientFill, on id: UUID) {
+        updateNode(id) { n in
+            switch n.content {
+            case .rectangle(var s): s.fill = .gradient(g); n.content = .rectangle(s)
+            case .ellipse(var s):   s.fill = .gradient(g); n.content = .ellipse(s)
+            case .polygon(var s):   s.fill = .gradient(g); n.content = .polygon(s)
+            case .path(var s):      s.fill = .gradient(g); n.content = .path(s)
+            default: break
+            }
+        }
+    }
+
+    /// Unit space (0…1 of the fill rect) ⇄ the node's local points. Going through
+    /// `nodeLocalToView` / `viewToNodeLocal` is what makes the line follow the shape
+    /// through its own rotation and flip and every ancestor transform.
+    private func gradientUnitToView(_ u: CGPoint, _ n: Node, chain: [Node]) -> CGPoint {
+        nodeLocalToView(CGPoint(x: u.x * n.frame.width, y: u.y * n.frame.height), n, chain: chain)
+    }
+
+    private func gradientViewToUnit(_ p: CGPoint, _ n: Node, chain: [Node]) -> CGPoint {
+        let l = viewToNodeLocal(p, n, chain: chain)
+        return CGPoint(x: n.frame.width  > 0 ? l.x / n.frame.width  : 0,
+                       y: n.frame.height > 0 ? l.y / n.frame.height : 0)
+    }
+
+    /// The gradient handle line for the current selection, in view space.
+    private func gradientHandleLine()
+        -> (id: UUID, node: Node, chain: [Node], gradient: GradientFill,
+            start: CGPoint, end: CGPoint)? {
+        guard app?.tool == .select, editingNodeID == nil,
+              let id = app?.singleSelectedNodeID, let n = node(id),
+              n.frame.width > 0, n.frame.height > 0,
+              let g = linearGradientFill(of: n) else { return nil }
+        let chain = ancestorGroups(of: id)
+        let (u0, u1) = g.unitLinearPoints(in: CGRect(origin: .zero, size: n.frame.size))
+        return (id, n, chain, g,
+                gradientUnitToView(u0, n, chain: chain),
+                gradientUnitToView(u1, n, chain: chain))
+    }
+
+    private static func lerp(_ a: CGPoint, _ b: CGPoint, _ t: CGFloat) -> CGPoint {
+        CGPoint(x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t)
+    }
+
+    /// Ends win over stops, stops win over the bare line — a stop at 0 or 1 sits
+    /// underneath an end, and every stop sits on the line.
+    ///
+    /// The LINE is deliberately hit-testable along its whole length, INCLUDING where
+    /// it crosses a hole in the shape or empty space beyond the ink. It is chrome for
+    /// the already-selected object, not part of the object: a click on it must never
+    /// fall through and deselect what you are editing (owner requirement 2026-08-19).
+    private func hitTestGradientHandle(atViewPoint p: CGPoint) -> (id: UUID, hit: GradientHandleHit)? {
+        guard let h = gradientHandleLine() else { return nil }
+        func near(_ c: CGPoint) -> Bool {
+            hypot(p.x - c.x, p.y - c.y) <= handleGrab * 0.6
+        }
+        if near(h.start) { return (h.id, .start) }
+        if near(h.end)   { return (h.id, .end) }
+        for stop in h.gradient.sortedStops
+        where near(Self.lerp(h.start, h.end, CGFloat(stop.position))) {
+            return (h.id, .stop(stop.id))
+        }
+        // Distance to the SEGMENT (not the infinite line), so the grab region stops
+        // at the ends rather than running off across the canvas.
+        let vx = h.end.x - h.start.x, vy = h.end.y - h.start.y
+        let len2 = vx * vx + vy * vy
+        guard len2 > 1e-9 else { return nil }
+        let t = max(0, min(1, ((p.x - h.start.x) * vx + (p.y - h.start.y) * vy) / len2))
+        let c = CGPoint(x: h.start.x + vx * t, y: h.start.y + vy * t)
+        guard hypot(p.x - c.x, p.y - c.y) <= 5 else { return nil }
+        return (h.id, .line(t))
+    }
+
+    /// Add a stop where the line was clicked, in the colour already showing there, and
+    /// make it the selected stop. Returns its id so the click can go straight into a
+    /// drag — click-and-drag places a stop in one motion.
+    @discardableResult
+    private func addGradientStop(on id: UUID, at t: CGFloat) -> UUID? {
+        guard let n = node(id), var g = linearGradientFill(of: n) else { return nil }
+        let stop = GradientStop(color: g.color(at: Double(t)), position: Double(t))
+        g.stops.append(stop)
+        dragBaseline = document?.model
+        gestureUndoName = "Add Gradient Stop"
+        setGradientFill(g, on: id)
+        registerUndoForGesture()
+        dragBaseline = nil
+        app?.selectedGradientStopID = stop.id
+        needsDisplay = true
+        return stop.id
+    }
+
+    // MARK: Gradient stop editing (FEAT-045)
+
+    /// One discrete edit to a stop, as one undo step. Live DRAGS go through
+    /// `setGradientFill` directly and register once on mouse-up; this is for the
+    /// menu and the popover, where each change is its own action.
+    private func mutateGradientStop(nodeID: UUID, stopID: UUID, actionName: String,
+                                    _ change: (inout GradientStop) -> Void) {
+        guard let n = node(nodeID), var g = linearGradientFill(of: n),
+              let i = g.stops.firstIndex(where: { $0.id == stopID }) else { return }
+        dragBaseline = document?.model
+        gestureUndoName = actionName
+        change(&g.stops[i])
+        setGradientFill(g, on: nodeID)
+        registerUndoForGesture()
+        dragBaseline = nil
+        needsDisplay = true
+    }
+
+    private func gradientStop(nodeID: UUID, stopID: UUID) -> GradientStop? {
+        guard let n = node(nodeID), let g = linearGradientFill(of: n) else { return nil }
+        return g.stops.first { $0.id == stopID }
+    }
+
+    /// The stop's editor, as a popover anchored to its knob ON THE CANVAS. This is the
+    /// point of the whole feature: the colour control appears where you are looking,
+    /// instead of in a panel picker that can move out from under you mid-edit.
+    /// It reuses `ColorPopover`, so the eyedropper, the code field, the WCAG contrast
+    /// strip and "add to Design Language" all come along unchanged.
+    private func showGradientStopEditor(nodeID: UUID, stopID: UUID) {
+        gradientStopPopover?.close()
+        gradientStopPopover = nil
+        guard let h = gradientHandleLine(), h.id == nodeID,
+              let stop = h.gradient.stops.first(where: { $0.id == stopID }) else { return }
+        let knob = Self.lerp(h.start, h.end, CGFloat(stop.position))
+        let color = Binding<RGBAColor>(
+            get: { [weak self] in self?.gradientStop(nodeID: nodeID, stopID: stopID)?.color ?? .black },
+            set: { [weak self] c in
+                self?.mutateGradientStop(nodeID: nodeID, stopID: stopID,
+                                         actionName: "Gradient Stop Color") { $0.color = c }
+            })
+        let position = Binding<Double>(
+            get: { [weak self] in
+                Double(self?.gradientStop(nodeID: nodeID, stopID: stopID)?.position ?? 0) * 100
+            },
+            set: { [weak self] v in
+                self?.mutateGradientStop(nodeID: nodeID, stopID: stopID,
+                                         actionName: "Gradient Stop Position") {
+                    $0.position = min(1, max(0, v / 100))
+                }
+            })
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.contentViewController = NSHostingController(
+            rootView: GradientStopEditor(color: color, positionPercent: position))
+        popover.show(relativeTo: CGRect(x: knob.x - 6, y: knob.y - 6, width: 12, height: 12),
+                     of: self, preferredEdge: .maxY)
+        gradientStopPopover = popover
+    }
+
+    @objc func editGradientStopAction(_ sender: Any?) {
+        guard let m = pendingGradientMenu, let stopID = m.stopID else { return }
+        showGradientStopEditor(nodeID: m.nodeID, stopID: stopID)
+    }
+
+    /// Send the stop's colour straight to the document's Design Language.
+    ///
+    /// This REPLACED "Copy Color" here (owner 2026-08-19): copying a hex only to turn
+    /// around and paste it into the library was a step that did not need to exist, and
+    /// the library is where a colour worth keeping actually belongs. Uses the same
+    /// `save` + `remember` pair as the picker's own Save button, so a colour added
+    /// from the canvas is indistinguishable from one added anywhere else — with
+    /// `provenance` saying where it came from. Partly delivers FEAT-034.
+    @objc func addGradientStopColorToDesignLanguageAction(_ sender: Any?) {
+        guard let m = pendingGradientMenu, let stopID = m.stopID,
+              let stop = gradientStop(nodeID: m.nodeID, stopID: stopID),
+              let document else { return }
+        var model = document.model
+        let paint = Paint.solid(stop.color)
+        _ = model.designLanguage.save(paint, provenance: "gradient stop")
+        model.designLanguage.remember(paint)
+        document.setModel(model, undoManager: undoManager, actionName: "Save Color")
+    }
+
+    @objc func copyGradientStopAction(_ sender: Any?) {
+        guard let m = pendingGradientMenu, let stopID = m.stopID,
+              let stop = gradientStop(nodeID: m.nodeID, stopID: stopID) else { return }
+        app?.copiedGradientStop = CopiedGradientStop(color: stop.color,
+                                                     position: Double(stop.position))
+    }
+
+    /// Add a stop where the menu was opened — the right-click equivalent of clicking
+    /// the line, so both routes to "put a stop here" exist.
+    @objc func addGradientStopHereAction(_ sender: Any?) {
+        guard let m = pendingGradientMenu else { return }
+        addGradientStop(on: m.nodeID, at: m.t)
+    }
+
+    /// Paste puts the copied colour WHERE THE POINTER IS, not where it was copied
+    /// from (owner revision 2026-08-19 — "put it where the mouse is to paste").
+    ///
+    /// Consequence worth knowing: the position stored by Copy Stop is now unused by
+    /// Paste. It is still copied because it honestly describes the stop, but if that
+    /// stays unused, Copy Stop and Copy Color end up meaning almost the same thing and
+    /// one of them should probably go. Recorded rather than quietly resolved.
+    ///
+    /// Right-clicking ON a stop pastes at that stop's own position, which lands on the
+    /// existing stop and recolours it instead of stacking an unseparable duplicate.
+    @objc func pasteGradientStopAction(_ sender: Any?) {
+        guard let copied = app?.copiedGradientStop, let m = pendingGradientMenu,
+              let n = node(m.nodeID), var g = linearGradientFill(of: n) else { return }
+        let t = Double(min(1, max(0, m.t)))
+        dragBaseline = document?.model
+        gestureUndoName = "Paste Gradient Stop"
+        if let i = g.stops.firstIndex(where: { abs(Double($0.position) - t) < 0.005 }) {
+            g.stops[i].color = copied.color
+            app?.selectedGradientStopID = g.stops[i].id
+        } else {
+            let stop = GradientStop(color: copied.color, position: CGFloat(t))
+            g.stops.append(stop)
+            app?.selectedGradientStopID = stop.id
+        }
+        setGradientFill(g, on: m.nodeID)
+        registerUndoForGesture()
+        dragBaseline = nil
+        needsDisplay = true
+    }
+
+    /// Delete a stop. Refuses below two, because a gradient with one stop is not a
+    /// gradient and there is no sensible thing to draw.
+    @objc func deleteGradientStopAction(_ sender: Any?) {
+        guard let m = pendingGradientMenu, let stopID = m.stopID,
+              let n = node(m.nodeID), var g = linearGradientFill(of: n),
+              g.stops.count > 2, let i = g.stops.firstIndex(where: { $0.id == stopID })
+        else { NSSound.beep(); return }
+        dragBaseline = document?.model
+        gestureUndoName = "Delete Gradient Stop"
+        g.stops.remove(at: i)
+        setGradientFill(g, on: m.nodeID)
+        registerUndoForGesture()
+        dragBaseline = nil
+        if app?.selectedGradientStopID == stopID { app?.selectedGradientStopID = nil }
+        needsDisplay = true
+    }
+
+    /// Snap a dragged end to 15° steps about the fixed end, measured in the node's
+    /// LOCAL point space — the space the gradient's angle is defined in. Snapping in
+    /// unit space would mean a different real angle on every aspect ratio.
+    private static func constrainedGradientEnd(_ u: CGPoint, from fixed: CGPoint,
+                                               size: CGSize) -> CGPoint {
+        let dx = (u.x - fixed.x) * size.width, dy = (u.y - fixed.y) * size.height
+        let len = hypot(dx, dy)
+        guard len > 0.0001 else { return u }
+        let snapped = (atan2(dy, dx) * 180 / .pi / 15).rounded() * 15 * .pi / 180
+        return CGPoint(x: fixed.x + (size.width  > 0 ? cos(snapped) * len / size.width  : 0),
+                       y: fixed.y + (size.height > 0 ? sin(snapped) * len / size.height : 0))
+    }
+
+    // MARK: Point-selection transform box (FEAT-026)
+
+    /// Padding around the point box, in NODE-LOCAL units so it is a constant size on
+    /// screen. The box is deliberately NOT tight: its corner handle would otherwise
+    /// sit exactly on the extreme anchor and make that anchor impossible to grab.
+    private var pointBoxPadding: CGFloat { 7 / max(0.0001, app?.zoom ?? 1) }
+
+    /// The transform box for the current point selection, in the edited path's
+    /// NODE-LOCAL space — the space `PathPoint.point` lives in, so the box, its
+    /// handles and the write-back all inherit the node's own rotation/flip and every
+    /// ancestor transform for free.
+    ///
+    /// Bounds come from the selected ANCHORS only, not their control handles, which
+    /// matches the pivot the inspector's point-rotation field has always used.
+    private func pointTransformBox() -> (node: Node, chain: [Node], box: CGRect)? {
+        guard app?.tool == .node, selectedPointAddresses.count >= 2,
+              let id = app?.singleSelectedNodeID, let n = node(id),
+              case .path(let ps) = n.content else { return nil }
+        let contours = ps.editContours
+        var pts: [CGPoint] = []
+        for addr in selectedPointAddresses
+        where contours.indices.contains(addr.contour)
+            && contours[addr.contour].indices.contains(addr.index) {
+            pts.append(contours[addr.contour][addr.index].point)
+        }
+        guard pts.count >= 2 else { return nil }
+        let xs = pts.map(\.x), ys = pts.map(\.y)
+        let pad = pointBoxPadding
+        let box = CGRect(x: xs.min()! - pad, y: ys.min()! - pad,
+                         width: (xs.max()! - xs.min()!) + pad * 2,
+                         height: (ys.max()! - ys.min()!) + pad * 2)
+        return (n, ancestorGroups(of: id), box)
+    }
+
+    private func pointBoxCorners(_ box: CGRect, _ n: Node, _ chain: [Node]) -> [CGPoint] {
+        [CGPoint(x: box.minX, y: box.minY), CGPoint(x: box.maxX, y: box.minY),
+         CGPoint(x: box.maxX, y: box.maxY), CGPoint(x: box.minX, y: box.maxY)]
+            .map { nodeLocalToView($0, n, chain: chain) }
+    }
+
+    private func hitTestPointBoxHandle(atViewPoint point: CGPoint)
+        -> (handle: Handle, box: CGRect)? {
+        guard let b = pointTransformBox() else { return nil }
+        for handle in Handle.allCases {
+            let c = nodeLocalToView(handlePoint(handle, in: b.box), b.node, chain: b.chain)
+            if CGRect(x: c.x - handleGrab / 2, y: c.y - handleGrab / 2,
+                      width: handleGrab, height: handleGrab).contains(point) {
+                return (handle, b.box)
+            }
+        }
+        return nil
+    }
+
+    private func hitTestPointBoxRotate(atViewPoint point: CGPoint)
+        -> (centerLocal: CGPoint, centerView: CGPoint, corner: CGPoint)? {
+        guard let b = pointTransformBox() else { return nil }
+        guard let corner = cornerRotateRegion(at: point,
+                                              corners: pointBoxCorners(b.box, b.node, b.chain))
+        else { return nil }
+        let centerLocal = CGPoint(x: b.box.midX, y: b.box.midY)
+        return (centerLocal, nodeLocalToView(centerLocal, b.node, chain: b.chain), corner)
+    }
+
+    /// Pointer angle measured IN node-local space, so a flipped or rotated ancestor
+    /// cannot reverse the direction the points turn.
+    private func pointBoxAngle(ofViewPoint p: CGPoint, aroundLocal c: CGPoint,
+                               node n: Node, chain: [Node]) -> Double {
+        let b = viewToNodeLocal(p, n, chain: chain)
+        var deg = atan2(Double(b.x - c.x), Double(-(b.y - c.y))) * 180 / .pi
+        if deg < 0 { deg += 360 }
+        return deg
+    }
+
+    /// The selected anchors and their handles, captured at drag start.
+    private func selectedPointBaseline(_ ps: PathShape) -> PointBaseline {
+        var out = PointBaseline()
+        let contours = ps.editContours
+        for addr in selectedPointAddresses
+        where contours.indices.contains(addr.contour)
+            && contours[addr.contour].indices.contains(addr.index) {
+            let pt = contours[addr.contour][addr.index]
+            out[addr] = (point: pt.point, controlIn: pt.controlIn, controlOut: pt.controlOut)
+        }
+        return out
+    }
+
+    /// Map every baselined point (anchor AND its handles) through `transform`, in one
+    /// write. Unselected points are untouched, so the rest of the path stays anchored.
+    private func applyPointTransform(nodeID: UUID, originals: PointBaseline,
+                                     _ transform: (CGPoint) -> CGPoint) {
+        guard let n = node(nodeID), case .path(var ps) = n.content else { return }
+        for (addr, base) in originals {
+            ps.mutatePoint(contour: addr.contour, index: addr.index) { pt in
+                pt.point = transform(base.point)
+                pt.controlIn = base.controlIn.map(transform)
+                pt.controlOut = base.controlOut.map(transform)
+            }
+        }
+        var nodes = currentNodes
+        guard Self.mutateNested(nodeID, in: &nodes, { $0.content = .path(ps) }) else { return }
+        commitNodes(nodes, actionName: gestureUndoName)
+    }
+
     private func nodeLocalToView(_ local: CGPoint, _ node: Node, chain: [Node]) -> CGPoint {
         // Flip first (mirror within the frame about its centre), matching how the
         // renderer applies the flip inside the rotation — so anchors/handles track
@@ -2767,17 +3286,24 @@ final class CanvasNSView: NSView {
     /// The chain of nodes under a document point, outermost (top-level) first to the
     /// deepest leaf, descending only through groups that are hit. Each entry carries
     /// the node id + its document-space offset.
-    private func hitPath(atDoc docPoint: CGPoint) -> [(id: UUID, offset: CGPoint)] {
+    private func hitPath(atDoc docPoint: CGPoint,
+                         includingLocked: Bool = false) -> [(id: UUID, offset: CGPoint)] {
         var path: [(UUID, CGPoint)] = []
         // `point` is the cursor in the CURRENT level's space: each rotated group we
         // descend into inverse-rotates it about that group's center, mirroring how
         // nodeHit/drawNode handle nested rotation — otherwise children of a rotated
         // group are tested at the wrong spot.
         func descend(_ nodes: [Node], _ off: CGPoint, _ point: CGPoint) {
-            guard let hit = nodes.last(where: { $0.isVisible && !$0.isLocked && nodeHit($0, at: point, offset: off) })
+            guard let hit = nodes.last(where: {
+                $0.isVisible && (includingLocked || !$0.isLocked)
+                    && nodeHit($0, at: point, offset: off)
+            })
             else { return }
             path.append((hit.id, off))
-            if case .group(let kids) = hit.content {
+            // A locked group is one locked object for canvas interaction. A
+            // context-click may target it so it can be unlocked, but must not drill
+            // through it and expose a child as though the parent lock did not exist.
+            if case .group(let kids) = hit.content, !(includingLocked && hit.isLocked) {
                 let frame = hit.frame.offsetBy(dx: off.x, dy: off.y)
                 var childPoint = hit.rotation != 0
                     ? rotatePoint(point, around: CGPoint(x: frame.midX, y: frame.midY), byDegrees: -hit.rotation)
@@ -2808,6 +3334,26 @@ final class CanvasNSView: NSView {
                 nodes = AutoLayoutEngine.reflowed(nodes)
             }
         }
+    }
+
+    /// FEAT-023 responder-chain route for Edit ▸ Duplicate Effect. The Inspector
+    /// records the last edited row in AppState; this action performs the same
+    /// adjacent-copy operation as its overflow/context menus in one undo step.
+    @objc func duplicateSelectedEffectAction(_ sender: Any?) {
+        guard let app, let nodeID = app.singleSelectedNodeID,
+              let effectID = app.selectedEffectID else { return }
+        var nodes = currentNodes
+        var duplicateID: UUID?
+        let changed = Self.mutateNested(nodeID, in: &nodes) { node in
+            guard let index = node.effects.firstIndex(where: { $0.id == effectID }) else { return }
+            var copy = node.effects[index]
+            copy.id = UUID()
+            node.effects.insert(copy, at: index)
+            duplicateID = copy.id
+        }
+        guard changed, let duplicateID else { return }
+        commitNodes(nodes, actionName: "Duplicate Effect")
+        app.selectedEffectID = duplicateID
     }
 
     /// Fast path for live point editing. Moving anchors/handles only changes the
@@ -2962,8 +3508,11 @@ final class CanvasNSView: NSView {
         // included — because the handle position maps through the full chain and
         // the resize math itself runs in parent-local space (see `.resize`).
         let chain = ancestorGroups(of: id)
+        // The same ink box the handles are DRAWN on, so grabbing one is not offset by
+        // the stroke width (BUG-036(a)).
+        let box = SelectionTransform.outset(node.frame, by: SelectionTransform.inkInsets(of: node))
         for handle in Handle.allCases {
-            let c = boxPointToView(handlePoint(handle, in: node.frame), node, chain: chain)
+            let c = boxPointToView(handlePoint(handle, in: box), node, chain: chain)
             if CGRect(x: c.x - handleGrab / 2, y: c.y - handleGrab / 2,
                       width: handleGrab, height: handleGrab).contains(point) { return handle }
         }
@@ -3001,7 +3550,7 @@ final class CanvasNSView: NSView {
               let app, let id = app.singleSelectedNodeID,
               let node = node(id), isBoxResizable(node) else { return nil }
         let chain = ancestorGroups(of: id)
-        let f = node.frame
+        let f = SelectionTransform.outset(node.frame, by: SelectionTransform.inkInsets(of: node))
         let corners = [CGPoint(x: f.minX, y: f.minY), CGPoint(x: f.maxX, y: f.minY),
                        CGPoint(x: f.maxX, y: f.maxY), CGPoint(x: f.minX, y: f.maxY)]
             .map { boxPointToView($0, node, chain: chain) }
@@ -3017,8 +3566,7 @@ final class CanvasNSView: NSView {
     /// minus any node that has a selected ancestor (it'd be transformed twice via its
     /// parent). Generalizes the old top-level-only unit to nested layers.
     private func selectionTransformIDs() -> [UUID] {
-        guard let app else { return [] }
-        return selectionTransformNodesDoc(for: app.selectedNodeIDs).map(\.id)
+        selectionSpace().nodes.map(\.id)
     }
 
     /// True if any ancestor group of `id` is itself selected.
@@ -3037,43 +3585,135 @@ final class CanvasNSView: NSView {
 
     /// The transform's selected nodes with frames lifted into DOCUMENT space (parent
     /// offset folded in), so union/box/scale/rotate math is uniform across nesting.
-    private func selectionTransformNodesDoc() -> [Node] {
-        guard let app else { return [] }
-        return selectionTransformNodesDoc(for: app.selectedNodeIDs)
+    /// The coordinate space the unified selection box operates in, plus the selected
+    /// nodes expressed in it (BUG-035).
+    ///
+    /// Originally this was document space only, which meant the box switched itself
+    /// OFF whenever any ancestor was rotated or flipped — a doc-space non-uniform
+    /// scale cannot be written back through a rotated ancestor without shearing. The
+    /// visible result was a group inside a rotated group, or any multi-selection
+    /// inside one, drawing a bare outline with no handles at all.
+    ///
+    /// The generalisation: find the selected nodes' deepest COMMON ancestor chain and
+    /// work in ITS local space, where everything is axis-aligned again. The box is
+    /// drawn as a quad mapped through that chain and the resize/rotate math runs in
+    /// the same space, so no shear can arise. `SelectionTransform`'s own contract
+    /// already anticipates this — "the caller chooses the shared coordinate space
+    /// (a group's local space or document space)".
+    ///
+    /// Collapses to document space (`chain` empty) whenever the common ancestors are
+    /// a pure translation, so every case that worked before takes the identical path.
+    /// Refuses (returns empty) only when a rotated or flipped group sits BETWEEN the
+    /// common space and a selected node — there is no single axis-aligned box that is
+    /// honest about that selection.
+    private struct SelectionSpace {
+        /// Ancestor groups, outermost first. Empty = document space.
+        var chain: [Node] = []
+        /// Selected nodes with frames lifted into `chain`'s local space.
+        var nodes: [Node] = []
+        /// Per node: the translation from the space's origin to that node's own
+        /// parent origin, so a transformed result can be written back local.
+        var offsets: [UUID: CGPoint] = [:]
     }
 
-    private func selectionTransformNodesDoc(for selectedIDs: Set<UUID>) -> [Node] {
-        guard !selectedIDs.isEmpty else { return [] }
-        var result: [Node] = []
-        func walk(_ nodes: [Node], offset: CGPoint,
-                  ancestorsUntransformed: Bool, selectedAbove: Bool) {
+    private func selectionSpace() -> SelectionSpace {
+        guard let app else { return SelectionSpace() }
+        return selectionSpace(for: app.selectedNodeIDs)
+    }
+
+    private func selectionSpace(for selectedIDs: Set<UUID>) -> SelectionSpace {
+        guard !selectedIDs.isEmpty else { return SelectionSpace() }
+        // Each selected node with its ancestor chain, skipping any node that has a
+        // selected ancestor — it would otherwise be transformed twice, once through
+        // its parent and once on its own.
+        var picked: [(node: Node, chain: [Node])] = []
+        // One mutable stack rather than `stack + [node]` per group: this runs on every
+        // mouse-move through the hit-tests, and the chain is only copied for the few
+        // nodes that are actually selected.
+        var stack: [Node] = []
+        func walk(_ nodes: [Node], _ selectedAbove: Bool) {
             for node in nodes {
                 let selected = selectedIDs.contains(node.id)
-                if selected, ancestorsUntransformed, !selectedAbove {
-                    var docNode = node
-                    docNode.frame = node.frame.offsetBy(dx: offset.x, dy: offset.y)
-                    result.append(docNode)
-                }
+                if selected, !selectedAbove { picked.append((node, stack)) }
                 if case .group(let kids) = node.content {
-                    let childOffset = CGPoint(x: offset.x + node.frame.minX,
-                                              y: offset.y + node.frame.minY)
-                    let childAncestorsUntransformed = ancestorsUntransformed
-                        && node.rotation == 0 && !node.flipH && !node.flipV
-                    walk(kids, offset: childOffset,
-                         ancestorsUntransformed: childAncestorsUntransformed,
-                         selectedAbove: selectedAbove || selected)
+                    stack.append(node)
+                    walk(kids, selectedAbove || selected)
+                    stack.removeLast()
                 }
             }
         }
-        walk(currentNodes, offset: .zero, ancestorsUntransformed: true, selectedAbove: false)
-        return result
+        walk(currentNodes, false)
+        guard !picked.isEmpty else { return SelectionSpace() }
+
+        // Deepest ancestor chain every selected node shares.
+        var common = picked[0].chain
+        for item in picked.dropFirst() {
+            var i = 0
+            while i < common.count, i < item.chain.count, common[i].id == item.chain[i].id { i += 1 }
+            common = Array(common.prefix(i))
+        }
+        // Anything transformed BELOW that space breaks the axis-aligned promise.
+        for item in picked {
+            for group in item.chain.dropFirst(common.count)
+            where group.rotation != 0 || group.flipH || group.flipV {
+                return SelectionSpace()
+            }
+        }
+        // If the shared ancestors are a pure translation, document space describes the
+        // selection just as well — take the original path so nothing that works today
+        // changes behaviour.
+        let translationOnly = common.allSatisfy { $0.rotation == 0 && !$0.flipH && !$0.flipV }
+        let chain = translationOnly ? [] : common
+        let skip = translationOnly ? 0 : common.count
+
+        var space = SelectionSpace(chain: chain)
+        for item in picked {
+            var offset = CGPoint.zero
+            for group in item.chain.dropFirst(skip) {
+                offset.x += group.frame.minX
+                offset.y += group.frame.minY
+            }
+            var lifted = item.node
+            lifted.frame = item.node.frame.offsetBy(dx: offset.x, dy: offset.y)
+            space.nodes.append(lifted)
+            space.offsets[item.node.id] = offset
+        }
+        return space
+    }
+
+    /// A point in the selection space, in VIEW coordinates.
+    private func selectionSpaceToView(_ p: CGPoint, chain: [Node]) -> CGPoint {
+        chain.isEmpty ? docToViewPoint(p) : docToViewPoint(parentLocalToDoc(p, chain: chain))
+    }
+
+    /// A view point back in the selection space.
+    private func viewToSelectionSpace(_ p: CGPoint, chain: [Node]) -> CGPoint {
+        chain.isEmpty ? viewToDoc(p) : docToParentLocal(viewToDoc(p), chain: chain)
+    }
+
+    /// The selection box's four corners in view space, clockwise from top-left of the
+    /// space-local rect (so a rotated space yields a rotated quad).
+    private func selectionBoxCorners(_ bounds: CGRect, chain: [Node]) -> [CGPoint] {
+        [CGPoint(x: bounds.minX, y: bounds.minY), CGPoint(x: bounds.maxX, y: bounds.minY),
+         CGPoint(x: bounds.maxX, y: bounds.maxY), CGPoint(x: bounds.minX, y: bounds.maxY)]
+            .map { selectionSpaceToView($0, chain: chain) }
+    }
+
+    /// Pointer angle measured IN the selection space, so a rotated or flipped
+    /// ancestor cannot invert the direction the selection turns.
+    private func selectionSpaceAngle(ofViewPoint p: CGPoint, aroundLocal c: CGPoint,
+                                     chain: [Node]) -> Double {
+        let b = viewToSelectionSpace(p, chain: chain)
+        var deg = atan2(Double(b.x - c.x), Double(-(b.y - c.y))) * 180 / .pi
+        if deg < 0 { deg += 360 }
+        return deg
     }
 
     /// Whether the unified selection box (8 handles + rotate knob) is in play:
     /// more than one node selected, or a single GROUP (which needs child-aware
     /// resize). A lone non-group node keeps the existing single-node handles.
     private func usesSelectionTransform() -> Bool {
-        usesSelectionTransform(selectionTransformNodesDoc())
+        usesSelectionTransform(selectionSpace().nodes)
     }
 
     private func usesSelectionTransform(_ nodes: [Node]) -> Bool {
@@ -3082,19 +3722,27 @@ final class CanvasNSView: NSView {
         return false
     }
 
-    /// Document-space bounds of the current selection.
-    private func selectionDocBounds() -> CGRect? {
-        SelectionTransform.unionBounds(selectionTransformNodesDoc())
-    }
-
-    private func selectionViewRect() -> CGRect? {
-        selectionDocBounds().map { docToView($0) }
+    /// The unified selection box in its SELECTION SPACE: the INK rect that gets
+    /// drawn and hit-tested (BUG-036(a) — it encloses outside and centre strokes, so
+    /// the visible edge of the art is never outside the box that claims to bound it),
+    /// plus the constant insets back to the GEOMETRY bounds the model, align and
+    /// export keep using.
+    private func selectionLocalBox(_ space: SelectionSpace)
+        -> (ink: CGRect, insets: SelectionTransform.InkInsets)? {
+        guard let geometry = SelectionTransform.unionBounds(space.nodes),
+              let ink = SelectionTransform.unionPaintedBounds(space.nodes) else { return nil }
+        return (ink, SelectionTransform.inkInsets(geometry: geometry, ink: ink))
     }
 
     private func hitTestSelectionHandle(atViewPoint point: CGPoint) -> Handle? {
-        guard usesSelectionTransform(), let rect = selectionViewRect() else { return nil }
+        let space = selectionSpace()
+        guard usesSelectionTransform(space.nodes),
+              let bounds = selectionLocalBox(space)?.ink else { return nil }
+        // Handle positions are computed in the SELECTION SPACE and mapped to view,
+        // exactly like the drawing does — so a rotated space's handles are hit where
+        // they are actually drawn rather than at some phantom axis-aligned rect.
         for handle in Handle.allCases {
-            let c = handlePoint(handle, in: rect)
+            let c = selectionSpaceToView(handlePoint(handle, in: bounds), chain: space.chain)
             if CGRect(x: c.x - handleGrab / 2, y: c.y - handleGrab / 2,
                       width: handleGrab, height: handleGrab).contains(point) { return handle }
         }
@@ -3105,21 +3753,13 @@ final class CanvasNSView: NSView {
     /// a selection-box corner. The corner chooses the inward-facing authored cursor.
     private func hitTestSelectionRotate(atViewPoint point: CGPoint)
         -> (pivot: CGPoint, center: CGPoint, corner: CGPoint)? {
-        guard usesSelectionTransform(), let bounds = selectionDocBounds() else { return nil }
-        let rect = docToView(bounds)
-        let corners = [CGPoint(x: rect.minX, y: rect.minY), CGPoint(x: rect.maxX, y: rect.minY),
-                       CGPoint(x: rect.maxX, y: rect.maxY), CGPoint(x: rect.minX, y: rect.maxY)]
+        let space = selectionSpace()
+        guard usesSelectionTransform(space.nodes),
+              let bounds = selectionLocalBox(space)?.ink else { return nil }
+        let corners = selectionBoxCorners(bounds, chain: space.chain)
         guard let corner = cornerRotateRegion(at: point, corners: corners) else { return nil }
-        return (CGPoint(x: bounds.midX, y: bounds.midY),
-                CGPoint(x: rect.midX, y: rect.midY), corner)
-    }
-
-    /// Pointer angle (deg) about a view-space centre, in the canvas's rotation
-    /// convention (matches the rotate knob + `node.rotation`).
-    private func selectionAngle(of p: CGPoint, around c: CGPoint) -> Double {
-        var deg = atan2(Double(p.x - c.x), Double(-(p.y - c.y))) * 180 / .pi
-        if deg < 0 { deg += 360 }
-        return deg
+        let centerLocal = CGPoint(x: bounds.midX, y: bounds.midY)
+        return (centerLocal, selectionSpaceToView(centerLocal, chain: space.chain), corner)
     }
 
     /// Pointer angle in the selected node's parent coordinate space. Mapping both
@@ -3133,20 +3773,16 @@ final class CanvasNSView: NSView {
         return deg
     }
 
-    /// Snapshot the selected nodes (in DOC space) for a stable transform baseline,
-    /// remembering each one's parent offset so the result can be written back local.
+    /// Snapshot the selected nodes IN THE SELECTION SPACE for a stable transform
+    /// baseline, remembering each one's offset within that space so the result can be
+    /// written back parent-local. Also captures the space's chain for the gesture.
     private func snapshotSelectionBaseline() {
+        let space = selectionSpace()
         var snap: [UUID: Node] = [:]
-        var offs: [UUID: CGPoint] = [:]
-        for id in selectionTransformIDs() {
-            guard var n = node(id) else { continue }
-            let off = nodeOffset(id)
-            n.frame = n.frame.offsetBy(dx: off.x, dy: off.y)
-            snap[id] = n
-            offs[id] = off
-        }
+        for n in space.nodes { snap[n.id] = n }   // frames already lifted into the space
         selectionDragBaseline = snap
-        selectionDragOffsets = offs
+        selectionDragOffsets = space.offsets
+        selectionDragChain = space.chain
     }
 
     /// The point a resize handle keeps fixed (opposite corner / edge midpoint).
@@ -3886,8 +4522,18 @@ final class CanvasNSView: NSView {
         // (culling + background fill follow it); nil = the on-screen bounds.
         let region = viewport ?? bounds
         let priorRenderRegion = currentRenderRegion
+        let ownsImageResidencyPass = imageMipKeysUsedInRender == nil
+        if ownsImageResidencyPass { imageMipKeysUsedInRender = [] }
         currentRenderRegion = region
-        defer { currentRenderRegion = priorRenderRegion }
+        defer {
+            currentRenderRegion = priorRenderRegion
+            if ownsImageResidencyPass {
+                let used = imageMipKeysUsedInRender ?? []
+                latestImageMipKeys = used
+                residentImageMips = residentImageMips.filter { used.contains($0.key) }
+                imageMipKeysUsedInRender = nil
+            }
+        }
 
         perf.measure("draw-bg") {
             NSColor.underPageBackgroundColor.setFill()
@@ -4022,8 +4668,8 @@ final class CanvasNSView: NSView {
         guard let app else { return }
         let selectedIDs = app.selectedNodeIDs
         let selectedCount = selectedIDs.count
-        let transformNodes = selectionTransformNodesDoc(for: selectedIDs)
-        let drawsUnifiedTransform = usesSelectionTransform(transformNodes)
+        let space = selectionSpace(for: selectedIDs)
+        let drawsUnifiedTransform = usesSelectionTransform(space.nodes)
         if perf.enabled { perf.gauge("selectedNodes", selectedCount) }
         let single = selectedCount == 1
         let drawPerNodeHints = single || selectedCount <= 32
@@ -4046,11 +4692,11 @@ final class CanvasNSView: NSView {
         // Unified selection box (8 handles + rotate knob) for a multi-selection
         // or a single group — the per-node boxes above stay as a hint.
         perf.measure("chrome-transform-box") {
-            if drawsUnifiedTransform,
-               let b = SelectionTransform.unionBounds(transformNodes) {
-                drawSelectionTransformBox(b, in: ctx)
+            if drawsUnifiedTransform, let box = selectionLocalBox(space) {
+                drawSelectionTransformBox(box.ink, chain: space.chain, in: ctx)
             }
         }
+        perf.measure("chrome-gradient-line") { drawGradientHandles(in: ctx) }
         // Path anchors + handles: while editing points (node tool) or
         // while the pen is drawing.
         if app.tool == .node, let id = app.singleSelectedNodeID, let n = node(id),
@@ -4058,6 +4704,7 @@ final class CanvasNSView: NSView {
             perf.measure("chrome-path-points") {
                 drawPathPoints(n, in: ctx, selected: selectedPointAddresses,
                                handleOwners: selectedPointAddresses)
+                drawPointTransformBox(in: ctx)
             }
         }
         if let penID = penNodeID, let n = node(penID) {
@@ -4429,10 +5076,18 @@ final class CanvasNSView: NSView {
         var box: CGRect?
         for (id, o0) in origins {
             guard let n = node(id) else { continue }
-            let f = CGRect(origin: CGPoint(x: o0.x + dx, y: o0.y + dy), size: n.frame.size)
+            // Measure the same visual bounds the alignment commands use, including
+            // nested/rotated/flipped content. `origins` is the gesture baseline;
+            // rebuilding that origin here keeps the snap box stable even though the
+            // live model already contains the previous mouse tick.
+            var baseline = n
+            baseline.frame.origin = o0
+            let f = documentAlignmentBounds(baseline, ancestors: ancestorGroups(of: id))
+                .offsetBy(dx: dx, dy: dy)
             box = box.map { $0.union(f) } ?? f
         }
         guard let b = box else { return (dx, dy) }
+        let thr = 6 / max(app.zoom, 0.0001)
         
         var xLines: [CGFloat] = [], yLines: [CGFloat] = []
         var xSources: [CGFloat: Set<CGFloat>] = [:], ySources: [CGFloat: Set<CGFloat>] = [:]  // track which elements contribute to each line
@@ -4448,11 +5103,28 @@ final class CanvasNSView: NSView {
             }
         }
         
-        // Artboard edges/center
+        // Artboard edges/center. Include every board the selection touches OR is
+        // within the magnetic threshold of. The old owning-board-only lookup meant
+        // a layer approaching from the wall could never snap flush to the OUTSIDE of
+        // a board: at a flush edge there is zero overlap, so the board did not own it
+        // yet. The expanded 2D probe keeps this local and subtle — a far-away board
+        // that merely shares an x/y coordinate cannot pull the drag sideways.
         let boardObj = owningArtboard(of: b)
-        if let ab = boardObj?.frame {
-            xLines += [ab.minX, ab.midX, ab.maxX]
-            yLines += [ab.minY, ab.midY, ab.maxY]
+        let boardProbe = b.insetBy(dx: -thr, dy: -thr)
+        for board in currentArtboards where board.frame.intersects(boardProbe) {
+            let ab = board.frame
+            for x in [ab.minX, ab.midX, ab.maxX] {
+                xLines.append(x)
+                if app.smartGuidesEnabled {
+                    xSources[x, default: []].formUnion([ab.minY, ab.maxY])
+                }
+            }
+            for y in [ab.minY, ab.midY, ab.maxY] {
+                yLines.append(y)
+                if app.smartGuidesEnabled {
+                    ySources[y, default: []].formUnion([ab.minX, ab.maxX])
+                }
+            }
         }
         
         // Grid snapping
@@ -4531,7 +5203,6 @@ final class CanvasNSView: NSView {
             }
         }
         
-        let thr = 6 / max(app.zoom, 0.0001)
         func best(_ values: [CGFloat], _ lines: [CGFloat]) -> (offset: CGFloat, snappedLine: CGFloat?) {
             var bestD: CGFloat = 0, bestAbs = thr
             var bestLine: CGFloat?
@@ -4844,8 +5515,13 @@ final class CanvasNSView: NSView {
         case .rectangle(let s): return s.strokeAlignment.reach(for: s.strokeWidth)
         case .ellipse(let s):   return s.strokeAlignment.reach(for: s.strokeWidth)
         case .polygon(let s):   return s.strokeAlignment.reach(for: s.strokeWidth)
-        case .line(let s):      return s.strokeWidth / 2
-        case .path(let s):      return s.effectiveStrokeAlignment.reach(for: s.strokeWidth)
+        case .line(let s):
+            return (s.startMarker != .none || s.endMarker != .none) ? s.strokeWidth * 4 : s.strokeWidth / 2
+        case .path(let s):
+            if !s.closed, !s.isMultiContour, s.startMarker != .none || s.endMarker != .none {
+                return s.strokeWidth * 4
+            }
+            return s.effectiveStrokeAlignment.reach(for: s.strokeWidth)
         default:                return 0
         }
     }
@@ -5345,16 +6021,21 @@ final class CanvasNSView: NSView {
         case .line(let ls):
             let a = docToViewPoint(CGPoint(x: frameDoc.minX + ls.start.x, y: frameDoc.minY + ls.start.y))
             let b = docToViewPoint(CGPoint(x: frameDoc.minX + ls.end.x,   y: frameDoc.minY + ls.end.y))
+            let renderedWidth = max(1, ls.strokeWidth * app.zoom)
             ctx.saveGState()
             ls.stroke.nsColor.setStroke()
-            ctx.setLineWidth(max(1, ls.strokeWidth * app.zoom))
+            ctx.setLineWidth(renderedWidth)
             PaintRender.configureStrokePattern(ls.strokePattern,
-                                               width: max(1, ls.strokeWidth * app.zoom),
-                                               fallbackCap: .round, in: ctx)
+                                               width: renderedWidth,
+                                               fallbackCap: ls.strokeCap.cgLineCap, in: ctx)
             ctx.move(to: a)
             ctx.addLine(to: b)
             ctx.strokePath()
             ctx.restoreGState()
+            PaintRender.drawMarker(ls.startMarker, endpoint: a, interior: b,
+                                   strokeWidth: renderedWidth, color: ls.stroke.nsColor, in: ctx)
+            PaintRender.drawMarker(ls.endMarker, endpoint: b, interior: a,
+                                   strokeWidth: renderedWidth, color: ls.stroke.nsColor, in: ctx)
         case .path(let ps):
             guard !ps.renderContours.isEmpty else { break }
             let bez = bezierPath(for: ps, frameOrigin: frameDoc.origin)
@@ -5365,8 +6046,22 @@ final class CanvasNSView: NSView {
                 PaintRender.strokeAligned(bez, width: ps.strokeWidth * app.zoom,
                                           alignment: ps.effectiveStrokeAlignment,
                                           color: ps.stroke.nsColor,
-                                          join: .round, cap: .round,
+                                          join: .round, cap: ps.strokeCap.cgLineCap,
                                           pattern: ps.strokePattern, in: ctx)
+            }
+            if ps.strokeWidth > 0, let tangents = ps.endpointTangents {
+                let pointInView: (CGPoint) -> CGPoint = { point in
+                    self.docToViewPoint(CGPoint(x: frameDoc.minX + point.x, y: frameDoc.minY + point.y))
+                }
+                let renderedWidth = ps.strokeWidth * app.zoom
+                PaintRender.drawMarker(ps.startMarker,
+                                       endpoint: pointInView(tangents.start.tip),
+                                       interior: pointInView(tangents.start.interior),
+                                       strokeWidth: renderedWidth, color: ps.stroke.nsColor, in: ctx)
+                PaintRender.drawMarker(ps.endMarker,
+                                       endpoint: pointInView(tangents.end.tip),
+                                       interior: pointInView(tangents.end.interior),
+                                       strokeWidth: renderedWidth, color: ps.stroke.nsColor, in: ctx)
             }
         case .text(let text):
             // Lay the text out at TRUE size and scale the drawing, so wrapping and
@@ -5540,6 +6235,20 @@ final class CanvasNSView: NSView {
         return cache
     }()
 
+    /// `NSCache` may evict an entry at any time, including immediately when a
+    /// large screenshot mip approaches the cache's cost limit. Keep the exact mips
+    /// used by the most recent full render strongly referenced. Without this, an
+    /// idle redraw can fall back to the 256px placeholder, schedule the same large
+    /// decode again, briefly draw sharp, get evicted, and repeat forever — visible
+    /// as sharp/soft cycling and sustained CPU while nothing is moving.
+    private var residentImageMips: [String: CGImage] = [:]
+    private var imageMipKeysUsedInRender: Set<String>?
+    private var latestImageMipKeys: Set<String> = []
+    /// Avoid minting separate 4K/8K cache entries that both decode to the same
+    /// smaller source image. Header dimensions are tiny metadata and stable for
+    /// the immutable `ImageContent.data` payload.
+    private var imageMaxPixelCache: [Int: CGFloat] = [:]
+
     /// CGImage is an immutable, thread-safe CF object; the box just tells Swift
     /// concurrency it may cross from the decode queue to the main actor.
     private final class UncheckedBox<T>: @unchecked Sendable {
@@ -5552,13 +6261,28 @@ final class CanvasNSView: NSView {
     private var imageDecodesInFlight: Set<String> = []   // main-thread only
 
     private func cgImage(for img: ImageContent, targetPx: CGFloat) -> CGImage? {
+        let imageID = img.data.hashValue
+        let sourceMaxPx: CGFloat = {
+            if let cached = imageMaxPixelCache[imageID] { return cached }
+            let size = Self.imagePixelDimensions(img.data)
+            let value = size.map { max($0.width, $0.height) } ?? targetPx
+            imageMaxPixelCache[imageID] = value
+            return value
+        }()
         // Power-of-two buckets so zooming doesn't mint a variant per pixel step.
-        // ImageIO never upscales past the original, so oversized buckets are free.
+        // Clamp to the source size BEFORE bucketing: ImageIO does not upscale, but
+        // storing the same source bitmap under several oversized keys is not free.
+        let requiredPx = min(targetPx, sourceMaxPx)
         var bucket: CGFloat = 128
-        while bucket < targetPx && bucket < 8192 { bucket *= 2 }
-        let keyString = "\(img.data.hashValue)-\(Int(bucket))"
+        while bucket < requiredPx && bucket < 8192 { bucket *= 2 }
+        let keyString = "\(imageID)-\(Int(bucket))"
         let key = keyString as NSString
-        if let hit = imageCache.object(forKey: key) { return hit }
+        imageMipKeysUsedInRender?.insert(keyString)
+        if let resident = residentImageMips[keyString] { return resident }
+        if let hit = imageCache.object(forKey: key) {
+            residentImageMips[keyString] = hit
+            return hit
+        }
 
         // Nearest ALREADY-CACHED bucket (larger first — stays sharp; then smaller
         // — briefly soft). If one exists, draw it NOW and decode the right bucket
@@ -5566,22 +6290,31 @@ final class CanvasNSView: NSView {
         // main thread (blit-images spikes) — the dominant remaining stall on
         // image-heavy documents. A soft frame beats a frozen one.
         var fallback: CGImage?
+        var fallbackKeyUsed: String?
         var b = bucket * 2
         while b <= 8192, fallback == nil {
-            fallback = imageCache.object(forKey: "\(img.data.hashValue)-\(Int(b))" as NSString)
+            let fallbackKey = "\(imageID)-\(Int(b))"
+            fallback = residentImageMips[fallbackKey]
+                ?? imageCache.object(forKey: fallbackKey as NSString)
+            if fallback != nil { fallbackKeyUsed = fallbackKey }
             b *= 2
         }
         b = bucket / 2
         while b >= 128, fallback == nil {
-            fallback = imageCache.object(forKey: "\(img.data.hashValue)-\(Int(b))" as NSString)
+            let fallbackKey = "\(imageID)-\(Int(b))"
+            fallback = residentImageMips[fallbackKey]
+                ?? imageCache.object(forKey: fallbackKey as NSString)
+            if fallback != nil { fallbackKeyUsed = fallbackKey }
             b /= 2
         }
+        if let fallbackKeyUsed { imageMipKeysUsedInRender?.insert(fallbackKeyUsed) }
 
         if fallback == nil {
             let imagePixels = Self.imagePixelDimensions(img.data).map { $0.width * $0.height } ?? .greatestFiniteMagnitude
             if imagePixels <= 6_000_000 || bucket <= 1024 {
                 guard let cg = Self.decodeImage(img.data, maxPx: bucket) else { return nil }
                 imageCache.setObject(cg, forKey: key, cost: cg.bytesPerRow * cg.height)
+                residentImageMips[keyString] = cg
                 return cg
             }
             // First-ever appearance (nothing cached at any size). Decoding the
@@ -5593,10 +6326,11 @@ final class CanvasNSView: NSView {
             if bucket <= placeholderPx {
                 guard let cg = Self.decodeImage(img.data, maxPx: bucket) else { return nil }
                 imageCache.setObject(cg, forKey: key, cost: cg.bytesPerRow * cg.height)
+                residentImageMips[keyString] = cg
                 return cg
             }
             guard let small = Self.decodeImage(img.data, maxPx: placeholderPx) else { return nil }
-            let smallKey = "\(img.data.hashValue)-\(Int(placeholderPx))" as NSString
+            let smallKey = "\(imageID)-\(Int(placeholderPx))" as NSString
             imageCache.setObject(small, forKey: smallKey, cost: small.bytesPerRow * small.height)
             fallback = small
         }
@@ -5612,6 +6346,9 @@ final class CanvasNSView: NSView {
                     if let boxed {
                         self.imageCache.setObject(boxed.value, forKey: keyString as NSString,
                                                   cost: boxed.value.bytesPerRow * boxed.value.height)
+                        if self.latestImageMipKeys.contains(keyString) {
+                            self.residentImageMips[keyString] = boxed.value
+                        }
                         self.needsDisplay = true   // redraw sharp once it lands
                     }
                 }
@@ -5794,6 +6531,13 @@ final class CanvasNSView: NSView {
         }
 
         let rect = docToView(boxFrame)
+        // BUG-036(a): the accent box and its handles sit on the INK — geometry plus
+        // whatever an outside or centre stroke paints past it — so the visible edge of
+        // the art is never outside the box that claims to bound it. Everything else
+        // below (auto-padding bands, instance chrome, the path outline trace) stays on
+        // the geometry `rect`, because those describe layout, not paint.
+        let inkRect = docToView(SelectionTransform.outset(boxFrame,
+                                                          by: SelectionTransform.inkInsets(of: node)))
         let center = CGPoint(x: rect.midX, y: rect.midY)
 
         // Everything below draws inside the node's rotation, so the box, outline,
@@ -5874,7 +6618,7 @@ final class CanvasNSView: NSView {
                     ctx.saveGState()
                     NSColor.controlAccentColor.setStroke()
                     ctx.setLineWidth(1.5)
-                    ctx.stroke(rect)
+                    ctx.stroke(inkRect)
                     ctx.restoreGState()
                 }
             }
@@ -5885,7 +6629,7 @@ final class CanvasNSView: NSView {
         guard handles, isBoxResizable(node) else { return }
         perf.measure("sel-handles") {
             for handle in Handle.allCases {
-                drawHandleBox(centeredAt: handlePoint(handle, in: rect), in: ctx)
+                drawHandleBox(centeredAt: handlePoint(handle, in: inkRect), in: ctx)
             }
         }
     }
@@ -6042,15 +6786,29 @@ final class CanvasNSView: NSView {
     /// The unified selection box for a multi-selection or a single group: an
     /// axis-aligned accent rect over the selection's bounds with 8 resize handles.
     /// Rotation lives just outside the corners (Adobe-style), without extra chrome.
-    private func drawSelectionTransformBox(_ docBounds: CGRect, in ctx: CGContext) {
-        let rect = docToView(docBounds)
+    /// The unified selection box: outline plus eight handles, drawn in the SELECTION
+    /// SPACE and mapped to view (BUG-035). An empty chain is document space and takes
+    /// the original axis-aligned path unchanged; a chain with a rotated or flipped
+    /// ancestor draws the same box as a quad sitting on the art, with its handles at
+    /// the positions `hitTestSelectionHandle` tests.
+    private func drawSelectionTransformBox(_ bounds: CGRect, chain: [Node], in ctx: CGContext) {
         ctx.saveGState()
         NSColor.controlAccentColor.setStroke()
         ctx.setLineWidth(1.5)
-        ctx.stroke(rect)
+        if chain.isEmpty {
+            ctx.stroke(docToView(bounds))
+        } else {
+            let corners = selectionBoxCorners(bounds, chain: chain)
+            ctx.beginPath()
+            ctx.move(to: corners[0])
+            for i in 1..<corners.count { ctx.addLine(to: corners[i]) }
+            ctx.closePath()
+            ctx.strokePath()
+        }
         ctx.restoreGState()
         for handle in Handle.allCases {
-            drawHandleBox(centeredAt: handlePoint(handle, in: rect), in: ctx)
+            drawHandleBox(centeredAt: selectionSpaceToView(handlePoint(handle, in: bounds),
+                                                           chain: chain), in: ctx)
         }
     }
 
@@ -6059,7 +6817,8 @@ final class CanvasNSView: NSView {
     /// the shape actually appears, stroked as a quad. (Nested = move-only, no handles.)
     private func drawTransformedSelectionBox(_ node: Node, chain: [Node], in ctx: CGContext,
                                              handles: Bool = false) {
-        let f = node.frame
+        // Ink bounds, matching the unrotated path and the hit-tests (BUG-036(a)).
+        let f = SelectionTransform.outset(node.frame, by: SelectionTransform.inkInsets(of: node))
         let view = [CGPoint(x: f.minX, y: f.minY), CGPoint(x: f.maxX, y: f.minY),
                     CGPoint(x: f.maxX, y: f.maxY), CGPoint(x: f.minX, y: f.maxY)]
             .map { boxPointToView($0, node, chain: chain) }
@@ -6093,6 +6852,71 @@ final class CanvasNSView: NSView {
         ctx.move(to: CGPoint(x: box.midX, y: box.minY + 3)); ctx.addLine(to: CGPoint(x: box.midX, y: box.maxY - 3))
         ctx.move(to: CGPoint(x: box.minX + 3, y: box.midY)); ctx.addLine(to: CGPoint(x: box.maxX - 3, y: box.midY))
         ctx.strokePath()
+        ctx.restoreGState()
+    }
+
+    /// The point-selection transform box (FEAT-026). Drawn DASHED so it cannot be
+    /// mistaken for an object selection: it bounds a set of points inside a shape,
+    /// not the shape itself. Corners map through the node's own transform and its
+    /// ancestor chain, so inside a rotated group the box sits on the points.
+    private func drawPointTransformBox(in ctx: CGContext) {
+        guard let b = pointTransformBox() else { return }
+        let corners = pointBoxCorners(b.box, b.node, b.chain)
+        ctx.saveGState()
+        NSColor.controlAccentColor.setStroke()
+        ctx.setLineWidth(1)
+        ctx.setLineDash(phase: 0, lengths: [4, 3])
+        ctx.beginPath()
+        ctx.move(to: corners[0])
+        for i in 1..<corners.count { ctx.addLine(to: corners[i]) }
+        ctx.closePath()
+        ctx.strokePath()
+        ctx.restoreGState()
+        for handle in Handle.allCases {
+            drawHandleBox(centeredAt: nodeLocalToView(handlePoint(handle, in: b.box),
+                                                      b.node, chain: b.chain), in: ctx)
+        }
+    }
+
+    /// The on-canvas gradient line (FEAT-032): the line itself, a knob at each end,
+    /// and one knob per stop sitting at its position along it. Drawn white over a
+    /// dark halo so it stays legible on any fill — a single-colour line disappears
+    /// into roughly half the gradients it is meant to control.
+    private func drawGradientHandles(in ctx: CGContext) {
+        guard let h = gradientHandleLine() else { return }
+        ctx.saveGState()
+        ctx.setLineCap(.round)
+        NSColor.black.withAlphaComponent(0.35).setStroke()
+        ctx.setLineWidth(3)
+        ctx.move(to: h.start); ctx.addLine(to: h.end); ctx.strokePath()
+        NSColor.white.setStroke()
+        ctx.setLineWidth(1)
+        ctx.move(to: h.start); ctx.addLine(to: h.end); ctx.strokePath()
+        ctx.restoreGState()
+
+        // Stops first, ends on top: an end knob and a 0/1 stop share a position, and
+        // the end is what the hit-test prefers, so it should be what you see.
+        for stop in h.gradient.sortedStops {
+            drawGradientKnob(at: Self.lerp(h.start, h.end, CGFloat(stop.position)),
+                             fill: PaintRender.nsColor(stop.color), radius: 4,
+                             isSelected: app?.selectedGradientStopID == stop.id, in: ctx)
+        }
+        drawGradientKnob(at: h.start, fill: .white, radius: 5.5, in: ctx)
+        drawGradientKnob(at: h.end, fill: .white, radius: 5.5, in: ctx)
+    }
+
+    private func drawGradientKnob(at c: CGPoint, fill: NSColor, radius: CGFloat,
+                                  isSelected: Bool = false,
+                                  in ctx: CGContext) {
+        let r = CGRect(x: c.x - radius, y: c.y - radius, width: radius * 2, height: radius * 2)
+        ctx.saveGState()
+        ctx.setShadow(offset: .zero, blur: 2, color: NSColor.black.withAlphaComponent(0.5).cgColor)
+        fill.setFill()
+        ctx.fillEllipse(in: r)
+        ctx.setShadow(offset: .zero, blur: 0, color: nil)
+        (isSelected ? NSColor.controlAccentColor : NSColor.white).setStroke()
+        ctx.setLineWidth(isSelected ? 3 : 1.5)
+        ctx.strokeEllipse(in: r.insetBy(dx: 0.75, dy: 0.75))
         ctx.restoreGState()
     }
 
@@ -6179,6 +7003,34 @@ final class CanvasNSView: NSView {
         app?.tool = tool
         refreshCursor()
     }
+
+    // MARK: Tool actions (menu-bar reachable) — BUG-028
+    //
+    // The letter shortcuts in `keyDown` only fire when the CANVAS holds focus, so
+    // with focus in Layers or a floating tray the tool silently did not change —
+    // and because the point tool will not move a whole object with nothing
+    // point-selected, the app then read as broken rather than as merely in the
+    // wrong mode. Same responder-chain boundary as BUG-016 (copy/paste) and
+    // BUG-020 (opacity digits).
+    //
+    // These give every tool a menu-bar home, which the command-coverage rule
+    // requires anyway and which routes through `sendCanvasAction` — so it reaches
+    // the canvas from ANY focus location. They are deliberately NOT given
+    // single-letter key equivalents; see the note in EXP__design_App.swift's Tools
+    // menu for why that would be actively harmful.
+    //
+    // No `validateMenuItem` cases: a tool is never unavailable, so there is nothing
+    // to gate. That is a deliberate decision, not an omission.
+    @objc func selectToolAction(_ s: Any?)     { setTool(.select) }
+    @objc func nodeToolAction(_ s: Any?)       { setTool(.node) }
+    @objc func penToolAction(_ s: Any?)        { setTool(.pen) }
+    @objc func textToolAction(_ s: Any?)       { setTool(.text) }
+    @objc func rectangleToolAction(_ s: Any?)  { setTool(.rectangle) }
+    @objc func ellipseToolAction(_ s: Any?)    { setTool(.ellipse) }
+    @objc func polygonToolAction(_ s: Any?)    { setTool(.polygon) }
+    @objc func lineToolAction(_ s: Any?)       { setTool(.line) }
+    @objc func artboardToolAction(_ s: Any?)   { setTool(.artboard) }
+    @objc func panToolAction(_ s: Any?)        { setTool(.pan) }
 
     /// Load an authored vector cursor from Assets.xcassets while preserving its
     /// vector representation. `size` is in display points, not source SVG pixels.
@@ -6284,8 +7136,18 @@ final class CanvasNSView: NSView {
         case .text:
             return .iBeam
         case .node:
+            if let rot = hitTestPointBoxRotate(atViewPoint: p) {
+                return Self.rotateCursor(corner: rot.corner, center: rot.centerView)
+            }
+            if let hit = hitTestPointBoxHandle(atViewPoint: p) { return cursor(for: hit.handle) }
             return Self.pointerCursor
         case .select:
+            // The cursor is what tells you the line is live: crosshair = "click adds a
+            // stop here", open hand = "grab this knob".
+            if let g = hitTestGradientHandle(atViewPoint: p) {
+                if case .line = g.hit { return .crosshair }
+                return .openHand
+            }
             if let hit = hitTestSelectionRotate(atViewPoint: p) {
                 return Self.rotateCursor(corner: hit.corner, center: hit.center)
             }
@@ -6585,22 +7447,60 @@ final class CanvasNSView: NSView {
             return
         }
 
+        // FEAT-032: the gradient line. Tested before the selection chrome because
+        // its handles live INSIDE the shape, where nothing else is grabbable.
+        if let g = hitTestGradientHandle(atViewPoint: p) {
+            didEdit = false
+            switch g.hit {
+            case .start, .end:
+                dragBaseline = document.model
+                gestureUndoName = "Gradient Direction"
+                dragMode = .gradientEnd(id: g.id, movingStart: g.hit == .start)
+            case .stop(let stopID):
+                dragBaseline = document.model
+                gestureUndoName = "Gradient Stop"
+                app.selectedGradientStopID = stopID
+                gradientStopClickCandidate = stopID   // opens the editor on mouse-UP
+                dragMode = .gradientStop(id: g.id, stopID: stopID)
+                needsDisplay = true
+            case .line(let t):
+                // A single click on the line adds a stop there (owner's call). The new
+                // stop takes the colour already at that spot, so the gradient does not
+                // change appearance — then the same gesture continues as a drag, so
+                // click-and-drag places it in one motion.
+                guard let newID = addGradientStop(on: g.id, at: t) else { return }
+                dragBaseline = document.model
+                gestureUndoName = "Gradient Stop"
+                dragMode = .gradientStop(id: g.id, stopID: newID)
+            }
+            return
+        }
+
         // Outside-corner rotation (multi-select or a group) — before resize.
         if let rotateHit = hitTestSelectionRotate(atViewPoint: p) {
             dragBaseline = document.model
             gestureUndoName = "Rotate"
             snapshotSelectionBaseline()
-            dragMode = .rotateSelection(centerDoc: rotateHit.pivot,
-                                        startAngle: selectionAngle(of: p, around: rotateHit.center))
+            // `centerDoc` and the angle are both in the SELECTION SPACE (document
+            // space when its chain is empty). Measuring the angle there rather than in
+            // view space is what keeps a flipped ancestor from reversing the turn.
+            dragMode = .rotateSelection(
+                centerDoc: rotateHit.pivot,
+                startAngle: selectionSpaceAngle(ofViewPoint: p, aroundLocal: rotateHit.pivot,
+                                                chain: selectionDragChain))
             return
         }
 
         // Selection resize handle (multi-select or a group).
-        if let handle = hitTestSelectionHandle(atViewPoint: p), let bounds = selectionDocBounds() {
+        if let handle = hitTestSelectionHandle(atViewPoint: p),
+           let box = selectionLocalBox(selectionSpace()) {
             dragBaseline = document.model
             gestureUndoName = "Resize"
             snapshotSelectionBaseline()
-            dragMode = .resizeSelection(handle: handle, original: bounds)
+            selectionDragInkInsets = box.insets
+            // `original` is the INK box in space-local coordinates: the handle the
+            // user grabbed is on it, so the drag must be computed against it.
+            dragMode = .resizeSelection(handle: handle, original: box.ink)
             return
         }
 
@@ -6620,6 +7520,7 @@ final class CanvasNSView: NSView {
             gestureUndoName = "Resize Shape"
             resizePathBaseline = { if case .path(let ps) = n.content { return ps }; return nil }()
             resizeFlipBaseline = (n.flipH, n.flipV)
+            resizeInkInsets = SelectionTransform.inkInsets(of: n)
             dragMode = .resize(id: id, handle: handle, original: n.frame)
             return
         }
@@ -6726,7 +7627,7 @@ final class CanvasNSView: NSView {
                     let tid = path.last!.id
                     if isTopLevelNode(tid) || app.selectedNodeIDs.contains(tid) {
                         app.selectedNodeIDs = [tid]; app.selectedArtboardID = nil
-                        beginEditingText(nodeID: tid, isNew: false, at: p); return
+                        beginEditingText(nodeID: tid, isNew: false); return
                     }
                     // else: fall through to drill/select; the next double-click edits.
                 }
@@ -6763,15 +7664,25 @@ final class CanvasNSView: NSView {
             app.selectionAnchorID = targetID
 
             dragBaseline = document.model
-            // Option-drag duplicates the selection in place (nested items included).
-            if option {
-                let copies = duplicateSelectedInPlace(offset: .zero)
-                app.selectedNodeIDs = Set(copies)
-                gestureUndoName = "Duplicate"
-                didEdit = true
-            } else {
-                gestureUndoName = "Move Shape"
-            }
+            // Option-drag duplicates the selection in place (nested items included) —
+            // but the decision is DEFERRED to the drag and re-read live from there.
+            // See the `.nodes` case in mouseDragged and `setDragCopy`.
+            //
+            // BUG-025: this used to read `option` ONCE, here, and duplicate
+            // immediately. Two problems fell out of that. (a) macOS delivers
+            // flagsChanged and mouseDown as SEPARATE events, so pressing Option and
+            // the mouse button at nearly the same instant gives a nondeterministic
+            // order — press Option a hair late and the duplicate silently didn't
+            // happen. That is exactly the owner's report: "it works only if I have
+            // the button pressed for a time before moving... sometimes I must hit
+            // the key and mouse down at more of the same time, or slightly
+            // staggered." Nothing was wrong with the duplication; the modifier was
+            // simply read before the user had finished expressing it. (b) copying
+            // at mouseDown meant a plain Option-CLICK with no movement at all minted
+            // a copy and, because it set `didEdit`, registered an undo step for it.
+            dragCopyActive = false
+            dragCopySourceSelection = app.selectedNodeIDs
+            gestureUndoName = "Move Shape"
             dragMode = .nodes(startDoc: viewToDoc(p), origins: selectedNodeOrigins())
             needsDisplay = true
             return
@@ -6805,12 +7716,26 @@ final class CanvasNSView: NSView {
                       height: Swift.max(1, r.maxY.rounded() - y0))
     }
 
+    /// Square off a drag rect for Shift-constrain: the larger dimension wins, so
+    /// the shape still follows the cursor's dominant direction, and the corner
+    /// OPPOSITE the origin is the one that moves (the origin corner is pinned,
+    /// which is what a drag-from-corner means). BUG-037.
+    private func squared(from origin: CGPoint, to cur: CGPoint) -> CGPoint {
+        let side = max(abs(cur.x - origin.x), abs(cur.y - origin.y))
+        return CGPoint(x: origin.x + (cur.x < origin.x ? -side : side),
+                       y: origin.y + (cur.y < origin.y ? -side : side))
+    }
+
     override func mouseDragged(with event: NSEvent) {
         notePerfInput(event, "drag")
         let p = convert(event.locationInWindow, from: nil)
         lastMouse = p
         let shift = event.modifierFlags.contains(.shift)
-        let bypassSnap = event.modifierFlags.contains(.command)
+        // ⌘ bypasses every kind of snapping for this gesture. Whole-pixel rounding
+        // is a separate preference from guides/grid/artboard snapping (BUG-036(b));
+        // turning pixels off must not quietly turn all of the others off with it.
+        let bypassAllSnapping = event.modifierFlags.contains(.command)
+        let snapToPixels = !bypassAllSnapping && (app?.pixelSnap ?? true)
 
         switch dragMode {
         case .hand:
@@ -6826,7 +7751,12 @@ final class CanvasNSView: NSView {
         case .draw(let id, let originDoc):
             var cur = viewToDoc(p)
             var org = originDoc
-            if !bypassSnap { cur = pxSnap(cur); org = pxSnap(org) }
+            // Shift = 1:1 (perfect square / circle). Sampled LIVE from `shift`, so
+            // it can be pressed or released mid-draw, same as the Option handling
+            // in `.nodes`. Constrain BEFORE the pixel snap so the two edges round
+            // identically and the result stays square. BUG-037.
+            if shift { cur = squared(from: org, to: cur) }
+            if snapToPixels { cur = pxSnap(cur); org = pxSnap(org) }
             updateNode(id) {
                 $0.frame = CGRect(x: min(org.x, cur.x), y: min(org.y, cur.y),
                                   width: abs(cur.x - org.x), height: abs(cur.y - org.y))
@@ -6837,7 +7767,8 @@ final class CanvasNSView: NSView {
         case .drawArtboard(let id, let originDoc):
             var cur = viewToDoc(p)
             var org = originDoc
-            if !bypassSnap { cur = pxSnap(cur); org = pxSnap(org) }
+            if shift { cur = squared(from: org, to: cur) }   // 1:1 frames — BUG-037
+            if snapToPixels { cur = pxSnap(cur); org = pxSnap(org) }
             withActivePage { page in
                 guard let i = page.artboards.firstIndex(where: { $0.id == id }) else { return }
                 page.artboards[i].frame = CGRect(x: min(org.x, cur.x), y: min(org.y, cur.y),
@@ -6847,18 +7778,31 @@ final class CanvasNSView: NSView {
             didEdit = true
             needsDisplay = true
 
-        case .nodes(let startDoc, let origins):
+        case .nodes(let startDoc, let dragOrigins):
+            // Sample Option LIVE, every tick, so it can be pressed or released
+            // mid-drag and the gesture flips between duplicate and move — the
+            // behavior every other editor has (BUG-025). Re-read the origins after
+            // a flip: duplicating swaps the selection to freshly-minted ids, so the
+            // origins captured in `dragMode` are stale the moment it happens.
+            var origins = dragOrigins
+            let wantCopy = event.modifierFlags.contains(.option)
+            if wantCopy != dragCopyActive {
+                setDragCopy(wantCopy, startDoc: startDoc)
+                if case .nodes(_, let refreshed) = dragMode { origins = refreshed }
+            }
             let now = viewToDoc(p)
             var dx = now.x - startDoc.x, dy = now.y - startDoc.y
             if shift { if abs(dx) >= abs(dy) { dy = 0 } else { dx = 0 } }   // axis lock
             // Pixel snap first, smart guides after (⌘ skips both): round where the
             // selection's top-left-most origin lands, keeping relative offsets, then
             // let guide/edge alignment override — exact alignment beats whole pixels.
-            if !bypassSnap {
+            if snapToPixels {
                 let refX = origins.values.map(\.x).min() ?? 0
                 let refY = origins.values.map(\.y).min() ?? 0
                 dx = (refX + dx).rounded() - refX
                 dy = (refY + dy).rounded() - refY
+            }
+            if !bypassAllSnapping {
                 (dx, dy) = snapNodeOffset(dx: dx, dy: dy, origins: origins)
             }
             for (id, origin0) in origins {
@@ -6891,6 +7835,12 @@ final class CanvasNSView: NSView {
             // offset subtraction only held for untransformed ancestors.
             let cur = docToParentLocal(viewToDoc(p), chain: ancestorGroups(of: id))
             let rot = node(id)?.rotation ?? 0
+            // The handle the user grabbed sits on the INK box, so the drag is computed
+            // against it and the result is inset back to the geometry the model
+            // stores (BUG-036(a)). With no stroke the insets are zero and every line
+            // below is byte-for-byte the old geometry math.
+            let ink = resizeInkInsets
+            let originalInk = SelectionTransform.outset(original, by: ink)
             // Flip when a handle is dragged PAST the opposite edge (un-rotated only).
             var desiredFlipH: Bool? = nil, desiredFlipV: Bool? = nil
             if rot == 0 {
@@ -6898,32 +7848,33 @@ final class CanvasNSView: NSView {
                 let right = [Handle.right, .topRight, .bottomRight].contains(handle)
                 let top = [Handle.top, .topLeft, .topRight].contains(handle)
                 let bottom = [Handle.bottom, .bottomLeft, .bottomRight].contains(handle)
-                let crossedH = (left && cur.x > original.maxX) || (right && cur.x < original.minX)
-                let crossedV = (top && cur.y > original.maxY) || (bottom && cur.y < original.minY)
+                let crossedH = (left && cur.x > originalInk.maxX) || (right && cur.x < originalInk.minX)
+                let crossedV = (top && cur.y > originalInk.maxY) || (bottom && cur.y < originalInk.minY)
                 if left || right { desiredFlipH = resizeFlipBaseline.h != crossedH }
                 if top || bottom { desiredFlipV = resizeFlipBaseline.v != crossedV }
             }
-            var frame: CGRect
+            var frameInk: CGRect
             if rot == 0 {
-                frame = shift ? Self.proportionalFrame(original, handle: handle, cursor: cur)
-                              : Self.resizedFrame(original, handle: handle, cursor: cur)
+                frameInk = shift ? Self.proportionalFrame(originalInk, handle: handle, cursor: cur)
+                                 : Self.resizedFrame(originalInk, handle: handle, cursor: cur)
             } else {
                 // Resize in the node's unrotated local space, then translate so the
                 // anchored (opposite) corner stays put in world space.
-                let c0 = CGPoint(x: original.midX, y: original.midY)
+                let c0 = CGPoint(x: originalInk.midX, y: originalInk.midY)
                 let localCur = rotatePoint(cur, around: c0, byDegrees: -rot)
-                let newLocal = shift ? Self.proportionalFrame(original, handle: handle, cursor: localCur)
-                                     : Self.resizedFrame(original, handle: handle, cursor: localCur)
-                let anchor = Self.anchorPoint(handle, in: original)        // fixed in local space
+                let newLocal = shift ? Self.proportionalFrame(originalInk, handle: handle, cursor: localCur)
+                                     : Self.resizedFrame(originalInk, handle: handle, cursor: localCur)
+                let anchor = Self.anchorPoint(handle, in: originalInk)     // fixed in local space
                 let worldBefore = rotatePoint(anchor, around: c0, byDegrees: rot)
                 let c1 = CGPoint(x: newLocal.midX, y: newLocal.midY)
                 let worldAfter = rotatePoint(anchor, around: c1, byDegrees: rot)
-                frame = newLocal.offsetBy(dx: worldBefore.x - worldAfter.x,
-                                          dy: worldBefore.y - worldAfter.y)
+                frameInk = newLocal.offsetBy(dx: worldBefore.x - worldAfter.x,
+                                             dy: worldBefore.y - worldAfter.y)
             }
+            var frame = SelectionTransform.inset(frameInk, by: ink)
             // Whole-pixel resize (un-rotated only — a rotated frame's edges don't
             // sit on the pixel grid anyway). ⌘ bypasses.
-            if !bypassSnap && rot == 0 { frame = pxSnapRect(frame) }
+            if snapToPixels && rot == 0 { frame = pxSnapRect(frame) }
             updateNode(id) { node in
                 // Resizing a text box makes it a fixed-width paragraph (so it wraps
                 // and keeps its width when the font changes), instead of hugging
@@ -6981,13 +7932,23 @@ final class CanvasNSView: NSView {
             needsDisplay = true
 
         case .resizeSelection(let handle, let original):
-            let cur = viewToDoc(p)
-            var b1 = shift ? Self.proportionalFrame(original, handle: handle, cursor: cur)
-                           : Self.resizedFrame(original, handle: handle, cursor: cur)
-            if !bypassSnap { b1 = pxSnapRect(b1) }   // whole-pixel selection bounds (⌘ bypasses)
-            let sx = b1.width / max(1, original.width)
-            let sy = b1.height / max(1, original.height)
-            let anchor = Self.anchorPoint(handle, in: original)
+            // `original` and the baseline frames live in the SELECTION SPACE, so the
+            // cursor comes back into it too. With an empty chain this is `viewToDoc`.
+            let cur = viewToSelectionSpace(p, chain: selectionDragChain)
+            // `original` and `ink1` are INK rects — that is what the handle sits on,
+            // so the box follows the cursor exactly. Everything written to the model
+            // is the GEOMETRY inside them; the insets between are fixed for the drag.
+            let ink1 = shift ? Self.proportionalFrame(original, handle: handle, cursor: cur)
+                             : Self.resizedFrame(original, handle: handle, cursor: cur)
+            let k = selectionDragInkInsets
+            let g0 = SelectionTransform.inset(original, by: k)
+            var g1 = SelectionTransform.inset(ink1, by: k)
+            // Snap the GEOMETRY, not the ink: whole-pixel means the stored frame lands
+            // on whole points, and a stroke width may legitimately be fractional.
+            if snapToPixels { g1 = pxSnapRect(g1) }   // ⌘ bypasses
+            let sx = g1.width / max(1, g0.width)
+            let sy = g1.height / max(1, g0.height)
+            let anchor = Self.anchorPoint(handle, in: g0)
             for (id, base) in selectionDragBaseline {
                 let off = selectionDragOffsets[id] ?? .zero
                 var t = SelectionTransform.scaled(base, about: anchor, sx: sx, sy: sy)
@@ -6998,8 +7959,8 @@ final class CanvasNSView: NSView {
             needsDisplay = true
 
         case .rotateSelection(let centerDoc, let startAngle):
-            let cView = docToViewPoint(centerDoc)
-            var delta = selectionAngle(of: p, around: cView) - startAngle
+            var delta = selectionSpaceAngle(ofViewPoint: p, aroundLocal: centerDoc,
+                                            chain: selectionDragChain) - startAngle
             if shift { delta = (delta / 15).rounded() * 15 }   // snap to 15°
             for (id, base) in selectionDragBaseline {
                 let off = selectionDragOffsets[id] ?? .zero
@@ -7013,8 +7974,8 @@ final class CanvasNSView: NSView {
         case .drawLine(let id, let startDoc):
             var endDoc = viewToDoc(p)
             if shift { endDoc = constrainLineEndpoint(endDoc, from: startDoc) }   // 45° snap
-            let a = bypassSnap ? startDoc : pxSnap(startDoc)
-            if !bypassSnap { endDoc = pxSnap(endDoc) }
+            let a = snapToPixels ? pxSnap(startDoc) : startDoc
+            if snapToPixels { endDoc = pxSnap(endDoc) }
             setLine(id, aDoc: a, bDoc: endDoc)
             didEdit = true
             needsDisplay = true
@@ -7022,7 +7983,7 @@ final class CanvasNSView: NSView {
         case .lineEndpoint(let id, let movingStart, let fixedDoc):
             var cur = viewToDoc(p)
             if shift { cur = constrainLineEndpoint(cur, from: fixedDoc) }   // 45° snap (incl. x/y axis)
-            if !bypassSnap { cur = pxSnap(cur) }
+            if snapToPixels { cur = pxSnap(cur) }
             setLine(id, aDoc: movingStart ? cur : fixedDoc, bDoc: movingStart ? fixedDoc : cur)
             didEdit = true
             needsDisplay = true
@@ -7032,7 +7993,7 @@ final class CanvasNSView: NSView {
             let now = viewToDoc(p)
             var dx = now.x - startDoc.x, dy = now.y - startDoc.y
             if shift { if abs(dx) >= abs(dy) { dy = 0 } else { dx = 0 } }   // axis lock
-            if !bypassSnap, let refX = boardOrigins.values.map(\.x).min(),
+            if snapToPixels, let refX = boardOrigins.values.map(\.x).min(),
                let refY = boardOrigins.values.map(\.y).min() {
                 dx = (refX + dx).rounded() - refX   // whole-pixel board landing (⌘ bypasses)
                 dy = (refY + dy).rounded() - refY
@@ -7056,7 +8017,7 @@ final class CanvasNSView: NSView {
             var boardFrame = shift
                 ? Self.proportionalFrame(original, handle: handle, cursor: cur)
                 : Self.resizedFrame(original, handle: handle, cursor: cur)
-            if !bypassSnap { boardFrame = pxSnapRect(boardFrame) }
+            if snapToPixels { boardFrame = pxSnapRect(boardFrame) }
             withActivePage { $0.artboards[i].frame = boardFrame }
             didEdit = true
             needsDisplay = true
@@ -7067,7 +8028,7 @@ final class CanvasNSView: NSView {
             var newRect = shift
                 ? Self.proportionalFrame(original, handle: handle, cursor: cur)
                 : Self.resizedFrame(original, handle: handle, cursor: cur)
-            if !bypassSnap { newRect = pxSnapRect(newRect) }
+            if snapToPixels { newRect = pxSnapRect(newRect) }
             document.model.sources[si].origin = newRect.origin
             document.model.sources[si].size = newRect.size
             didEdit = true
@@ -7081,6 +8042,70 @@ final class CanvasNSView: NSView {
 
         case .pathPointGroup(let nodeID, let startLocal, let originals):
             pathPointGroupDrag(p, nodeID: nodeID, startLocal: startLocal, originals: originals, shift: shift)
+
+        case .gradientEnd(let id, let movingStart):
+            guard let n = node(id), let g0 = linearGradientFill(of: n) else { return }
+            let rect = CGRect(origin: .zero, size: n.frame.size)
+            var (u0, u1) = g0.unitLinearPoints(in: rect)
+            var u = gradientViewToUnit(p, n, chain: ancestorGroups(of: id))
+            if shift {
+                u = Self.constrainedGradientEnd(u, from: movingStart ? u1 : u0,
+                                                size: n.frame.size)
+            }
+            if movingStart { u0 = u } else { u1 = u }
+            // `settingLine` also refreshes `angle`, which is what keeps the
+            // inspector's numeric field live and truthful while the line is dragged.
+            setGradientFill(g0.settingLine(start: u0, end: u1, in: rect), on: id)
+            didEdit = true
+            needsDisplay = true
+
+        case .gradientStop(let id, let stopID):
+            guard let n = node(id), var g = linearGradientFill(of: n),
+                  let i = g.stops.firstIndex(where: { $0.id == stopID }) else { return }
+            let rect = CGRect(origin: .zero, size: n.frame.size)
+            let (u0, u1) = g.unitLinearPoints(in: rect)
+            // Project onto the line in LOCAL POINTS, not unit space: on a non-square
+            // shape the two are not the same direction, and projecting in unit space
+            // would slide the stop to the wrong place.
+            let a = CGPoint(x: u0.x * n.frame.width, y: u0.y * n.frame.height)
+            let b = CGPoint(x: u1.x * n.frame.width, y: u1.y * n.frame.height)
+            let cur = viewToNodeLocal(p, n, chain: ancestorGroups(of: id))
+            let vx = b.x - a.x, vy = b.y - a.y
+            let len2 = vx * vx + vy * vy
+            guard len2 > 1e-9 else { return }
+            let t = ((cur.x - a.x) * vx + (cur.y - a.y) * vy) / len2
+            g.stops[i].position = min(1, max(0, t))
+            setGradientFill(g, on: id)
+            didEdit = true
+            needsDisplay = true
+
+        case .resizePoints(let nodeID, let handle, let original, let originals):
+            guard let n = node(nodeID) else { return }
+            let cur = viewToNodeLocal(p, n, chain: ancestorGroups(of: nodeID))
+            let box = shift ? Self.proportionalFrame(original, handle: handle, cursor: cur)
+                            : Self.resizedFrame(original, handle: handle, cursor: cur)
+            // A degenerate axis (every selected point on one line) cannot be scaled;
+            // leave it at 1 rather than dividing by ~0 and throwing the points away.
+            let sx = original.width  > 0.001 ? box.width  / original.width  : 1
+            let sy = original.height > 0.001 ? box.height / original.height : 1
+            let anchor = Self.anchorPoint(handle, in: original)
+            applyPointTransform(nodeID: nodeID, originals: originals) { pt in
+                CGPoint(x: anchor.x + (pt.x - anchor.x) * sx,
+                        y: anchor.y + (pt.y - anchor.y) * sy)
+            }
+            didEdit = true
+            needsDisplay = true
+
+        case .rotatePoints(let nodeID, let centerLocal, let startAngle, let originals):
+            guard let n = node(nodeID) else { return }
+            var delta = pointBoxAngle(ofViewPoint: p, aroundLocal: centerLocal,
+                                      node: n, chain: ancestorGroups(of: nodeID)) - startAngle
+            if shift { delta = (delta / 15).rounded() * 15 }   // same 15° snap as elsewhere
+            applyPointTransform(nodeID: nodeID, originals: originals) { pt in
+                rotatePoint(pt, around: centerLocal, byDegrees: delta)
+            }
+            didEdit = true
+            needsDisplay = true
 
         case .marquee:
             marqueeCurrent = p
@@ -7147,11 +8172,30 @@ final class CanvasNSView: NSView {
             if didEdit { registerUndoForGesture() }
             selectionDragBaseline = [:]
             selectionDragOffsets = [:]
+            selectionDragChain = []
+            selectionDragInkInsets = .zero
 
         case .penHandle:
             break   // pen session continues; one undo is registered at finishPen()
 
         case .pathPoint(let nodeID, _):
+            if didEdit { normalizePath(nodeID); registerUndoForGesture() }
+
+        case .gradientEnd:
+            if didEdit { registerUndoForGesture() }
+
+        case .gradientStop(let id, let stopID):
+            if didEdit { registerUndoForGesture() }
+            // Press-and-release with no movement is a CLICK: open the stop's editor
+            // right where the knob is, which is the whole point of editing colour on
+            // the canvas instead of in a panel that moves out from under you.
+            else if gradientStopClickCandidate == stopID {
+                showGradientStopEditor(nodeID: id, stopID: stopID)
+            }
+
+        case .resizePoints(let nodeID, _, _, _), .rotatePoints(let nodeID, _, _, _):
+            // Same close-out as any other point edit: the frame has to be refitted to
+            // the moved points or hit-testing and bounds go stale.
             if didEdit { normalizePath(nodeID); registerUndoForGesture() }
 
         case .pathPointGroup(let nodeID, _, _):
@@ -7175,7 +8219,10 @@ final class CanvasNSView: NSView {
         }
 
         dragMode = .none
+        gradientStopClickCandidate = nil
         dragBaseline = nil
+        dragCopyActive = false
+        dragCopySourceSelection = []
         resizePathBaseline = nil
         lastDragPoint = nil
         marqueeCurrent = nil
@@ -7227,12 +8274,24 @@ final class CanvasNSView: NSView {
 
     // MARK: Text
 
+    /// Seed a new node from the type tool's app-wide memory. A remembered face may
+    /// have been removed since the prior launch; fall back to System for creation
+    /// rather than writing an unavailable PostScript name into the document.
+    private func rememberedTextContent() -> TextContent {
+        let style = app?.rememberedTextStyle ?? RememberedTextStyle()
+        let fontName = style.fontName.isEmpty
+            || NSFont(name: style.fontName, size: style.fontSize) != nil
+            ? style.fontName : ""
+        return TextContent(string: "", fontSize: style.fontSize,
+                           color: style.color, fontName: fontName)
+    }
+
     /// Place a new text node at a click and immediately edit it.
     private func placeTextNode(at viewPoint: CGPoint) {
         guard let app, let document else { return }
         textEditBaseline = document.model
         let origin = pxSnap(viewToDoc(viewPoint))   // whole-pixel text placement
-        let content = TextContent(string: "", fontSize: 16, color: .black)
+        let content = rememberedTextContent()
         let size = content.measuredSize()   // placeholder box (font-aware)
         let node = Node(name: "Text",
                         frame: CGRect(origin: origin, size: size),
@@ -7254,7 +8313,7 @@ final class CanvasNSView: NSView {
         textEditBaseline = document.model
         let viewRect = CGRect(x: min(start.x, end.x), y: min(start.y, end.y),
                               width: abs(end.x - start.x), height: abs(end.y - start.y))
-        var content = TextContent(string: "", fontSize: 16, color: .black)
+        var content = rememberedTextContent()
         content.box = .fixed
         let node = Node(name: "Text", frame: pxSnapRect(viewToDoc(viewRect)), content: .text(content))
         withNodes { $0.append(node) }
@@ -7264,9 +8323,21 @@ final class CanvasNSView: NSView {
     }
 
     /// Show the NSTextView overlay over a text node and start editing.
-    private func beginEditingText(nodeID: UUID, isNew: Bool, at viewPoint: CGPoint? = nil) {
+    ///
+    /// FEAT-024: entering edit mode SELECTS the existing contents rather than
+    /// placing a caret. Double-clicking a text node is already a commitment to
+    /// editing it, and typing over the whole string is the common case; a further
+    /// click inside the now-focused editor places a caret normally, so a
+    /// one-character edit is still one click away. The editor is a stock
+    /// `NSTextView`, so every standard caret/selection key, alternative input
+    /// method, and user key binding keeps working — this changes only the range
+    /// the editor opens with.
+    private func beginEditingText(nodeID: UUID, isNew: Bool) {
         guard let document, let target = node(nodeID),
               case .text(let tc) = target.content else { return }
+        app?.rememberTextStyle(fontName: tc.firstRun.fontName,
+                               fontSize: tc.firstRun.fontSize,
+                               color: tc.firstRun.color)
         if editingNodeID != nil { commitTextEditing() }
         if textEditBaseline == nil { textEditBaseline = document.model }
 
@@ -7305,14 +8376,15 @@ final class CanvasNSView: NSView {
         addSubview(tv)
         window?.makeFirstResponder(tv)
 
-        // Place the caret near where the user double-clicked (else at the end).
-        if let vp = viewPoint {
-            let pInTV = tv.convert(vp, from: self)
-            let idx = tv.characterIndexForInsertion(at: pInTV)
-            tv.setSelectedRange(NSRange(location: min(idx, tv.string.utf16.count), length: 0))
-        } else {
-            tv.setSelectedRange(NSRange(location: tv.string.utf16.count, length: 0))
-        }
+        // Select what is already there (FEAT-024); an empty or brand-new node has
+        // nothing to select, so it just gets a caret.
+        let length = tv.string.utf16.count
+        tv.setSelectedRange(NSRange(location: 0, length: length))
+        // Announce the opening selection explicitly. AppKit posts this for ordinary
+        // selection changes, but the range is set here as part of taking focus, and
+        // a VoiceOver user needs to hear that the text is selected before typing
+        // replaces it.
+        NSAccessibility.post(element: tv, notification: .selectedTextChanged)
 
         textEditor = tv
         editingNodeID = nodeID
@@ -7512,6 +8584,9 @@ final class CanvasNSView: NSView {
         change(&tc)
         var nodes = currentNodes
         guard let i = nodes.firstIndex(where: { $0.id == id }) else { return }
+        app?.rememberTextStyle(fontName: tc.firstRun.fontName,
+                               fontSize: tc.firstRun.fontSize,
+                               color: tc.firstRun.color)
         nodes[i].content = .text(tc)
         nodes[i].frame.size = tc.measuredSize(boxWidth: nodes[i].frame.width)
         commitNodes(nodes, actionName: "Text Style")
@@ -7619,6 +8694,11 @@ final class CanvasNSView: NSView {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             if s != nil, self.editingNodeID == nil { return }
+            if let s {
+                self.app?.rememberTextStyle(fontName: s.fontName,
+                                            fontSize: s.fontSize,
+                                            color: s.color)
+            }
             guard self.app?.textSelection != s else { return }
             self.app?.textSelection = s
         }
@@ -7633,13 +8713,14 @@ final class CanvasNSView: NSView {
         }
         let scale = textEditScale
         let fm = NSFontManager.shared
-        var faces = Set<String>(), sizes = Set<Int>(), colors = Set<String>()
+        var faces = Set<String>(), sizes = Set<Double>(), colors = Set<String>()
         var bolds = Set<Bool>(), italics = Set<Bool>(), unders = Set<Bool>()
 
         func record(font: NSFont, color: NSColor?, underline: Bool) {
             let isSystem = font.fontName == NSFont.systemFont(ofSize: font.pointSize).fontName
             faces.insert(isSystem ? "" : font.fontName)
-            sizes.insert(Int((font.pointSize / max(scale, 0.0001)).rounded()))
+            let logicalSize = Double(font.pointSize / max(scale, 0.0001))
+            sizes.insert((logicalSize * 1_000).rounded() / 1_000)
             let t = fm.traits(of: font)
             bolds.insert(t.contains(.boldFontMask)); italics.insert(t.contains(.italicFontMask))
             let c = (color ?? .black).usingColorSpace(.sRGB) ?? .black
@@ -7711,6 +8792,37 @@ final class CanvasNSView: NSView {
             if let n = node(id) { result[id] = n.frame.origin }
         }
         return result
+    }
+
+    /// Flip the in-progress `.nodes` drag between moving the originals and
+    /// dragging fresh copies, without ending the gesture (BUG-025).
+    ///
+    /// Implemented as REWIND-THEN-REAPPLY rather than by surgically deleting the
+    /// copies. `dragBaseline` is the model exactly as it stood at mouseDown, so
+    /// restoring it is both easier to reason about and immune to whatever else the
+    /// drag has already touched along the way — artboard membership, reparenting,
+    /// snapping. Trying to unpick just the copies would have to know about all of
+    /// that and would rot the first time one of them changed.
+    ///
+    /// This runs ONLY when the modifier actually changes, never per drag tick, so
+    /// the whole-model copy is off the hot path. Undo is unaffected: gesture undo is
+    /// registered once at mouseUp from `dragBaseline`, and `withNodes` mutates live
+    /// without registering anything, so flipping back and forth mid-drag still
+    /// yields exactly one undo step named for whichever state the drag ended in.
+    private func setDragCopy(_ on: Bool, startDoc: CGPoint) {
+        guard let app, let document, let baseline = dragBaseline else { return }
+        document.model = baseline
+        app.selectedNodeIDs = dragCopySourceSelection
+        if on {
+            let copies = duplicateSelectedInPlace(offset: .zero)
+            app.selectedNodeIDs = Set(copies)
+            gestureUndoName = "Duplicate"
+        } else {
+            gestureUndoName = "Move Shape"
+        }
+        dragCopyActive = on
+        dragMode = .nodes(startDoc: startDoc, origins: selectedNodeOrigins())
+        needsDisplay = true
     }
 
     /// Append clones of the current selection (live, no undo registration — the
@@ -9613,6 +10725,12 @@ final class CanvasNSView: NSView {
     @objc func toggleSnapToGridAction(_ sender: Any?) {
         app?.snapToGrid.toggle()
     }
+
+    /// BUG-036(b). Off = drags move through fractional values; ⌘ still bypasses
+    /// snapping for a single drag either way.
+    @objc func togglePixelSnapAction(_ sender: Any?) {
+        app?.pixelSnap.toggle()
+    }
     
     @objc func toggleSmartGuidesAction(_ sender: Any?) {
         app?.smartGuidesEnabled.toggle()
@@ -10205,11 +11323,23 @@ final class CanvasNSView: NSView {
                 c.artboardID = nil
                 return c
             }
+            // BUG-032: the group used to `append`, i.e. land at the very top of the
+            // stack no matter where its members were. It should take the z-position
+            // of its TOP-MOST member and go no higher — what Illustrator and Figma
+            // both do, and what the owner expected.
+            //
+            // Later in the array = higher in z, so the top-most member is the LAST
+            // selected index. Count the unselected rows below it; after the removal
+            // that count IS the insertion index, which puts the group above
+            // everything that was below its top-most member and below everything
+            // that was above it.
+            let topMost = arr.lastIndex { ids.contains($0.id) } ?? arr.count - 1
+            let unselectedBelow = arr[..<topMost].filter { !ids.contains($0.id) }.count
             arr.removeAll { ids.contains($0.id) }
             let g = Node(name: "Group", frame: union,
                          artboardID: inheritedOwners.count == 1 ? inheritedOwners.first : nil,
                          content: .group(children: children))
-            arr.append(g)
+            arr.insert(g, at: Swift.min(unselectedBelow, arr.count))
             newGroupID = g.id
         }
 
@@ -10239,11 +11369,20 @@ final class CanvasNSView: NSView {
                 c.artboardID = nil
                 return c
             }
+            // Cross-parent selection. Anchor on the top-most TOP-LEVEL node that is
+            // itself selected; when every selected node is nested there is no
+            // top-level anchor to speak of, so the old append is kept. Deliberately
+            // NOT trying to resolve each nested node's top-level ancestor here —
+            // that is a bigger change and this branch is the rarer case. Recorded so
+            // the limitation is visible rather than discovered later. BUG-032.
+            let topMostTopLevel = nodes.lastIndex { ids.contains($0.id) }
+            let unselectedBelow = topMostTopLevel.map { nodes[..<$0].filter { !ids.contains($0.id) }.count }
             Self.removeNested(ids, from: &nodes)
             let g = Node(name: "Group", frame: union,
                          artboardID: inheritedOwners.count == 1 ? inheritedOwners.first : nil,
                          content: .group(children: children))
-            nodes.append(g)
+            if let at = unselectedBelow { nodes.insert(g, at: Swift.min(at, nodes.count)) }
+            else { nodes.append(g) }
             newGroupID = g.id
         }
 
@@ -10843,6 +11982,50 @@ final class CanvasNSView: NSView {
         let p = convert(event.locationInWindow, from: nil)
         let menu = NSMenu()
 
+        // Right-click anywhere on the gradient line → a gradient menu (FEAT-045).
+        // First, like the path-anchor case below, because it is chrome sitting on top
+        // of the shape. The BARE LINE gets a menu too, not just the stops: paste puts
+        // a stop where the pointer is, so the empty stretches have to be reachable or
+        // there is nowhere to paste into.
+        if let g = hitTestGradientHandle(atViewPoint: p) {
+            var stopID: UUID? = nil
+            var t: CGFloat = 0
+            switch g.hit {
+            case .stop(let id):
+                stopID = id
+                t = CGFloat(gradientStop(nodeID: g.id, stopID: id)?.position ?? 0)
+            case .line(let hitT):
+                t = hitT
+            case .start, .end:
+                return super.menu(for: event)   // the ends are not stops; no menu of their own
+            }
+            pendingGradientMenu = (g.id, stopID, t)
+            if let stopID { app?.selectedGradientStopID = stopID; needsDisplay = true }
+
+            let canPaste = app?.copiedGradientStop != nil
+            func item(_ title: String, _ action: Selector, enabled: Bool = true) {
+                let mi = NSMenuItem(title: title, action: action, keyEquivalent: "")
+                mi.target = self
+                mi.isEnabled = enabled
+                menu.addItem(mi)
+            }
+            if stopID != nil {
+                item("Edit Stop…", #selector(editGradientStopAction(_:)))
+                menu.addItem(.separator())
+                item("Add Color to Design Language",
+                     #selector(addGradientStopColorToDesignLanguageAction(_:)))
+                item("Copy Stop", #selector(copyGradientStopAction(_:)))
+                item("Paste Stop Here", #selector(pasteGradientStopAction(_:)), enabled: canPaste)
+                menu.addItem(.separator())
+                let canDelete = (node(g.id).flatMap { linearGradientFill(of: $0) }?.stops.count ?? 0) > 2
+                item("Delete Stop", #selector(deleteGradientStopAction(_:)), enabled: canDelete)
+            } else {
+                item("Add Stop Here", #selector(addGradientStopHereAction(_:)))
+                item("Paste Stop Here", #selector(pasteGradientStopAction(_:)), enabled: canPaste)
+            }
+            return menu
+        }
+
         // Right-click directly on a path anchor → corner/curve toggle.
         if let pt = hitTestPathPoint(atViewPoint: p), case .anchor(let c, let i) = pt.target,
            let n = node(pt.id), case .path(let ps) = n.content, let anchor = ps.editPoint(contour: c, index: i) {
@@ -10856,7 +12039,10 @@ final class CanvasNSView: NSView {
         // cursor (e.g. a drilled-in child of a group), keep it; otherwise select the
         // top-level node. This stops a right-click on a nested item from jumping focus
         // out to its parent group.
-        let clickPath = hitPath(atDoc: viewToDoc(p))
+        // Normal canvas picking skips locked nodes so they never block work behind
+        // them. A context-click is the deliberate exception: it must be able to
+        // target a locked object in order to offer the escape hatch, Unlock.
+        let clickPath = hitPath(atDoc: viewToDoc(p), includingLocked: true)
         if let hitID = clickPath.first(where: { app?.selectedNodeIDs.contains($0.id) == true })?.id
                     ?? clickPath.first?.id,
            let hit = node(hitID) {
@@ -10864,6 +12050,12 @@ final class CanvasNSView: NSView {
                 app?.selectedNodeIDs = [hitID]
                 app?.selectedArtboardID = nil
                 needsDisplay = true
+            }
+            if hit.isLocked {
+                add(menu, "Reveal in Layers", #selector(revealSelectionInLayersAction(_:)))
+                menu.addItem(.separator())
+                add(menu, "Unlock", #selector(unlockSelection(_:)))
+                return menu
             }
             add(menu, "Cut", #selector(cut(_:)))
             add(menu, "Copy", #selector(copy(_:)))
@@ -11158,6 +12350,10 @@ extension CanvasNSView: NSMenuItemValidation {
              #selector(flipHorizontalAction(_:)), #selector(flipVerticalAction(_:)),
              #selector(copyLayerStyle(_:)):
             return hasNodes
+        case #selector(duplicateSelectedEffectAction(_:)):
+            guard let nodeID = app?.singleSelectedNodeID,
+                  let effectID = app?.selectedEffectID else { return false }
+            return node(nodeID)?.effects.contains(where: { $0.id == effectID }) == true
         case #selector(groupSelection(_:)):
             return (app?.selectedNodeIDs.count ?? 0) >= 2
         case #selector(pasteLayerStyle(_:)):

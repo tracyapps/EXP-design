@@ -38,21 +38,18 @@ EXP [design]/
 ```
 
 ## Current status
-Public **v2.2/build 13** is released. Development is on **v2.3/build 14**.
+Public **v2.2/build 13** is released. **v2.3/build 14 is feature complete and
+owner-verified; release preparation is active.**
 The core native editor, component states/behavior contract, semantic Handoff
 Package, agent-bridge spine, nested components, canvas pages, editable XD/Figma
 import, unified Handoff/panel IA, editable rendered HTML/CSS import, CodePen
 handoff/import, and static Storybook import are shipped.
 
-The **v2.3 opening priority is FEAT-008 font-picker discovery**. Review the
-owner's font-filter mockups and test the information architecture before coding.
-The candidate set is document-scoped Fonts Used, persisted Recent Fonts,
-type-to-jump, and search/filtering over one list; none is automatically committed
-to implementation without evidence. Set the keyboard, VoiceOver, persistence,
-and empty-state contract first, then build the smallest coherent result.
+Follow `docs/RELEASE-CHECKLIST-v2.3.md` and stop at the first failed release
+gate. The remaining lower-priority Wave 7 vector/effect queue is explicitly
+deferred to v2.4 and must not be pulled back into build 14 during release prep.
 
-**Next:** begin with the owner's FEAT-008 mockup/research pass when v2.3 work
-resumes. Do not start implementation before that evidence is available.
+**Next:** complete the signed/notarized GitHub, Sparkle, and website release.
 Semantic component/state reconstruction is logged as a v2.4+ research candidate;
 older Angular/AngularJS and open-shadow-root evidence are non-gating follow-ups.
 Unrestricted URL import, repository build execution, full argTypes ingestion, and

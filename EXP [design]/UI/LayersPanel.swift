@@ -232,6 +232,13 @@ struct LayersPanel: View {
                 guard !press.modifiers.contains(.command),
                       !press.modifiers.contains(.control),
                       !press.modifiers.contains(.option) else { return .ignored }
+                // BUG-038: a row's rename field is `@State` INSIDE the row, so this
+                // container cannot know one is open — and returning `.handled` for a
+                // digit typed into a layer name both swallowed the character and set
+                // the layer's opacity. Ask AppKit who actually holds focus instead.
+                // Covers the rename field, the component-name field, and anything
+                // added later without plumbing editing state up through every row.
+                if isTypingInTextField() { return .ignored }
                 let digit: Int
                 switch press.key {
                 case "0": digit = 0
@@ -974,42 +981,81 @@ struct LayersPanel: View {
         return false
     }
 
-    /// Apply an explicit Layers-panel artboard destination. The node is temporarily
-    /// expressed in document coordinates so the same visible-bounds calculation
-    /// works whether it came from the wall or from inside a group.
-    private func attach(_ node: inout Node, to board: Artboard) {
-        node.artboardID = board.id
-        let bounds = document.model.artboardOwnershipBounds(of: node)
+    /// Apply an explicit Layers-panel artboard destination to a whole moving run.
+    /// The nodes are temporarily expressed in document coordinates so the same
+    /// visible-bounds calculation works whether they came from the wall or from
+    /// inside a group. A run that lands entirely outside the board is recentred as
+    /// ONE block (union bounds, one shared delta) — centring each node on its own
+    /// would stack a multi-selection into a pile and destroy the arrangement.
+    private func attach(_ nodes: inout [Node], to board: Artboard) {
+        guard !nodes.isEmpty else { return }
+        var bounds = CGRect.null
+        for i in nodes.indices {
+            nodes[i].artboardID = board.id
+            bounds = bounds.union(document.model.artboardOwnershipBounds(of: nodes[i]))
+        }
+        guard !bounds.isNull else { return }
         let overlap = board.frame.intersection(bounds)
         guard overlap.isNull || overlap.width <= 0 || overlap.height <= 0 else { return }
-        node.frame.origin.x += board.frame.midX - bounds.midX
-        node.frame.origin.y += board.frame.midY - bounds.midY
+        let dx = board.frame.midX - bounds.midX, dy = board.frame.midY - bounds.midY
+        for i in nodes.indices {
+            nodes[i].frame.origin.x += dx
+            nodes[i].frame.origin.y += dy
+        }
+    }
+
+    /// The nodes a Layers drag should move, in MODEL order (index 0 = back of the
+    /// stack). Expansion rule (Finder / Illustrator): dragging a row that IS part of
+    /// the selection moves the whole selection; dragging a row outside it moves that
+    /// row alone. A node whose ancestor is also selected is dropped from the run —
+    /// moving the ancestor already carries it, and extracting both would orphan the
+    /// child. Returning model order (not click order) is what lets the destination
+    /// insert the run in one call and keep its relative stacking.
+    private func dragSet(startingAt draggedID: UUID) -> [UUID] {
+        let selection = app.selectedNodeIDs
+        guard selection.count > 1, selection.contains(draggedID) else { return [draggedID] }
+        var out: [UUID] = []
+        func walk(_ nodes: [Node]) {
+            for n in nodes {
+                if selection.contains(n.id) { out.append(n.id); continue }   // skip its subtree
+                if case .group(let k) = n.content { walk(k) }
+            }
+        }
+        walk(scopeNodes)
+        return out
     }
 
     private func acceptLayerDrop(on boardID: UUID?) -> Bool {
         guard let boardID, let draggedID = draggingID else { return false }
+        let ids = dragSet(startingAt: draggedID)
         draggingID = nil
         dropIndicator = nil
-        return moveLayer(draggedID, toArtboard: boardID)
+        return moveLayers(ids, toArtboard: boardID)
     }
 
-    /// A section-header drop moves the layer to that artboard's top level. This is
+    /// A section-header drop moves the layers to that artboard's top level. This is
     /// also the route for an empty board, where there is no child row to target.
     @discardableResult
-    private func moveLayer(_ draggedID: UUID, toArtboard boardID: UUID) -> Bool {
-        guard case .document = scope,
+    private func moveLayers(_ ids: [UUID], toArtboard boardID: UUID) -> Bool {
+        guard case .document = scope, !ids.isEmpty,
               let board = document.model.page(for: app.activeCanvasPageID)?
                 .artboards.first(where: { $0.id == boardID }) else { return false }
         let original = scopeNodes
-        let oldOffset = parentOffset(of: draggedID, in: original) ?? .zero
         var nodes = original
-        guard var moved = Self.extract(draggedID, from: &nodes) else { return false }
-        moved.frame.origin.x += oldOffset.x
-        moved.frame.origin.y += oldOffset.y
+        var moved: [Node] = []
+        for id in ids {
+            // Read each offset from the ORIGINAL tree: earlier extractions have
+            // already changed `nodes`, and a node's frame is relative to its parent.
+            let oldOffset = parentOffset(of: id, in: original) ?? .zero
+            guard var node = Self.extract(id, from: &nodes) else { return false }
+            node.frame.origin.x += oldOffset.x
+            node.frame.origin.y += oldOffset.y
+            moved.append(node)
+        }
         attach(&moved, to: board)
-        nodes.append(moved)
-        commitNodes(nodes, "Move Layer to Artboard")
-        app.selectedNodeIDs = [draggedID]
+        nodes.append(contentsOf: moved)   // model order preserved => stacking preserved
+        commitNodes(nodes, moved.count == 1 ? "Move Layer to Artboard" : "Move Layers to Artboard")
+        app.selectedNodeIDs = Set(ids)
         app.selectedArtboardIDs = []
         collapsedSections.remove(boardID.uuidString)
         return true
@@ -1026,31 +1072,36 @@ struct LayersPanel: View {
         return nil
     }
 
-    /// Insert `node` at the BACK of a group's children (model index 0 = display
-    /// bottom — Photoshop-style "added to the bottom of the group").
+    /// Insert `run` at the BACK of a group's children (model index 0 = display
+    /// bottom — Photoshop-style "added to the bottom of the group"). The run goes in
+    /// with ONE `insert(contentsOf:)` so its internal order survives; inserting node
+    /// by node at index 0 would reverse it.
     @discardableResult
-    private static func insertIntoGroup(_ node: Node, group groupID: UUID, in nodes: inout [Node]) -> Bool {
+    private static func insertIntoGroup(_ run: [Node], group groupID: UUID, in nodes: inout [Node]) -> Bool {
         for j in nodes.indices {
             if nodes[j].id == groupID, case .group(var k) = nodes[j].content {
-                k.insert(node, at: 0); nodes[j].content = .group(children: k); return true
+                k.insert(contentsOf: run, at: 0); nodes[j].content = .group(children: k); return true
             }
             if case .group(var k) = nodes[j].content {
-                if insertIntoGroup(node, group: groupID, in: &k) { nodes[j].content = .group(children: k); return true }
+                if insertIntoGroup(run, group: groupID, in: &k) { nodes[j].content = .group(children: k); return true }
             }
         }
         return false
     }
 
-    /// Insert `node` next to `targetID` in whatever array holds it. `afterInModel`
-    /// places it at the higher model index (= visually above, since display reverses).
+    /// Insert `run` next to `targetID` in whatever array holds it, as one contiguous
+    /// block. `afterInModel` places it at the higher model index (= visually above,
+    /// since display reverses). Inserting the whole run in a single call is what
+    /// keeps a multi-selection's relative order intact across that inversion — the
+    /// alternative, re-anchoring on the target for each node, reverses the run.
     @discardableResult
-    private static func insertSibling(_ node: Node, near targetID: UUID, afterInModel: Bool, in nodes: inout [Node]) -> Bool {
+    private static func insertSiblings(_ run: [Node], near targetID: UUID, afterInModel: Bool, in nodes: inout [Node]) -> Bool {
         if let i = nodes.firstIndex(where: { $0.id == targetID }) {
-            nodes.insert(node, at: afterInModel ? i + 1 : i); return true
+            nodes.insert(contentsOf: run, at: afterInModel ? i + 1 : i); return true
         }
         for j in nodes.indices {
             if case .group(var k) = nodes[j].content {
-                if insertSibling(node, near: targetID, afterInModel: afterInModel, in: &k) {
+                if insertSiblings(run, near: targetID, afterInModel: afterInModel, in: &k) {
                     nodes[j].content = .group(children: k); return true
                 }
             }
@@ -1058,14 +1109,28 @@ struct LayersPanel: View {
         return false
     }
 
-    /// Handle a drop of `draggedID` onto `targetID` at `place`.
+    /// Handle a drop of `draggedID` — or of the whole selection it belongs to, per
+    /// `dragSet(startingAt:)` — onto `targetID` at `place`.
+    ///
+    /// Every moved node lands in the SAME destination parent (the target's parent,
+    /// or the target itself for a drop INTO a group), as one contiguous run in its
+    /// original relative order, in ONE undo step. A mixed-parent selection is
+    /// therefore reparented rather than refused: each node is converted to document
+    /// coordinates before the move and back into the destination parent's space
+    /// after it, so nothing jumps on screen.
     func handleDrop(_ draggedID: UUID, onto targetID: UUID, place: DropPlace) {
-        guard draggedID != targetID, let dragged = findNode(draggedID) else { return }
-        // Never drop a group into its own descendant (would orphan the subtree).
-        if subtreeContains(targetID, dragged) { return }
+        guard draggedID != targetID else { return }
+        let movingIDs = dragSet(startingAt: draggedID)
+        // The destination can never be one of the things being moved.
+        guard !movingIDs.isEmpty, !movingIDs.contains(targetID) else { return }
 
         let original = scopeNodes
-        let oldOff = parentOffset(of: draggedID, in: original) ?? .zero
+        // Never drop a group into its own descendant (would orphan the subtree).
+        for id in movingIDs {
+            guard let node = findNode(id) else { return }
+            if subtreeContains(targetID, node) { return }
+        }
+
         // A target row inherits its Layers section from its top-level ancestor.
         // Carry that destination explicitly so a wall layer can be dropped beside
         // (or inside) an artboard layer even when less than 50% currently overlaps.
@@ -1077,51 +1142,73 @@ struct LayersPanel: View {
 
         // Into a component INSTANCE → add to its shared source (affects all instances).
         if place == .into, case .instance(let inst)? = findNode(targetID)?.content {
-            moveIntoSource(draggedID, instance: targetID, sourceID: inst.sourceID, oldOffset: oldOff)
+            moveIntoSource(movingIDs, instance: targetID, sourceID: inst.sourceID)
             return
         }
 
+        // Absolute origins are read BEFORE anything is extracted: a node's frame is
+        // relative to its parent group, and the parent is about to change.
+        var absoluteOrigin: [UUID: CGPoint] = [:]
+        for id in movingIDs {
+            guard let node = findNode(id) else { return }
+            let off = parentOffset(of: id, in: original) ?? .zero
+            absoluteOrigin[id] = CGPoint(x: node.frame.minX + off.x, y: node.frame.minY + off.y)
+        }
+
         var nodes = original
-        guard var moved = Self.extract(draggedID, from: &nodes) else { return }
-        let abs = CGPoint(x: moved.frame.minX + oldOff.x, y: moved.frame.minY + oldOff.y)
-        moved.frame.origin = abs
+        var moved: [Node] = []
+        for id in movingIDs {
+            guard var node = Self.extract(id, from: &nodes), let abs = absoluteOrigin[id] else { return }
+            node.frame.origin = abs
+            moved.append(node)
+        }
         if let destinationBoard { attach(&moved, to: destinationBoard) }
 
-        if place == .into, case .group? = findNode(targetID)?.content {
-            let gAbsOff = parentOffset(of: targetID, in: original) ?? .zero
-            let gOrigin = findNode(targetID)?.frame.origin ?? .zero
-            moved.frame.origin = CGPoint(x: moved.frame.minX - gAbsOff.x - gOrigin.x,
-                                         y: moved.frame.minY - gAbsOff.y - gOrigin.y)
+        var intoGroup = false
+        if place == .into, case .group? = findNode(targetID)?.content { intoGroup = true }
+        // Drop INTO a group reparents to the target; anything else reorders as a
+        // sibling, i.e. into whatever parent the target itself lives in.
+        let parentID: UUID? = intoGroup ? targetID : parentNodeID(of: targetID, in: original)
+        let pAbsOff = parentID.flatMap { parentOffset(of: $0, in: original) } ?? .zero
+        let pOrigin = parentID.flatMap { findNode($0)?.frame.origin } ?? .zero
+        for i in moved.indices {
+            moved[i].frame.origin = CGPoint(x: moved[i].frame.minX - pAbsOff.x - pOrigin.x,
+                                            y: moved[i].frame.minY - pAbsOff.y - pOrigin.y)
+        }
+
+        if intoGroup {
             guard Self.insertIntoGroup(moved, group: targetID, in: &nodes) else { return }
         } else {
-            // Reorder as a sibling of the target (same parent the target lives in).
-            let parentID = parentNodeID(of: targetID, in: original)
-            let pAbsOff = parentID.flatMap { parentOffset(of: $0, in: original) } ?? .zero
-            let pOrigin = parentID.flatMap { findNode($0)?.frame.origin } ?? .zero
-            moved.frame.origin = CGPoint(x: moved.frame.minX - pAbsOff.x - pOrigin.x,
-                                         y: moved.frame.minY - pAbsOff.y - pOrigin.y)
-            guard Self.insertSibling(moved, near: targetID, afterInModel: place == .before, in: &nodes) else { return }
+            guard Self.insertSiblings(moved, near: targetID, afterInModel: place == .before, in: &nodes) else { return }
         }
-        commitNodes(nodes, "Move Layer")
-        app.selectedNodeIDs = [draggedID]
+        commitNodes(nodes, moved.count == 1 ? "Move Layer" : "Move Layers")
+        app.selectedNodeIDs = Set(movingIDs)
     }
 
-    /// Move a document node into a component source's children (source-local coords).
-    private func moveIntoSource(_ draggedID: UUID, instance instanceID: UUID, sourceID: UUID, oldOffset: CGPoint) {
-        guard case .document = scope,
+    /// Move document nodes into a component source's children (source-local coords).
+    /// All-or-nothing: if the source will not take every node, none of them move.
+    private func moveIntoSource(_ ids: [UUID], instance instanceID: UUID, sourceID: UUID) {
+        guard case .document = scope, !ids.isEmpty,
               let instance = findNode(instanceID),
-              let dragged = findNode(draggedID),
-              document.model.canInsert([dragged], intoSource: sourceID),
               let si = document.model.sources.firstIndex(where: { $0.id == sourceID }) else { return }
+        let original = scopeNodes
+        let dragged = ids.compactMap { findNode($0) }
+        guard dragged.count == ids.count,
+              document.model.canInsert(dragged, intoSource: sourceID) else { return }
         var model = document.model
         guard let pageIndex = model.pageIndex(for: app.activeCanvasPageID) else { return }
         var top = model.pages[pageIndex].nodes
-        guard var moved = Self.extract(draggedID, from: &top) else { return }
-        // Source children render at the instance's origin; keep the node's position.
-        let absX = moved.frame.minX + oldOffset.x, absY = moved.frame.minY + oldOffset.y
-        moved.frame.origin = CGPoint(x: absX - instance.frame.minX, y: absY - instance.frame.minY)
+        var moved: [Node] = []
+        for id in ids {
+            let oldOffset = parentOffset(of: id, in: original) ?? .zero
+            guard var node = Self.extract(id, from: &top) else { return }
+            // Source children render at the instance's origin; keep the node's position.
+            let absX = node.frame.minX + oldOffset.x, absY = node.frame.minY + oldOffset.y
+            node.frame.origin = CGPoint(x: absX - instance.frame.minX, y: absY - instance.frame.minY)
+            moved.append(node)
+        }
         model.pages[pageIndex].nodes = top
-        model.sources[si].children.insert(moved, at: 0)
+        model.sources[si].children.insert(contentsOf: moved, at: 0)
         document.setModel(model, undoManager: undoManager, actionName: "Add to Component")
         app.selectedNodeIDs = []
     }
@@ -1299,11 +1386,20 @@ private struct LayerOutlineRow: View {
                 if dropIndicator?.id == node.id, dropIndicator?.place == .after { dropLine }
             }
             .onDrag {
+                // Finder / Illustrator rule: dragging a row that is NOT in the
+                // selection makes it the selection first, so the highlight always
+                // shows exactly what the drop is about to move.
+                if !app.selectedNodeIDs.contains(node.id) {
+                    app.selectedNodeIDs = [node.id]
+                    app.selectionAnchorID = node.id
+                    app.selectedArtboardID = nil
+                }
                 draggingID = node.id
                 return NSItemProvider(object: node.id.uuidString as NSString)
             }
             .onDrop(of: [.plainText, .text], delegate: LayerDropDelegate(
                 targetID: node.id, acceptsInto: hasDisclosure, rowHeight: rowH,
+                selectedIDs: app.selectedNodeIDs,
                 draggingID: $draggingID, indicator: $dropIndicator, perform: onDrop))
     }
 
@@ -1322,12 +1418,20 @@ private struct LayerDropDelegate: DropDelegate {
     let acceptsInto: Bool
     /// Actual height of the target row (measured), so the thresholds are correct.
     let rowHeight: CGFloat
+    /// The current layer selection. A drag that starts on a selected row moves the
+    /// WHOLE selection, so every member of it is an invalid destination — this is
+    /// what lets the panel say so with the cursor instead of silently doing nothing.
+    let selectedIDs: Set<UUID>
     @Binding var draggingID: UUID?
     @Binding var indicator: LayerDropIndicator?
     let perform: (UUID, UUID, DropPlace) -> Void
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
-        guard let d = draggingID, d != targetID else { return DropProposal(operation: .forbidden) }
+        guard let d = draggingID, d != targetID,
+              !(selectedIDs.contains(d) && selectedIDs.contains(targetID)) else {
+            if indicator?.id == targetID { indicator = nil }
+            return DropProposal(operation: .forbidden)
+        }
         let h = max(1, rowHeight)
         let y = info.location.y
         let place: DropPlace
@@ -1636,6 +1740,12 @@ private struct LayerRow: View {
         }
         entries.append(.action("Rename") { beginRename() })
         entries.append(.action("Center in Canvas") { centerInCanvas() })
+        // BUG-033: the lock had NO context-menu entry at all — for locked or
+        // unlocked rows — so the row button was the only route and a locked layer
+        // read as a dead end. Always ENABLED, including on a locked row: being
+        // un-actionable is the point of a lock, being un-UNLOCKABLE is a trap.
+        // Title states what the command will do to the row that was right-clicked.
+        entries.append(.action(node.isLocked ? "Unlock" : "Lock", onToggleLock))
         entries.append(.separator)
         entries.append(.action("Copy", onCopy))
         entries.append(.action("Duplicate", onDuplicate))

@@ -26,30 +26,42 @@ struct EXPSegmented<Value: Hashable>: View {
         var icon: String? = nil
         /// VoiceOver name when the segment is icon-only (falls back to `label`).
         var accessibilityLabel: String? = nil
+        /// Sighted hover help; accessibility always uses the stable name above.
+        var help: String? = nil
         var id: Value { value }
     }
 
     @Binding var selection: Value
     let segments: [Segment]
+    @FocusState private var focusedValue: Value?
+    @ScaledMetric(relativeTo: .caption) private var segmentFontSize: CGFloat = 12
+    @ScaledMetric(relativeTo: .caption) private var segmentHeight: CGFloat = 20
 
     var body: some View {
         HStack(spacing: 2) {
             ForEach(segments) { seg in
                 let sel = seg.value == selection
-                Button { selection = seg.value } label: {
+                Button {
+                    selection = seg.value
+                    focusedValue = seg.value
+                } label: {
                     HStack(spacing: 5) {
                         if let icon = seg.icon { Image(systemName: icon).font(.system(size: 11)) }
                         if let label = seg.label { Text(label) }
                     }
-                    .font(.system(size: 12, weight: sel ? .medium : .light))
+                    .font(.system(size: segmentFontSize, weight: sel ? .medium : .light))
                     .foregroundStyle(sel ? EXPColor.accentForeground : EXPColor.textSecondary)
                     .padding(.horizontal, 10)
-                    .frame(height: 20)
+                    .frame(minHeight: segmentHeight)
                     .background(sel ? EXPColor.accent : Color.clear,
                                 in: RoundedRectangle(cornerRadius: EXPMetric.radiusControl - 2, style: .continuous))
                     .contentShape(RoundedRectangle(cornerRadius: EXPMetric.radiusControl - 2, style: .continuous))
                 }
                 .buttonStyle(.plain)
+                .focusable(sel)
+                .focused($focusedValue, equals: seg.value)
+                .onMoveCommand { move(from: seg.value, direction: $0) }
+                .help(seg.help ?? seg.accessibilityLabel ?? seg.label ?? "")
                 .accessibilityLabel(seg.accessibilityLabel ?? seg.label ?? "")
                 .accessibilityAddTraits(sel ? [.isSelected] : [])
             }
@@ -61,6 +73,41 @@ struct EXPSegmented<Value: Hashable>: View {
             .strokeBorder(EXPColor.borderSoft, lineWidth: EXPMetric.strokeHairline))
         .animation(EXPMotion.fast, value: selection)
     }
+
+    private func move(from value: Value, direction: MoveCommandDirection) {
+        guard direction == .left || direction == .right
+                || direction == .up || direction == .down,
+              let index = segments.firstIndex(where: { $0.value == value }),
+              !segments.isEmpty else { return }
+        let delta = (direction == .right || direction == .down) ? 1 : -1
+        let next = segments[(index + delta + segments.count) % segments.count].value
+        selection = next
+        focusedValue = next
+    }
+}
+
+// MARK: - Dropdown chrome ==================================================
+
+private struct EXPDropdownChrome: ViewModifier {
+    @State private var hovering = false
+
+    func body(content: Content) -> some View {
+        content
+            .padding(.horizontal, 7)
+            .frame(minHeight: EXPMetric.controlH)
+            .background(hovering ? EXPColor.surfaceFieldFocus : EXPColor.surfaceField,
+                        in: RoundedRectangle(cornerRadius: EXPMetric.radiusField,
+                                             style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: EXPMetric.radiusField, style: .continuous)
+                .strokeBorder(EXPColor.borderControl, lineWidth: EXPMetric.strokeHairline))
+            .onHover { hovering = $0 }
+            .animation(EXPMotion.fast, value: hovering)
+    }
+}
+
+extension View {
+    /// Shared boundary/hover treatment for custom popup and menu labels.
+    func expDropdownChrome() -> some View { modifier(EXPDropdownChrome()) }
 }
 
 // MARK: - Button style ======================================================
@@ -144,15 +191,17 @@ struct EXPCompactButtonStyle: ButtonStyle {
         let configuration: ButtonStyleConfiguration
         let fillsWidth: Bool
         @State private var hovering = false
+        @ScaledMetric(relativeTo: .caption) private var controlHeight: CGFloat = EXPMetric.controlH
+        @ScaledMetric(relativeTo: .caption) private var fontSize: CGFloat = EXPType.mini
 
         var body: some View {
             configuration.label
-                .font(.system(size: EXPType.mini, weight: .medium))
+                .font(.system(size: fontSize, weight: .medium))
                 .foregroundStyle(EXPColor.textPrimary)
                 .padding(.horizontal, 9)
                 .frame(maxWidth: fillsWidth ? .infinity : nil,
-                       minHeight: EXPMetric.controlH,
-                       maxHeight: EXPMetric.controlH,
+                       minHeight: controlHeight,
+                       maxHeight: controlHeight,
                        alignment: fillsWidth ? .leading : .center)
                 .background(configuration.isPressed ? EXPColor.rowActive
                             : (hovering ? EXPColor.rowHover : EXPColor.surfaceField),

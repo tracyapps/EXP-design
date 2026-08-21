@@ -27,6 +27,24 @@
 import SwiftUI
 import Observation
 
+/// One gradient stop on the clipboard (FEAT-045). Colour and position travel
+/// together because the owner asked for exactly that; the caveat — a position only
+/// means something relative to ITS gradient's line — is recorded in the backlog
+/// entry rather than silently designed around.
+struct CopiedGradientStop: Equatable, Sendable {
+    var color: RGBAColor
+    var position: Double
+}
+
+/// App-wide defaults for the next text node. Unlike selection/camera state this
+/// intentionally survives windows and launches: type tools conventionally keep
+/// the last concrete face, size and colour until the user chooses another.
+struct RememberedTextStyle: Codable, Equatable, Sendable {
+    var fontName: String = ""       // PostScript face; empty = system
+    var fontSize: CGFloat = 16
+    var color: RGBAColor = .black
+}
+
 @MainActor
 @Observable
 final class AppState {
@@ -61,7 +79,21 @@ final class AppState {
         var label: String { self == .single ? "Single Window" : "Multi-Window" }
         var icon: String { self == .single ? "macwindow" : "macwindow.on.rectangle" }
     }
-    var workspaceMode: WorkspaceMode = .single { didSet { saveLayout() } }
+    /// Single-window docks vs floating panel windows.
+    ///
+    /// The VALUE lives per document window, because each window still needs its own
+    /// dock arrangement — but the CHOICE is app-wide, and switching it propagates to
+    /// every open document (owner 2026-08-19). It has to: Multi-Window mode has ONE
+    /// shared set of floating panels pointed at the frontmost document, so leaving a
+    /// second window in single mode would mean that document showing docked panels
+    /// AND the shared trays claiming to serve it.
+    var workspaceMode: WorkspaceMode = .single {
+        didSet {
+            guard oldValue != workspaceMode else { return }
+            saveLayout()
+            PanelHub.shared.propagateWorkspaceMode(workspaceMode, from: self)
+        }
+    }
 
     /// Drives the in-app feedback sheet (set by the Help ▸ Send Feedback menu).
     var showingFeedback = false
@@ -69,6 +101,7 @@ final class AppState {
     init() {
         loadLayout()
         migrateNewPanels()
+        rememberedTextStyle = Self.loadRememberedTextStyle()
         // Seed without persisting — these reads are not user edits.
         applyingExternalPrefs = true
         applyAppPreferenceDefaults()
@@ -103,6 +136,9 @@ final class AppState {
         }
         if d.object(forKey: AppPreferences.snapToGrid) != nil {
             snapToGrid = d.bool(forKey: AppPreferences.snapToGrid)
+        }
+        if d.object(forKey: AppPreferences.pixelSnap) != nil {
+            pixelSnap = d.bool(forKey: AppPreferences.pixelSnap)
         }
         if let g = d.object(forKey: AppPreferences.gridSize) as? Double, g > 0 {
             gridSize = CGFloat(g)
@@ -164,6 +200,10 @@ final class AppState {
             let v = d.bool(forKey: AppPreferences.snapToGrid)
             if v != snapToGrid { snapToGrid = v }
         }
+        if d.object(forKey: AppPreferences.pixelSnap) != nil {
+            let v = d.bool(forKey: AppPreferences.pixelSnap)
+            if v != pixelSnap { pixelSnap = v }
+        }
         if let g = d.object(forKey: AppPreferences.gridSize) as? Double, g > 0 {
             let v = CGFloat(g)
             if v != gridSize { gridSize = v }
@@ -179,6 +219,8 @@ final class AppState {
            let m = CanvasPerformanceMode(rawValue: raw), m != performanceMode {
             performanceMode = m
         }
+        let textStyle = Self.loadRememberedTextStyle()
+        if textStyle != rememberedTextStyle { rememberedTextStyle = textStyle }
     }
 
     /// Record a dock column's actual on-screen width (the dock view reports it as
@@ -257,6 +299,34 @@ final class AppState {
         showLeftPanel = p.showLeft
         showRightPanel = p.showRight
         restoringLayout = false
+    }
+
+    // MARK: Workspace presets (FEAT-021)
+
+    /// The whole current arrangement as one value — docks, mode, dock visibility AND
+    /// the floating trays with their window frames, which live app-wide on
+    /// `PanelHub`. Both halves or it is not an arrangement.
+    var workspaceSnapshot: WorkspaceSnapshot {
+        WorkspaceSnapshot(workspace: workspace, mode: workspaceMode,
+                          showLeft: showLeftPanel, showRight: showRightPanel,
+                          trays: PanelHub.shared.trays)
+    }
+
+    /// Restore an arrangement. Writes the dock half in one `restoringLayout` pass so
+    /// the property observers do not save four intermediate states, then hands the
+    /// trays to `PanelHub`, which clamps any window that would land on a monitor
+    /// this machine no longer has.
+    func applyWorkspaceSnapshot(_ snapshot: WorkspaceSnapshot) {
+        restoringLayout = true
+        workspace = snapshot.workspace
+        workspaceMode = snapshot.mode
+        showLeftPanel = snapshot.showLeft
+        showRightPanel = snapshot.showRight
+        restoringLayout = false
+        saveLayout()
+        PanelHub.shared.applyTrays(snapshot.trays)
+        PanelWindowManager.shared.reconcile()
+        PanelWindowManager.shared.applyTrayFrames()
     }
 
     /// The groups in one dock column, for the views to render.
@@ -468,6 +538,12 @@ final class AppState {
     /// Layout grids are different: those are per-artboard and live in the document.
     var showGrid = false
     var snapToGrid = false { didSet { persistPref(AppPreferences.snapToGrid, snapToGrid) } }
+
+    /// Whether a drag lands on whole points. SEPARATE from `snapToGrid` (BUG-036):
+    /// grid snapping pulls to grid lines, layout-grid edges and guides, while this
+    /// only rounds the result to whole points. Both are bypassed by holding ⌘ for
+    /// one drag; this is the persistent switch for working in fractions.
+    var pixelSnap = true { didSet { persistPref(AppPreferences.pixelSnap, pixelSnap) } }
     var gridSize: CGFloat = 50 { didSet { persistPref(AppPreferences.gridSize, Double(gridSize)) } }   // major spacing in points
     var gridSubdivisions: Int = 2 { didSet { persistPref(AppPreferences.gridSubdivisions, gridSubdivisions) } }   // minor lines per major cell
 
@@ -599,6 +675,19 @@ final class AppState {
     /// shift-click multi-selection. Empty = nothing selected.
     var selectedNodeIDs: Set<UUID> = []
 
+    /// FEAT-045 — the gradient stop the on-canvas handles are editing. Kept HERE,
+    /// not inside the picker, because the canvas, Inspector and eyedropper all
+    /// agree on which stop "the" stop is.
+    var selectedGradientStopID: UUID?
+
+    /// FEAT-023 — the effect row last edited in the Inspector. This makes the same
+    /// Duplicate Effect action available through the menu-bar responder chain.
+    var selectedEffectID: UUID?
+
+    /// A copied gradient stop — colour AND position, per the owner's explicit call.
+    /// Session state: it is a clipboard, not part of the document.
+    var copiedGradientStop: CopiedGradientStop?
+
     /// Convenience: the single selected node id, or nil when zero or many are
     /// selected (the Inspector shows editable fields only for a single shape).
     var singleSelectedNodeID: UUID? {
@@ -627,6 +716,38 @@ final class AppState {
     var notesPanelSize: [UUID: CGSize] = [:]
 
     // MARK: Text styling channel (Inspector ⇄ active text editor)
+
+    /// FEAT-046 — the concrete style used to seed the next point-text or text-box
+    /// node. This value is mirrored through UserDefaults so all document windows
+    /// share one type-tool memory and a relaunch does not reset it to 16 pt black.
+    var rememberedTextStyle = RememberedTextStyle()
+
+    private static let rememberedTextStyleKey = "exp.textTool.rememberedStyle.v1"
+
+    private static func loadRememberedTextStyle() -> RememberedTextStyle {
+        guard let data = UserDefaults.standard.data(forKey: rememberedTextStyleKey),
+              let decoded = try? JSONDecoder().decode(RememberedTextStyle.self, from: data),
+              decoded.fontSize.isFinite, decoded.fontSize >= 1 else {
+            return RememberedTextStyle()
+        }
+        return decoded
+    }
+
+    /// Update only the concrete components supplied. A mixed rich-text selection
+    /// therefore cannot erase a previously useful default with "Multiple".
+    func rememberTextStyle(fontName: String? = nil,
+                           fontSize: CGFloat? = nil,
+                           color: RGBAColor? = nil) {
+        var updated = rememberedTextStyle
+        if let fontName { updated.fontName = fontName }
+        if let fontSize, fontSize.isFinite { updated.fontSize = max(1, fontSize) }
+        if let color { updated.color = color }
+        guard updated != rememberedTextStyle else { return }
+        rememberedTextStyle = updated
+        if let data = try? JSONEncoder().encode(updated) {
+            UserDefaults.standard.set(data, forKey: Self.rememberedTextStyleKey)
+        }
+    }
 
     /// A style change requested by the Inspector. The canvas applies it to the
     /// active editor's selection (while editing) or the whole text node.
@@ -673,6 +794,11 @@ final class AppState {
     /// the point-rotation field (and how many points it's about to spin).
     var selectedPointCount: Int = 0
 
+    /// Which exposed stroke endpoint the node tool most recently selected.
+    /// Session-only context lets the Inspector offer the relevant marker slot
+    /// without pretending line caps themselves are per-point properties.
+    var selectedStrokeEndpoint: StrokeEndpoint?
+
     /// The angle last dialed into the Inspector's point-rotation field, so the
     /// field can show where it left off. There's no persisted "this selection's
     /// rotation" the way there is `node.rotation` — rotating points bakes the
@@ -695,6 +821,12 @@ final class AppState {
 
 /// The canvas tools. Select manipulates existing things; the shape tools draw
 /// new nodes. After drawing one shape we snap back to `.select`.
+enum StrokeEndpoint: String, Sendable {
+    case start, end
+
+    var label: String { self == .start ? "Start" : "End" }
+}
+
 enum Tool: Hashable {
     case pan         // hand tool: drag pans the canvas (never selects/moves)
     case select

@@ -16,6 +16,11 @@ struct PaintWell: View {
     let label: String
     @Binding var paint: Paint
     var supportsOpacity: Bool = true
+    /// The owning object's size lets an angle edit preserve the physical length
+    /// of an explicitly placed gradient line on non-square objects.
+    var gradientSize: CGSize? = nil
+    /// Shared with the canvas when this PaintWell edits the selected object.
+    var selectedGradientStopID: Binding<UUID?>? = nil
 
     @State private var showing = false
 
@@ -29,7 +34,9 @@ struct PaintWell: View {
             .buttonStyle(.plain)
             .help("Edit \(label.lowercased())")
             .popover(isPresented: $showing, arrowEdge: .leading) {
-                PaintEditor(paint: $paint, supportsOpacity: supportsOpacity)
+                PaintEditor(paint: $paint, supportsOpacity: supportsOpacity,
+                            gradientSize: gradientSize,
+                            selectedGradientStopID: selectedGradientStopID)
                     .frame(width: 250)
                     .padding(12)
             }
@@ -77,8 +84,10 @@ struct PaintSwatch: View {
 struct PaintEditor: View {
     @Binding var paint: Paint
     var supportsOpacity: Bool
+    var gradientSize: CGSize? = nil
+    var selectedGradientStopID: Binding<UUID?>? = nil
 
-    @State private var selectedStopID: UUID?
+    @State private var localSelectedStopID: UUID?
 
     private enum Mode: Int { case solid, linear, radial }
     private var mode: Mode {
@@ -105,9 +114,8 @@ struct PaintEditor: View {
                 gradientEditor
             }
         }
-        .onAppear {
-            if selectedStopID == nil, case .gradient(let g) = paint { selectedStopID = g.stops.first?.id }
-        }
+        .onAppear { validateSelectedStop() }
+        .onChange(of: paint) { _, _ in validateSelectedStop() }
     }
 
     // MARK: Solid
@@ -121,11 +129,12 @@ struct PaintEditor: View {
 
     @ViewBuilder
     private var gradientEditor: some View {
-        GradientBar(gradient: gradientBinding, selectedID: $selectedStopID)
+        GradientBar(gradient: gradientBinding, selectedID: activeSelectedStopID)
             .frame(height: 26)
 
         // Selected-stop controls
-        if let id = selectedStopID, let idx = gradientBinding.wrappedValue.stops.firstIndex(where: { $0.id == id }) {
+        if let id = activeSelectedStopID.wrappedValue,
+           let idx = gradientBinding.wrappedValue.stops.firstIndex(where: { $0.id == id }) {
             HStack(spacing: 8) {
                 ColorWell(label: "Stop", color: stopColorBinding(idx), supportsOpacity: supportsOpacity)
                 Button {
@@ -167,6 +176,30 @@ struct PaintEditor: View {
         )
     }
 
+    private var activeSelectedStopID: Binding<UUID?> {
+        Binding(
+            get: { selectedGradientStopID?.wrappedValue ?? localSelectedStopID },
+            set: { value in
+                if let selectedGradientStopID {
+                    selectedGradientStopID.wrappedValue = value
+                } else {
+                    localSelectedStopID = value
+                }
+            }
+        )
+    }
+
+    private func validateSelectedStop() {
+        guard case .gradient(let gradient) = paint else {
+            activeSelectedStopID.wrappedValue = nil
+            return
+        }
+        let selection = activeSelectedStopID.wrappedValue
+        if selection == nil || !gradient.stops.contains(where: { $0.id == selection }) {
+            activeSelectedStopID.wrappedValue = gradient.sortedStops.first?.id
+        }
+    }
+
     private func stopColorBinding(_ i: Int) -> Binding<RGBAColor> {
         Binding(
             get: { gradientBinding.wrappedValue.stops[safe: i]?.color ?? .white },
@@ -194,9 +227,9 @@ struct PaintEditor: View {
                 return a < 0 ? a + 360 : a
             },
             set: { v in
-                let wrapped = v.truncatingRemainder(dividingBy: 360)
                 var g = gradientBinding.wrappedValue
-                g.angle = wrapped < 0 ? wrapped + 360 : wrapped
+                let size = gradientSize ?? CGSize(width: 1, height: 1)
+                g = g.settingAngle(v, in: CGRect(origin: .zero, size: size))
                 gradientBinding.wrappedValue = g
             }
         )
@@ -207,7 +240,7 @@ struct PaintEditor: View {
         guard g.stops.count > 2 else { return }
         g.stops.removeAll { $0.id == id }
         gradientBinding.wrappedValue = g
-        selectedStopID = g.stops.first?.id
+        activeSelectedStopID.wrappedValue = g.sortedStops.first?.id
     }
 
     // MARK: Mode switching (converts the Paint)
@@ -219,11 +252,12 @@ struct PaintEditor: View {
                 switch newMode {
                 case .solid:
                     paint = .solid(paint.representativeColor)
+                    activeSelectedStopID.wrappedValue = nil
                 case .linear, .radial:
                     var g = paint.gradientValue ?? seededGradient(from: paint.representativeColor)
                     g.kind = (newMode == .linear) ? .linear : .radial
                     paint = .gradient(g)
-                    if selectedStopID == nil { selectedStopID = g.stops.first?.id }
+                    validateSelectedStop()
                 }
             }
         )
@@ -245,10 +279,33 @@ private struct GradientBar: View {
     @Binding var gradient: GradientFill
     @Binding var selectedID: UUID?
     @State private var dragID: UUID?
+    /// Where the grab landed relative to the stop's own position, so a stop being
+    /// dragged does not teleport its centre under the cursor on the first tick.
+    @State private var grabOffset: Double = 0
+
+    /// Marker diameter. The visual size; the GRAB radius is deliberately larger.
+    private static let markerSize: CGFloat = 14
+    /// Half of a 24pt target. The marker reads as 14pt but is grabbable at 24pt,
+    /// which is what WCAG 2.2 §2.5.8 Target Size (Minimum) asks for and costs
+    /// nothing visually. BUG-026.
+    private static let grabRadius: CGFloat = 12
 
     var body: some View {
         GeometryReader { geo in
             let w = geo.size.width
+            // Inset the usable track by the marker radius so a stop at position 0
+            // or 1 sits FULLY inside the bar.
+            //
+            // BUG-026 root cause: markers were centred at `position * w` and offset
+            // by -7, so the 0.0 and 1.0 stops — which every gradient has by default —
+            // hung half outside the bar. `.contentShape(Rectangle())` limits the
+            // gesture to the bar's own rect, so that overhanging half was VISIBLE BUT
+            // NOT CLICKABLE. Clicking the outer half of an end stop did nothing;
+            // clicking slightly inward worked. Exactly the owner's report: "the
+            // gradient points seem to need to be active slightly off-centre of the
+            // actual circle."
+            let r = Self.markerSize / 2
+            let track = max(1, w - r * 2)
             ZStack(alignment: .topLeading) {
                 RoundedRectangle(cornerRadius: EXPMetric.radiusField)
                     .fill(LinearGradient(stops: swiftUIStops, startPoint: .leading, endPoint: .trailing))
@@ -256,22 +313,30 @@ private struct GradientBar: View {
                     .overlay(RoundedRectangle(cornerRadius: EXPMetric.radiusField).strokeBorder(EXPColor.borderSoft))
 
                 ForEach(gradient.stops) { stop in
-                    marker(stop, at: stop.position * w)
+                    marker(stop, at: r + CGFloat(stop.position) * track)
                 }
             }
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { v in
-                        let pos = clampD(Double(v.location.x / max(1, w)))
+                        let pos = clampD(Double((v.location.x - r) / track))
                         if dragID == nil {
-                            if let near = nearestStop(to: pos, within: 0.05) { dragID = near }
-                            else { dragID = addStop(at: pos) }
+                            // Tolerance in POINTS, converted through the track —
+                            // it was a flat 0.05 of the bar's width, so how easy a
+                            // stop was to hit changed with the panel width.
+                            if let near = nearestStop(to: pos, within: Double(Self.grabRadius / track)) {
+                                dragID = near
+                                grabOffset = (gradient.stops.first { $0.id == near }?.position ?? pos) - pos
+                            } else {
+                                dragID = addStop(at: pos)
+                                grabOffset = 0
+                            }
                             selectedID = dragID
                         }
-                        setPosition(dragID!, pos)
+                        setPosition(dragID!, clampD(pos + grabOffset))
                     }
-                    .onEnded { _ in dragID = nil }
+                    .onEnded { _ in dragID = nil; grabOffset = 0 }
             )
         }
     }
@@ -280,8 +345,8 @@ private struct GradientBar: View {
         Circle()
             .fill(stop.color.swiftUI)
             .overlay(Circle().strokeBorder(selectedID == stop.id ? EXPColor.accent : .white, lineWidth: 2))
-            .frame(width: 14, height: 14)
-            .offset(x: x - 7, y: 6)
+            .frame(width: Self.markerSize, height: Self.markerSize)
+            .offset(x: x - Self.markerSize / 2, y: 6)
             .shadow(radius: 1)
     }
 

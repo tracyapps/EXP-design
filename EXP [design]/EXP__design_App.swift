@@ -16,6 +16,11 @@ struct EXP__design_App: App {
     init() {
         EXPFonts.registerBundledFonts()
         AgentBridgeController.shared.startIfEnabled()
+        // Single-letter tool shortcuts, centrally (BUG-028). Installed before any
+        // view renders so there is no window in which the old canvas-focus-only
+        // behaviour is the one in effect. See `ToolShortcuts` for why this is an
+        // event monitor and not menu key equivalents.
+        ToolShortcuts.install()
     }
 
     // Sparkle auto-updates (Phase 20): one UpdaterModel for the app's
@@ -87,11 +92,18 @@ struct EXP__design_App: App {
                 ArrangeCommandItems()
             }
 
+            // TOOLS ▸ every tool, reachable from the menu bar (BUG-028).
+            CommandMenu("Tools") {
+                ToolsCommandItems()
+            }
+
             // VIEW ▸ zoom + overlays (added to the system View menu via .toolbar slot).
             CommandGroup(after: .toolbar) {
                 ViewCommandItems()
             }
 
+        }
+        .commands {
             // WINDOW ▸ appended after the system window list (which shows the
             // document window). Panels section reveals/focuses floating panels
             // (multi-window); dock section toggles the side panels (single-window).
@@ -217,6 +229,8 @@ private struct EditCommandItems: View {
         Button("Duplicate") { sendEditorAction("duplicateSelection:") }
             .keyboardShortcut("d", modifiers: .command)
             .disabled(menu?.canDuplicate != true)
+        Button("Duplicate Effect") { sendEditorAction("duplicateSelectedEffectAction:") }
+            .disabled(menu?.canDuplicateEffect != true)
         Menu("Move to Page") {
             ForEach(menu?.pageTransferChoices ?? []) { page in
                 Button(page.name) {
@@ -446,8 +460,57 @@ private struct ArrangeCommandItems: View {
     }
 }
 
+/// Every tool gets a menu-bar home so it is reachable no matter where focus is
+/// (BUG-028) and so the tools strip is not the only route to a tool.
+///
+/// **Why there are no single-letter key equivalents here.** EXP's tool shortcuts
+/// (V, A, P, T, R, O, L, G, F, H) live in `CanvasNSView.keyDown`, and that is on
+/// purpose. A menu key equivalent is checked by the main menu BEFORE the event
+/// reaches the window and its first responder, so an unmodified letter equivalent
+/// would very likely fire while the user is typing — renaming a layer, editing a
+/// text node, filling in an inspector field — and swallow the character. Handling
+/// them in `keyDown` means they only fire when the canvas itself has focus, which
+/// is exactly why typing works today.
+///
+/// That correct behaviour is also what made BUG-028 possible: with focus in a
+/// panel, the canvas never sees the key. The menu items below fix REACHABILITY.
+/// The LETTERS are handled centrally by `ToolShortcuts` (see MainWindow.swift), which
+/// can decline while the user is typing — the thing a menu key equivalent cannot do,
+/// and the exact failure BUG-038 demonstrated in shipped code.
+private struct ToolsCommandItems: View {
+    var body: some View {
+        Button("Select") { sendEditorAction("selectToolAction:") }
+        Button("Edit Points") { sendEditorAction("nodeToolAction:") }
+        Divider()
+        Button("Pen") { sendEditorAction("penToolAction:") }
+        Button("Text") { sendEditorAction("textToolAction:") }
+        Divider()
+        Button("Rectangle") { sendEditorAction("rectangleToolAction:") }
+        Button("Ellipse") { sendEditorAction("ellipseToolAction:") }
+        Button("Polygon") { sendEditorAction("polygonToolAction:") }
+        Button("Line") { sendEditorAction("lineToolAction:") }
+        Divider()
+        Button("Frame") { sendEditorAction("artboardToolAction:") }
+        Divider()
+        Button("Hand") { sendEditorAction("panToolAction:") }
+    }
+}
+
 private struct ViewCommandItems: View {
     @FocusedValue(\.editorMenu) private var menu
+    /// Checked state for the two snap commands. A `Button` in a menu can only ever
+    /// look the same whether the thing it toggles is on or off, which makes a
+    /// toggle command unusable — you cannot tell what pressing it will do. These
+    /// read the PERSISTED preference rather than the focused window's `AppState`:
+    /// a Commands scene has no access to that state object, and every synced
+    /// AppState toggle writes straight through to UserDefaults, so the preference
+    /// is an accurate mirror. WRITING still goes through the responder chain, so
+    /// the canvas stays the single place the value actually changes. `Toggle` in a
+    /// menu also carries a real checked state for VoiceOver, which a Button cannot.
+    @AppStorage(AppPreferences.snapToGrid) private var snapToGrid =
+        AppPreferences.defaultSnapToGrid
+    @AppStorage(AppPreferences.pixelSnap) private var pixelSnap =
+        AppPreferences.defaultPixelSnap
 
     var body: some View {
         Button("Zoom In") { sendEditorAction("zoomInAction:") }
@@ -492,8 +555,13 @@ private struct ViewCommandItems: View {
         Button("Show / Hide Grid") { sendEditorAction("toggleGridAction:") }
             .keyboardShortcut("'", modifiers: .command)
             .disabled(menu == nil)
-        Button("Snap to Grid") { sendEditorAction("toggleSnapToGridAction:") }
+        Toggle("Snap to Grid", isOn: Binding(get: { snapToGrid },
+                                             set: { _ in sendEditorAction("toggleSnapToGridAction:") }))
             .keyboardShortcut("'", modifiers: [.command, .shift])
+            .disabled(menu == nil)
+        Toggle("Snap to Whole Pixels", isOn: Binding(get: { pixelSnap },
+                                                     set: { _ in sendEditorAction("togglePixelSnapAction:") }))
+            .keyboardShortcut("'", modifiers: [.command, .option])
             .disabled(menu == nil)
     }
 }
