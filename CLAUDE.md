@@ -142,11 +142,16 @@ explicitly deferred the remaining lower-priority vector/effect queue to v2.4 on
 2026-08-21. `docs/RELEASE-CHECKLIST-v2.3.md` contains the completed notarization,
 GitHub, Sparkle, website, and v2.2→v2.3 update receipts.
 
-The owner prioritized the first v2.4 slice on 2026-08-24: path-point bounds,
-buried-layer movement/Auto-select, and recursive group vector/type operations are
-implemented and awaiting the owner's Xcode verification pass (BUG-049, BUG-050,
-BUG-051, BUG-052, FEAT-047, FEAT-027). Do not stack another document-mutating slice until
-that pass.
+**v2.4 scope, set by the owner 2026-08-25:** ship BOTH the deferred vector/tool
+queue and Sanaa, with **Sanaa as the headline**. Waves and gates live in
+ROADMAP → v2.4 and `docs/RELEASE-CHECKLIST-v2.4.md` §A.
+Wave A (BUG-049, BUG-050, BUG-051, BUG-052, FEAT-047, FEAT-027) is committed at
+`a803df0` and awaiting the owner's Xcode verification pass.
+Wave B is Sanaa's core (FEAT-048 → 049 → 050; read `docs/SANAA-PLAN.md` first).
+Wave C is the vector queue (FEAT-025 leads, then 029, 028, 031, 030, BUG-048,
+BUG-034 Stage 2). Wave D is Sanaa's companion chunks (FEAT-051/052/053).
+**Sequencing rule:** never start a document-mutating slice while another one
+awaits owner verification.
 
 **Backlog hygiene:** run `scripts/verify_backlog_ids.sh` before assigning a new id.
 Ids are referenced from ROADMAP, PERF-LOG and PERF-TODO as well as BACKLOG, so

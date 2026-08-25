@@ -1283,15 +1283,26 @@ promote them into release gates.
 
 ---
 
-## v2.4 — owner-prioritized canvas/layer slice (under verification)
+## v2.4 — "Sanaa, and a vector toolset that grows up" (in development)
 
 Active development identity: **2.4 / build 15** across the main app and thumbnail
 extension, in both Debug and Release configurations. This is not a public-release
 claim; v2.3/build 14 remains the current signed, notarized Sparkle release.
 
-The owner reprioritized the first v2.4 work on 2026-08-24 from direct editing
-friction found in production use. Code is complete and the unsigned Debug build is
-green; these remain unchecked until the owner runs the Xcode acceptance pass.
+**Owner scope decision, 2026-08-25:** v2.4 ships BOTH the deferred vector/tool
+queue and Sanaa, with **Sanaa as the headline**. This is deliberately a large
+release — honestly estimated at 16–22 working sessions — and the sequencing rule
+below exists so it never becomes one long unverifiable window.
+
+**Sequencing rule (unchanged, and it governs this whole release):** nothing
+document-mutating starts while another mutating slice awaits the owner's
+verification. Waves alternate; each wave ends at a verification gate.
+
+### Wave A — carry-in slice (code complete 2026-08-24, awaiting owner verification)
+
+Reprioritized by the owner on 2026-08-24 from direct editing friction found in
+production use. Committed on 2026-08-25 as `a803df0`; the unsigned Debug build is
+green. These stay unchecked until the owner runs the Xcode acceptance pass.
 
 - [ ] BUG-049: every keyboard/Inspector point edit refits the path frame so bounds,
   hit-testing, paint bounds, and drop shadows follow moved anchors.
@@ -1310,14 +1321,60 @@ green; these remain unchecked until the owner runs the Xcode acceptance pass.
   owner regression pass. The prior backlog idea for a visible partial-success summary
   remains separately unfinished.
 
+### Wave B — Sanaa, the minimal lovable core (the headline)
 
-**Queued behind this slice (planned 2026-08-25, not started): Sanaa —
-FEAT-048…053.** An optional, default-off design assistant on the existing
-agent bridge (pen.dev-style "look at the canvas and draw," with the designer's
-own MCP agent reaching in — no LLM or API keys in EXP). Design, placement
-rules, switches, and per-chunk agent instructions: **`docs/SANAA-PLAN.md`**;
-entries in BACKLOG.md. FEAT-048 (the F3 write-back spine) must not start until
-the checkboxes above pass the owner's verification.
+The optional, default-off design assistant on the EXISTING agent bridge:
+pen.dev-style "look at the canvas and draw," with the designer's own MCP agent
+reaching in — **no LLM and no API keys in EXP**. Full design, placement rules,
+switches, and per-chunk agent instructions: **`docs/SANAA-PLAN.md`**.
+
+- [ ] FEAT-048 — `apply_edits`: consented, undo-safe write-back (the F3 spine). ~2–3 sessions.
+- [ ] FEAT-049 — presence: activity feed, canvas highlights, VoiceOver announcements. ~2 sessions.
+- [ ] FEAT-050 — "Ask Sanaa" prompt starters with placement dialogs. ~1–2 sessions.
+
+Intended order is 048 → 049 → 050. 048 is the only chunk in this wave that mutates
+documents; 049 and 050 sit on top of it.
+
+### Wave C — the vector toolset grows up
+
+The queue the owner explicitly deferred from v2.3 on 2026-08-21, plus the one
+import bug logged alongside it. FEAT-025 leads because it is the P1 and because it
+removes a daily "the app feels broken" moment.
+
+- [ ] FEAT-025 (P1) — direct-select moves whole objects when no points are selected.
+  NOT a fix for BUG-028; that stays its own entry.
+- [ ] FEAT-029 — pencil tool (freehand fitted to bezier points; expose the fidelity
+  control — Schneider curve fitting, `Graphics Gems` 1990).
+- [ ] FEAT-028 — outline (stroke) on live, still-editable text. **Research gate:**
+  decide `-webkit-text-stroke` vs `paint-order: stroke fill` against current browser
+  support and the semantic-HTML/CSS export contract, and record the citation, BEFORE
+  committing the model shape.
+- [ ] FEAT-031 — line end options (square / arrow / round), settable per point.
+- [ ] FEAT-030 (P3) — "balanced" (symmetric) curve handle mode. Confirm with the owner
+  which of the three anchor modes is actually missing before building.
+- [ ] BUG-048 — placed SVG `stroke-dasharray` imports as the wrong stroke pattern.
+- [ ] BUG-034 Stage 2 — implement spread for arbitrary silhouettes so canvas stops
+  diverging from SVG export. Stage 1 (disclosure) is already owner-verified.
+
+### Wave D — Sanaa becomes a companion
+
+Order is free; none of these mutate documents.
+
+- [ ] FEAT-051 — guided setup assistant for non-technical designers. **Research gate:**
+  sandboxed agent detection limits, and `.mcpb`/DXT packaging verified against current
+  Anthropic docs before anything is promised in copy.
+- [ ] FEAT-052 (P3) — the Sanaa avatar/character (owner-designed assets).
+- [ ] FEAT-053 (P3) — capability pack / agent etiquette guide (`exp://sanaa/guide`).
+
+### Wave E — release
+
+- [ ] `docs/RELEASE-CHECKLIST-v2.4.md` completed end to end.
+
+**Explicitly NOT in v2.4:** FEAT-033 (multi-point gradient on the object) stays a
+research item behind its unanswered SVG/import round-trip questions; FEAT-034's
+remaining Design Language surfaces, FEAT-009, FEAT-019, and the PERF queue ride
+along only if a wave finishes early. Semantic component/state reconstruction
+remains a v2.4+ research candidate, not a commitment.
 
 ---
 
