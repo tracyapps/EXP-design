@@ -2985,6 +2985,20 @@ struct TextRun: Codable, Equatable, Sendable {
 }
 
 enum TextAlign: String, Codable, Sendable { case left, center, right }
+
+/// Where a live-text stroke sits relative to the glyph outline (FEAT-028).
+///
+/// INSIDE is deliberately absent, and its absence is a decision rather than an
+/// omission: it cannot be expressed for HTML text in CSS at all — it needs a clip,
+/// which only SVG can do — so offering it would be a control that looks right on
+/// canvas and silently lies in handoff. That is the exact failure this tool exists
+/// to prevent. Convert the text to outlines when you need true inside stroke.
+///
+/// `outside` is painted by stroking at DOUBLE width underneath the fill, so the
+/// inner half is covered. That is the same convention the CSS handoff uses
+/// (`-webkit-text-stroke` at 2× plus `paint-order: stroke fill`), which is what
+/// makes canvas and browser agree rather than merely look similar.
+enum TextStrokeAlignment: String, Codable, Sendable { case outside, center }
 /// `auto` grows to fit one line; `fixed` wraps to a set width (Build 2).
 enum TextBox: String, Codable, Sendable { case auto, fixed }
 
@@ -3088,6 +3102,12 @@ struct TextContent: Codable, Sendable {
     var box: TextBox = .auto
     var textCase: TextCase = .none      // non-destructive CSS text-transform
     var contentRole: TextContentRole = .plain
+    /// Live-text stroke (FEAT-028). Width 0 means no stroke, which is what every
+    /// document written before this existed decodes as.
+    var strokeColor: RGBAColor = .black
+    var strokeWidth: CGFloat = 0
+    var strokeAlignment: TextStrokeAlignment = .outside
+
     /// New text uses CSS-style centered leading for fixed px/em line boxes.
     /// Older saved documents decode this as false so the v2.2 correction does
     /// not silently move typography authored against TextKit's legacy baseline.
@@ -3109,6 +3129,19 @@ struct TextContent: Codable, Sendable {
     }
 
     // MARK: convenience
+
+    /// The stroke that is actually painted, or nil when there is none. Every render
+    /// path asks this rather than testing the fields itself, so "is there a stroke"
+    /// cannot come out differently in the canvas and in an exporter.
+    var paintedStroke: (color: RGBAColor, width: CGFloat, alignment: TextStrokeAlignment)? {
+        guard strokeWidth > 0, strokeColor.a > 0 else { return nil }
+        return (strokeColor, strokeWidth, strokeAlignment)
+    }
+
+    /// True when the stroke needs its own pass UNDER the fill. Centre alignment does
+    /// not: it is one pass with a negative stroke width, which is what AppKit and
+    /// `-webkit-text-stroke` both do natively.
+    var needsOutsideStrokePass: Bool { paintedStroke?.alignment == .outside }
 
     var plainString: String { runs.map(\.string).joined() }
     var isEmpty: Bool { plainString.isEmpty }
@@ -3136,6 +3169,7 @@ struct TextContent: Codable, Sendable {
     enum CodingKeys: String, CodingKey {
         case runs, align, lineHeight, lineHeightUnit, tracking, box, textCase, contentRole
         case centersFixedLineHeightLeading
+        case strokeColor, strokeWidth, strokeAlignment
         case string, fontName, fontSize, color   // legacy
     }
     init(from decoder: Decoder) throws {
@@ -3159,6 +3193,10 @@ struct TextContent: Codable, Sendable {
         contentRole = (try? c.decode(TextContentRole.self, forKey: .contentRole)) ?? .plain
         centersFixedLineHeightLeading = (try? c.decode(
             Bool.self, forKey: .centersFixedLineHeightLeading)) ?? false
+        strokeColor = (try? c.decode(RGBAColor.self, forKey: .strokeColor)) ?? .black
+        strokeWidth = (try? c.decode(CGFloat.self, forKey: .strokeWidth)) ?? 0
+        strokeAlignment = (try? c.decode(
+            TextStrokeAlignment.self, forKey: .strokeAlignment)) ?? .outside
     }
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
@@ -3172,6 +3210,9 @@ struct TextContent: Codable, Sendable {
         try c.encode(contentRole, forKey: .contentRole)
         try c.encode(centersFixedLineHeightLeading,
                      forKey: .centersFixedLineHeightLeading)
+        try c.encode(strokeColor, forKey: .strokeColor)
+        try c.encode(strokeWidth, forKey: .strokeWidth)
+        try c.encode(strokeAlignment, forKey: .strokeAlignment)
     }
 }
 

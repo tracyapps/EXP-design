@@ -6674,6 +6674,12 @@ final class CanvasNSView: NSView {
         let storage: NSTextStorage      // retained: the layout manager needs it alive
         let layout: NSLayoutManager
         let fingerprint: Int
+        // FEAT-028: an OUTSIDE text stroke is painted as a separate pass under the
+        // fill, which needs its own layout. Built and cached beside the fill layout
+        // rather than rebuilt per frame, and nil for the overwhelmingly common case
+        // of text with no stroke.
+        var strokeStorage: NSTextStorage?
+        var strokeLayout: NSLayoutManager?
     }
     private var textLayoutCache: [UUID: TextLayoutEntry] = [:]
     private var textLayoutGen: Int = -1
@@ -6685,6 +6691,11 @@ final class CanvasNSView: NSView {
         h.combine(t.lineHeightUnit.rawValue); h.combine(t.tracking)
         h.combine(t.centersFixedLineHeightLeading)
         h.combine(t.box.rawValue); h.combine(t.textCase.rawValue)
+        // Without these a stroke change would reuse a stale layout and appear to do
+        // nothing until something else invalidated the cache.
+        h.combine(t.strokeWidth); h.combine(t.strokeAlignment.rawValue)
+        h.combine(t.strokeColor.r); h.combine(t.strokeColor.g)
+        h.combine(t.strokeColor.b); h.combine(t.strokeColor.a)
         for run in t.runs {
             h.combine(run.string); h.combine(run.fontName); h.combine(run.fontSize)
             h.combine(run.color.r); h.combine(run.color.g)
@@ -6717,7 +6728,19 @@ final class CanvasNSView: NSView {
         container.lineFragmentPadding = 0
         storage.addLayoutManager(layout)
         layout.addTextContainer(container)
-        let entry = TextLayoutEntry(storage: storage, layout: layout, fingerprint: fp)
+        var entry = TextLayoutEntry(storage: storage, layout: layout, fingerprint: fp)
+        if text.needsOutsideStrokePass {
+            let strokeStorage = NSTextStorage(
+                attributedString: text.attributedString(scale: 1, strokePass: .strokeOnly))
+            let strokeLayout = NSLayoutManager()
+            strokeLayout.usesFontLeading = true
+            let strokeContainer = NSTextContainer(containerSize: size)
+            strokeContainer.lineFragmentPadding = 0
+            strokeStorage.addLayoutManager(strokeLayout)
+            strokeLayout.addTextContainer(strokeContainer)
+            entry.strokeStorage = strokeStorage
+            entry.strokeLayout = strokeLayout
+        }
         textLayoutCache[nodeID] = entry
         return entry
     }
@@ -6727,6 +6750,12 @@ final class CanvasNSView: NSView {
         guard let container = entry.layout.textContainers.first else { return }
         let glyphRange = entry.layout.glyphRange(for: container)
         entry.layout.drawBackground(forGlyphRange: glyphRange, at: rect.origin)
+        // Outside stroke goes UNDER the fill — same layout geometry, drawn first.
+        if let strokeLayout = entry.strokeLayout,
+           let strokeContainer = strokeLayout.textContainers.first {
+            strokeLayout.drawGlyphs(forGlyphRange: strokeLayout.glyphRange(for: strokeContainer),
+                                    at: rect.origin)
+        }
         entry.layout.drawGlyphs(forGlyphRange: glyphRange, at: rect.origin)
     }
 

@@ -2997,6 +2997,39 @@ font import → Phase 9, shadows → Phase 10._
 
 ## Progress Log
 
+- **2026-08-25 (FEAT-029 signed off; FEAT-028 live-text stroke built, unverified).**
+  The owner verified the pencil — "much better, works great" — closing a feature that
+  took four rounds: corner fitting, event coalescing plus per-sample publishing, and
+  then the two performance fixes cancelling each other into an invisible stroke. The
+  entry records what was NOT walked through (export, reopen, groups, rotation, the
+  proximity close) so the sign-off is not read as broader than it was.
+
+  FEAT-028 then went in, straight from the research gate closed earlier today, and it
+  was mostly an exercise in not repeating BUG-053. That bug exists because the canvas
+  and the exporters are separate implementations kept in sync by comment, so this
+  feature was deliberately built around single points of truth:
+  `TextContent.paintedStroke` is the only place that answers "is there a stroke," and
+  `attributedString(strokePass:)` is the only place that decides what one looks like —
+  and both the canvas layout cache and the raster exporter already called that
+  function. Centre alignment is one pass with a negative `.strokeWidth`; outside is a
+  double-width stroke-only underlay the fill then covers, which is the same
+  convention SVG and the CSS handoff use, so the four paths agree by construction
+  rather than by being tuned to match.
+
+  The CSS half emits `-webkit-text-stroke-*` and `paint-order: stroke fill` together,
+  which is the finding that closed the research gate: they compose, they do not
+  compete. The ~6%-of-traffic caveat is written at the emission site with the date it
+  was measured, and again in the Inspector caption — disclosed where the decision is
+  made rather than buried in a doc. INSIDE alignment is absent, and the enum
+  declaration says why, so a later session cannot helpfully add a control that lies
+  in handoff.
+
+  Both schemes build clean — `Document.swift` and `Typography.swift` are shared with
+  EXPThumbnail, so both targets mattered. No stroked text has been drawn, exported,
+  or opened in a browser. And one acceptance line is genuinely unbuilt: converting
+  stroked text to outlines is not known to preserve the appearance, which is the most
+  likely gap and is written down as such.
+
 - **2026-08-25 (pencil, fourth round — the two previous fixes cancelled each
   other).** The owner reported the stroke starting to draw and then vanishing
   entirely until mouse-up. Both of the previous round's changes were individually

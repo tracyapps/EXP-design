@@ -154,8 +154,21 @@ extension TextContent {
     /// Build the attributed string for drawing/measuring (`applyCase: true`) or for
     /// the inline editor (`applyCase: false` — the editor must show the *original*
     /// characters so casing stays non-destructive).
+    /// Which pass of a stroked text draw this string is for (FEAT-028).
+    ///
+    /// `.fill` is the ordinary string. For CENTRE alignment it already carries the
+    /// stroke, because AppKit paints a negative `.strokeWidth` as fill-then-stroke —
+    /// the same centred result `-webkit-text-stroke` gives on its own.
+    ///
+    /// `.strokeOnly` is the underlay for OUTSIDE alignment: a positive
+    /// `.strokeWidth` at DOUBLE the authored width with no fill, drawn first so the
+    /// `.fill` pass covers the inner half. Both render paths use this one function,
+    /// so the canvas and the exporters cannot disagree about what a stroke is.
+    enum StrokePass { case fill, strokeOnly }
+
     func attributedString(scale: CGFloat = 1, applyCase: Bool = true,
-                          centerFixedLineHeightLeading: Bool = true) -> NSAttributedString {
+                          centerFixedLineHeightLeading: Bool = true,
+                          strokePass: StrokePass = .fill) -> NSAttributedString {
         let para = paragraphStyle(scale: scale)
         let strings = applyCase ? displayStrings() : runs.map(\.string)
 
@@ -184,6 +197,26 @@ extension TextContent {
                     let naturalLineHeight = NSLayoutManager().defaultLineHeight(for: font)
                     let offset = max(0, (targetLineHeight - naturalLineHeight) / 2)
                     if offset > 0.001 { attrs[.baselineOffset] = offset }
+                }
+            }
+            // Live-text stroke. `.strokeWidth` is a PERCENTAGE OF FONT SIZE, not a
+            // point value — and because the font here is already scaled, the scale
+            // cancels out of the percentage, so this is correct at every zoom.
+            // Positive = stroke only; negative = fill and stroke.
+            if let stroke = paintedStroke {
+                let percent = { (points: CGFloat) in
+                    Double(points / max(run.fontSize, 0.01) * 100)
+                }
+                switch (strokePass, stroke.alignment) {
+                case (.strokeOnly, .outside):
+                    attrs[.foregroundColor] = NSColor.clear
+                    attrs[.strokeColor] = PaintRender.nsColor(stroke.color)
+                    attrs[.strokeWidth] = percent(stroke.width * 2)
+                case (.fill, .center):
+                    attrs[.strokeColor] = PaintRender.nsColor(stroke.color)
+                    attrs[.strokeWidth] = -percent(stroke.width)
+                case (.fill, .outside), (.strokeOnly, .center):
+                    break   // the fill pass of an outside stroke is an ordinary fill
                 }
             }
             if run.underline { attrs[.underlineStyle] = NSUnderlineStyle.single.rawValue }

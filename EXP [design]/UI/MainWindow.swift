@@ -4075,6 +4075,44 @@ struct RightPanel: View {
                 Spacer()
             }
 
+            // FEAT-028 — stroke on LIVE text. Zero width means no stroke, so the
+            // rest of the controls stay out of the way until the designer asks for
+            // one. Inside alignment is deliberately absent: it cannot survive the
+            // HTML round trip, and Convert to Outlines is the honest route when
+            // exact stroke geometry matters.
+            HStack(spacing: 6) {
+                Text("Stroke").foregroundStyle(EXPColor.textSecondary).font(.callout)
+                TextField("", value: textStrokeWidthBinding,
+                          format: .number.precision(.fractionLength(1)))
+                    .textFieldStyle(.exp)
+                    .frame(width: 52)
+                    .multilineTextAlignment(.trailing)
+                    .numericStepping(textStrokeWidthBinding, min: 0)
+                    .accessibilityLabel("Text stroke width")
+                    .accessibilityHint("Zero removes the stroke.")
+                Text("px").foregroundStyle(EXPColor.textSecondary).font(.caption2)
+                Spacer()
+            }
+            if (selectedTextContent?.strokeWidth ?? 0) > 0 {
+                ColorWell(label: "Stroke color", color: textStrokeColorBinding)
+                HStack(spacing: 6) {
+                    Text("Align").foregroundStyle(EXPColor.textSecondary).font(.callout)
+                    EXPSegmented(selection: textStrokeAlignmentBinding, segments: [
+                        .init(value: TextStrokeAlignment.outside, label: "Outside",
+                              accessibilityLabel: "Stroke outside the letterforms",
+                              help: "Stroke sits behind the fill, so thick strokes do not eat the letterforms"),
+                        .init(value: TextStrokeAlignment.center, label: "Center",
+                              accessibilityLabel: "Stroke centred on the letterforms",
+                              help: "Stroke straddles the outline, half inside and half outside"),
+                    ])
+                    Spacer()
+                }
+                Text("Stays editable text. In HTML handoff this exports as -webkit-text-stroke with paint-order; browsers before Chrome/Edge 123 draw it centred instead of behind the fill. Convert to Outlines for exact control.")
+                    .font(.caption2)
+                    .foregroundStyle(EXPColor.textTertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             // Semantic page role for HTML handoff — its own sub-section, separated
             // from the visual type controls it used to sit atop. Kept away from the
             // Font menu because the two dropdowns were easy to confuse.
@@ -4162,6 +4200,24 @@ struct RightPanel: View {
     private var trackingBinding: Binding<Double> {
         Binding(get: { Double(selectedTextContent?.tracking ?? 0) },
                 set: { v in updateTextContent(action: "Letter Spacing", remeasure: true) { $0.tracking = CGFloat(v) } })
+    }
+    private var textStrokeWidthBinding: Binding<Double> {
+        Binding(get: { Double(selectedTextContent?.strokeWidth ?? 0) },
+                set: { w in updateTextContent(action: "Text Stroke", remeasure: false) {
+                    $0.strokeWidth = max(0, CGFloat(w))
+                } })
+    }
+    private var textStrokeColorBinding: Binding<RGBAColor> {
+        Binding(get: { selectedTextContent?.strokeColor ?? .black },
+                set: { c in updateTextContent(action: "Text Stroke Color", remeasure: false) {
+                    $0.strokeColor = c
+                } })
+    }
+    private var textStrokeAlignmentBinding: Binding<TextStrokeAlignment> {
+        Binding(get: { selectedTextContent?.strokeAlignment ?? .outside },
+                set: { a in updateTextContent(action: "Text Stroke Alignment", remeasure: false) {
+                    $0.strokeAlignment = a
+                } })
     }
     private var textCaseBinding: Binding<TextCase> {
         Binding(get: { selectedTextContent?.textCase ?? .none },

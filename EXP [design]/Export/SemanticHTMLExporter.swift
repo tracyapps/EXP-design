@@ -1262,6 +1262,26 @@ private struct CSSWriter {
             case .px:       d.append("line-height: \(number(text.lineHeight))px")
             case .em:       d.append("line-height: \(number(text.lineHeight))em")
             }
+            // FEAT-028 live-text stroke. There is no standard CSS stroke for HTML
+            // text, and `paint-order` only has any effect on HTML text when the
+            // stroke comes from `-webkit-text-stroke` — so the two are emitted
+            // TOGETHER, not chosen between. Outside alignment doubles the width and
+            // lets the fill cover the inner half, which is the same convention the
+            // canvas and the SVG export use, so all three agree by construction.
+            //
+            // Honest limit, stated rather than implied: `paint-order` is only fully
+            // supported for HTML text from Chrome/Edge 123 (Firefox 60+, Safari
+            // 11+). Roughly 6% of traffic still paints the stroke CENTRED over the
+            // fill, which reads as too heavy rather than as no stroke. Measured
+            // 2026-08-25; see FEAT-028 in BACKLOG for the citation.
+            if let stroke = text.paintedStroke {
+                let painted = stroke.alignment == .outside ? stroke.width * 2 : stroke.width
+                d.append("-webkit-text-stroke-width: \(number(painted))px")
+                d.append("-webkit-text-stroke-color: \(color(stroke.color))")
+                if stroke.alignment == .outside {
+                    d.append("paint-order: stroke fill")
+                }
+            }
             return d
         case .image(let image):
             let mime = imageMediaType(image.data)

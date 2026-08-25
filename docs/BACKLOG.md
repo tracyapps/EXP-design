@@ -3169,8 +3169,8 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: feature
 - Priority: P2
 - Area: type · canvas · export
-- Status: **open — v2.4 Wave C. Research gate CLOSED 2026-08-25 (see below); no
-  code written.**
+- Status: **needs-verify — implemented 2026-08-25; both schemes build clean, NO
+  runtime verification has been run**
 - Repro/Detail: Owner request 2026-08-11: "outline text (even just as type)" — i.e.
   a stroke applied to text that is still editable text, not converted to paths.
 - Hypothesis: the model already carries stroke on shapes and paths; this extends it
@@ -3236,6 +3236,52 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   text can pass the checker and still read badly. Decide before shipping whether the
   checker should account for a stroke or say that it does not; do not leave the
   question implicit.
+- Implementation 2026-08-25, built straight from the closed research gate.
+  - **Model:** `TextContent` gains `strokeColor`, `strokeWidth`, `strokeAlignment`,
+    with hand-written decoding so every existing document opens as width 0 = no
+    stroke. `TextStrokeAlignment` is `outside | center` — **INSIDE is absent by
+    decision, and the enum says why at the declaration** so a later session cannot
+    "helpfully" add it.
+  - **One predicate, four renderers.** `TextContent.paintedStroke` answers "is there
+    a stroke, and what is it" in one place, so "is there a stroke" cannot come out
+    differently in the canvas and in an exporter. That is the direct lesson of
+    BUG-053, applied before the drift could happen rather than after.
+  - **One attribute builder, two passes.** The stroke lives in
+    `TextContent.attributedString(strokePass:)`, which BOTH the canvas layout cache
+    and the raster exporter already call. Centre alignment is one pass with a
+    NEGATIVE `.strokeWidth` (AppKit paints that fill-then-stroke, the same centred
+    result `-webkit-text-stroke` gives alone). Outside is a `.strokeOnly` underlay at
+    DOUBLE width with a clear fill, drawn first so the fill covers the inner half.
+    Note `.strokeWidth` is a PERCENTAGE OF FONT SIZE in AppKit, not points — and
+    because the font is already scaled, the scale cancels out of the percentage, so
+    it is correct at every zoom.
+  - **Canvas:** `TextLayoutEntry` gained an optional stroke layout, built and cached
+    beside the fill layout and nil for the common no-stroke case, so a stroked text
+    node costs one extra layout per cache fill rather than one per frame. The
+    fingerprint now includes the stroke fields — without that a stroke change would
+    reuse a stale layout and appear to do nothing.
+  - **SVG** keeps the text LIVE: `stroke`, `stroke-width` (doubled for outside),
+    `stroke-linejoin="round"`, `paint-order="stroke"` on the `<text>` element.
+  - **HTML/CSS** emits `-webkit-text-stroke-width` (doubled for outside),
+    `-webkit-text-stroke-color`, and `paint-order: stroke fill` TOGETHER, because
+    they compose rather than compete — the finding that closed the research gate.
+    The ~6%-of-traffic caveat is written at the emission site with the date it was
+    measured.
+  - **Inspector:** a Stroke width field in the Type panel, with colour and an
+    Outside/Center control appearing only once width > 0, plus a caption stating the
+    browser limit and pointing at Convert to Outlines for exact control. The
+    limitation is disclosed where the decision is made, not buried in a doc.
+- **What was verified:** `xcodebuild` Debug succeeds for both the `EXP [design]` and
+  `EXPThumbnail` schemes (`Document.swift` and `Typography.swift` are both shared, so
+  both targets matter here), zero errors, no warnings in any touched file. **That is
+  the entire claim** — no stroked text has been drawn, exported, or opened in a
+  browser.
+- **Not done, and part of the acceptance:** "converting the text to outlines
+  afterward preserves the appearance" has NOT been implemented or checked. Convert to
+  Outlines produces a path from the glyph fill; whether it carries the stroke across
+  is unknown and is the most likely gap. Also untouched: the FEAT-005 contrast
+  checker still compares fill against background and knows nothing about a stroke —
+  flagged in the research and still open.
 - Acceptance: a text node can carry a stroke with color, width, and alignment while
   remaining editable text; canvas, PNG, PDF, and SVG all agree; the HTML/CSS handoff
   emits a documented, verified equivalent with its browser-support caveat stated

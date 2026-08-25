@@ -283,7 +283,20 @@ struct ExportRenderer {
                 let underline = run.underline ? " text-decoration=\"underline\"" : ""
                 return "<tspan font-family=\"\(escape(family))\" font-size=\"\(num(run.fontSize))\"\(weight)\(style)\(underline)\(fillAttr(run.color))>\(escape(cased[i]))</tspan>"
             }.joined()
-            inner = "<text x=\"\(num(f.minX))\" y=\"\(num(baseline))\">\(spans)</text>\n"
+            // FEAT-028 live-text stroke. SVG keeps the text LIVE, so this is the
+            // faithful half: stroke the glyphs and put the stroke under the fill
+            // with `paint-order`. Outside alignment doubles the width for exactly
+            // the same reason the canvas and the CSS handoff do — the fill covers
+            // the inner half — so all three agree by construction rather than by
+            // being tuned to match.
+            var textStroke = ""
+            if let s = t.paintedStroke {
+                let painted = s.alignment == .outside ? s.width * 2 : s.width
+                textStroke = " stroke=\"\(hex(s.color))\" stroke-width=\"\(num(painted))\""
+                    + " stroke-linejoin=\"round\" paint-order=\"stroke\""
+                if s.color.a < 1 { textStroke += " stroke-opacity=\"\(num(s.color.a))\"" }
+            }
+            inner = "<text x=\"\(num(f.minX))\" y=\"\(num(baseline))\"\(textStroke)>\(spans)</text>\n"
         case .group(let children):
             var prefix = ""
             if let pad = node.autoPadding, pad.fill != nil || pad.strokeWidth > 0 {
@@ -921,6 +934,11 @@ final class ExportRenderView: NSView {
                                        strokeWidth: ps.strokeWidth, color: ps.stroke.ns, in: ctx)
             }
         case .text(let t):
+            // Same two-pass rule as the canvas, from the same `attributedString`,
+            // so raster export cannot drift from what was on screen.
+            if t.needsOutsideStrokePass {
+                t.attributedString(strokePass: .strokeOnly).draw(in: rect)
+            }
             t.attributedString().draw(in: rect)
         case .group(let children):
             if let pad = node.autoPadding, pad.fill != nil || pad.strokeWidth > 0 {
