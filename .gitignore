@@ -32,6 +32,10 @@ docs/*
 !docs/WEB-SVG-FIDELITY-INVENTORY.md
 !docs/STORYBOOK-COMPATIBILITY-MATRIX.md
 !docs/ACCESSIBILITY-CONTROL-AUDIT.md
+# SANAA-PLAN is the authoritative Sanaa design, referenced by BACKLOG, ROADMAP,
+# AGENTS.md and CLAUDE.md. It was untracked until 2026-08-25, so a fresh clone
+# would have lost the plan every one of those files points at.
+!docs/SANAA-PLAN.md
 # PERF-LOG.md and PERF-TODO.md stay untracked — deliberately local scratch. Say so
 # here so the next person does not "fix" it.
 

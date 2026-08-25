@@ -34,6 +34,87 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 
 ## 🐞 Bugs
 
+### BUG-053 — Layered soft-glow effects export far more concentrated than the canvas shows
+- Type: bug (fidelity/divergence — the failure this tool exists to prevent)
+- Priority: P1
+- Area: export · effects · canvas · perf
+- Status: **open — diagnosed 2026-08-25 from owner evidence; NOT yet reproduced by
+  running either renderer, and no fix written**
+- Repro/Detail: Owner built layered light-leak graphics from several large,
+  low-opacity blurred layers. PNG export does not match the canvas: a broad soft
+  bloom becomes a tight, hot core; the periphery crushes to near black; soft
+  line-art glints read as hard specks; and the apparent hue changes (a green/teal
+  wash disappears, leaving the blue). Evidence screenshots (canvas on top, PNG
+  export below) are on disk at `docs/evidence/BUG-053/`, deliberately UNTRACKED —
+  the repo's standing rule is that screenshots are reproducible local evidence, not
+  release source.
+- **Measured, not eyeballed.** `scripts/measure_export_divergence.py`
+  discriminates a colour transform from a spatial one. Against the square pair:
+  - Binning by design value gives export values with a standard deviation of ±24
+    to ±100 on means of 15–200. A global per-channel transform would produce tight
+    bins. **So this is NOT a colour-space, profile, or gamma problem** — the
+    mapping depends on WHERE a pixel is, not what value it had.
+  - Radial luminance about the bloom centre: export is **2.31×** the canvas at
+    radius 0–15, **1.44×** at 30–45, crosses 1.0 near radius ~50, and sits at
+    **0.34–0.57×** everywhere past radius 60. Contrast rises (σ 43→58), highlights
+    clip (p99 204→251), shadows crush (p10 12.3→0.8).
+  - That is the signature of the same light compressed into a smaller blur radius,
+    by roughly a factor of 2–3. The "hue shift" is a consequence: differently
+    coloured glow layers were redistributed, not recoloured.
+- **Root cause (static reading of the code; the prime suspect, not yet proven at
+  runtime).** `EffectsRender.maxShadowBlurPx = 200` is a performance guard, and it
+  is applied in DEVICE space: `blurPx = min(e.blur * scale, 200)`. The canvas
+  passes `scale: app.zoom` (`CanvasView.swift:5841,5853`); export passes
+  `scale: 1` (`ExportRenderer.swift:806,815`). So the model-space blur that
+  survives is `min(blur, 200/zoom)` on canvas and `min(blur, 200)` in export. At
+  100% zoom they agree. Author a bloom wider than 200pt while zoomed OUT — which
+  is how you work on a large artboard — and the canvas shows it in full while the
+  export truncates it. At ~45% zoom the ratio is ~2.2×, which matches the measured
+  crossover. **A performance guard is changing the picture**, which is precisely
+  what PERF round 8 and `docs/exp-fidelity-not-prototyping` say must never happen.
+- **Two more defects in the same family, found while tracing it. Each is
+  independently capable of a visible divergence and should not be folded into one
+  "fix the blur" change without being named:**
+  1. `EffectsRender.drawLayerBlur` takes `deviceScale` and computes
+     `sigma = min(200, effect.blur * max(1, deviceScale))`. The canvas passes
+     `backingScale` and draws in VIEW space (already zoomed), so a model-point blur
+     is multiplied by the backing scale but NOT by zoom, while its `bounds` and
+     `pad` are view-space. Canvas layer blur is therefore only correct at 100%
+     zoom; export (`deviceScale: 1`, model space) is self-consistent. The two paths
+     disagree by construction.
+  2. `drawLayerBlur`'s size guards (`maxLayerDimension` 12000, `maxLayerPixels`
+     32M) **fail open to `draw(ctx)` — the content drawn with NO BLUR AT ALL.** A
+     large, heavily blurred light-leak layer is exactly the case that trips them,
+     and the fallback is silent. This is the most likely explanation for soft
+     glints becoming hard specks. Degrading resolution would be defensible;
+     dropping the effect and saying nothing is not.
+- Also noted, separate and unproven: PNG/JPG export rasterizes through a PDF
+  intermediate and lands in an `NSBitmapImageRep(colorSpaceName: .deviceRGB)`
+  (`ExportRenderer.swift:119,142`), so exported files likely carry no colour
+  profile. The measurements above say this is NOT the cause of the reported
+  divergence, but for a fidelity tool an untagged export is worth checking on its
+  own. Log it separately rather than smuggling it into this fix.
+- Structural note: the canvas and the export have SEPARATE node-drawing
+  implementations that "mirror" each other by comment
+  (`ExportRenderView.drawExportNode` vs `CanvasView`'s draw path). Three different
+  blur-space conventions across two copies is the shape of the problem. Consider
+  whether the fix is one shared effect-geometry resolver rather than a third
+  correction applied twice.
+- Decisive test before writing any fix: one artboard, four rects with identical
+  low-opacity fills and layer blurs of 50 / 150 / 250 / 400 points. Export at 1×,
+  2×, and 3×, and view the canvas at 25% / 100% / 200%. Predictions if the reading
+  above is right: the 250 and 400 rects export IDENTICALLY to each other (both
+  clamped to 200); export does not vary with export scale; and the canvas renders
+  them differently at each zoom. Any prediction that fails narrows the cause.
+- Acceptance: an artboard of stacked low-opacity blurred layers exports to PNG
+  matching the canvas at 100% zoom, and the export is independent of the zoom the
+  document happened to be at, of the export scale, and of the artboard's size. A
+  blur too large to render at full resolution degrades in resolution, never in
+  radius, and never silently — if an effect cannot be rendered as authored, the
+  export says so. Canvas and export agree for drop shadow, inner shadow, and layer
+  blur, verified against the four-rect fixture above at three zooms and three
+  export scales.
+
 ### BUG-052 — Reveal in Layers and layer-tree commands lose the live floating panel
 - Type: bug
 - Priority: P1
@@ -3008,6 +3089,14 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   INSIDE is not expressible for HTML text in CSS at all — it needs a clip, which
   only SVG can do — so either leave it out of v1 or state plainly that it does not
   survive the HTML round trip. Do not offer a control that silently lies in handoff.
+- **Owner decision 2026-08-25 — the limitations are ACCEPTED, do not reopen this.**
+  Having read the mechanism, the owner is fine shipping live-text stroke with the
+  centered-stroke fallback on older Chrome/Edge and with no inside alignment: it is
+  a small use case, and **Convert to Outlines is the full-control escape hatch**
+  when exact stroke geometry matters. That reframes the feature's job — live-text
+  stroke is the convenient path, outlines are the guaranteed one — so the UI should
+  make that route discoverable at the moment it matters rather than hiding the
+  limitation. State the caveat in the handoff output; do not build a workaround.
 - **Accessibility note, flagged not solved:** a stroke changes the effective contrast
   at glyph edges, and FEAT-005's checker compares fill against background. Stroked
   text can pass the checker and still read badly. Decide before shipping whether the

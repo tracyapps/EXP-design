@@ -1340,7 +1340,17 @@ switches, and per-chunk agent instructions: **`docs/SANAA-PLAN.md`**.
 Intended order is 048 → 049 → 050. 048 is the only chunk in this wave that mutates
 documents; 049 and 050 sit on top of it.
 
-### Wave C — the vector toolset grows up
+### Wave C — the vector toolset grows up, and one fidelity bug that outranks it
+
+- [ ] **BUG-053 (P1) — layered soft-glow effects export far more concentrated than
+  the canvas shows.** Found in the owner's production use 2026-08-25 and diagnosed
+  the same day: a performance clamp (`maxShadowBlurPx`) is applied in device space,
+  so the blur that survives depends on the zoom the document happened to be at,
+  and the export truncates blooms the canvas renders in full. Measured evidence and
+  two further defects in the same family are in BACKLOG. **This is the export
+  silently not matching the design — it outranks everything else in this wave and
+  arguably leads the release.**
+
 
 The queue the owner explicitly deferred from v2.3 on 2026-08-21, plus the one
 import bug logged alongside it. FEAT-025 leads because it is the P1 and because it
@@ -2977,6 +2987,40 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-08-25 (BUG-053 logged and diagnosed — a performance guard is changing the
+  picture).** The owner brought two side-by-side comparisons: layered low-opacity
+  light-leak graphics whose PNG export does not match the canvas. Rather than guess
+  between the usual suspects, the difference was measured
+  (`scripts/measure_export_divergence.py`; the screenshots stay untracked on disk
+  under `docs/evidence/BUG-053/`, per the repo's screenshots-are-local rule).
+  Binning export values by canvas value gives spreads of ±24 to ±100, which rules
+  out a colour-space, profile, or gamma cause outright — the mapping is spatial,
+  not per-value. The radial luminance profile then names it: the export is 2.31×
+  the canvas at the bloom centre, crosses 1.0 near radius 50, and sits at 0.34–0.57×
+  beyond radius 60. Same light, smaller radius, by a factor of 2–3.
+
+  Reading the code with that number in hand found the mechanism.
+  `EffectsRender.maxShadowBlurPx = 200` is a performance guard applied in DEVICE
+  space, and the canvas passes `scale: app.zoom` while export passes `scale: 1`.
+  The surviving model-space blur is therefore `min(blur, 200/zoom)` on canvas and
+  `min(blur, 200)` in export — identical at 100% zoom, divergent everywhere else.
+  Authoring a wide bloom while zoomed out, which is how you work on a large
+  artboard, is enough to trigger it, and ~45% zoom predicts the ~2.2× that was
+  measured.
+
+  Two more defects surfaced in the same family and were logged rather than folded
+  in: `drawLayerBlur` multiplies a model-point blur by the backing scale but not by
+  zoom while its bounds are view-space, so the canvas is self-consistent only at
+  100%; and its size guards fail OPEN to drawing the content with no blur at all,
+  silently, which is the likeliest reason soft glints exported as hard specks.
+  Nothing was fixed — the entry carries a four-rect fixture whose predicted results
+  will confirm or kill the reading before any code is written.
+
+  Also recorded: the owner accepted FEAT-028's live-text stroke limitations, on the
+  grounds that Convert to Outlines is the full-control escape hatch. That is a
+  decision, not a deferral — it reframes live-text stroke as the convenient path
+  rather than the complete one.
 
 - **2026-08-25 (v2.4 scope set, then FEAT-048 built — code complete, NOTHING
   verified at runtime).** The owner chose the v2.4 shape: ship BOTH the deferred
