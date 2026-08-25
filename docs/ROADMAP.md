@@ -1350,10 +1350,11 @@ removes a daily "the app feels broken" moment.
   NOT a fix for BUG-028; that stays its own entry.
 - [ ] FEAT-029 — pencil tool (freehand fitted to bezier points; expose the fidelity
   control — Schneider curve fitting, `Graphics Gems` 1990).
-- [ ] FEAT-028 — outline (stroke) on live, still-editable text. **Research gate:**
-  decide `-webkit-text-stroke` vs `paint-order: stroke fill` against current browser
-  support and the semantic-HTML/CSS export contract, and record the citation, BEFORE
-  committing the model shape.
+- [ ] FEAT-028 — outline (stroke) on live, still-editable text. **Research gate
+  CLOSED 2026-08-25:** the two mechanisms are not alternatives, they compose —
+  HTML/CSS emits `-webkit-text-stroke-*` at 2× width plus `paint-order: stroke fill`,
+  SVG emits `stroke`/`stroke-width`/`paint-order="stroke"` on the live `<text>`.
+  Support, alignment, and the ~6%-of-traffic caveat are recorded in BACKLOG.
 - [ ] FEAT-031 — line end options (square / arrow / round), settable per point.
 - [ ] FEAT-030 (P3) — "balanced" (symmetric) curve handle mode. Confirm with the owner
   which of the three anchor modes is actually missing before building.

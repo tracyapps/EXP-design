@@ -2954,7 +2954,8 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: feature
 - Priority: P2
 - Area: type · canvas · export
-- Status: **deferred to v2.4 by owner decision 2026-08-21**
+- Status: **open — v2.4 Wave C. Research gate CLOSED 2026-08-25 (see below); no
+  code written.**
 - Repro/Detail: Owner request 2026-08-11: "outline text (even just as type)" — i.e.
   a stroke applied to text that is still editable text, not converted to paths.
 - Hypothesis: the model already carries stroke on shapes and paths; this extends it
@@ -2969,6 +2970,49 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   citation — getting this wrong means text that looks right on canvas and wrong in
   handoff, which is the failure this tool exists to prevent. Also decide stroke
   alignment (outside/center/inside), since designers overwhelmingly want outside.
+- **Research gate CLOSED 2026-08-25 — and the premise above was wrong.** This entry
+  described `-webkit-text-stroke` and `paint-order: stroke fill` as two competing
+  mechanisms to choose between. They are not competing; they compose, and you need
+  both. There is no standard CSS `stroke` property for HTML text, and MDN is
+  explicit that for HTML text `paint-order` only has an effect when the stroke comes
+  from `-webkit-text-stroke`. So the HTML/CSS handoff emits the pair:
+
+  ```css
+  -webkit-text-stroke-width: <2 × authored width>;
+  -webkit-text-stroke-color: <color>;
+  paint-order: stroke fill;
+  ```
+
+  The doubling is the outside-stroke convention: `-webkit-text-stroke` centers the
+  stroke on the glyph outline and that is not adjustable, so half of it is painted
+  over by the fill once `paint-order` puts the stroke underneath. A 2× width
+  therefore reads as an outside stroke of the authored width. Canvas, PNG, and PDF
+  must use the SAME convention or the four disagree — which is the failure this
+  feature exists to avoid.
+- **Support, measured 2026-08-25, not remembered:** `-webkit-text-stroke` is
+  non-standard but Baseline **Widely available** (since April 2017), ~96.4% global —
+  Chrome 4+, Edge 15+, Safari 3.1+, Firefox 49+, iOS Safari 3.2+. The CSS
+  `paint-order` property is Baseline **Newly available** (March 2024), ~96.4% global
+  but only 90.3% FULL support: Chrome and Edge were partial from 35/79 through 122
+  and full only at **123**, with Firefox 60+ and Safari 11+ full. That partial band
+  is the caveat that has to be stated rather than implied: those browsers honour
+  `paint-order` for SVG but not for HTML text, so the stroke renders CENTERED over
+  the fill and a thick stroke eats the letterforms. Roughly 6% of traffic sees the
+  wrong picture, and it degrades toward "too heavy," not toward "no stroke."
+- **SVG is the easy half and stays live text.** `ExportRenderer` already emits real
+  `<text>`/`<tspan>` rather than outlining, so the stroke is
+  `stroke` + `stroke-width` + `paint-order="stroke"` on the `<text>` element, with
+  the same doubling convention. SVG `paint-order` support predates and exceeds the
+  HTML-text case.
+- **Alignment decision:** support OUTSIDE (the default designers want) and CENTER.
+  INSIDE is not expressible for HTML text in CSS at all — it needs a clip, which
+  only SVG can do — so either leave it out of v1 or state plainly that it does not
+  survive the HTML round trip. Do not offer a control that silently lies in handoff.
+- **Accessibility note, flagged not solved:** a stroke changes the effective contrast
+  at glyph edges, and FEAT-005's checker compares fill against background. Stroked
+  text can pass the checker and still read badly. Decide before shipping whether the
+  checker should account for a stroke or say that it does not; do not leave the
+  question implicit.
 - Acceptance: a text node can carry a stroke with color, width, and alignment while
   remaining editable text; canvas, PNG, PDF, and SVG all agree; the HTML/CSS handoff
   emits a documented, verified equivalent with its browser-support caveat stated
