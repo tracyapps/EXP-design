@@ -1369,7 +1369,9 @@ removes a daily "the app feels broken" moment.
   HTML/CSS emits `-webkit-text-stroke-*` at 2× width plus `paint-order: stroke fill`,
   SVG emits `stroke`/`stroke-width`/`paint-order="stroke"` on the live `<text>`.
   Support, alignment, and the ~6%-of-traffic caveat are recorded in BACKLOG.
-- [ ] FEAT-031 — line end options (square / arrow / round), settable per point.
+- ~~FEAT-031 — line end options.~~ **Already shipped and owner-verified 2026-08-21;
+  it was carried into this list in error when the v2.4 scope was written on
+  2026-08-25 and is struck out rather than deleted so the correction is visible.**
 - [ ] FEAT-030 (P3) — "balanced" (symmetric) curve handle mode. Confirm with the owner
   which of the three anchor modes is actually missing before building.
 - [ ] BUG-048 — placed SVG `stroke-dasharray` imports as the wrong stroke pattern.
@@ -2996,6 +2998,35 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-08-25 (FEAT-028 partly signed off; a Wave C list error corrected; BUG-048
+  dasharray import implemented).** The owner confirmed live-text stroke renders
+  correctly. Recorded as PARTLY done rather than done, because one acceptance line —
+  Convert to Outlines preserving a stroked appearance — is still unbuilt and was not
+  part of what was checked.
+
+  Correcting my own mistake: **FEAT-031 was already shipped and owner-verified on
+  2026-08-21** and should never have been in the v2.4 Wave C list. It was picked up
+  when the scope was written on 2026-08-25 and is struck through rather than deleted
+  so the correction stays visible.
+
+  BUG-048 then went in. `stroke-dasharray` now joins the presentation attributes,
+  `Style` carries a `strokePattern`, and both path and line construction pass it
+  through. It reads by RULE rather than by matching EXP's own numbers: EXP writes Dot
+  as a zero-length dash with a round cap and Dash as dash-plus-gap, so any author's
+  array is read the same way and a third-party dashed line imports as dashed instead
+  of as "not our numbers, therefore solid."
+
+  Checked with a table rather than by eye — 14 cases including EXP's own dashed and
+  dotted exports at two widths, comma and whitespace separators, `px` units,
+  single-value and all-zero arrays, `none`, and garbage. All pass, and EXP's own
+  exports round-trip to the preset they were written from.
+
+  The import-report half of the acceptance is NOT built and says so: `SVGImporter`
+  imports only Foundation and CoreGraphics and has no channel to report an
+  approximation, since `Context` is passed by value. A four-value rhythm becomes the
+  nearest preset silently — better than the silent solid this bug was filed for, but
+  not what was asked. That channel is its own small piece of work.
 
 - **2026-08-25 (FEAT-029 signed off; FEAT-028 live-text stroke built, unverified).**
   The owner verified the pencil — "much better, works great" — closing a feature that

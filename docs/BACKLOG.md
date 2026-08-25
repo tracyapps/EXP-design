@@ -255,7 +255,8 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: bug
 - Priority: P2
 - Area: import · SVG · vector
-- Status: open — logged 2026-08-21, deliberately separate from FEAT-031.
+- Status: **needs-verify — the mapping is implemented 2026-08-25 and builds clean;
+  the import-report half of the acceptance is NOT built (see below)**
 - Repro/Detail: Owner found during FEAT-031 export verification that placing an
   SVG carrying `stroke-dasharray` does not reconstruct the dashed/dotted stroke
   correctly. The same exported SVG renders correctly in a browser, so this is the
@@ -264,6 +265,33 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   field, `presentationAttributeKeys` omits `stroke-dasharray`, and `resolveStyle`
   never interprets it. Imported `LineShape` / `PathShape` therefore keep their
   default solid `StrokePattern` regardless of the SVG declaration.
+- Implementation 2026-08-25: `SVGImporter.Style` gains `strokePattern`,
+  `stroke-dasharray` joins `presentationAttributeKeys` (so it arrives from a
+  presentation attribute, an inline style, or a matched stylesheet rule — all three
+  flow through the same `props` dictionary), `resolveStyle` interprets it, and both
+  `PathShape` and `LineShape` construction carry it through.
+- **Read by RULE, not by matching EXP's own numbers.** EXP exports Dot as a
+  zero-length dash with a round cap (`0.001 <gap>`) — the standard SVG dot idiom —
+  and Dash as `<dash> <gap>` with a butt cap. The importer reads any array by that
+  same rule, so a third-party dashed line imports as dashed rather than as "not our
+  numbers, therefore solid." A dash length of effectively zero is read as Dot even
+  when the cap is butt, where the author's own file would have painted nothing: the
+  nearest EDITABLE intent is a dot.
+- **Verified by table, not by eye.** The mapping was run standalone against 14 cases
+  including EXP's own dashed and dotted exports at two stroke widths, comma and
+  whitespace separators, `px` units, single-value arrays, all-zero arrays, `none`,
+  and an unparseable value. All 14 match — importantly, EXP's own exports round-trip
+  to the preset they were written from.
+- **NOT built, and it is part of the acceptance: the import report.** An array EXP
+  cannot represent (a four-value rhythm, say) is approximated to the nearest preset
+  rather than announced. `SVGImporter` deliberately imports only Foundation and
+  CoreGraphics and has no report channel — `Context` is passed by value, so notes
+  collected during a parse do not reach the caller. Adding one is its own small
+  piece of work (a returned notes array threaded through the entry point, or a
+  summary surface at the place-SVG action) and should be logged as such rather than
+  bolted on here. Until then the failure mode is "approximated silently," which is
+  strictly better than the "solid silently" this bug was filed for, but is not what
+  the acceptance asks for.
 - Acceptance: placing SVGs with `stroke-dasharray` supplied as a presentation
   attribute, inline style, or matched stylesheet rule reconstructs EXP's Dash or
   Dot preset when the array matches one of those semantics. EXP's own dashed and
@@ -3169,8 +3197,9 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: feature
 - Priority: P2
 - Area: type · canvas · export
-- Status: **needs-verify — implemented 2026-08-25; both schemes build clean, NO
-  runtime verification has been run**
+- Status: **partly done — owner verified the stroke itself 2026-08-25 ("text stroke
+  working well"). ONE acceptance line remains unbuilt: Convert to Outlines is not
+  known to preserve a stroked appearance, and was not part of what was verified.**
 - Repro/Detail: Owner request 2026-08-11: "outline text (even just as type)" — i.e.
   a stroke applied to text that is still editable text, not converted to paths.
 - Hypothesis: the model already carries stroke on shapes and paths; this extends it

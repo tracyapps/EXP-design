@@ -112,6 +112,7 @@ enum SVGImporter {
         var stroke: RGBAColor? = nil
         var strokeWidth: CGFloat = 1
         var strokeCap: StrokeLineCap = .butt
+        var strokePattern: StrokePattern = .solid
         var startMarker: StrokeMarker = .none
         var endMarker: StrokeMarker = .none
         var opacity: Double = 1
@@ -250,6 +251,7 @@ enum SVGImporter {
         var ps = PathShape(points: localized[0], closed: closed,
                            fill: style.resolvedFill, stroke: style.stroke ?? .black,
                            strokeWidth: style.stroke == nil ? 0 : style.strokeWidth,
+                           strokePattern: style.strokePattern,
                            strokeCap: style.strokeCap,
                            startMarker: closed ? .none : style.startMarker,
                            endMarker: closed ? .none : style.endMarker)
@@ -310,6 +312,7 @@ enum SVGImporter {
         let ls = LineShape(start: CGPoint(x: a.x - minX, y: a.y - minY),
                            end: CGPoint(x: b.x - minX, y: b.y - minY),
                            stroke: style.stroke ?? .black, strokeWidth: max(1, style.strokeWidth),
+                           strokePattern: style.strokePattern,
                            strokeCap: style.strokeCap,
                            startMarker: style.startMarker, endMarker: style.endMarker)
         var node = Node(name: "Line", frame: frame, content: .line(ls))
@@ -347,6 +350,9 @@ enum SVGImporter {
         if let v = props["stroke-linecap"], let cap = StrokeLineCap(rawValue: v.lowercased()) {
             s.strokeCap = cap
         }
+        if let v = props["stroke-dasharray"] {
+            s.strokePattern = strokePattern(fromDashArray: v, cap: s.strokeCap)
+        }
         if let v = props["marker-start"] { s.startMarker = marker(v, ctx: ctx) }
         if let v = props["marker-end"] { s.endMarker = marker(v, ctx: ctx) }
         if let v = props["font-size"], let d = Double(v.replacingOccurrences(of: "px", with: "")) { s.fontSize = CGFloat(d) }
@@ -361,10 +367,43 @@ enum SVGImporter {
         return s
     }
 
+    /// Read SVG `stroke-dasharray` back into one of EXP's three stroke presets
+    /// (BUG-048). Without this, every dashed or dotted SVG imported as SOLID —
+    /// silently, because a missing field simply keeps the model default.
+    ///
+    /// EXP's own exporter writes DOTTED as a zero-length dash with a round cap
+    /// (`0.001 <gap>`), which is the standard SVG idiom for a dot, and DASHED as
+    /// `<dash> <gap>` with a butt cap. This reads by that RULE rather than by
+    /// matching EXP's exact numbers: a third-party dashed line should come in as
+    /// dashed, not as "not ours, therefore solid."
+    ///
+    /// Deliberately lossy in one direction, and the loss is stated in BUG-048: EXP
+    /// has three presets and SVG has arbitrary rhythms, so an author's four-value
+    /// array becomes the nearest preset. Nearest is the honest answer available
+    /// today; announcing the approximation needs an import-report channel this
+    /// importer does not have.
+    static func strokePattern(fromDashArray raw: String, cap: StrokeLineCap) -> StrokePattern {
+        let cleaned = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !cleaned.isEmpty, cleaned != "none", cleaned != "0" else { return .solid }
+        let values = cleaned
+            .replacingOccurrences(of: ",", with: " ")
+            .split(whereSeparator: { $0 == " " })
+            .compactMap { Double($0.replacingOccurrences(of: "px", with: "")) }
+        guard let first = values.first else { return .solid }
+        // An all-zero array is SVG's way of saying solid.
+        guard values.contains(where: { $0 > 0 }) else { return .solid }
+        // A dash length of (effectively) zero paints nothing but the cap — which is
+        // a dot when the cap is round, and is what EXP emits for its Dot preset.
+        // Treated as Dot even with a butt cap, where the author's own file would
+        // have rendered nothing at all: the nearest EDITABLE intent is a dot.
+        if first <= 0.01 { return .dotted }
+        return .dashed
+    }
+
     private static let presentationAttributeKeys = [
         "fill", "stroke", "stroke-width", "opacity", "fill-opacity",
         "stroke-opacity", "font-size", "font-family", "font-weight", "font-style",
-        "stroke-linecap", "marker-start", "marker-end",
+        "stroke-linecap", "stroke-dasharray", "marker-start", "marker-end",
         "stop-color", "stop-opacity", "filter",
     ]
 

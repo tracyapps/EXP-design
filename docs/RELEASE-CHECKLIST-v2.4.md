@@ -73,12 +73,14 @@ no code change. Both entries below are unfixed and unverified as of 2026-08-25.
       count is sane; the fidelity slider makes an obvious difference at both ends;
       one stroke is one undo step; a click leaves nothing behind. Watch the
       proximity close (12pt / 8 samples) — most likely thing to feel wrong.
-- [ ] FEAT-028 — canvas, PNG, PDF, SVG, and HTML/CSS handoff all agree, with the
+- [x] FEAT-028 stroke rendering — owner verified 2026-08-25 on canvas.
+- [ ] FEAT-028 remaining — Convert to Outlines preserving a stroked appearance is
+      NOT implemented; export agreement not yet walked. Original line:
+      canvas, PNG, PDF, SVG, and HTML/CSS handoff all agree, with the
       browser-support caveat stated in the export contract rather than implied.
       Check both alignments at several weights; confirm Convert to Outlines
       preserves the appearance (NOT implemented yet); open the HTML in a browser
       older than Chrome 123 if one is to hand, or accept the caveat as stated.
-- [ ] FEAT-031 — per-point line ends round-trip through save and SVG export.
 - [ ] FEAT-030 — balanced/smooth/corner conversion, undoable, anchor does not move.
 - [ ] BUG-048 — placed SVG dash patterns import as the authored pattern.
 - [ ] BUG-034 Stage 2 — canvas spread matches SVG export; the Stage 1 disclosure
