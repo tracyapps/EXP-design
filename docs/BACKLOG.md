@@ -3315,9 +3315,33 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - **Not implemented, and not claimed:** pressure and tilt from `NSEvent`, which the
   entry explicitly scoped out as a later addition. Also no smoothing pass before
   fitting — the tolerance is the only control, deliberately.
+- **Lag reported by the owner on first use, 2026-08-25 — two defects, both mine,
+  fixed the same day.** Neither was in the curve fitting; both were in how the live
+  stroke talked to the canvas.
+  1. **`applyPencilPoints` used `updateNode` during the drag.** That is the
+     SEMANTIC-change funnel, and it runs `model.reflowed(nodes)` — a full auto-layout
+     reflow across every node on the page — on every captured sample. `updateNode`'s
+     own comment states the rule I broke: "live drags use withNodes directly and
+     reflow on mouse-up." It now takes a `live` flag and uses `updateNodeLive` for
+     samples, `updateNode` only for the one commit.
+  2. **`.pencilStroke` was missing from `activeDragNodeIDs()`**, so it fell through
+     to `default: return nil` and `drawDragBlit` refused the gesture. Every sample
+     therefore re-rendered the ENTIRE scene instead of compositing the stroke over
+     the static below/above snapshots the drag machinery already builds. A pencil
+     stroke is a node drag like any other and now says so.
+- **One cost considered and deliberately NOT changed:** each sample still rebuilds
+  the whole point array and its bounding box, which is O(n) per sample and O(n²)
+  over a stroke. For a realistic stroke (a few hundred samples at 1.5pt spacing)
+  that is tens of microseconds of array work per tick — real, but orders of
+  magnitude below a page reflow or a full scene render. It was left simple on
+  purpose. If profiling ever says otherwise, the fix is an incremental bbox that
+  re-bases the locals only when the origin actually moves.
 - **What was verified:** `xcodebuild` Debug succeeds for both the `EXP [design]`
   and `EXPThumbnail` schemes with signing disabled, zero errors, and no warnings in
-  the new file or any edited range. `CurveFitting.swift` is app-target only, as the
+  the new file or any edited range. **The lag fix itself is NOT measured** — the
+  two defects are unambiguous and the reasoning is above, but nobody has drawn a
+  stroke since. If it still lags, Testing Mode's perf HUD names the frame cost
+  directly and is the right next step rather than more guessing. `CurveFitting.swift` is app-target only, as the
   synchronized-group exception set confirms. **That is the entire claim** — no
   stroke has ever been drawn with this tool, so every acceptance line below is open,
   and the fitted output has never been looked at.

@@ -1220,7 +1220,8 @@ final class CanvasNSView: NSView {
         // actually captured, and it is replaced by the fitted curve on release.
         // Re-fitting every tick would cost far more and would show a curve that keeps
         // rewriting itself under the cursor.
-        applyPencilPoints(pencilSamples.map { PathPoint(point: $0) }, closed: false, to: id)
+        applyPencilPoints(pencilSamples.map { PathPoint(point: $0) }, closed: false,
+                          to: id, live: true)
         didEdit = true
         needsDisplay = true
     }
@@ -1230,7 +1231,15 @@ final class CanvasNSView: NSView {
     /// end because `nodeHit` uses the frame as its bounding-box reject and culling
     /// uses it too — a stale frame mid-stroke means the ink stops being clickable
     /// and can vanish while being drawn.
-    private func applyPencilPoints(_ docPoints: [PathPoint], closed: Bool, to id: UUID) {
+    ///
+    /// `live` picks the write funnel, and the difference is not cosmetic:
+    /// `updateNode` is the SEMANTIC-change funnel and reflows auto-layout across
+    /// every node on the page, which is the right thing once per commit and
+    /// completely wrong once per captured sample. `updateNodeLive` is the funnel
+    /// the other drags use, exactly as `updateNode`'s own comment says: "live drags
+    /// use withNodes directly and reflow on mouse-up."
+    private func applyPencilPoints(_ docPoints: [PathPoint], closed: Bool, to id: UUID,
+                                   live: Bool) {
         guard !docPoints.isEmpty else { return }
         var xs: [CGFloat] = [], ys: [CGFloat] = []
         for pt in docPoints {
@@ -1246,7 +1255,7 @@ final class CanvasNSView: NSView {
                       controlIn: $0.controlIn.map(rebase),
                       controlOut: $0.controlOut.map(rebase))
         }
-        updateNode(id) {
+        let apply: (inout Node) -> Void = {
             $0.frame = CGRect(x: minX, y: minY,
                               width: max(maxX - minX, 0), height: max(maxY - minY, 0))
             if case .path(var ps) = $0.content {
@@ -1255,6 +1264,7 @@ final class CanvasNSView: NSView {
                 $0.content = .path(ps)
             }
         }
+        if live { updateNodeLive(id, apply) } else { updateNode(id, apply) }
     }
 
     /// Fit the captured samples and commit the whole stroke as ONE undo step.
@@ -1280,7 +1290,7 @@ final class CanvasNSView: NSView {
         // The fitter can only fail by returning too little to draw. Keeping the raw
         // polyline is better than discarding what the designer just drew.
         let points = fitted.count >= 2 ? fitted : pencilSamples.map { PathPoint(point: $0) }
-        applyPencilPoints(points, closed: closed, to: id)
+        applyPencilPoints(points, closed: closed, to: id, live: false)
         normalizePath(id)
         if let baseline = pencilBaseline {
             document?.registerUndo(restoring: baseline, undoManager: undoManager,
@@ -4443,6 +4453,10 @@ final class CanvasNSView: NSView {
         case .penHandle(let nodeID, _):         return [nodeID]
         case .pathPoint(let nodeID, _):         return [nodeID]
         case .pathPointGroup(let nodeID, _, _): return [nodeID]
+        // The pencil stroke is a node drag like any other: only the stroke changes
+        // per sample, so the rest of the scene belongs in the drag snapshots
+        // rather than being re-rendered under the cursor.
+        case .pencilStroke:                     return pencilNodeID.map { [$0] } ?? []
         default:                                return nil
         }
     }

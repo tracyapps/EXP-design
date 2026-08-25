@@ -2997,6 +2997,29 @@ font import → Phase 9, shadows → Phase 10._
 
 ## Progress Log
 
+- **2026-08-25 (pencil lag — two defects in the live stroke path, fixed).** The
+  owner drew with the new tool and reported lag. Neither cause was in the curve
+  fitting; both were in how the in-progress stroke talked to the canvas, and both
+  were mistakes of using the wrong existing funnel rather than missing machinery.
+
+  `applyPencilPoints` called `updateNode` on every captured sample. That is the
+  semantic-change funnel and it runs a full-page auto-layout reflow — its own
+  comment states the rule: "live drags use withNodes directly and reflow on
+  mouse-up." And `.pencilStroke` was missing from `activeDragNodeIDs()`, so
+  `drawDragBlit` refused the gesture and every sample re-rendered the entire scene
+  instead of compositing the stroke over the static snapshots the drag machinery
+  already maintains. A pencil stroke is a node drag like any other; it now says so
+  in the one place that decides.
+
+  A third cost was considered and left alone: the O(n) point-array rebuild per
+  sample. For a few hundred samples that is tens of microseconds against a page
+  reflow and a full scene render, so it stays simple, with the incremental-bbox fix
+  written down in case profiling ever disagrees.
+
+  Both schemes still build clean. The fix is reasoned, not measured — if it still
+  lags, Testing Mode's perf HUD names the frame cost directly, which beats another
+  round of guessing.
+
 - **2026-08-25 (FEAT-025 owner-verified; FEAT-029 pencil tool built, unverified).**
   The owner confirmed direct-select object movement — "feels natural, exactly what i
   expect to happen" — including the flagged change where pressing a different
