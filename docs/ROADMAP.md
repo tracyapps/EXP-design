@@ -1342,14 +1342,18 @@ documents; 049 and 050 sit on top of it.
 
 ### Wave C — the vector toolset grows up, and one fidelity bug that outranks it
 
-- [ ] **BUG-053 (P1) — layered soft-glow effects export far more concentrated than
-  the canvas shows.** Found in the owner's production use 2026-08-25 and diagnosed
-  the same day: a performance clamp (`maxShadowBlurPx`) is applied in device space,
-  so the blur that survives depends on the zoom the document happened to be at,
-  and the export truncates blooms the canvas renders in full. Measured evidence and
-  two further defects in the same family are in BACKLOG. **This is the export
-  silently not matching the design — it outranks everything else in this wave and
-  arguably leads the release.**
+- [ ] **BUG-053 (P1) — raster export silently drops the `noise` and `dissolve`
+  effects.** Found in the owner's production use 2026-08-25. `drawExportNode`
+  implements three of the six `Effect.Kind` cases; `EffectsRender.drawNoise` has a
+  single call site in the whole app and it is the canvas. The canvas and the SVG
+  exporter agree; the raster exporter is the odd one out, so PNG, JPG, and PDF
+  quietly omit two effect kinds. **This is the export silently not matching the
+  design — it outranks everything else in this wave and arguably leads the
+  release.**
+- [ ] **BUG-054 (P2) — effect blur radii live in three different spaces across the
+  two render paths**, including a performance clamp applied in device space that
+  makes an export depend on the zoom the document happened to be at. Found while
+  tracing BUG-053; a real divergence, but not the one the owner reported.
 
 
 The queue the owner explicitly deferred from v2.3 on 2026-08-21, plus the one
@@ -2987,6 +2991,42 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-08-25 (BUG-053 re-diagnosed — the first answer was wrong, and the owner's
+  observation is what corrected it).** An earlier entry today named a device-space
+  blur clamp as the cause of the owner's export divergence. That was wrong. It fit
+  the measurements, which is exactly why it was persuasive: light concentrated from
+  the periphery into the core is equally consistent with a smaller blur radius and
+  with a dropped full-artboard glow layer, and the measurement alone cannot tell
+  them apart.
+
+  The owner's own testing did. They reported that a blue layer carrying a `noise`
+  (feTurbulence) effect "is not registering as color dodge," and that a hard-edged
+  dark rectangle appeared matching no layer they could find. Reading for that
+  specific failure instead of for a general one found it in three greps:
+  `Effect.Kind` has six cases; `ExportRenderView.drawExportNode` handles three;
+  and `EffectsRender.drawNoise` has exactly ONE call site in the entire app —
+  `CanvasView.swift:5906`, the canvas. **PNG, JPG, and PDF export silently omit
+  `noise` and `dissolve`.** The canvas renders them and the SVG exporter renders
+  them, so the raster exporter is the sole dissenter — while `svgFilter`'s comment
+  cheerfully claims its primitive order "mirrors the raster render exactly."
+
+  That explains the whole picture, not just the noisy layer: a full-artboard
+  color-dodge noise layer lifts the entire backdrop, so dropping it collapses the
+  periphery while the core bloom survives. And the unexplained dark rectangle is
+  the same bug from the other side — a layer whose `dissolve` should eat most of
+  its pixels renders as the solid geometry underneath.
+
+  The blur-space findings were split out as BUG-054 rather than deleted: they are
+  real, but they now carry no confirmed symptom, and the entry says so explicitly
+  so a later session does not re-credit them with this evidence. Both entries carry
+  fixture tests whose predicted results confirm or kill the reading before code is
+  written; neither has been run, and nothing was fixed.
+
+  The structural lesson is the same in both: `drawExportNode` and the canvas draw
+  path are separate implementations kept in sync by comment. Two effect kinds
+  already fell through that gap. Adding two branches to the copy leaves the third
+  free to follow.
 
 - **2026-08-25 (BUG-053 logged and diagnosed — a performance guard is changing the
   picture).** The owner brought two side-by-side comparisons: layered low-opacity

@@ -34,86 +34,125 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 
 ## 🐞 Bugs
 
-### BUG-053 — Layered soft-glow effects export far more concentrated than the canvas shows
+### BUG-053 — Raster export silently drops the `noise` and `dissolve` effects
 - Type: bug (fidelity/divergence — the failure this tool exists to prevent)
 - Priority: P1
+- Area: export · effects · canvas
+- Status: **open — root cause identified 2026-08-25 by source inspection; not yet
+  reproduced by running the renderer, and no fix written**
+- Repro/Detail: Owner built layered light-leak graphics using overlay / color /
+  color-dodge layers at various opacities, one of them a blue layer carrying a
+  `noise` (feTurbulence) effect. PNG export does not match the canvas: the broad
+  soft wash disappears, the periphery crushes to black, a hard-edged dark rectangle
+  appears that matches no authored layer, and — the owner's decisive observation —
+  *"the blue layer with the noise effect is not registering as color dodge."*
+  Evidence screenshots are on disk at `docs/evidence/BUG-053/`, deliberately
+  UNTRACKED per the repo's screenshots-are-local-evidence rule.
+- **Root cause: three of the six effect kinds are not implemented in the raster
+  export path at all.** `Effect.Kind` is
+  `dropShadow, innerShadow, layerBlur, backgroundBlur, noise, dissolve`
+  (`Document.swift:2361`). `ExportRenderView.drawExportNode` handles exactly
+  `dropShadow`, `layerBlur`, and `innerShadow`. It never calls
+  `EffectsRender.drawNoise` — that function has exactly ONE call site in the whole
+  app, `CanvasView.swift:5906` — and it has no `dissolve` branch.
+
+  | Effect kind | Canvas | SVG export | PNG / JPG / PDF export |
+  |---|---|---|---|
+  | dropShadow | yes | yes | yes |
+  | innerShadow | yes | yes | yes |
+  | layerBlur | yes | yes | yes |
+  | **noise** | yes | yes | **silently dropped** |
+  | **dissolve** | yes | yes | **silently dropped** |
+  | backgroundBlur | `backgroundBlurEnabled = false` | n/a | n/a (feature off everywhere) |
+
+  So the canvas and the SVG exporter agree with each other, and the raster exporter
+  is the odd one out. The irony is documented in the code: `svgFilter`'s comment
+  says its primitive order "mirrors the raster render exactly," and it does — it
+  mirrors the CANVAS raster render, which is not the one that writes PNGs.
+- **Why the whole image changes, not just the noisy layer.** A full-artboard noise
+  layer composited with color-dodge lifts the entire backdrop. Drop it and the
+  periphery collapses toward black while the untouched core bloom dominates —
+  which is exactly the radial luminance measured on the owner's evidence: export
+  2.31× the canvas at the bloom centre, crossing 1.0 near radius 50, 0.34–0.57×
+  beyond radius 60. The apparent hue shift is the same story: the green/teal wash
+  was a dropped layer's contribution, not a recolouring.
+- **The mystery dark rectangle is the same bug, seen from the other side.** A layer
+  whose `dissolve` eats most of its pixels renders as the SOLID, hard-edged shape
+  underneath when the dissolve is dropped. That accounts for a square-cornered dark
+  panel appearing behind a rounded box and matching no layer the owner can find —
+  it IS a layer, drawn as authored geometry instead of as the texture it should be.
+  Confirm by locating any node with a `dissolve` or `noise` effect near the box.
+- Secondary suspect, lower confidence, worth a look once the above is fixed:
+  `EffectsRender.drawDropShadow` uses `ctx.setBlendMode(.destinationOut)` for the
+  preserve-transparency knockout (`EffectsRender.swift:205`), and the knockout
+  closure fills the silhouette with **opaque black**. `.destinationOut` is a
+  Porter-Duff compositing mode with no PDF equivalent, and PNG/JPG export
+  rasterizes through a PDF intermediate (`ExportRenderer.pngData`). If CoreGraphics
+  falls back to Normal when emitting that to PDF, the knockout paints a black
+  silhouette instead of erasing one. The owner already tried disabling one
+  preserve-transparency shadow without the artifact clearing, which argues against
+  this being the cause of the rectangle — but the mode is genuinely unrepresentable
+  in PDF, so verify it rather than assume. Test: disable preserve-transparency on
+  EVERY drop shadow in the document at once.
+- Decisive test before writing any fix: one artboard, three rects — (a) plain fill,
+  (b) same fill + a `noise` effect at color-dodge, (c) same fill + a `dissolve`.
+  Export PNG and SVG. Prediction if the reading above is right: the SVG matches the
+  canvas for all three, and the PNG matches only for (a), rendering (b) and (c) as
+  flat untextured fills. Any prediction that fails narrows the cause.
+- Fix direction: the raster export needs `noise` and `dissolve`, in the canvas's
+  order (dissolve first, so every later primitive including shadows sees the
+  dissolved node — the order `svgFilter` already documents). The deeper problem is
+  that `drawExportNode` and the canvas draw path are separate implementations that
+  "mirror" each other by comment; adding two more branches to the copy leaves the
+  next effect kind free to go missing the same way. Prefer one shared effect
+  pipeline over a fourth hand-kept mirror. See also BUG-054, found the same day,
+  which is the same drift in the blur geometry.
+- Acceptance: every `Effect.Kind` renders in canvas, SVG, PNG, JPG, and PDF, or is
+  refused at authoring time — no effect is silently ignored by an exporter. A
+  regression fixture covering all six kinds exports identically across raster and
+  SVG. Adding a new effect kind without wiring every exporter fails a check rather
+  than shipping a silent divergence.
+
+### BUG-054 — Effect blur radii live in three different spaces across two render paths
+- Type: bug (fidelity/divergence)
+- Priority: P2
 - Area: export · effects · canvas · perf
-- Status: **open — diagnosed 2026-08-25 from owner evidence; NOT yet reproduced by
-  running either renderer, and no fix written**
-- Repro/Detail: Owner built layered light-leak graphics from several large,
-  low-opacity blurred layers. PNG export does not match the canvas: a broad soft
-  bloom becomes a tight, hot core; the periphery crushes to near black; soft
-  line-art glints read as hard specks; and the apparent hue changes (a green/teal
-  wash disappears, leaving the blue). Evidence screenshots (canvas on top, PNG
-  export below) are on disk at `docs/evidence/BUG-053/`, deliberately UNTRACKED —
-  the repo's standing rule is that screenshots are reproducible local evidence, not
-  release source.
-- **Measured, not eyeballed.** `scripts/measure_export_divergence.py`
-  discriminates a colour transform from a spatial one. Against the square pair:
-  - Binning by design value gives export values with a standard deviation of ±24
-    to ±100 on means of 15–200. A global per-channel transform would produce tight
-    bins. **So this is NOT a colour-space, profile, or gamma problem** — the
-    mapping depends on WHERE a pixel is, not what value it had.
-  - Radial luminance about the bloom centre: export is **2.31×** the canvas at
-    radius 0–15, **1.44×** at 30–45, crosses 1.0 near radius ~50, and sits at
-    **0.34–0.57×** everywhere past radius 60. Contrast rises (σ 43→58), highlights
-    clip (p99 204→251), shadows crush (p10 12.3→0.8).
-  - That is the signature of the same light compressed into a smaller blur radius,
-    by roughly a factor of 2–3. The "hue shift" is a consequence: differently
-    coloured glow layers were redistributed, not recoloured.
-- **Root cause (static reading of the code; the prime suspect, not yet proven at
-  runtime).** `EffectsRender.maxShadowBlurPx = 200` is a performance guard, and it
-  is applied in DEVICE space: `blurPx = min(e.blur * scale, 200)`. The canvas
-  passes `scale: app.zoom` (`CanvasView.swift:5841,5853`); export passes
-  `scale: 1` (`ExportRenderer.swift:806,815`). So the model-space blur that
-  survives is `min(blur, 200/zoom)` on canvas and `min(blur, 200)` in export. At
-  100% zoom they agree. Author a bloom wider than 200pt while zoomed OUT — which
-  is how you work on a large artboard — and the canvas shows it in full while the
-  export truncates it. At ~45% zoom the ratio is ~2.2×, which matches the measured
-  crossover. **A performance guard is changing the picture**, which is precisely
-  what PERF round 8 and `docs/exp-fidelity-not-prototyping` say must never happen.
-- **Two more defects in the same family, found while tracing it. Each is
-  independently capable of a visible divergence and should not be folded into one
-  "fix the blur" change without being named:**
-  1. `EffectsRender.drawLayerBlur` takes `deviceScale` and computes
+- Status: **open — found 2026-08-25 while tracing BUG-053; NOT the cause of the
+  owner's reported divergence (see BUG-053), but a real one in its own right**
+- **Honest history:** this was first written up as the explanation for BUG-053's
+  evidence. It is not. The owner's observation that a noise layer "is not
+  registering" led to the real cause. The measurements that pointed here — light
+  concentrated from the periphery into the core — are equally well explained by a
+  dropped full-artboard noise layer, so this entry is a code-reading finding with
+  no confirmed symptom attached. Keep it; do not credit it with BUG-053's evidence.
+- Detail: `EffectsRender.maxShadowBlurPx = 200` is a PERFORMANCE guard applied in
+  DEVICE space — `min(e.blur * scale, 200)` — and the canvas passes
+  `scale: app.zoom` (`CanvasView.swift:5841,5853`) while export passes `scale: 1`
+  (`ExportRenderer.swift:806,815`). The surviving model-space blur is therefore
+  `min(blur, 200/zoom)` on canvas and `min(blur, 200)` in export: equal only at
+  100% zoom. A blur wider than 200pt authored while zoomed out renders in full on
+  canvas and truncated in export. A performance guard must not change the picture.
+- Two more in the same family:
+  1. `EffectsRender.drawLayerBlur` computes
      `sigma = min(200, effect.blur * max(1, deviceScale))`. The canvas passes
      `backingScale` and draws in VIEW space (already zoomed), so a model-point blur
      is multiplied by the backing scale but NOT by zoom, while its `bounds` and
-     `pad` are view-space. Canvas layer blur is therefore only correct at 100%
-     zoom; export (`deviceScale: 1`, model space) is self-consistent. The two paths
-     disagree by construction.
+     `pad` are view-space. Canvas layer blur is self-consistent only at 100% zoom;
+     export (`deviceScale: 1`, model space) is self-consistent. They disagree by
+     construction.
   2. `drawLayerBlur`'s size guards (`maxLayerDimension` 12000, `maxLayerPixels`
-     32M) **fail open to `draw(ctx)` — the content drawn with NO BLUR AT ALL.** A
-     large, heavily blurred light-leak layer is exactly the case that trips them,
-     and the fallback is silent. This is the most likely explanation for soft
-     glints becoming hard specks. Degrading resolution would be defensible;
-     dropping the effect and saying nothing is not.
-- Also noted, separate and unproven: PNG/JPG export rasterizes through a PDF
-  intermediate and lands in an `NSBitmapImageRep(colorSpaceName: .deviceRGB)`
-  (`ExportRenderer.swift:119,142`), so exported files likely carry no colour
-  profile. The measurements above say this is NOT the cause of the reported
-  divergence, but for a fidelity tool an untagged export is worth checking on its
-  own. Log it separately rather than smuggling it into this fix.
-- Structural note: the canvas and the export have SEPARATE node-drawing
-  implementations that "mirror" each other by comment
-  (`ExportRenderView.drawExportNode` vs `CanvasView`'s draw path). Three different
-  blur-space conventions across two copies is the shape of the problem. Consider
-  whether the fix is one shared effect-geometry resolver rather than a third
-  correction applied twice.
-- Decisive test before writing any fix: one artboard, four rects with identical
-  low-opacity fills and layer blurs of 50 / 150 / 250 / 400 points. Export at 1×,
-  2×, and 3×, and view the canvas at 25% / 100% / 200%. Predictions if the reading
-  above is right: the 250 and 400 rects export IDENTICALLY to each other (both
-  clamped to 200); export does not vary with export scale; and the canvas renders
-  them differently at each zoom. Any prediction that fails narrows the cause.
-- Acceptance: an artboard of stacked low-opacity blurred layers exports to PNG
-  matching the canvas at 100% zoom, and the export is independent of the zoom the
-  document happened to be at, of the export scale, and of the artboard's size. A
-  blur too large to render at full resolution degrades in resolution, never in
-  radius, and never silently — if an effect cannot be rendered as authored, the
-  export says so. Canvas and export agree for drop shadow, inner shadow, and layer
-  blur, verified against the four-rect fixture above at three zooms and three
-  export scales.
+     32M) **fail open to `draw(ctx)` — the content with NO BLUR AT ALL**, silently.
+     A large heavily-blurred layer is exactly what trips them. Degrading resolution
+     is defensible; dropping the effect without a word is not.
+- Test: one artboard, four rects with identical low-opacity fills and layer blurs
+  of 50 / 150 / 250 / 400 points. Export at 1×, 2×, 3×; view the canvas at 25% /
+  100% / 200%. Predictions: the 250 and 400 rects export identically to each other
+  (both clamped to 200); export does not vary with export scale; the canvas renders
+  them differently at each zoom.
+  `scripts/measure_export_divergence.py` quantifies any pair.
+- Acceptance: a blur renders at the same MODEL-space radius on canvas at every zoom
+  and in export at every scale. A blur too large to render at full resolution
+  degrades in resolution, never in radius, and never silently.
 
 ### BUG-052 — Reveal in Layers and layer-tree commands lose the live floating panel
 - Type: bug
