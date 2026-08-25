@@ -67,7 +67,9 @@ no code change. Both entries below are unfixed and unverified as of 2026-08-25.
       objects, and click-without-drag all still behave. BUG-028 is NOT claimed fixed.
       Look hard at the changed behaviour: pressing a DIFFERENT object now selects
       AND drags in one gesture.
-- [ ] FEAT-029 — pencil output is an ordinary, fully point-editable path; anchor
+- [x] FEAT-029 — owner verified 2026-08-25 (drawing, corners, fast strokes, live
+      preview). Export/reopen/group/rotation checks below NOT walked.
+- [ ] FEAT-029 regression — pencil output is an ordinary, fully point-editable path; anchor
       count is sane; the fidelity slider makes an obvious difference at both ends;
       one stroke is one undo step; a click leaves nothing behind. Watch the
       proximity close (12pt / 8 samples) — most likely thing to feel wrong.

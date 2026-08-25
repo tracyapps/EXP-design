@@ -3246,8 +3246,15 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: feature
 - Priority: P2
 - Area: canvas · tools · vector
-- Status: **needs-verify — implemented 2026-08-25; builds clean, NO runtime
-  verification has been run**
+- Status: **done — owner verified 2026-08-25** ("much better. works great").
+- Owner verification 2026-08-25 was iterative and is worth reading as a record of
+  what four rounds of fixes actually cost: the fitting was wrong at corners (fixed),
+  fast strokes lost their points to event coalescing plus per-sample publishing
+  (fixed), and then the two performance fixes cancelled each other and made the
+  stroke invisible (fixed). The owner confirmed each round. **Not separately walked
+  through:** save/reopen, SVG and PNG export of a pencil path, drawing inside a
+  group or a rotated ancestor, and the proximity-close behaviour — all listed in the
+  owner pass below and all still open.
 - Repro/Detail: Owner request 2026-08-11: "add pencil, to just click/draw which turns
   into pen points automatically."
 - Hypothesis: the standard approach is capture the pointer polyline, then fit cubic
