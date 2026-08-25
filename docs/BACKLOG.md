@@ -3374,6 +3374,36 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   did (a fitting problem, which the clamp now bounds). Those two causes need
   completely different fixes and guessing between them has already cost one wrong
   answer today.
+- **Owner verification 2026-08-25 (partial): the corner and overshoot fixes work.**
+  "the points are landing much better now. no weird strange wild curves." The
+  not-reproduced excursion has not recurred. Corner detection and handle clamping
+  are therefore confirmed in practice even though the original failure was never
+  reproduced synthetically — recorded that way rather than as "diagnosed correctly."
+- **Fast strokes lost most of their points — two causes, both addressed 2026-08-25,
+  NOT yet verified.** The owner drew a fast shading line and got a near-straight
+  line instead of the path they drew; slow strokes were faithful. Their instinct
+  that this was related to the lag was right, and the mechanism connects them:
+  1. **macOS coalesces mouse-dragged events.** Move fast and several moves are
+     merged into one, so a quick stroke arrives as a few far-apart points and is
+     drawn as straight lines between them. `NSEvent.isMouseCoalescingEnabled` is now
+     set false for the duration of a stroke and restored in `finishPencilStroke`'s
+     `defer`, which runs on every exit path including a tool switch mid-stroke.
+  2. **`ExpDocument.model` is `@Published`, and the stroke was writing it per
+     sample.** Every write publishes to every view observing the document — Layers,
+     Inspector, all of it. That is enough work to back the event queue up, and a
+     backed-up queue is coalesced HARDER by macOS. So the cost did not present as a
+     low frame rate; it presented as lost points. **Nothing is written to the
+     document during a stroke now.** The in-flight stroke is chrome, painted from
+     `pencilSamples` in the overlay pass exactly as the marquee is, using the
+     destination node's own stroke colour and width so the preview looks like what
+     is about to exist. The document is written once, with the fitted curve, on
+     release.
+- This also removes `pencilFrame` and the live/commit split in `applyPencilPoints`:
+  with one write per stroke there is no live path left to get wrong.
+- **Still not verified:** whether fast strokes now capture faithfully, and whether
+  the lag is gone. Both are one stroke to check. If lag persists with no document
+  writes and no coalescing, the remaining suspect is the full-scene redraw per
+  frame, and Testing Mode's perf HUD is the instrument.
 - **Lag: one more per-sample cost removed, still unmeasured.** Each sample used to
   re-base every existing point to a moving frame origin — O(n) per sample, O(n²) per
   stroke. The origin only moves when the stroke extends past its own left or top

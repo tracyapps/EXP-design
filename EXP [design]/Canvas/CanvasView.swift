@@ -265,9 +265,6 @@ final class CanvasNSView: NSView {
     private var pencilNodeID: UUID?
     private var pencilBaseline: Document?
     private var pencilSamples: [CGPoint] = []
-    /// Running bounds of the stroke in DOCUMENT space. Kept so a sample can be
-    /// APPENDED in O(1) instead of re-basing every existing point each tick.
-    private var pencilFrame: CGRect = .zero
 
     // Node tool: a point-group drag that started on the path BODY (not an anchor),
     // so a click-without-drag there deselects the points (Adobe direct-select).
@@ -1203,7 +1200,12 @@ final class CanvasNSView: NSView {
         let docP = viewToDoc(p)
         pencilBaseline = document.model
         pencilSamples = [docP]
-        pencilFrame = CGRect(origin: docP, size: .zero)
+        // macOS COALESCES mouse-dragged events by default: move fast and several
+        // moves are merged into one, so a quick stroke arrives as a handful of
+        // far-apart points and gets drawn as straight lines between them. A drawing
+        // tool wants every event. Restored in `finishPencilStroke`, whose `defer`
+        // runs on every exit path including a tool switch mid-stroke.
+        NSEvent.isMouseCoalescingEnabled = false
         let node = Node(name: "Path", frame: CGRect(origin: docP, size: .zero),
                         content: .path(PathShape(points: [PathPoint(point: .zero)])))
         withNodes { $0.append(node) }
@@ -1215,41 +1217,22 @@ final class CanvasNSView: NSView {
     }
 
     private func pencilMouseDragged(_ p: CGPoint) {
-        guard let id = pencilNodeID else { return }
+        guard pencilNodeID != nil else { return }
         let docP = viewToDoc(p)
         if let last = pencilSamples.last,
            hypot(docP.x - last.x, docP.y - last.y) < Self.pencilMinSampleDistance { return }
         pencilSamples.append(docP)
-
-        // Live feedback is the RAW polyline. It is cheap, it is honest about what was
-        // actually captured, and it is replaced by the fitted curve on release.
-        // Re-fitting every tick would cost far more and would show a curve that keeps
-        // rewriting itself under the cursor.
+        // NOTHING is written to the document while the stroke is in flight.
         //
-        // The frame has to stay correct DURING the stroke (culling and `nodeHit`
-        // both read it), but re-basing every local point to a moving origin is O(n)
-        // per sample and O(n²) over a stroke. The origin only moves when the stroke
-        // extends past its own left or top edge, so the common case appends ONE
-        // point and touches nothing else.
-        let minX = min(pencilFrame.minX, docP.x), minY = min(pencilFrame.minY, docP.y)
-        let maxX = max(pencilFrame.maxX, docP.x), maxY = max(pencilFrame.maxY, docP.y)
-        let grown = CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
-        let originMoved = minX != pencilFrame.minX || minY != pencilFrame.minY
-        pencilFrame = grown
-        if originMoved {
-            applyPencilPoints(pencilSamples.map { PathPoint(point: $0) }, closed: false,
-                              to: id, live: true)
-        } else {
-            updateNodeLive(id) {
-                $0.frame = grown
-                if case .path(var ps) = $0.content {
-                    ps.points.append(PathPoint(point: CGPoint(x: docP.x - minX,
-                                                              y: docP.y - minY)))
-                    $0.content = .path(ps)
-                }
-            }
-        }
-        didEdit = true
+        // `ExpDocument.model` is `@Published`, so every write publishes to every
+        // view observing the document — Layers, Inspector, the lot. Doing that once
+        // per captured sample is enough work to back the event queue up, and a
+        // backed-up queue is coalesced harder by macOS, which is how the cost showed
+        // up as LOST POINTS on fast strokes rather than as a slow frame rate.
+        //
+        // So the in-flight stroke is chrome: `drawPencilPreview` paints it from
+        // `pencilSamples` in the overlay pass, exactly as the marquee does, and the
+        // document is written once — with the fitted curve — on release.
         needsDisplay = true
     }
 
@@ -1259,14 +1242,11 @@ final class CanvasNSView: NSView {
     /// uses it too — a stale frame mid-stroke means the ink stops being clickable
     /// and can vanish while being drawn.
     ///
-    /// `live` picks the write funnel, and the difference is not cosmetic:
-    /// `updateNode` is the SEMANTIC-change funnel and reflows auto-layout across
-    /// every node on the page, which is the right thing once per commit and
-    /// completely wrong once per captured sample. `updateNodeLive` is the funnel
-    /// the other drags use, exactly as `updateNode`'s own comment says: "live drags
-    /// use withNodes directly and reflow on mouse-up."
-    private func applyPencilPoints(_ docPoints: [PathPoint], closed: Bool, to id: UUID,
-                                   live: Bool) {
+    /// Called exactly ONCE per stroke, on release. `updateNode` is the correct funnel
+    /// for that: it is the semantic-change route and reflows auto-layout, which is
+    /// right for a commit and would have been badly wrong per captured sample — the
+    /// reason nothing is written during the stroke at all.
+    private func applyPencilPoints(_ docPoints: [PathPoint], closed: Bool, to id: UUID) {
         guard !docPoints.isEmpty else { return }
         var xs: [CGFloat] = [], ys: [CGFloat] = []
         for pt in docPoints {
@@ -1291,17 +1271,17 @@ final class CanvasNSView: NSView {
                 $0.content = .path(ps)
             }
         }
-        if live { updateNodeLive(id, apply) } else { updateNode(id, apply) }
+        updateNode(id, apply)
     }
 
     /// Fit the captured samples and commit the whole stroke as ONE undo step.
     private func finishPencilStroke() {
         guard let id = pencilNodeID else { return }
         defer {
+            NSEvent.isMouseCoalescingEnabled = true
             pencilNodeID = nil
             pencilBaseline = nil
             pencilSamples = []
-            pencilFrame = .zero
             dragMode = .none
             needsDisplay = true
         }
@@ -1318,7 +1298,7 @@ final class CanvasNSView: NSView {
         // The fitter can only fail by returning too little to draw. Keeping the raw
         // polyline is better than discarding what the designer just drew.
         let points = fitted.count >= 2 ? fitted : pencilSamples.map { PathPoint(point: $0) }
-        applyPencilPoints(points, closed: closed, to: id, live: false)
+        applyPencilPoints(points, closed: closed, to: id)
         normalizePath(id)
         if let baseline = pencilBaseline {
             document?.registerUndo(restoring: baseline, undoManager: undoManager,
@@ -1334,6 +1314,31 @@ final class CanvasNSView: NSView {
               let first = pencilSamples.first, let last = pencilSamples.last else { return false }
         let a = docToViewPoint(first), b = docToViewPoint(last)
         return hypot(a.x - b.x, a.y - b.y) <= Self.pencilCloseDistance
+    }
+
+    /// The in-flight stroke, drawn as chrome rather than as document content.
+    /// Uses the destination node's own stroke colour and width so the preview looks
+    /// like what is about to exist, not like a selection artifact.
+    private func drawPencilPreview(in ctx: CGContext) {
+        guard pencilSamples.count >= 2, let app else { return }
+        var color = NSColor.black.cgColor
+        var width: CGFloat = 2
+        if let id = pencilNodeID, let n = node(id), case .path(let ps) = n.content {
+            color = PaintRender.nsColor(ps.stroke).cgColor
+            width = ps.strokeWidth
+        }
+        ctx.saveGState()
+        ctx.setStrokeColor(color)
+        ctx.setLineWidth(max(width * app.zoom, 1))
+        ctx.setLineCap(.round)
+        ctx.setLineJoin(.round)
+        let first = docToViewPoint(pencilSamples[0])
+        ctx.move(to: first)
+        for sample in pencilSamples.dropFirst() {
+            ctx.addLine(to: docToViewPoint(sample))
+        }
+        ctx.strokePath()
+        ctx.restoreGState()
     }
 
     /// Finish any active pencil stroke if the tool is no longer the pencil.
@@ -4874,6 +4879,8 @@ final class CanvasNSView: NSView {
             ctx.stroke(r.insetBy(dx: 0.5, dy: 0.5))
             ctx.restoreGState()
         }
+
+        if case .pencilStroke = dragMode { drawPencilPreview(in: ctx) }
 
         if optionHeld { perf.measure("draw-measure") { drawMeasurements(in: ctx) } }
 

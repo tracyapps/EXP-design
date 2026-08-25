@@ -2997,6 +2997,37 @@ font import → Phase 9, shadows → Phase 10._
 
 ## Progress Log
 
+- **2026-08-25 (pencil, third round — corners confirmed by the owner; fast strokes
+  diagnosed as event coalescing plus per-sample publishing).** The owner confirmed
+  the fitting fixes: "the points are landing much better now. no weird strange wild
+  curves." Recorded as confirmed-in-practice rather than as a correct diagnosis,
+  since the original excursion was never reproduced synthetically.
+
+  They then found the sharper problem: a FAST stroke lost most of its points and
+  came out nearly straight, while a slow stroke was faithful — and guessed it was
+  related to the lag. It was, and the connection is the interesting part.
+
+  macOS coalesces mouse-dragged events by default, so fast motion arrives as a few
+  far-apart points. That alone explains straight lines. But the reason it was so bad
+  is the second cause: `ExpDocument.model` is `@Published`, and the stroke was
+  writing it once per captured sample, publishing to every view observing the
+  document. That is enough work to back the event queue up, and a backed-up queue is
+  coalesced HARDER. So the per-sample cost never presented as a low frame rate — it
+  presented as LOST POINTS, which is why two rounds of looking at rendering cost
+  found nothing conclusive.
+
+  Both are addressed. Coalescing is disabled for the duration of a stroke and
+  restored in a `defer` that covers every exit path. And nothing is written to the
+  document during a stroke at all: the in-flight stroke is now chrome, painted from
+  the sample array in the overlay pass exactly as the marquee is, using the
+  destination node's own stroke colour and width, with the document written once —
+  the fitted curve — on release. That deleted `pencilFrame` and the live/commit
+  split too; with one write per stroke there is no live path left to get wrong.
+
+  Unverified: whether fast strokes capture faithfully now, and whether the lag is
+  gone. If it persists with no document writes and no coalescing, the remaining
+  suspect is the full-scene redraw per frame, and the perf HUD is the instrument.
+
 - **2026-08-25 (pencil, second round — two fitting defects fixed, the reported
   failure NOT reproduced).** The owner drew with the tool and reported three things:
   the preview shows straight lines, sharp corners come out rounded, and one node
