@@ -153,6 +153,10 @@ BUG-034 Stage 2). Wave D is Sanaa's companion chunks (FEAT-051/052/053).
 **Sequencing rule:** never start a document-mutating slice while another one
 awaits owner verification.
 
+**Next:** run `scripts/verify_sanaa_write_gate.sh` against a running EXP with a
+scratch document (FEAT-048 is built but entirely unverified at runtime), then
+FEAT-049.
+
 **Backlog hygiene:** run `scripts/verify_backlog_ids.sh` before assigning a new id.
 Ids are referenced from ROADMAP, PERF-LOG and PERF-TODO as well as BACKLOG, so
 "next number after the highest heading" is NOT safe — that is how a PERF-005

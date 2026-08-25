@@ -60,6 +60,10 @@ Wave C is the vector queue (FEAT-025 leads, then 029, 028, 031, 030, BUG-048,
 BUG-034 Stage 2). Wave D is Sanaa's companion chunks (FEAT-051/052/053).
 **Sequencing rule:** never start a document-mutating slice while another one
 awaits owner verification.
+
+**Next:** run `scripts/verify_sanaa_write_gate.sh` against a running EXP with a
+scratch document (FEAT-048 is built but entirely unverified at runtime), then
+FEAT-049.
 Semantic component/state reconstruction is logged as a v2.4+ research candidate;
 older Angular/AngularJS and open-shadow-root evidence are non-gating follow-ups.
 Unrestricted URL import, repository build execution, full argTypes ingestion, and

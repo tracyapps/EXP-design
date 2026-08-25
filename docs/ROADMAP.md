@@ -1328,7 +1328,9 @@ pen.dev-style "look at the canvas and draw," with the designer's own MCP agent
 reaching in — **no LLM and no API keys in EXP**. Full design, placement rules,
 switches, and per-chunk agent instructions: **`docs/SANAA-PLAN.md`**.
 
-- [ ] FEAT-048 — `apply_edits`: consented, undo-safe write-back (the F3 spine). ~2–3 sessions.
+- [ ] FEAT-048 — `apply_edits`: consented, undo-safe write-back (the F3 spine).
+  Code complete 2026-08-25 and building clean; **no runtime verification has been
+  run** — run `scripts/verify_sanaa_write_gate.sh` before checking this.
 - [ ] FEAT-049 — presence: activity feed, canvas highlights, VoiceOver announcements. ~2 sessions.
 - [ ] FEAT-050 — "Ask Sanaa" prompt starters with placement dialogs. ~1–2 sessions.
 
@@ -2971,6 +2973,42 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-08-25 (v2.4 scope set, then FEAT-048 built — code complete, NOTHING
+  verified at runtime).** The owner chose the v2.4 shape: ship BOTH the deferred
+  vector/tool queue and Sanaa, with Sanaa as the headline. The ROADMAP v2.4 section
+  is now five waves with a verification gate between each — the answer to "how do
+  you ship a 16–22 session release without one long unverifiable window" — and
+  `docs/RELEASE-CHECKLIST-v2.4.md` carries per-wave owner acceptance gates plus the
+  standing accessibility checks. Wave A stayed the owner's committed carry-in slice.
+
+  FEAT-048, the Sanaa write-back spine, then landed. One tool, `apply_edits`, on the
+  existing bridge: typed ops (createPage/createArtboard/duplicateArtboard/
+  insertNodes/replaceNode/removeNodes), node fragments validated by decoding the
+  real `Codable` model rather than hand-parsed, a 200-op cap, and one `setModel`
+  producing one undo step named "Sanaa: <summary>". Gates: both Sanaa switches
+  (default off, plain Bool defaults), plus a session-scoped per-document consent
+  for anything that touches content that already exists. The tool is not even
+  advertised in `tools/list` while Sanaa is off.
+
+  Two decisions came out of writing it rather than planning it. Consent is asked
+  **after** a dry run against a copy of the document, so a batch that was always
+  going to fail cannot put a permission sheet in front of the designer. And the
+  committed value is **rebuilt after** consent returns, because the sheet is
+  asynchronous — committing the pre-sheet value would silently discard whatever the
+  designer drew while it was up. `$last` / `$<op index>` references let an agent
+  fill an artboard it just asked EXP to create, and double as the consent test: an
+  `insertNodes` whose target is a real UUID is by definition in-place.
+
+  **Verification status, stated plainly: none.** Debug builds are green for both
+  the `EXP [design]` and `EXPThumbnail` schemes, the new file is app-target only
+  against the synchronized-group exception set, and `git diff --check` is clean.
+  That is the entire claim. No socket call was made, no gate was exercised, the
+  consent sheet has never been drawn on screen, and no VoiceOver or
+  light/dark/contrast pass has been run — this session could reach neither a
+  running EXP nor its sandbox container. `scripts/verify_sanaa_write_gate.sh` runs
+  the whole SANAA-PLAN §6 test-2 matrix in one command and has never been run.
+  FEAT-049 must not start until it passes.
 
 - **2026-08-25 (Sanaa planned: pen.dev research → FEAT-048…053 + docs/SANAA-PLAN.md).**
   Owner side-quest: explore pen.dev and scope a VERY optional pen.dev-style

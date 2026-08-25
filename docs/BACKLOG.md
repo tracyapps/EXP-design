@@ -2180,7 +2180,8 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: feature
 - Priority: P2
 - Area: export · model · chrome
-- Status: open
+- Status: **needs-verify — implemented 2026-08-25; NO runtime verification has been
+  run yet (see "What is NOT verified" below)**
 - Repro/Detail: The agent bridge is read-only. Add ONE transactional write tool,
   `apply_edits` (typed ops: createPage/createArtboard/duplicateArtboard/
   insertNodes/replaceNode/removeNodes), gated behind new default-off switches
@@ -2199,6 +2200,37 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   full gate matrix (each switch off ⇒ distinct error, zero mutation), real
   Claude Code batch that saves/reopens/exports identically to hand-drawn
   content, owner AX/appearance pass, and no visible trace of Sanaa when off.
+- Implementation 2026-08-25: new app-target-only `Export/SanaaEdits.swift` holds
+  the switches (`SanaaPreferences`, plain Bool defaults — no persisted Codable
+  struct, per the FEAT-022 trap), the session-scoped per-document consent
+  (`SanaaConsent`), and the whole op engine. `Export/AgentBridge.swift` gains one
+  tool and becomes async end to end so a tool call can ask the designer a question
+  before it answers; `apply_edits` is not even advertised in `tools/list` while
+  Sanaa is off. Settings gains a Sanaa pane — the one Sanaa surface that exists
+  while Sanaa is off, because it is where you turn it on — and turning either
+  switch off clears live consent. The Handoff agent capsule now reads CAN DRAW or
+  READ ONLY from the live switches (text, not colour).
+- Two design decisions worth keeping: (1) **consent is asked after a dry run, not
+  before.** The batch is applied to a copy of the document first, so a call that
+  was never going to work ("no node exists with id …") cannot put a permission
+  sheet in front of the designer. (2) **The committed value is rebuilt after
+  consent returns**, against the document as it stands then — the sheet is
+  asynchronous and the designer may have kept drawing while it was up; committing
+  the pre-sheet value would silently discard that work.
+- Placement/reference detail: agents cannot know an id EXP has not generated yet,
+  so `artboardId` and `placement.pageId` accept `"$last"` and `"$<op index>"`
+  alongside real UUIDs. That also cleanly decides consent: a batch reference can
+  only point at something this batch created, so `insertNodes` is "in place" —
+  and consent-gated — exactly when its `artboardId` is a real UUID.
+- **What is NOT verified.** The Debug build is green for both the app and
+  EXPThumbnail schemes (the new file is app-target only, confirmed against the
+  synchronized-group exception set), and `git diff --check` is clean. Nothing
+  else. No socket call has been made, no gate has been exercised at runtime, the
+  consent sheet has never been displayed, and no VoiceOver/appearance pass has
+  been run — the session had no reachable EXP instance and no access to the app's
+  sandbox container. `scripts/verify_sanaa_write_gate.sh` was written to run the
+  whole SANAA-PLAN §6 test-2 matrix in one command; it has never been executed.
+  Treat every acceptance line above as open.
 
 ### FEAT-049 — Sanaa: presence layer (activity feed, canvas highlights, announcements)
 - Type: feature

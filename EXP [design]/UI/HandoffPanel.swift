@@ -16,6 +16,10 @@ struct HandoffPanel: View {
     @State private var bridge = AgentBridgeController.shared
     @State private var setupKind = AgentSetupKind.claudeCode
     @State private var copiedLabel: String?
+    // Read through @AppStorage rather than SanaaPreferences directly so the access
+    // capsule updates the moment the designer changes a switch in Settings.
+    @AppStorage(SanaaPreferences.enabled) private var sanaaEnabled = false
+    @AppStorage(SanaaPreferences.writeEnabled) private var sanaaWriteEnabled = false
 
     private enum AgentSetupKind: String, CaseIterable, Identifiable {
         case claudeCode = "Claude Code"
@@ -196,17 +200,17 @@ struct HandoffPanel: View {
                 .foregroundStyle(EXPColor.textPrimary)
             Spacer(minLength: 0)
             if bridge.connectionCount > 0 {
-                Text("READ ONLY")
+                Text(accessCapsule)
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(EXPColor.textSecondary)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
                     .overlay(Capsule().stroke(EXPColor.borderSoft))
-                    .accessibilityLabel("Read-only access")
+                    .accessibilityLabel(accessDescription)
             }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Agent status: \(statusText)\(bridge.connectionCount > 0 ? ", read only" : "")")
+        .accessibilityLabel("Agent status: \(statusText)\(bridge.connectionCount > 0 ? ", \(accessDescription)" : "")")
     }
 
     private func panelAction(_ title: String, icon: String,
@@ -223,6 +227,18 @@ struct HandoffPanel: View {
         }
         .buttonStyle(.expCompact(fillsWidth: true))
         .accessibilityLabel(title)
+    }
+
+    /// What a connected agent is allowed to do RIGHT NOW. This capsule is never
+    /// decorative: read-only and can-draw are genuinely different permissions, and
+    /// the designer should be able to see which one is live without opening
+    /// Settings. Text carries the meaning, not colour (WCAG 2.1 AA 1.4.1).
+    private var canDraw: Bool { sanaaEnabled && sanaaWriteEnabled }
+
+    private var accessCapsule: String { canDraw ? "CAN DRAW" : "READ ONLY" }
+
+    private var accessDescription: String {
+        canDraw ? "can read and draw" : "read-only access"
     }
 
     private var statusColor: Color {

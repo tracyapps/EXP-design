@@ -97,7 +97,7 @@ extension AppPreferences {
 private enum SettingsScope { case app, document }
 
 private enum SettingsPane: String, CaseIterable, Identifiable {
-    case general, canvas, designTokens, about   // app-wide
+    case general, canvas, sanaa, designTokens, about   // app-wide
     case designLanguage                          // document-specific
     var id: String { rawValue }
 
@@ -105,6 +105,7 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
         switch self {
         case .general:        return "General"
         case .canvas:         return "Canvas"
+        case .sanaa:          return "Sanaa"
         case .designTokens:   return "Design Tokens"
         case .about:          return "About"
         case .designLanguage: return "Design Language"
@@ -116,6 +117,7 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
         switch self {
         case .general:        return "gearshape"
         case .canvas:         return "squareshape.dashed.squareshape"
+        case .sanaa:          return "hand.draw"
         case .designTokens:   return "textformat"
         case .about:          return "info.circle"
         case .designLanguage: return "swatchpalette"
@@ -185,6 +187,7 @@ struct SettingsWindow: View {
         switch pane ?? .general {
         case .general:      GeneralSettingsPane()
         case .canvas:       CanvasSettingsPane()
+        case .sanaa:        SanaaSettingsPane()
         case .designTokens: DesignTokensSettingsPane()
         case .about:        AboutSettingsPane()
         case .designLanguage: DesignLanguageSettingsPane()
@@ -397,6 +400,58 @@ private struct CanvasSettingsPane: View {
 /// still to come (kept honest — no dead controls), but the TYPE side has its first
 /// real foothold: the text-box-trim default, backed by the `TextMetrics` helper so
 /// the live schematic below is drawn from actual Core Text metrics, not a mock.
+/// Sanaa's switches. This pane is the ONE Sanaa surface that exists while Sanaa
+/// is off, because it has to be — it is where you turn it on. Nothing else
+/// (menu items, canvas overlay, avatar) is installed until "Enable Sanaa" is on.
+private struct SanaaSettingsPane: View {
+    @AppStorage(SanaaPreferences.enabled) private var enabled = false
+    @AppStorage(SanaaPreferences.writeEnabled) private var writeEnabled = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            SettingsGroup("Sanaa",
+                          footnote: "Sanaa is not an AI inside EXP. EXP ships no language model, stores no API keys, and never sends your work anywhere on its own. Sanaa is the name for what the agent YOU connected does when it draws here — the same local connection the Handoff panel's \u{201C}Allow local agent access\u{201D} switch controls, with permission to write as well as read.") {
+                Toggle("Enable Sanaa", isOn: $enabled)
+                    .accessibilityHint("Shows Sanaa's controls in EXP. Off by default; with this off, EXP shows no trace of Sanaa anywhere.")
+
+                Toggle("Allow Sanaa to draw", isOn: $writeEnabled)
+                    .disabled(!enabled)
+                    .accessibilityHint("Lets a connected agent add pages, artboards, and layers. Changing work already on the canvas asks you again, per document.")
+
+                Text(statusLine)
+                    .font(.callout)
+                    .foregroundStyle(EXPColor.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            SettingsGroup("What drawing means",
+                          footnote: "Each batch of changes arrives as ordinary layers you can select, edit, and export like anything you drew yourself, and lands as a single step in Edit \u{25B8} Undo named after what the agent said it was doing.") {
+                Text("Creating new pages, artboards, and duplicates only needs the switches above. Changing what is already on your canvas asks you first, once per document, each time you open EXP.")
+                    .font(.callout)
+                    .foregroundStyle(EXPColor.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        // Turning Sanaa off must not leave a live permission behind for the next
+        // time it is turned on.
+        .onChange(of: enabled) { _, isOn in
+            if !isOn {
+                writeEnabled = false
+                SanaaConsent.shared.forgetEverything()
+            }
+        }
+        .onChange(of: writeEnabled) { _, isOn in
+            if !isOn { SanaaConsent.shared.forgetEverything() }
+        }
+    }
+
+    private var statusLine: String {
+        if !enabled { return "Sanaa is off. Nothing in EXP mentions it and the agent connection stays read-only." }
+        if !writeEnabled { return "Sanaa is on and can read your document, but cannot change it." }
+        return "Sanaa can add new work. Changes to what is already on your canvas still ask you, per document."
+    }
+}
+
 private struct DesignTokensSettingsPane: View {
     @AppStorage(AppPreferences.textBoxTrim) private var textBoxTrim =
         AppPreferences.defaultTextBoxTrim

@@ -73,7 +73,7 @@ final class AgentBridgeController {
                         if let name = Self.initializingClientName(in: request) {
                             AgentBridgeController.shared.clientName = name
                         }
-                        reply(AgentMCPRouter.handle(request))
+                        reply(await AgentMCPRouter.handle(request))
                     }
                 })
             server = socketServer
@@ -116,7 +116,7 @@ private enum AgentMCPRouter {
     private static let protocolVersion = "2025-06-18"
     private static let orientationURI = "exp://orientation"
 
-    static func handle(_ data: Data) -> Data? {
+    static func handle(_ data: Data) async -> Data? {
         guard let request = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               request["jsonrpc"] as? String == "2.0",
               let method = request["method"] as? String else {
@@ -133,7 +133,7 @@ private enum AgentMCPRouter {
                 "protocolVersion": protocolVersion,
                 "capabilities": ["tools": [:], "resources": [:]],
                 "serverInfo": ["name": "EXP [design]", "version": appVersion],
-                "instructions": "Read-only access to the frontmost EXP document. Use node ids as the only reference currency."
+                "instructions": instructions
             ])
         case "ping":
             return response(id: id!, result: [:])
@@ -145,7 +145,7 @@ private enum AgentMCPRouter {
                 return response(id: id!, errorCode: -32602, message: "tools/call requires a tool name")
             }
             let arguments = params["arguments"] as? [String: Any] ?? [:]
-            return response(id: id!, result: callTool(name, arguments: arguments))
+            return response(id: id!, result: await callTool(name, arguments: arguments))
         case "resources/list":
             return response(id: id!, result: ["resources": [[
                 "uri": orientationURI,
@@ -171,11 +171,26 @@ private enum AgentMCPRouter {
         }
     }
 
+    /// What this connection can actually do, stated at connect time rather than
+    /// left for the agent to discover by being refused.
+    private static var instructions: String {
+        let base = "Read access to the frontmost EXP [design] document. Use node and artboard ids as the only reference currency."
+        guard SanaaPreferences.isEnabled else { return base }
+        guard SanaaPreferences.isWriteEnabled else {
+            return base + " Sanaa is enabled but not allowed to draw, so apply_edits will refuse until the designer turns on \"Allow Sanaa to draw\"."
+        }
+        return base + " You may also draw with apply_edits: one call is one transaction and one undo step, so send small batches with honest summaries. Ask the designer where work should go when they have not said \u{2014} never guess between editing their artboard in place and putting your work beside it."
+    }
+
     private static var appVersion: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
     }
 
-    private static var toolDefinitions: [[String: Any]] {[
+    private static var toolDefinitions: [[String: Any]] {
+        SanaaPreferences.isEnabled ? readTools + [applyEditsTool] : readTools
+    }
+
+    private static var readTools: [[String: Any]] {[
         tool("get_orientation",
              "Returns README.llm.md orientation text for the frontmost EXP document. Example call: {\"name\":\"get_orientation\",\"arguments\":{}}. Example response text begins: # EXP Handoff Package.",
              properties: [:], required: []),
@@ -195,6 +210,35 @@ private enum AgentMCPRouter {
              "Returns the frontmost document Design Language as verbatim W3C Design Tokens JSON. Example call: {\"name\":\"get_tokens\",\"arguments\":{}}. Example response: {\"color\":{\"Primary\":{\"$type\":\"color\",\"$value\":…}}}.",
              properties: [:], required: [])
     ]}
+
+    /// FEAT-048. One write tool, deliberately transactional: the whole batch
+    /// applies or nothing does, and the designer gets exactly one undo step.
+    private static var applyEditsTool: [String: Any] {
+        tool("apply_edits",
+             """
+             Draws in the frontmost EXP document. ONE call is ONE transaction and ONE undo step named "Sanaa: <summary>", so send small batches you can describe honestly. If any operation is invalid the whole call is refused and nothing changes.
+
+             Operations (max \(SanaaEdits.maxOperations) per call), applied in order:
+             - {"op":"createPage","name":"Sanaa \u{2014} Pricing variations"}
+             - {"op":"createArtboard","name":"Variation A","frame":{"width":390,"height":844},"placement":{"kind":"samePage"}} \u{2014} placement kind is "samePage" (EXP lays it out to the right of existing content, or after "afterArtboardId"), "newPage" (optional "pageName"), or "exact" (honours "x" and "y" in frame).
+             - {"op":"duplicateArtboard","id":"<uuid>","placement":{"kind":"besideOriginal"}} \u{2014} copies the board and the layers it owns.
+             - {"op":"insertNodes","artboardId":"$last","nodes":[<design.json node fragments>]} \u{2014} artboardId is a UUID, "$last" for the artboard this batch just created, or "$<op index>". EXP always assigns fresh ids and returns them. Frames are artboard-local for an artboard this batch created and document coordinates for an existing one; override with "coordinates":"artboard"|"document".
+             - {"op":"replaceNode","id":"<uuid>","node":{\u{2026}}} \u{2014} keeps the id you name, so relationships survive. Start from the fragment get_node returned.
+             - {"op":"removeNodes","ids":["<uuid>"]}
+
+             Node fragments must be the real design.json shape \u{2014} copy what get_node or get_artboard returned and edit it. Anything else is refused with the decoding error.
+
+             Consent: creating pages, artboards, duplicates, and layers inside artboards from this same batch needs only the designer's Sanaa switches. Changing what is already on the canvas (replaceNode, removeNodes, insertNodes into an existing artboard) also asks the designer, per document, once per session. Ask them where work should go rather than assuming; "complete this" means in place OR on a duplicate beside it, and that is their choice, not yours.
+
+             Returns {"created":{"pages":[\u{2026}],"artboards":[\u{2026}],"nodes":[\u{2026}]},"undoStep":"\u{2026}"}.
+             """,
+             properties: [
+                "summary": stringProperty("A short, honest description of what this batch does (120 characters or fewer). It becomes the undo step the designer reads in the Edit menu."),
+                "ops": ["type": "array", "description": "The operations to apply, in order.",
+                        "items": ["type": "object"]]
+             ],
+             required: ["summary", "ops"])
+    }
 
     private static func tool(_ name: String, _ description: String,
                              properties: [String: Any], required: [String]) -> [String: Any] {
@@ -219,7 +263,7 @@ private enum AgentMCPRouter {
         return ActiveContext(document: document.model, app: app, sourceURL: hub.activeFileURL)
     }
 
-    private static func callTool(_ name: String, arguments: [String: Any]) -> [String: Any] {
+    private static func callTool(_ name: String, arguments: [String: Any]) async -> [String: Any] {
         guard let context = activeContext() else { return toolError("No EXP document is currently open") }
         do {
             switch name {
@@ -256,6 +300,8 @@ private enum AgentMCPRouter {
                 }
                 return toolJSON(["node": try jsonObject(found.node), "scope": found.scope,
                                  "sourceId": found.sourceID?.uuidString ?? NSNull()])
+            case "apply_edits":
+                return await applyEdits(arguments)
             case "get_tokens":
                 guard arguments.isEmpty else { return toolError("get_tokens accepts no arguments") }
                 let data = try DesignLanguageIO.exportDesignTokensJSON(context.document.designLanguage)
@@ -266,6 +312,27 @@ private enum AgentMCPRouter {
             }
         } catch {
             return toolError("EXP could not serialize this response: \(error.localizedDescription)")
+        }
+    }
+
+    /// The one write path. Every gate lives in `SanaaEdits`; this only supplies
+    /// the live document, its undo manager, and the name of the agent asking, so
+    /// the consent sheet can say who is at the door.
+    private static func applyEdits(_ arguments: [String: Any]) async -> [String: Any] {
+        let hub = PanelHub.shared
+        guard let document = hub.activeDocument, let app = hub.activeApp else {
+            return toolError(SanaaEditError.noDocument.localizedDescription)
+        }
+        let name = hub.activeFileURL?.deletingPathExtension().lastPathComponent ?? "Untitled"
+        let client = AgentBridgeController.shared.clientName ?? "A connected agent"
+        do {
+            let result = try await SanaaEdits.apply(
+                arguments: arguments, client: client,
+                target: SanaaEdits.Target(document: document, app: app,
+                                          undoManager: hub.activeUndo, name: name))
+            return toolJSON(result)
+        } catch {
+            return toolError(error.localizedDescription)
         }
     }
 
