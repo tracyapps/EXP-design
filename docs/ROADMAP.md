@@ -2997,6 +2997,27 @@ font import → Phase 9, shadows → Phase 10._
 
 ## Progress Log
 
+- **2026-08-25 (pencil, fourth round — the two previous fixes cancelled each
+  other).** The owner reported the stroke starting to draw and then vanishing
+  entirely until mouse-up. Both of the previous round's changes were individually
+  correct and together they broke it: moving the in-flight stroke to the overlay
+  chrome, and registering `.pencilStroke` with the drag-blit machinery. **The drag
+  blit returns from `draw(_:)` before the chrome pass runs.** So the blit painted
+  the static scene, the placeholder node in the document was still (correctly)
+  empty, and nothing painted the stroke at all. It flickered visible at the very
+  start only because the blit takes a tick to arm — precisely the "starts drawing
+  then goes away" symptom.
+
+  The preview is now drawn on both paths: inside the blit branch before it returns,
+  and in the ordinary chrome pass for when the blit is unavailable. The general
+  lesson is worth more than the fix: `draw(_:)` has three early-return fast paths,
+  and chrome drawn during a gesture has to be drawn on the path that gesture
+  actually takes.
+
+  Also removed the stray mark left at the press point — the empty placeholder node
+  was being selected at mouse-down, so selection chrome drew around its 2×2 frame.
+  Nothing is selected until there is a finished path to select.
+
 - **2026-08-25 (pencil, third round — corners confirmed by the owner; fast strokes
   diagnosed as event coalescing plus per-sample publishing).** The owner confirmed
   the fitting fixes: "the points are landing much better now. no weird strange wild

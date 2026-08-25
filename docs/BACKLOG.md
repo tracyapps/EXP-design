@@ -3398,6 +3398,23 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
      destination node's own stroke colour and width so the preview looks like what
      is about to exist. The document is written once, with the fitted curve, on
      release.
+- **The stroke went INVISIBLE while the mouse was down — my two fixes fought each
+  other, fixed 2026-08-25.** Moving the in-flight stroke to the overlay chrome was
+  right, and registering `.pencilStroke` in `activeDragNodeIDs()` was right, but
+  together they cancelled out: **`drawDragBlit` RETURNS from `draw(_:)` before the
+  chrome pass ever runs.** So the blit painted the static scene, the placeholder node
+  in the document was (correctly) still empty, and nothing drew the stroke. It was
+  briefly visible at the very start because the blit takes a tick to arm — which is
+  exactly the "starts drawing, then goes away" the owner described. The preview is
+  now drawn in BOTH branches: inside the blit path before it returns, and in the
+  ordinary chrome pass for when the blit is unavailable.
+- **General lesson worth keeping:** `draw(_:)` has three early-return fast paths
+  (pan/zoom blit, drag blit, background-blur offscreen). Anything drawn as chrome
+  during a gesture must be drawn on the path that gesture actually takes, not only
+  in the full-render chrome section.
+- Also removed the stray mark at the press point: the placeholder node was being
+  selected at mouse-down, so selection chrome drew around its 2×2 frame. Nothing is
+  selected until the finished path exists.
 - This also removes `pencilFrame` and the live/commit split in `applyPencilPoints`:
   with one write per stroke there is no live path left to get wrong.
 - **Still not verified:** whether fast strokes now capture faithfully, and whether

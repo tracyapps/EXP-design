@@ -1210,7 +1210,11 @@ final class CanvasNSView: NSView {
                         content: .path(PathShape(points: [PathPoint(point: .zero)])))
         withNodes { $0.append(node) }
         app.selectedArtboardID = nil
-        app.selectedNodeIDs = [node.id]
+        // Deliberately NOT selected yet. Until release this node is an empty
+        // placeholder that exists only so the drag machinery treats the gesture as
+        // a node drag; selecting it draws selection chrome around a 2×2 frame at the
+        // press point, which is the stray mark that appeared mid-stroke. The
+        // finished path is selected in `finishPencilStroke`.
         pencilNodeID = node.id
         dragMode = .pencilStroke
         needsDisplay = true
@@ -1300,6 +1304,7 @@ final class CanvasNSView: NSView {
         let points = fitted.count >= 2 ? fitted : pencilSamples.map { PathPoint(point: $0) }
         applyPencilPoints(points, closed: closed, to: id)
         normalizePath(id)
+        app?.selectedNodeIDs = [id]
         if let baseline = pencilBaseline {
             document?.registerUndo(restoring: baseline, undoManager: undoManager,
                                    actionName: "Draw Path")
@@ -4725,6 +4730,12 @@ final class CanvasNSView: NSView {
         // Live node drag: composite static below/above snapshots around the
         // dragged nodes (see the "Drag-overlay blit" section above).
         if let ctx = NSGraphicsContext.current?.cgContext, drawDragBlit(into: ctx) {
+            // The blit path RETURNS before the chrome pass below, so anything drawn
+            // as chrome during a drag has to be drawn here too. The pencil's
+            // in-flight stroke is chrome by design (nothing is written to the
+            // document until release), and leaving it out of this branch is exactly
+            // why the stroke went invisible while the mouse was down.
+            if case .pencilStroke = dragMode { drawPencilPreview(in: ctx) }
             if perf.enabled {
                 perf.record("frame(drag)", ms: (CFAbsoluteTimeGetCurrent() - perfFrameT0) * 1000)
                 perf.flushIfNeeded()
