@@ -2992,6 +2992,24 @@ font import → Phase 9, shadows → Phase 10._
 
 ## Progress Log
 
+- **2026-08-25 (export fidelity fixtures written; BUG-053/054 parked by owner
+  decision).** The owner is short on testing time and chose to keep v2.4 moving
+  rather than stop for this, with the fix folded in later if the release allows. So
+  the investigation was written down in the form it will actually be needed:
+  `docs/EXPORT-FIDELITY-TEST-FIXTURES.md` is deliberately self-contained — a
+  30-second refresher on what is broken, exact artboard sizes, layer positions and
+  effect values to build, which exports to take, and a table of what each outcome
+  means. Reading the backlog, this log, or the original diagnosis is not required to
+  run it. Fixture A (~15 min) settles the reported bug; Fixture B (~15 min) is
+  optional and covers BUG-054. Both entries and the v2.4 release checklist now point
+  at it rather than restating the recipe in three places.
+
+  It says plainly that a failed prediction is a good result — the diagnosis was
+  already wrong once today — and it lists what the fixtures do NOT cover:
+  `backgroundBlur`, stacked effects on one layer, effects inside groups or component
+  instances, and effects combined with a non-normal layer blend mode. Those are
+  plausible further divergences and remain untested.
+
 - **2026-08-25 (BUG-053 re-diagnosed — the first answer was wrong, and the owner's
   observation is what corrected it).** An earlier entry today named a device-space
   blur clamp as the cause of the owner's export divergence. That was wrong. It fit

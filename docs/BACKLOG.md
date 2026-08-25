@@ -94,11 +94,14 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   this being the cause of the rectangle — but the mode is genuinely unrepresentable
   in PDF, so verify it rather than assume. Test: disable preserve-transparency on
   EVERY drop shadow in the document at once.
-- Decisive test before writing any fix: one artboard, three rects — (a) plain fill,
-  (b) same fill + a `noise` effect at color-dodge, (c) same fill + a `dissolve`.
-  Export PNG and SVG. Prediction if the reading above is right: the SVG matches the
-  canvas for all three, and the PNG matches only for (a), rendering (b) and (c) as
-  flat untextured fills. Any prediction that fails narrows the cause.
+- **Decisive test before writing any fix: `docs/EXPORT-FIDELITY-TEST-FIXTURES.md`,
+  Fixture A (~15 min).** Build instructions are exact and self-contained — artboard
+  size, layer positions, effect values, which exports to take, and a table of what
+  each outcome means. In short: three identical rects, one plain, one with a `noise`
+  effect at Color Dodge, one with a `dissolve`; export PNG and SVG. Predicted result
+  is that SVG matches the canvas for all three and PNG matches only the plain one.
+  A failed prediction means this diagnosis is wrong — record that rather than
+  adjusting the theory.
 - Fix direction: the raster export needs `noise` and `dissolve`, in the canvas's
   order (dissolve first, so every later primitive including shadows sees the
   dissolved node — the order `svgFilter` already documents). The deeper problem is
@@ -144,12 +147,13 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
      32M) **fail open to `draw(ctx)` — the content with NO BLUR AT ALL**, silently.
      A large heavily-blurred layer is exactly what trips them. Degrading resolution
      is defensible; dropping the effect without a word is not.
-- Test: one artboard, four rects with identical low-opacity fills and layer blurs
-  of 50 / 150 / 250 / 400 points. Export at 1×, 2×, 3×; view the canvas at 25% /
-  100% / 200%. Predictions: the 250 and 400 rects export identically to each other
-  (both clamped to 200); export does not vary with export scale; the canvas renders
-  them differently at each zoom.
-  `scripts/measure_export_divergence.py` quantifies any pair.
+- **Test: `docs/EXPORT-FIDELITY-TEST-FIXTURES.md`, Fixture B (~15 min, optional).**
+  Exact build instructions and an outcome table live there. In short: two rows of
+  four rects, one row with layer blurs and one with drop shadows, at 50 / 150 / 250
+  / 400 points; export PNG from three different canvas zooms and at three scales.
+  Predicted result is that the 250 and 400 rects are identical in every export
+  (both clamped to 200), that exports do not vary with canvas zoom, and that the
+  canvas does. `scripts/measure_export_divergence.py` quantifies any pair.
 - Acceptance: a blur renders at the same MODEL-space radius on canvas at every zoom
   and in export at every scale. A blur too large to render at full resolution
   degrades in resolution, never in radius, and never silently.

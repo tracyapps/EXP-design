@@ -36,6 +36,9 @@ docs/*
 # AGENTS.md and CLAUDE.md. It was untracked until 2026-08-25, so a fresh clone
 # would have lost the plan every one of those files points at.
 !docs/SANAA-PLAN.md
+# Step-by-step fixtures for the BUG-053/054 export divergence. Written to be run
+# weeks after the investigation, so it has to survive in the repo, not a session.
+!docs/EXPORT-FIDELITY-TEST-FIXTURES.md
 # PERF-LOG.md and PERF-TODO.md stay untracked — deliberately local scratch. Say so
 # here so the next person does not "fix" it.
 

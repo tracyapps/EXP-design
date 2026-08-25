@@ -48,7 +48,17 @@ line is an owner Xcode pass, not an agent claim.
 - [ ] FEAT-049 — feed order, highlights, announcements, Reduce Motion variant.
 - [ ] FEAT-050 — placement sheets, enablement matrix, keyboard and VoiceOver.
 
-### Wave C — vector toolset
+### Wave C — vector toolset, and the export fidelity bug
+
+Run `docs/EXPORT-FIDELITY-TEST-FIXTURES.md` first — it is self-contained and needs
+no code change. Both entries below are unfixed and unverified as of 2026-08-25.
+
+- [ ] BUG-053 — Fixture A run; `noise` and `dissolve` render in PNG, JPG, and PDF
+      as they do on canvas and in SVG. The hard-edged dark rectangle in the owner's
+      original file is accounted for, not just gone.
+- [ ] BUG-054 — Fixture B run; a blur renders at the same model-space radius on
+      canvas at every zoom and in export at every scale, and an unrenderable blur
+      degrades in resolution rather than in radius, never silently.
 
 - [ ] FEAT-025 — direct-select moves whole objects; BUG-028 is NOT claimed fixed.
 - [ ] FEAT-029 — pencil output is an ordinary, fully point-editable path.
