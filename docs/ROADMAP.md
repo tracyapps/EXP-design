@@ -1380,9 +1380,14 @@ removes a daily "the app feels broken" moment.
 
 Order is free; none of these mutate documents.
 
-- [ ] FEAT-051 — guided setup assistant for non-technical designers. **Research gate:**
-  sandboxed agent detection limits, and `.mcpb`/DXT packaging verified against current
-  Anthropic docs before anything is promised in copy.
+- [ ] FEAT-051 — guided setup assistant for non-technical designers. **Research gate
+  CLOSED 2026-08-25:** DXT is now `.mcpb` (CLI `@anthropic-ai/mcpb`); Claude Desktop
+  ships Node, so `exp-mcp` should be ported from Swift for the bundle — a bare Mach-O
+  cannot be notarization-stapled. **Blocked on one untested question:** whether a
+  helper launched by Claude Desktop can reach EXP's socket inside its sandbox
+  container at all, given macOS TCC protection on other apps' data. A five-minute
+  probe bundle answers it; if the answer is no, this chunk becomes "make the
+  copy-paste setup excellent" instead. Details in BACKLOG.
 - [ ] FEAT-052 (P3) — the Sanaa avatar/character (owner-designed assets).
 - [ ] FEAT-053 (P3) — capability pack / agent etiquette guide (`exp://sanaa/guide`).
 
@@ -2991,6 +2996,38 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-08-25 (FEAT-051 research gate closed — and it found a possible blocker).**
+  Chosen deliberately as the next piece of work because it is research: the owner is
+  short on testing time, Wave A and FEAT-048 are already awaiting verification, and
+  research adds nothing to that queue.
+
+  Three findings. DXT has been renamed — `.dxt` files are now `.mcpb`, built with
+  `@anthropic-ai/mcpb` (`init`/`validate`/`pack`/`sign`/`verify`/`unsign`/`info`),
+  installed by double-click, drag-and-drop, or Settings ▸ Extensions. Signing is
+  PKCS#7 and self-signing is supported, but the docs do not say whether signing is
+  required to install, so no promise about a frictionless install should be written
+  until that is seen on a real machine.
+
+  Second: Claude Desktop ships a Node runtime, and the format strongly recommends
+  Node for exactly that reason. `exp-mcp` is a ~4 KB Swift stdio↔socket relay with
+  no design logic, so porting it to Node for the bundle is both easy and load-bearing
+  — a bare Mach-O binary **cannot** have a notarization ticket stapled to it
+  (stapling supports `.app`, `.dmg`, `.pkg` only), so a Swift helper unpacked from a
+  downloaded `.mcpb` would ride on an online Gatekeeper check. The Swift helper stays
+  for the already-verified Claude Code path.
+
+  Third, and the reason this chunk is not simply "ready": it may be blocked outright.
+  EXP's socket lives inside its sandbox container, and `AgentBridgeLocation` notes
+  the sandbox permits AF_UNIX bind only there, so it cannot be relocated. This
+  session hit the matching wall firsthand — a shell running under project automation
+  was denied even `ls` on that container path, because macOS protects other apps'
+  data behind TCC. Claude Code works today because the terminal has that grant; a
+  child of Claude Desktop inherits Claude Desktop's, and whether that suffices is
+  unknown. The entry carries a five-minute probe bundle — a `.mcpb` that does nothing
+  but `stat` the socket — to be run before any FEAT-051 code. If the answer is no,
+  the chunk becomes "make the copy-paste setup excellent," which is a smaller and
+  more honest feature than the one currently described.
 
 - **2026-08-25 (export fidelity fixtures written; BUG-053/054 parked by owner
   decision).** The owner is short on testing time and chose to keep v2.4 moving

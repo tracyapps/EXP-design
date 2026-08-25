@@ -2396,11 +2396,55 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Repro/Detail: Three-step guided flow (pick agent → one-click/copy setup →
   "say hello" verification using the existing connection state). Plain-language,
   honest privacy copy.
-- Hypothesis: sandboxed detection of installed agents (/Applications/Claude.app,
-  `claude` CLI) may be restricted — verify before promising; degrade to "which
-  do you have?" buttons. Packaging exp-mcp as a one-click Claude Desktop
-  extension (.mcpb/DXT) is RESEARCH FIRST against current Anthropic docs
-  (format/signing/notarization unverified as of 2026-08-25).
+- **Research gate CLOSED 2026-08-25. Findings below are from current docs; the one
+  that decides feasibility has NOT been tested and must be, first.**
+- **The format.** DXT was renamed: `.dxt` files are now `.mcpb`, and the CLI is
+  `@anthropic-ai/mcpb` (`init`, `validate`, `pack`, `sign`, `verify`, `unsign`,
+  `info`). A `.mcpb` is a zip of a local stdio MCP server plus `manifest.json`;
+  users install by double-click, drag-and-drop, or Settings ▸ Extensions ▸ Advanced
+  ▸ Install Extension. Signing is PKCS#7 with PEM certificates and self-signed is
+  supported. **Whether signing is REQUIRED to install, and what a user sees when
+  installing an unsigned bundle, is not stated in the docs — do not promise a
+  frictionless install until that is observed on a real machine.**
+- **Node is the recommended runtime because Claude Desktop ships one.** The docs say
+  Node.js "ships with Claude Desktop on macOS and Windows, so users need no separate
+  runtime," and strongly recommend it. `manifest.json` also supports a Binary server
+  type.
+- **Recommendation: port `exp-mcp` from Swift to Node for the bundle.** It is
+  `exp-mcp/main.swift`, ~4 KB, and owns no design logic — it is a stdio ↔ Unix
+  socket relay. In Node that is roughly 60–80 lines over `net.connect`. Two reasons
+  beyond convenience: it uses the runtime Claude Desktop already ships, and it
+  sidesteps a real Gatekeeper problem. **A bare Mach-O binary cannot have a
+  notarization ticket stapled to it** — stapling supports `.app`, `.dmg`, and `.pkg`
+  only, and the workaround is to wrap the binary in a `.dmg`/`.pkg`, which is
+  exactly what shipping it inside a `.mcpb` zip does not do. A quarantined Swift
+  binary unpacked from a downloaded bundle would depend on an online notarization
+  check. Keep the Swift helper for the already-verified Claude Code path; the Node
+  one exists for the bundle.
+- **THE GATING QUESTION, untested: can a helper launched by Claude Desktop even
+  reach EXP's socket?** The socket is at
+  `~/Library/Containers/tapps.EXP--design-/Data/Library/Application Support/EXP/agent.sock`
+  and `AgentBridgeLocation` notes the sandbox permits AF_UNIX bind only inside EXP's
+  container, so it cannot simply be moved. Direct evidence from 2026-08-25: a shell
+  running under this project's automation was **denied** even `ls` on
+  `~/Library/Containers/tapps.EXP--design-/Data/Library/` — macOS protects other
+  apps' container data behind TCC. The shipped Claude Code path works because the
+  terminal it runs from has been granted that access. A child process of Claude
+  Desktop inherits Claude Desktop's TCC, not the terminal's, and whether that is
+  sufficient is unknown.
+  **Five-minute test, do this before writing a line of FEAT-051:** hand-write a
+  minimal `.mcpb` that does nothing but `stat` the socket path and report the
+  result, install it in Claude Desktop, and call it. If it cannot see the socket,
+  the one-click extension is not merely harder — it is blocked until the transport
+  changes, and FEAT-051 becomes "make the copy-paste setup excellent" instead.
+- **Agent detection.** EXP is sandboxed, so do not scan the filesystem for
+  `/Applications/Claude.app`. Ask `NSWorkspace` for an application URL by bundle
+  identifier instead, read the identifier off the installed app rather than guessing
+  it, and treat a nil result as "not detected" rather than "not installed."
+  Whether that call succeeds under EXP's entitlements is itself unverified. The
+  fallback the owner already specified stands and should be built FIRST, not as a
+  degradation: plain "which of these do you have?" buttons, so the flow never
+  depends on detection working.
 - Acceptance: SANAA-PLAN §6/FEAT-051 — fresh-account walkthroughs with Claude
   Desktop only, Claude Code only, and neither (kind failure naming what to
   install); full screen-reader pass; owner copy review.
