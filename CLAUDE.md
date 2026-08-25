@@ -129,6 +129,8 @@ EXP [design]/
 
 ## Current status
 Public **v2.3/build 14** is released and owner-verified.
+Active development is **v2.4/build 15** (`MARKETING_VERSION 2.4`,
+`CURRENT_PROJECT_VERSION 15`) across the app and thumbnail-extension configs.
 The native editor, Design Language, component states/behavior contract, semantic
 Handoff Package, agent bridge, nested components, canvas pages, XD/Figma import,
 rendered HTML/CSS import, CodePen handoff/import, static Storybook import, and the
@@ -140,8 +142,11 @@ explicitly deferred the remaining lower-priority vector/effect queue to v2.4 on
 2026-08-21. `docs/RELEASE-CHECKLIST-v2.3.md` contains the completed notarization,
 GitHub, Sparkle, website, and v2.2→v2.3 update receipts.
 
-**Next:** evaluate and prioritize the deferred v2.4 queue with the owner before
-starting implementation.
+The owner prioritized the first v2.4 slice on 2026-08-24: path-point bounds,
+buried-layer movement/Auto-select, and recursive group vector/type operations are
+implemented and awaiting the owner's Xcode verification pass (BUG-049, BUG-050,
+BUG-051, BUG-052, FEAT-047, FEAT-027). Do not stack another document-mutating slice until
+that pass.
 
 **Backlog hygiene:** run `scripts/verify_backlog_ids.sh` before assigning a new id.
 Ids are referenced from ROADMAP, PERF-LOG and PERF-TODO as well as BACKLOG, so

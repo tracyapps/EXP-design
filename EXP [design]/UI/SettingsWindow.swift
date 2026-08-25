@@ -27,6 +27,7 @@ import SwiftUI
 enum AppPreferences {
     static let smartGuides         = "exp.pref.smartGuides"          // Bool, default true
     static let showSelectionBounds = "exp.pref.showSelectionBounds"  // Bool, default true
+    static let autoSelectLayers    = "exp.pref.autoSelectLayers"     // Bool, default true
     static let snapToGrid          = "exp.pref.snapToGrid"           // Bool, default false
     static let pixelSnap           = "exp.pref.pixelSnap"            // Bool, default true
     static let gridSize            = "exp.pref.gridSize"             // Double (points), default 50
@@ -45,6 +46,7 @@ enum AppPreferences {
     // Defaults (kept next to the keys so AppState and Settings agree).
     static let defaultSmartGuides         = true
     static let defaultShowSelectionBounds = true
+    static let defaultAutoSelectLayers    = true
     static let defaultSnapToGrid          = false
     static let defaultPixelSnap           = true
     static let defaultGridSize: Double    = 50
@@ -301,6 +303,8 @@ private struct CanvasSettingsPane: View {
         AppPreferences.defaultSmartGuides
     @AppStorage(AppPreferences.showSelectionBounds) private var showSelectionBounds =
         AppPreferences.defaultShowSelectionBounds
+    @AppStorage(AppPreferences.autoSelectLayers) private var autoSelectLayers =
+        AppPreferences.defaultAutoSelectLayers
     @AppStorage(AppPreferences.snapToGrid) private var snapToGrid =
         AppPreferences.defaultSnapToGrid
     @AppStorage(AppPreferences.pixelSnap) private var pixelSnap =
@@ -341,6 +345,7 @@ private struct CanvasSettingsPane: View {
                           footnote: "These set the defaults for new windows. The View menu still toggles them per window.") {
                 Toggle("Smart guides (snap to other elements\u{2019} edges & centres)", isOn: $smartGuides)
                 Toggle("Show the selection bounding box on shapes", isOn: $showSelectionBounds)
+                Toggle("Automatically select the layer clicked on the canvas", isOn: $autoSelectLayers)
             }
 
             SettingsGroup("Artboards",

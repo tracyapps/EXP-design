@@ -270,3 +270,10 @@ documentation-only commit before announcing the release.
 - [x] GitHub release is public and its downloaded asset matches the local ZIP.
 - [x] Production appcast and v2.3 HTML notes are live.
 - [x] Public v2.2 → v2.3 Sparkle update proof is green.
+
+## Next development cycle
+
+- [x] Opened v2.4 development at `MARKETING_VERSION 2.4` /
+      `CURRENT_PROJECT_VERSION 15` across the app and thumbnail extension on
+      2026-08-24. This does not alter the immutable v2.3/build 14 release artifacts
+      or public appcast entry.

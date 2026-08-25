@@ -134,6 +134,9 @@ final class AppState {
         if d.object(forKey: AppPreferences.showSelectionBounds) != nil {
             showSelectionBounds = d.bool(forKey: AppPreferences.showSelectionBounds)
         }
+        if d.object(forKey: AppPreferences.autoSelectLayers) != nil {
+            autoSelectLayers = d.bool(forKey: AppPreferences.autoSelectLayers)
+        }
         if d.object(forKey: AppPreferences.snapToGrid) != nil {
             snapToGrid = d.bool(forKey: AppPreferences.snapToGrid)
         }
@@ -195,6 +198,10 @@ final class AppState {
         if d.object(forKey: AppPreferences.showSelectionBounds) != nil {
             let v = d.bool(forKey: AppPreferences.showSelectionBounds)
             if v != showSelectionBounds { showSelectionBounds = v }
+        }
+        if d.object(forKey: AppPreferences.autoSelectLayers) != nil {
+            let v = d.bool(forKey: AppPreferences.autoSelectLayers)
+            if v != autoSelectLayers { autoSelectLayers = v }
         }
         if d.object(forKey: AppPreferences.snapToGrid) != nil {
             let v = d.bool(forKey: AppPreferences.snapToGrid)
@@ -451,6 +458,27 @@ final class AppState {
         }
     }
 
+    /// Make a panel's actual content visible without treating an already-present
+    /// panel as a toggle-off request. Reveal commands need this stronger contract:
+    /// a panel can exist in the layout while its tray is collapsed or its dock tab
+    /// is inactive, neither of which `isPanelShown` distinguishes.
+    func revealPanel(_ id: PanelID) {
+        if workspaceMode == .multiWindow {
+            PanelHub.shared.revealPanel(id)
+            PanelWindowManager.shared.reconcile()
+            return
+        }
+
+        if !isPanelVisible(id) { togglePanel(id) }
+        for side in [DockSide.left, .right] {
+            if let group = dockGroups(side).first(where: { $0.panels.contains(id) }) {
+                setActivePanel(id, inGroup: group.id, side: side)
+                if side == .left { showLeftPanel = true } else { showRightPanel = true }
+                return
+            }
+        }
+    }
+
     /// Reveal a closed panel (Window-menu): adds it to the shared trays.
     func ensurePanelTray(_ panel: PanelID) { PanelHub.shared.ensurePanelTray(panel) }
 
@@ -555,6 +583,11 @@ final class AppState {
     /// (Paths never draw a box — they trace their outline instead.) Settings now
     /// owns the DEFAULT (two-way synced); the View menu still toggles it per window.
     var showSelectionBounds: Bool = true { didSet { persistPref(AppPreferences.showSelectionBounds, showSelectionBounds) } }
+
+    /// Photoshop-style selection policy. ON preserves EXP's existing direct-click
+    /// behavior. OFF keeps the Layers-panel selection authoritative, so a covered
+    /// layer can be moved without hiding or locking everything above it.
+    var autoSelectLayers: Bool = true { didSet { persistPref(AppPreferences.autoSelectLayers, autoSelectLayers) } }
 
     /// Backdrop shade drawn BEHIND the component in the source-editor canvas. This
     /// is a pure VIEW setting (like Photoshop's canvas colour) — it never touches
@@ -765,14 +798,32 @@ final class AppState {
     /// it never invalidates any view. nil = no text box is being edited.
     @ObservationIgnored var applyTextStyle: ((TextStyleOp) -> Void)?
 
-    /// The document's Layers panel registers this so the View menu can expand
-    /// (true) or collapse (false) all groups + sections. `@ObservationIgnored` —
-    /// a closure hook, like `applyTextStyle`.
-    @ObservationIgnored var layersExpandAll: ((Bool) -> Void)?
+    /// Lifecycle-safe command bridge to the Layers view. A stored closure captured
+    /// whichever dock/tray ScrollViewProxy appeared last; switching workspace mode,
+    /// collapsing a floating panel, or changing documents could leave commands aimed
+    /// at a dead view. The observable sequence wakes the currently mounted Layers
+    /// view, while the ignored payload/receipt let a newly opened view consume a
+    /// request that was issued just before it appeared.
+    enum LayersPanelCommand { case expandAll, collapseAll, revealSelection }
+    var layersPanelCommandSequence: UInt = 0
+    @ObservationIgnored private var pendingLayersPanelCommand: LayersPanelCommand?
+    @ObservationIgnored private var handledLayersPanelCommandSequence: UInt = 0
 
-    /// Explicit "Reveal in Layers" hook. Kept separate from selection changes so
-    /// single canvas clicks never auto-scroll the panel (see docs/PERF-LOG.md).
-    @ObservationIgnored var layersRevealSelection: (() -> Void)?
+    func requestLayersPanelCommand(_ command: LayersPanelCommand) {
+        pendingLayersPanelCommand = command
+        layersPanelCommandSequence &+= 1
+        if layersPanelCommandSequence == 0 { layersPanelCommandSequence = 1 }
+    }
+
+    /// Exactly one live Layers surface consumes each request. This matters during a
+    /// dock ↔ tray transition, when SwiftUI may briefly keep both view trees alive.
+    func consumeLayersPanelCommand(sequence: UInt) -> LayersPanelCommand? {
+        guard sequence != 0,
+              sequence == layersPanelCommandSequence,
+              sequence != handledLayersPanelCommandSequence else { return nil }
+        handledLayersPanelCommandSequence = sequence
+        return pendingLayersPanelCommand
+    }
 
     /// The canvas publishes the current text selection's style here so the
     /// Inspector reflects it. nil component = "Multiple"/mixed across the selection.

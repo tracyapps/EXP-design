@@ -840,82 +840,88 @@ final class CanvasNSView: NSView {
     /// Recompute a path node's frame to the bbox of its anchors, re-basing all
     /// local points + handles so absolute positions stay put.
     private func normalizePath(_ id: UUID) {
-        updateNode(id) { node in
-            guard case .path(var ps) = node.content else { return }
-            var cs = ps.editContours
-            guard !cs.isEmpty, !cs.allSatisfy({ $0.isEmpty }) else { return }
-            let oldCenter = CGPoint(x: node.frame.midX, y: node.frame.midY)
+        updateNode(id) { Self.normalizePathNode(&$0) }
+    }
 
-            // Bbox from every contour's anchors AND control handles, not anchors
-            // alone — a bezier curve never leaves the convex hull of its anchor +
-            // handle points, so including handles guarantees the new frame always
-            // encloses the actual curve (rendering never clips a path to its own
-            // node.frame — only artboards clip, see drawDocument — so a frame that
-            // grows or shrinks here is always safe). This used to skip multi-contour
-            // (outlined-text) paths entirely, leaving a stale frame once points were
-            // dragged outside it — and `nodeHit` relies on the frame ENCLOSING the
-            // ink as its fast bounding-box reject, so a stale frame makes the parts
-            // of the shape outside the old box unclickable.
-            var xs: [CGFloat] = [], ys: [CGFloat] = []
-            for pts in cs {
-                for pt in pts {
-                    xs.append(node.frame.minX + pt.point.x); ys.append(node.frame.minY + pt.point.y)
-                    if let c = pt.controlIn { xs.append(node.frame.minX + c.x); ys.append(node.frame.minY + c.y) }
-                    if let c = pt.controlOut { xs.append(node.frame.minX + c.x); ys.append(node.frame.minY + c.y) }
-                }
-            }
-            guard let minX = xs.min(), let minY = ys.min(),
-                  let maxX = xs.max(), let maxY = ys.max() else { return }
-            
-            let newOrigin = CGPoint(x: minX, y: minY)
-            let dx = node.frame.minX - newOrigin.x
-            let dy = node.frame.minY - newOrigin.y
-            
-            for c in cs.indices {
-                for i in cs[c].indices {
-                    cs[c][i].point.x += dx
-                    cs[c][i].point.y += dy
-                    if cs[c][i].controlIn != nil {
-                        cs[c][i].controlIn!.x += dx
-                        cs[c][i].controlIn!.y += dy
-                    }
-                    if cs[c][i].controlOut != nil {
-                        cs[c][i].controlOut!.x += dx
-                        cs[c][i].controlOut!.y += dy
-                    }
-                }
-            }
-            
-            let width = max(1, maxX - minX)
-            let height = max(1, maxY - minY)
-            let size = CGSize(width: width, height: height)
+    /// Pure/in-place half of `normalizePath`, shared by point edits that already
+    /// hold a pending node array. Keeping frame + path coordinates in one mutation
+    /// lets keyboard/Inspector edits commit as ONE undo step instead of committing
+    /// geometry first and repairing the bounds in a second write.
+    private static func normalizePathNode(_ node: inout Node) {
+        guard case .path(var ps) = node.content else { return }
+        var cs = ps.editContours
+        guard !cs.isEmpty, !cs.allSatisfy({ $0.isEmpty }) else { return }
+        let oldCenter = CGPoint(x: node.frame.midX, y: node.frame.midY)
 
-            // Re-basing the bbox moves the frame CENTER — the pivot BOTH rotation
-            // and flip mirror about — so an unadjusted origin shifts the rendered
-            // ink. Most visible on FLIPPED paths: the whole shape "walked"
-            // sideways whenever a point drag grew or shrank the box, because the
-            // old math only kept the unflipped coordinates fixed. Keep the ink
-            // fixed for ANY rotation + flip combination instead:
-            //   rendered(p) = C + R·F·(p − c)     C: frame center (doc space),
-            //   c: local center, F: flip mirror, R: rotation about the center
-            // ⇒ the new center must be C′ = C + R·F·(c′ − c − d), where d is the
-            // shift just applied to the local points. With no rotation and no
-            // flip this reduces to finalOrigin == newOrigin (the old behavior).
-            var v = CGPoint(x: size.width / 2 - node.frame.width / 2 - dx,
-                            y: size.height / 2 - node.frame.height / 2 - dy)
-            if node.flipH { v.x = -v.x }
-            if node.flipV { v.y = -v.y }
-            if node.rotation != 0 {
-                let r = node.rotation * .pi / 180, s = sin(r), c = cos(r)
-                v = CGPoint(x: v.x * c - v.y * s, y: v.x * s + v.y * c)
+        // Bbox from every contour's anchors AND control handles, not anchors
+        // alone — a bezier curve never leaves the convex hull of its anchor +
+        // handle points, so including handles guarantees the new frame always
+        // encloses the actual curve (rendering never clips a path to its own
+        // node.frame — only artboards clip, see drawDocument — so a frame that
+        // grows or shrinks here is always safe). This used to skip multi-contour
+        // (outlined-text) paths entirely, leaving a stale frame once points were
+        // dragged outside it — and `nodeHit` relies on the frame ENCLOSING the
+        // ink as its fast bounding-box reject, so a stale frame makes the parts
+        // of the shape outside the old box unclickable.
+        var xs: [CGFloat] = [], ys: [CGFloat] = []
+        for pts in cs {
+            for pt in pts {
+                xs.append(node.frame.minX + pt.point.x); ys.append(node.frame.minY + pt.point.y)
+                if let c = pt.controlIn { xs.append(node.frame.minX + c.x); ys.append(node.frame.minY + c.y) }
+                if let c = pt.controlOut { xs.append(node.frame.minX + c.x); ys.append(node.frame.minY + c.y) }
             }
-            let finalOrigin = CGPoint(x: oldCenter.x + v.x - size.width / 2,
-                                      y: oldCenter.y + v.y - size.height / 2)
-            
-            ps.writeEditContours(cs)
-            node.frame = CGRect(origin: finalOrigin, size: size)
-            node.content = .path(ps)
         }
+        guard let minX = xs.min(), let minY = ys.min(),
+              let maxX = xs.max(), let maxY = ys.max() else { return }
+
+        let newOrigin = CGPoint(x: minX, y: minY)
+        let dx = node.frame.minX - newOrigin.x
+        let dy = node.frame.minY - newOrigin.y
+
+        for c in cs.indices {
+            for i in cs[c].indices {
+                cs[c][i].point.x += dx
+                cs[c][i].point.y += dy
+                if cs[c][i].controlIn != nil {
+                    cs[c][i].controlIn!.x += dx
+                    cs[c][i].controlIn!.y += dy
+                }
+                if cs[c][i].controlOut != nil {
+                    cs[c][i].controlOut!.x += dx
+                    cs[c][i].controlOut!.y += dy
+                }
+            }
+        }
+
+        let width = max(1, maxX - minX)
+        let height = max(1, maxY - minY)
+        let size = CGSize(width: width, height: height)
+
+        // Re-basing the bbox moves the frame CENTER — the pivot BOTH rotation
+        // and flip mirror about — so an unadjusted origin shifts the rendered
+        // ink. Most visible on FLIPPED paths: the whole shape "walked"
+        // sideways whenever a point drag grew or shrank the box, because the
+        // old math only kept the unflipped coordinates fixed. Keep the ink
+        // fixed for ANY rotation + flip combination instead:
+        //   rendered(p) = C + R·F·(p − c)     C: frame center (doc space),
+        //   c: local center, F: flip mirror, R: rotation about the center
+        // ⇒ the new center must be C′ = C + R·F·(c′ − c − d), where d is the
+        // shift just applied to the local points. With no rotation and no
+        // flip this reduces to finalOrigin == newOrigin (the old behavior).
+        var v = CGPoint(x: size.width / 2 - node.frame.width / 2 - dx,
+                        y: size.height / 2 - node.frame.height / 2 - dy)
+        if node.flipH { v.x = -v.x }
+        if node.flipV { v.y = -v.y }
+        if node.rotation != 0 {
+            let r = node.rotation * .pi / 180, s = sin(r), c = cos(r)
+            v = CGPoint(x: v.x * c - v.y * s, y: v.x * s + v.y * c)
+        }
+        let finalOrigin = CGPoint(x: oldCenter.x + v.x - size.width / 2,
+                                  y: oldCenter.y + v.y - size.height / 2)
+
+        ps.writeEditContours(cs)
+        node.frame = CGRect(origin: finalOrigin, size: size)
+        node.content = .path(ps)
     }
 
     // MARK: Pen tool
@@ -1418,7 +1424,10 @@ final class CanvasNSView: NSView {
             }
         }
         var nodes = currentNodes
-        guard Self.mutateNested(id, in: &nodes, { $0.content = .path(ps) }) else { return }
+        guard Self.mutateNested(id, in: &nodes, {
+            $0.content = .path(ps)
+            Self.normalizePathNode(&$0)
+        }) else { return }
         commitNodes(nodes, actionName: "Rotate Points")
         needsDisplay = true
     }
@@ -1455,16 +1464,26 @@ final class CanvasNSView: NSView {
 
     private func convertSelectionToPaths() {
         guard let app else { return }
+        let selected = app.selectedNodeIDs
         var nodes = currentNodes
         var changed = false
-        // Convert each selected shape in place, however deeply nested in groups.
-        for id in app.selectedNodeIDs {
-            Self.mutateNested(id, in: &nodes) { n in
-                if let ps = Self.pathShape(from: n.content, size: n.frame.size) {
-                    n.content = .path(ps); changed = true
+        // A selected group is an operation scope: convert every compatible leaf at
+        // any depth while retaining the hierarchy and leaving text/images/paths alone.
+        func process(_ array: inout [Node], selectedAbove: Bool = false) {
+            for i in array.indices {
+                let active = selectedAbove || selected.contains(array[i].id)
+                if case .group(var children) = array[i].content {
+                    process(&children, selectedAbove: active)
+                    array[i].content = .group(children: children)
+                } else if active,
+                          let ps = Self.pathShape(from: array[i].content,
+                                                  size: array[i].frame.size) {
+                    array[i].content = .path(ps)
+                    changed = true
                 }
             }
         }
+        process(&nodes)
         guard changed else { return }
         commitNodes(nodes, actionName: "Convert to Path")
         needsDisplay = true
@@ -1549,11 +1568,16 @@ final class CanvasNSView: NSView {
                 guard let converted = VectorPathGeometry.pathShape(from: parentPath,
                                                                     fill: .solid(stroke.color)) else { return nil }
                 return Node(id: original.id, name: original.name, frame: converted.bounds,
+                            artboardID: original.artboardID,
                             isVisible: original.isVisible, isLocked: original.isLocked,
                             opacity: original.opacity, effects: original.effects,
                             blendMode: original.blendMode,
+                            autoLayout: original.autoLayout, autoPadding: original.autoPadding,
+                            isAbsoluteInAutoLayout: original.isAbsoluteInAutoLayout,
                             isMask: original.isMask, isMaskShape: original.isMaskShape,
-                            relationships: original.relationships, publicProps: original.publicProps,
+                            relationships: original.relationships,
+                            anchoredRelationships: original.anchoredRelationships,
+                            publicProps: original.publicProps, semantics: original.semantics,
                             content: .path(converted.shape))
             }
 
@@ -1582,22 +1606,28 @@ final class CanvasNSView: NSView {
                                    frame: outline.bounds.offsetBy(dx: childOffset.x, dy: childOffset.y),
                                    content: .path(outline.shape))
             return Node(id: original.id, name: original.name, frame: groupFrame,
+                        artboardID: original.artboardID,
                         isVisible: original.isVisible, isLocked: original.isLocked,
                         rotation: original.rotation, opacity: original.opacity,
                         effects: original.effects, blendMode: original.blendMode,
+                        autoLayout: original.autoLayout, autoPadding: original.autoPadding,
+                        isAbsoluteInAutoLayout: original.isAbsoluteInAutoLayout,
                         flipH: original.flipH, flipV: original.flipV,
                         isMask: original.isMask, isMaskShape: original.isMaskShape,
-                        relationships: original.relationships, publicProps: original.publicProps,
+                        relationships: original.relationships,
+                        anchoredRelationships: original.anchoredRelationships,
+                        publicProps: original.publicProps, semantics: original.semantics,
                         content: .group(children: [fillNode, outlineNode]))
         }
 
-        func process(_ array: inout [Node]) {
+        func process(_ array: inout [Node], selectedAbove: Bool = false) {
             for i in array.indices {
-                if selected.contains(array[i].id), let replacement = outlinedReplacement(for: array[i]) {
+                let active = selectedAbove || selected.contains(array[i].id)
+                if active, let replacement = outlinedReplacement(for: array[i]) {
                     array[i] = replacement
                     changed = true
                 } else if case .group(var children) = array[i].content {
-                    process(&children)
+                    process(&children, selectedAbove: active)
                     array[i].content = .group(children: children)
                 }
             }
@@ -1728,11 +1758,7 @@ final class CanvasNSView: NSView {
     }
 
     private var selectionCanOutlineStroke: Bool {
-        guard let app else { return false }
-        return app.selectedNodeIDs.contains { id in
-            guard let node = node(id) else { return false }
-            return VectorPathGeometry.stroke(from: node.content) != nil
-        }
+        selectedSubtreesContain { VectorPathGeometry.stroke(from: $0.content) != nil }
     }
 
     private var selectionCanPathfinder: Bool {
@@ -1741,13 +1767,28 @@ final class CanvasNSView: NSView {
     }
 
     private var selectionConvertibleToPath: Bool {
-        guard let app else { return false }
-        return app.selectedNodeIDs.contains { id in
-            switch node(id)?.content {   // recursive lookup → nested shapes count too
+        selectedSubtreesContain { node in
+            switch node.content {
             case .rectangle, .ellipse, .polygon, .line: return true
             default: return false
             }
         }
+    }
+
+    private var selectionCanConvertTextToOutlines: Bool {
+        selectedSubtreesContain { if case .text = $0.content { return true }; return false }
+    }
+
+    /// Whether any selected node, or anything recursively inside a selected group,
+    /// satisfies `predicate`. Instances remain atomic references and are not entered.
+    private func selectedSubtreesContain(_ predicate: (Node) -> Bool) -> Bool {
+        guard let app else { return false }
+        func scan(_ node: Node) -> Bool {
+            if predicate(node) { return true }
+            if case .group(let children) = node.content { return children.contains(where: scan) }
+            return false
+        }
+        return app.selectedNodeIDs.contains { id in node(id).map(scan) ?? false }
     }
 
     // MARK: Convert text → shapes (glyph outlines)
@@ -1813,55 +1854,80 @@ final class CanvasNSView: NSView {
     @objc func convertTextToShapesAction(_ sender: Any?) { convertSelectedTextToShapes() }
 
     private func convertSelectedTextToShapes() {
-        guard let app, let id = app.singleSelectedNodeID, let n = node(id),
-              case .text(let tc) = n.content else { NSSound.beep(); return }
-        let glyphs = tc.outlineGlyphs(in: n.frame.size)
-        // Beep rather than fail silently — outlining can still legitimately come up
-        // empty (e.g. a whitespace-only text node), and a no-feedback failure here is
-        // exactly the "Convert to Outlines does nothing" trap this codebase has hit
-        // before, so any future edge case stays *noticeable* instead of silent.
-        guard !glyphs.isEmpty else { NSSound.beep(); return }
+        guard let app, !app.selectedNodeIDs.isEmpty else { NSSound.beep(); return }
+        let selected = app.selectedNodeIDs
 
-        // Each glyph becomes its own path node, sized to its TIGHT ink box. Frames
-        // start in document coords (text frame origin + the glyph's local box).
-        let fx = n.frame.minX, fy = n.frame.minY
-        func pathNode(_ g: GlyphOutline, docFrame: CGRect) -> Node {
-            let ps = PathShape(points: g.localContours.first ?? [], closed: true,
-                               fill: .solid(g.color), stroke: .black, strokeWidth: 0,
-                               contours: g.localContours)
-            let name = g.char.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Glyph" : g.char
-            return Node(name: name, frame: docFrame, content: .path(ps))
-        }
-        let docFrames = glyphs.map { CGRect(x: fx + $0.boxInText.minX, y: fy + $0.boxInText.minY,
-                                            width: $0.boxInText.width, height: $0.boxInText.height) }
+        func replacement(for original: Node, text tc: TextContent) -> Node? {
+            let glyphs = tc.outlineGlyphs(in: original.frame.size)
+            guard !glyphs.isEmpty else { return nil }
 
-        var replacement: Node
-        if glyphs.count == 1 {
-            replacement = pathNode(glyphs[0], docFrame: docFrames[0])
-            replacement.name = n.name
-        } else {
-            // Auto-group the letters. Group frame = tight union of glyph boxes;
-            // children are stored relative to it (matches `group()`), so Ungroup
-            // splits them back into individual letters at the right spots.
-            let union = docFrames.dropFirst().reduce(docFrames[0]) { $0.union($1) }
-            let children = zip(glyphs, docFrames).map { g, df in
-                pathNode(g, docFrame: df.offsetBy(dx: -union.minX, dy: -union.minY))
+            // Each glyph becomes its own path node, sized to its tight ink box. The
+            // frame is in the text node's PARENT space, so nesting depth is irrelevant.
+            let fx = original.frame.minX, fy = original.frame.minY
+            func pathNode(_ glyph: GlyphOutline, frame: CGRect) -> Node {
+                let ps = PathShape(points: glyph.localContours.first ?? [], closed: true,
+                                   fill: .solid(glyph.color), stroke: .black, strokeWidth: 0,
+                                   contours: glyph.localContours)
+                let trimmed = glyph.char.trimmingCharacters(in: .whitespacesAndNewlines)
+                return Node(name: trimmed.isEmpty ? "Glyph" : glyph.char,
+                            frame: frame, content: .path(ps))
             }
-            replacement = Node(name: n.name, frame: union, content: .group(children: children))
+            let frames = glyphs.map {
+                CGRect(x: fx + $0.boxInText.minX, y: fy + $0.boxInText.minY,
+                       width: $0.boxInText.width, height: $0.boxInText.height)
+            }
+            let frame: CGRect
+            let content: NodeContent
+            if glyphs.count == 1 {
+                frame = frames[0]
+                content = pathNode(glyphs[0], frame: frame).content
+            } else {
+                let union = frames.dropFirst().reduce(frames[0]) { $0.union($1) }
+                frame = union
+                let children = zip(glyphs, frames).map { glyph, glyphFrame in
+                    pathNode(glyph, frame: glyphFrame.offsetBy(dx: -union.minX,
+                                                               dy: -union.minY))
+                }
+                content = .group(children: children)
+            }
+            // Preserve identity and every non-text layer contract. Relationships,
+            // component public-prop identity, masks, locks, and auto-layout placement
+            // must not disappear merely because editable text became vector geometry.
+            return Node(id: original.id, name: original.name, frame: frame,
+                        artboardID: original.artboardID,
+                        isVisible: original.isVisible, isLocked: original.isLocked,
+                        rotation: original.rotation, opacity: original.opacity,
+                        effects: original.effects, blendMode: original.blendMode,
+                        autoLayout: original.autoLayout, autoPadding: original.autoPadding,
+                        isAbsoluteInAutoLayout: original.isAbsoluteInAutoLayout,
+                        flipH: original.flipH, flipV: original.flipV,
+                        isMask: original.isMask, isMaskShape: original.isMaskShape,
+                        relationships: original.relationships,
+                        anchoredRelationships: original.anchoredRelationships,
+                        publicProps: original.publicProps, semantics: original.semantics,
+                        content: content)
         }
-        // Carry over the layer's transform / opacity / effects.
-        replacement.rotation = n.rotation
-        replacement.opacity = n.opacity
-        replacement.effects = n.effects
 
-        // Replace the text node in place — including inside a group (the replacement
-        // is built in the text's parent-local space, so this works at any depth).
         var nodes = currentNodes
         var replaced = false
-        Self.inParentArray(of: id, in: &nodes) { arr, i in arr[i] = replacement; replaced = true }
+        func process(_ array: inout [Node], selectedAbove: Bool = false) {
+            for i in array.indices {
+                let active = selectedAbove || selected.contains(array[i].id)
+                if active, case .text(let text) = array[i].content,
+                   let outlined = replacement(for: array[i], text: text) {
+                    array[i] = outlined
+                    replaced = true
+                } else if case .group(var children) = array[i].content {
+                    process(&children, selectedAbove: active)
+                    array[i].content = .group(children: children)
+                }
+            }
+        }
+        process(&nodes)
+        // Beep rather than fail silently — a selection can contain only whitespace
+        // text, which legitimately has no glyph outlines, but still needs feedback.
         guard replaced else { NSSound.beep(); return }
         commitNodes(nodes, actionName: "Convert Text to Outlines")
-        app.selectedNodeIDs = [replacement.id]
         needsDisplay = true
     }
 
@@ -7605,7 +7671,24 @@ final class CanvasNSView: NSView {
         }
 
         // A shape. `hitPath` is the chain top-level → deepest leaf under the cursor.
-        let path = hitPath(atDoc: viewToDoc(p))
+        let clickDoc = viewToDoc(p)
+        let path = hitPath(atDoc: clickDoc)
+
+        // Photoshop-style selected-layer mode. With Auto-select OFF, the Layers
+        // panel remains authoritative: a covered selected layer can still begin a
+        // move because we test its own real geometry independently of z-order, while
+        // clicking a different visible layer does not silently replace the selection.
+        if app.tool == .select, event.clickCount == 1, !app.autoSelectLayers, !shift,
+           !app.selectedNodeIDs.isEmpty {
+            if selectedGeometryContains(clickDoc) {
+                beginSelectedNodeDrag(at: clickDoc)
+                return
+            }
+            if !path.isEmpty {
+                dragMode = .none
+                return
+            }
+        }
         if !path.isEmpty {
             let cmd = event.modifierFlags.contains(.command)
 
@@ -7663,28 +7746,7 @@ final class CanvasNSView: NSView {
             app.selectedArtboardID = nil
             app.selectionAnchorID = targetID
 
-            dragBaseline = document.model
-            // Option-drag duplicates the selection in place (nested items included) —
-            // but the decision is DEFERRED to the drag and re-read live from there.
-            // See the `.nodes` case in mouseDragged and `setDragCopy`.
-            //
-            // BUG-025: this used to read `option` ONCE, here, and duplicate
-            // immediately. Two problems fell out of that. (a) macOS delivers
-            // flagsChanged and mouseDown as SEPARATE events, so pressing Option and
-            // the mouse button at nearly the same instant gives a nondeterministic
-            // order — press Option a hair late and the duplicate silently didn't
-            // happen. That is exactly the owner's report: "it works only if I have
-            // the button pressed for a time before moving... sometimes I must hit
-            // the key and mouse down at more of the same time, or slightly
-            // staggered." Nothing was wrong with the duplication; the modifier was
-            // simply read before the user had finished expressing it. (b) copying
-            // at mouseDown meant a plain Option-CLICK with no movement at all minted
-            // a copy and, because it set `didEdit`, registered an undo step for it.
-            dragCopyActive = false
-            dragCopySourceSelection = app.selectedNodeIDs
-            gestureUndoName = "Move Shape"
-            dragMode = .nodes(startDoc: viewToDoc(p), origins: selectedNodeOrigins())
-            needsDisplay = true
+            beginSelectedNodeDrag(at: clickDoc)
             return
         }
 
@@ -8794,6 +8856,35 @@ final class CanvasNSView: NSView {
         return result
     }
 
+    /// True when `docPoint` is on the actual ink/surface of any selected root.
+    /// This deliberately does not ask `hitPath`, whose answer is z-ordered and
+    /// therefore cannot see a selected layer underneath another one.
+    private func selectedGeometryContains(_ docPoint: CGPoint) -> Bool {
+        guard let app else { return false }
+        for id in app.selectedNodeIDs where !hasSelectedAncestor(id) {
+            guard let selected = node(id), selected.isVisible, !selected.isLocked else { continue }
+            let pointInParent = docToParentLocal(docPoint, chain: ancestorGroups(of: id))
+            if nodeHit(selected, at: pointInParent) { return true }
+        }
+        return false
+    }
+
+    /// Arm the standard selection drag without changing which nodes are selected.
+    /// Shared by ordinary Auto-select clicks and selected-layer mode so Option-drag,
+    /// nested movement, smart guides, and one-step undo remain one implementation.
+    private func beginSelectedNodeDrag(at startDoc: CGPoint) {
+        guard let app, let document else { return }
+        dragBaseline = document.model
+        // Option-drag duplicates the selection in place (nested items included) —
+        // but the decision is DEFERRED to the drag and re-read live from there.
+        // See the `.nodes` case in mouseDragged and `setDragCopy` (BUG-025).
+        dragCopyActive = false
+        dragCopySourceSelection = app.selectedNodeIDs
+        gestureUndoName = "Move Shape"
+        dragMode = .nodes(startDoc: startDoc, origins: selectedNodeOrigins())
+        needsDisplay = true
+    }
+
     /// Flip the in-progress `.nodes` drag between moving the originals and
     /// dragging fresh copies, without ending the gesture (BUG-025).
     ///
@@ -8994,7 +9085,10 @@ final class CanvasNSView: NSView {
             }
         }
         var nodes = currentNodes
-        guard Self.mutateNested(id, in: &nodes, { $0.content = .path(ps) }) else { return }
+        guard Self.mutateNested(id, in: &nodes, {
+            $0.content = .path(ps)
+            Self.normalizePathNode(&$0)
+        }) else { return }
         commitNodes(nodes, actionName: selectedPointAddresses.count == 1 ? "Move Point" : "Move Points")
         needsDisplay = true
     }
@@ -9022,7 +9116,10 @@ final class CanvasNSView: NSView {
         ps.writeEditContours(cs)
         var nodes = currentNodes
         let count = selectedPointAddresses.count
-        guard Self.mutateNested(id, in: &nodes, { $0.content = .path(ps) }) else { return }
+        guard Self.mutateNested(id, in: &nodes, {
+            $0.content = .path(ps)
+            Self.normalizePathNode(&$0)
+        }) else { return }
         commitNodes(nodes, actionName: count == 1 ? "Delete Point" : "Delete Points")
         setSelectedPoints([])
         needsDisplay = true
@@ -10700,6 +10797,23 @@ final class CanvasNSView: NSView {
         needsDisplay = true
     }
 
+    @objc func toggleAutoSelectLayersAction(_ sender: Any?) {
+        app?.autoSelectLayers.toggle()
+    }
+
+    /// Layers rows call this after a pointer selection so arrows and standard edit
+    /// commands immediately act on the layer just chosen rather than stale panel focus.
+    @objc func focusCanvasAction(_ sender: Any?) {
+        guard let window else { return }
+        // In Single-Window mode changing first responder is enough. In Multi-Window
+        // mode the Layers tray is a DIFFERENT key window; setting a responder on this
+        // inactive document window does not redirect the next arrow key. Make the
+        // document key as well, then put focus on its canvas. Floating trays stay
+        // visibly above it without owning keyboard input (see PanelWindow.open).
+        window.makeKey()
+        window.makeFirstResponder(self)
+    }
+
     @objc func toggleRulersAction(_ sender: Any?) {
         app?.showRulers.toggle()
         needsDisplay = true
@@ -10934,14 +11048,18 @@ final class CanvasNSView: NSView {
         needsDisplay = true
     }
 
-    // Layers panel expand/collapse-all — the panel registers app.layersExpandAll.
-    @objc func expandAllLayersAction(_ sender: Any?)   { app?.layersExpandAll?(true) }
-    @objc func collapseAllLayersAction(_ sender: Any?) { app?.layersExpandAll?(false) }
+    // Lifecycle-safe requests consumed by the live docked, floating, or source
+    // Layers surface. No view/proxy closure crosses an NSWindow boundary.
+    @objc func expandAllLayersAction(_ sender: Any?) {
+        app?.requestLayersPanelCommand(.expandAll)
+    }
+    @objc func collapseAllLayersAction(_ sender: Any?) {
+        app?.requestLayersPanelCommand(.collapseAll)
+    }
     @objc func revealSelectionInLayersAction(_ sender: Any?) {
         guard let app, !app.selectedNodeIDs.isEmpty else { return }
-        if !app.isPanelShown(.layers) { app.togglePanel(.layers) }
-        app.layersRevealSelection?()
-        DispatchQueue.main.async { app.layersRevealSelection?() }
+        if !isSourceScope { app.revealPanel(.layers) }
+        app.requestLayersPanelCommand(.revealSelection)
     }
     @objc func showRelationshipsAction(_ sender: Any?) {
         guard let app, canEditRelationships else { return }
@@ -12105,11 +12223,14 @@ final class CanvasNSView: NSView {
                 menu.addItem(instanceStateMenuItem(forNode: hit.id, sourceID: inst.sourceID,
                                                    current: inst.activeStateID))
             }
-            switch hit.content {
-            case .rectangle, .ellipse, .polygon, .line:
+            if selectionConvertibleToPath {
                 add(menu, "Convert to Path", #selector(convertToPathAction(_:)))
-            case .text:
+            }
+            if selectionCanConvertTextToOutlines {
                 add(menu, "Convert to Outlines", #selector(convertTextToShapesAction(_:)))
+            }
+            switch hit.content {
+            case .text:
                 add(menu, "Save as Type Style", #selector(saveTypeStyleAction(_:)))
                 let roleItem = NSMenuItem(title: "Content Role", action: nil, keyEquivalent: "")
                 let roleMenu = NSMenu()
@@ -12376,7 +12497,7 @@ extension CanvasNSView: NSMenuItemValidation {
         case #selector(eyedropperAction(_:)):
             return hasNodes
         case #selector(expandAllLayersAction(_:)), #selector(collapseAllLayersAction(_:)):
-            return app?.layersExpandAll != nil
+            return isSourceScope || app?.isPanelShown(.layers) == true
         case #selector(revealSelectionInLayersAction(_:)):
             return hasNodes
         case #selector(showRelationshipsAction(_:)):
@@ -12447,8 +12568,9 @@ extension CanvasNSView: NSMenuItemValidation {
             return selectionCanPathfinder
         case #selector(toggleBoldText(_:)), #selector(toggleItalicText(_:)), #selector(toggleUnderlineText(_:)):
             return selectionIsText || textEditor != nil
-        case #selector(convertTextToShapesAction(_:)), #selector(saveTypeStyleAction(_:)),
-             #selector(setTextContentRoleAction(_:)):
+        case #selector(convertTextToShapesAction(_:)):
+            return selectionCanConvertTextToOutlines
+        case #selector(saveTypeStyleAction(_:)), #selector(setTextContentRoleAction(_:)):
             return selectionIsText
         case #selector(alignLeftAction(_:)), #selector(alignHCenterAction(_:)), #selector(alignRightAction(_:)),
              #selector(alignTopAction(_:)), #selector(alignVCenterAction(_:)), #selector(alignBottomAction(_:)):

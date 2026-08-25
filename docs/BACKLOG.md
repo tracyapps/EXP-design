@@ -34,6 +34,99 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 
 ## 🐞 Bugs
 
+### BUG-052 — Reveal in Layers and layer-tree commands lose the live floating panel
+- Type: bug
+- Priority: P1
+- Area: layers · chrome · multi-window
+- Status: **needs-verify — implemented 2026-08-24**
+- Repro/Detail: In Multi-Window mode, select a canvas object whose row is nested or
+  outside the visible Layers range and invoke Reveal in Layers. The floating Layers
+  panel does not reliably expand/scroll to it. View ▸ Expand All Layers and Collapse
+  All Layers cross the same connection and can target the wrong/no panel after dock
+  ↔ tray, collapse/reopen, or active-document changes.
+- Root cause/fix: the canvas stored two `@ObservationIgnored` closures installed by
+  whichever `LayersPanel` view appeared last. Those closures captured view-local
+  state and a `ScrollViewProxy`; when SwiftUI replaced that dock/tray tree, the
+  command could keep calling a dead proxy with no observable lifecycle handoff. The
+  callbacks are replaced by one sequenced `AppState.LayersPanelCommand` request that
+  exactly one currently mounted Layers surface consumes. A request remains pending
+  if Reveal has just created or uncollapsed the panel, so its new view consumes it on
+  appearance. Reveal now distinguishes panel membership from visible content: it
+  activates/expands a dock tab or creates/uncollapses the floating tray before asking
+  the live list to open ancestors and scroll. Source-editor Layers uses the same route.
+- Acceptance: in Single-Window and Multi-Window modes, Reveal in Layers opens a
+  hidden Layers surface, activates it when it is an inactive dock tab, expands a
+  collapsed floating section, opens every ancestor group/section, and centers a
+  single selected row. Repeat after switching modes and active documents; only the
+  correct document panel moves. View ▸ Expand/Collapse All works in docked,
+  floating, and source-editor Layers. Ordinary canvas selection still opens required
+  ancestors but never auto-scrolls. No duplicate request or scroll hang returns.
+
+### BUG-051 — Floating panels do not return to the front across displays when EXP is reactivated by a canvas click
+- Type: bug
+- Priority: P1
+- Area: chrome · workspace · multi-window
+- Status: **needs-verify — implemented 2026-08-24**
+- Repro/Detail: In Multi-Window mode, leave EXP's document on the main display and
+  trays on a second display. After another app covers the second display, clicking
+  and working on EXP's canvas does not bring those trays forward there. Command-Tab
+  to EXP does, producing two inconsistent activation paths.
+- Root cause/fix: tray windows were ordinary-level `NSWindow`s. They were shared and
+  non-main, but nothing gave them palette ordering across display window stacks.
+  Every tray is now an active-app floating palette and hides when EXP deactivates;
+  AppKit therefore restores all trays above ordinary windows when EXP reactivates,
+  whether activation came from Command-Tab or clicking the canvas. The document
+  window remains main/key for canvas keyboard input.
+- Acceptance: place independent and glued trays on a second monitor, cover them by
+  activating another app, then reactivate EXP once by clicking its canvas and once
+  by Command-Tab. Both routes restore every tray at its saved frame above ordinary
+  windows without stealing canvas keyboard focus. Deactivating EXP hides its trays
+  so they never float above the active application. Verify multiple EXP documents,
+  tray text fields, panel drag/resize/glue, and Window-menu focus.
+
+### BUG-050 — A layer selected in Layers does not consistently receive arrow-key nudges
+- Type: bug
+- Priority: P1
+- Area: layers · canvas · keyboard
+- Status: **needs-verify — implemented 2026-08-24**
+- Repro/Detail: Click a buried layer in the Layers panel, then press an arrow key.
+  Depending on which panel control previously owned focus, the layer may not move.
+  This is especially costly when higher layers cover it, because canvas hit-testing
+  selects the covering layer instead.
+- Root cause/fix: Layers uses custom tap rows rather than native `List` selection,
+  so AppKit did not reliably return first-responder ownership to the canvas after a
+  row click. The first fix explicitly focused the document canvas and solved
+  Single-Window mode, but owner verification exposed the missing window half: in
+  Multi-Window mode the floating Layers tray remained the **key window**, so changing
+  first responder inside the inactive document window could not redirect keyboard
+  events. A row selection now makes its document window key and then focuses that
+  canvas; the trays remain visually forward as non-key floating palettes.
+- Acceptance: one click on any visible Layers row followed immediately by an arrow
+  moves that layer by one point; Shift-arrow moves it by ten. This works after focus
+  was in an Inspector text field, from both docked and floating Layers panels, and
+  for nested or visually covered layers. The click remains a normal accessible layer
+  selection and does not start a move. Double-click rename and panel text fields can
+  still reclaim key focus when deliberately invoked.
+
+### BUG-049 — Keyboard point moves leave path bounds, hit-testing, and shadows stale
+- Type: bug
+- Priority: P1
+- Area: canvas · vector · effects
+- Status: **needs-verify — implemented 2026-08-24**
+- Repro/Detail: Select several path points and move them with the arrow keys. The
+  anchors move, but the object's selection box remains at its old frame. Geometry
+  beyond that frame cannot be clicked and a drop shadow is clipped to the stale
+  paint bounds (owner screenshot 2026-08-24).
+- Root cause/fix: pointer point drags normalized the path frame at gesture close,
+  but keyboard nudge, Inspector rotation, and point deletion wrote path coordinates
+  directly and never ran that normalization. Frame refitting is now a shared in-place
+  operation used by every point-edit route before the same single undo commit.
+- Acceptance: arrow-nudge one or several anchors beyond every side of the original
+  frame; the bounding box follows, all moved geometry remains clickable, and an
+  outside drop shadow is fully painted. Repeat with Inspector point rotation and
+  deletion, a multi-contour outlined-text path, and a rotated/flipped nested path.
+  Each command remains one undo step and the rendered path does not jump.
+
 ### BUG-048 — Placed SVG `stroke-dasharray` imports as the wrong stroke pattern
 - Type: bug
 - Priority: P2
@@ -2051,6 +2144,143 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 > plainly what was NOT verified. Full text in `docs/WORKING-AGREEMENT.md` →
 > "Accessibility decisions are verified, not remembered."
 
+### FEAT-047 — Easily accessible Auto-select Layers canvas policy
+- Type: feature
+- Priority: P1
+- Area: layers · canvas · input
+- Status: **needs-verify — implemented 2026-08-24**
+- Repro/Detail: The topmost hit-tested layer always replaces the current selection,
+  so moving or resizing an object underneath other content requires hiding or
+  locking every layer above it. Owner requested Photoshop's explicit Auto-select
+  policy, but placed where it does not take multiple clicks to reach.
+- Implementation/decision: `Auto-select` is a persistent checkbox in the Layers
+  header, mirrored in View and Canvas Settings. It defaults ON to preserve EXP's
+  current direct-selection behavior. OFF makes the Layers-panel selection
+  authoritative: pressing or dragging the selected object's real geometry moves it
+  even through a covering layer; clicking another visible object does not silently
+  replace the selection. The normal move route is reused, including Option-copy,
+  snapping, nesting, and one-step undo.
+- Acceptance: with Auto-select ON, clicking the canvas selects the topmost eligible
+  layer as before. Turn it OFF, choose a buried layer in Layers, and drag its visible
+  or covered geometry without selecting the layer above it. Arrow nudge, Shift-arrow,
+  Option-drag, nested-group movement, locking, and undo remain correct. The checkbox
+  is keyboard- and VoiceOver-operable, persists across relaunch, and stays in sync
+  between Layers, View, and Settings.
+
+> **Sanaa cluster (FEAT-048 … FEAT-053).** EXP's optional design assistant —
+> pen.dev-style "look at the canvas and draw" on the EXISTING agent bridge
+> (agents reach in; no LLM or API keys in EXP; everything OFF by default).
+> The full design, placement rules, architecture, and per-chunk agent
+> instructions live in **`docs/SANAA-PLAN.md`** — read it before starting any
+> entry below. Sequencing rule: FEAT-048 must not start until the current
+> v2.4 slice (BUG-049…052, FEAT-047, FEAT-027) passes owner verification, and
+> 048 → 049 → 050 is the intended order.
+
+### FEAT-048 — Sanaa: `apply_edits` consented, undo-safe write-back (F3 spine)
+- Type: feature
+- Priority: P2
+- Area: export · model · chrome
+- Status: open
+- Repro/Detail: The agent bridge is read-only. Add ONE transactional write tool,
+  `apply_edits` (typed ops: createPage/createArtboard/duplicateArtboard/
+  insertNodes/replaceNode/removeNodes), gated behind new default-off switches
+  (Settings ▸ Sanaa "Enable Sanaa" + "Allow Sanaa to draw" + a per-document
+  first-draw consent sheet). One call = one `setModel` = one undo step named
+  "Sanaa: <summary>". In-place ops (replace/remove/insert into pre-existing
+  artboards) additionally require the per-document consent. Ops carry an explicit
+  `placement` per the owner's 2026-08-25 rules (SANAA-PLAN §3). Fragments
+  validate by decoding the real Codable model; any failure rejects the whole
+  batch. Caps ≤200 ops/call. New settings are plain Bool defaults — no persisted
+  Codable struct (FEAT-022 decoder trap).
+- Hypothesis: no model/schema change needed ("Sanaa's desk" is an ordinary page
+  by convention), so no EXPThumbnail membership impact — verify when placing any
+  new file.
+- Acceptance: SANAA-PLAN §6/FEAT-048 test list — socket-script create/undo pass,
+  full gate matrix (each switch off ⇒ distinct error, zero mutation), real
+  Claude Code batch that saves/reopens/exports identically to hand-drawn
+  content, owner AX/appearance pass, and no visible trace of Sanaa when off.
+
+### FEAT-049 — Sanaa: presence layer (activity feed, canvas highlights, announcements)
+- Type: feature
+- Priority: P2
+- Area: chrome · canvas
+- Status: open
+- Repro/Detail: Applied batches must be visible and reviewable: session-scoped
+  in-memory activity feed (client, time, summary, affected ids) with "Select
+  Sanaa's changes" and "Go there"; a one-pulse canvas highlight on affected
+  nodes (static outline under Reduce Motion); a VoiceOver announcement per
+  batch. Draw in the canvas overlay — no companion windows. Command coverage +
+  `sendCanvasAction` for the two new actions. Depends on FEAT-048.
+- Acceptance: SANAA-PLAN §6/FEAT-049 — scripted batches show correct feed
+  order/highlights/announcements, reduced-motion variant verified, menu
+  enablement matrix passes, disabling Sanaa clears every surface without
+  relaunch.
+
+### FEAT-050 — Sanaa: "Ask Sanaa" prompt starters with placement dialogs
+- Type: feature
+- Priority: P2
+- Area: chrome · canvas
+- Status: open
+- Repro/Detail: Right-click + Object menu "Ask Sanaa ▸ Complete this… / Draw
+  variations… / Do repetitive work…". Sheets collect the owner's placement
+  decisions up front (complete: in-place vs duplicate-beside, default
+  duplicate; variations: count + same page vs new page, default new page) and
+  compose an id-rich prompt onto the clipboard ("Copy prompt for my agent" —
+  the external-agent seam stays explicit). Full five-way command coverage; the
+  sheet is the parameter surface. Depends on FEAT-048.
+- Acceptance: SANAA-PLAN §6/FEAT-050 — enablement matrix across selection
+  shapes, pasted prompts drive correctly-placed `apply_edits` batches in a real
+  agent, sheets pass keyboard/VoiceOver checks.
+
+### FEAT-051 — Sanaa: guided setup assistant for non-technical designers
+- Type: feature
+- Priority: P2
+- Area: chrome · infra
+- Status: open
+- Repro/Detail: Three-step guided flow (pick agent → one-click/copy setup →
+  "say hello" verification using the existing connection state). Plain-language,
+  honest privacy copy.
+- Hypothesis: sandboxed detection of installed agents (/Applications/Claude.app,
+  `claude` CLI) may be restricted — verify before promising; degrade to "which
+  do you have?" buttons. Packaging exp-mcp as a one-click Claude Desktop
+  extension (.mcpb/DXT) is RESEARCH FIRST against current Anthropic docs
+  (format/signing/notarization unverified as of 2026-08-25).
+- Acceptance: SANAA-PLAN §6/FEAT-051 — fresh-account walkthroughs with Claude
+  Desktop only, Claude Code only, and neither (kind failure naming what to
+  install); full screen-reader pass; owner copy review.
+
+### FEAT-052 — Sanaa: the avatar/character
+- Type: feature
+- Priority: P3
+- Area: canvas · chrome
+- Status: open
+- Repro/Detail: Optional cute avatar (owner-designed assets via
+  docs/DESIGN-ASSETS.md manifest) rendered in the canvas overlay near Sanaa's
+  latest work; states idle/listening/drawing/done; separately toggleable
+  (default follows "Show Sanaa's avatar" switch); decorative
+  (`accessibilityHidden(true)`) because every state also surfaces as FEAT-049
+  text; honors Reduce Motion; never its own window. Depends on FEAT-049.
+- Acceptance: SANAA-PLAN §6/FEAT-052 — state transitions during scripted
+  batches, zero trace when off, Reduce Motion swap, no Testing-Mode frame-time
+  regression while animating, light/dark/increased-contrast pass.
+
+### FEAT-053 — Sanaa: capability pack / agent etiquette guide
+- Type: feature
+- Priority: P3
+- Area: export · infra
+- Status: open
+- Repro/Detail: Canonical Sanaa usage guide as a new MCP resource
+  (`exp://sanaa/guide`) + repo doc: ids as reference currency, ALWAYS ask for
+  unspecified placement (plan §3 verbatim), small honest batches (summaries
+  become undo labels), respect Design Language tokens, no removeNodes beyond
+  the ask, graceful no-app/no-consent behavior. Host-specific wrappers only
+  after real-client testing; raw MCP setup must keep working without them
+  (matches the existing deferred capability-packs roadmap item). Depends on
+  FEAT-048; refine after FEAT-050.
+- Acceptance: SANAA-PLAN §6/FEAT-053 — a cold real-agent session run through
+  the three starter scenarios scores clean against the etiquette list, and a
+  vague "finish this" makes the agent ask about placement instead of guessing.
+
 ### FEAT-021 — Named workspace presets ("Laptop", "Dual-monitor")
 - Type: feature
 - Priority: P1
@@ -2651,7 +2881,7 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: feature
 - Priority: P2
 - Area: canvas · vector · type
-- Status: **deferred to v2.4 by owner decision 2026-08-21**
+- Status: **needs-verify — owner reprioritized and implementation landed 2026-08-24**
 - Repro/Detail: Owner request 2026-08-11: add Create Outlines / Outline Stroke for a
   group or a multi-element selection. Explicit requirement, and it is the
   inclusive-design instinct applied to command design: *"only apply to layers that
@@ -2667,6 +2897,19 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   did. Prefer a brief, dismissible summary ("Outlined 6 of 9 layers; 3 had no
   stroke") over either a blocking dialog or silence, and make it available to
   VoiceOver rather than as a purely visual flash.
+- Implementation 2026-08-24: Convert to Outlines, Convert to Path, and Outline
+  Stroke now treat a selected group as a recursive operation scope. Eligible leaves
+  at any nesting depth are transformed in place while unrelated text, images,
+  existing paths, and other ineligible layers remain untouched. Type outlines retain
+  the original layer identity and non-text contracts (visibility/lock, transforms,
+  opacity/effects/blend, auto-layout placement, masks, relationships, public props,
+  and recovered semantics); the vector operations preserve hierarchy and run in one
+  commit. Menu, context-menu, and Inspector enablement now inspect selected subtrees.
+  The existing Fill/Stroke Inspector route was source-verified to already recurse
+  through groups and groups-within-groups, so it required no duplicate implementation.
+  **The originally proposed sighted non-blocking partial-success summary remains a
+  follow-up; no new toast/status surface was invented in this input-and-traversal
+  slice.** Commands beep only when nothing was changed.
 - Acceptance: the command enables whenever at least one selected layer (at any
   nesting depth) is eligible, and applies to exactly those, preserving z-order and
   group structure; ineligible layers are untouched. One undo restores everything. A

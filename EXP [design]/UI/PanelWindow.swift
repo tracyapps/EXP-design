@@ -156,6 +156,13 @@ final class PanelWindowManager {
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
         window.isExcludedFromWindowsMenu = true            // we list panels ourselves
+        // These are palettes, not peer document windows. Floating level keeps every
+        // tray above ordinary windows on every attached display while EXP is active;
+        // hiding on deactivation prevents them from hovering over another app. When
+        // EXP is reactivated—whether by Command-Tab or by clicking its canvas—AppKit
+        // restores the trays together at the front, matching standard pro-app panels.
+        window.level = .floating
+        window.hidesOnDeactivate = true
         window.standardWindowButton(.zoomButton)?.isHidden = true
 
         if tray.frame != .zero {

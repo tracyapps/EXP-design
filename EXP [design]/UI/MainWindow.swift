@@ -783,6 +783,7 @@ struct EditorMenuModel {
     var canEyedropper: Bool
 
     var canTypeActions: Bool
+    var canConvertTextToOutlines: Bool
     /// Align/Distribute are ONE command for boards and nodes alike — CanvasNSView
     /// routes by what's selected — so these flags cover both cases.
     var canAlign: Bool
@@ -856,14 +857,26 @@ func makeEditorMenuModel(document: ExpDocument, app: AppState, scope: CanvasScop
         return model.source(for: inst.sourceID)
     }.first
     let hasMask = selectedNodes.contains { $0.isMask }
-    let hasConvertible = selectedNodes.contains {
+    func selectedSubtreesContain(_ predicate: (Node) -> Bool) -> Bool {
+        func scan(_ node: Node) -> Bool {
+            if predicate(node) { return true }
+            if case .group(let children) = node.content { return children.contains(where: scan) }
+            return false
+        }
+        return selectedNodes.contains(where: scan)
+    }
+    let hasConvertible = selectedSubtreesContain {
         switch $0.content {
         case .rectangle, .ellipse, .polygon, .line: return true
         default: return false
         }
     }
-    let hasOutlinedStroke = selectedNodes.contains {
+    let hasOutlinedStroke = selectedSubtreesContain {
         VectorPathGeometry.stroke(from: $0.content) != nil
+    }
+    let hasTextToOutline = selectedSubtreesContain {
+        if case .text = $0.content { return true }
+        return false
     }
     let canPathfinder = selectedIDs.count >= 2 && selectedNodes.count == selectedIDs.count
         && selectedNodes.allSatisfy { VectorPathGeometry.isClosedVector($0.content) }
@@ -969,6 +982,7 @@ func makeEditorMenuModel(document: ExpDocument, app: AppState, scope: CanvasScop
         canRoundToPixel: hasNodes || hasArtboards,
         canEyedropper: hasNodes,
         canTypeActions: isSingleText,
+        canConvertTextToOutlines: hasTextToOutline,
         canAlign: canAlign,
         canDistribute: selectedIDs.isEmpty
             ? app.selectedArtboardIDs.count >= 3
@@ -3067,7 +3081,7 @@ struct RightPanel: View {
     }
 
     private var inspectorCanConvertToPath: Bool {
-        inspectorSelectedNodes.contains { node in
+        inspectorSelectedSubtreesContain { node in
             switch node.content {
             case .rectangle, .ellipse, .polygon, .line: return true
             default: return false
@@ -3076,7 +3090,16 @@ struct RightPanel: View {
     }
 
     private var inspectorCanOutlineStroke: Bool {
-        inspectorSelectedNodes.contains { VectorPathGeometry.stroke(from: $0.content) != nil }
+        inspectorSelectedSubtreesContain { VectorPathGeometry.stroke(from: $0.content) != nil }
+    }
+
+    private func inspectorSelectedSubtreesContain(_ predicate: (Node) -> Bool) -> Bool {
+        func scan(_ node: Node) -> Bool {
+            if predicate(node) { return true }
+            if case .group(let children) = node.content { return children.contains(where: scan) }
+            return false
+        }
+        return inspectorSelectedNodes.contains(where: scan)
     }
 
     private var inspectorCanPathfinder: Bool {

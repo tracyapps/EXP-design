@@ -404,7 +404,7 @@ private struct TypeCommandItems: View {
             .disabled(menu?.canTypeActions != true)
         Divider()
         Button("Convert to Outlines") { sendEditorAction("convertTextToShapesAction:") }
-            .disabled(menu?.canTypeActions != true)
+            .disabled(menu?.canConvertTextToOutlines != true)
         Divider()
         Button("Save as Type Style") { sendEditorAction("saveTypeStyleAction:") }
             .keyboardShortcut("o", modifiers: [.command, .shift])
@@ -511,6 +511,8 @@ private struct ViewCommandItems: View {
         AppPreferences.defaultSnapToGrid
     @AppStorage(AppPreferences.pixelSnap) private var pixelSnap =
         AppPreferences.defaultPixelSnap
+    @AppStorage(AppPreferences.autoSelectLayers) private var autoSelectLayers =
+        AppPreferences.defaultAutoSelectLayers
 
     var body: some View {
         Button("Zoom In") { sendEditorAction("zoomInAction:") }
@@ -532,6 +534,11 @@ private struct ViewCommandItems: View {
         Button("Toggle Selection Bounds") { sendEditorAction("toggleSelectionBounds:") }
             .keyboardShortcut("b", modifiers: [.command, .shift])
             .disabled(menu == nil)
+        Toggle("Auto-select Layers on Canvas", isOn: Binding(
+            get: { autoSelectLayers },
+            set: { _ in sendEditorAction("toggleAutoSelectLayersAction:") }
+        ))
+        .disabled(menu == nil)
         Divider()
         Button("Expand All Layers") { sendEditorAction("expandAllLayersAction:") }
             .disabled(menu == nil)

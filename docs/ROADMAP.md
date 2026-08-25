@@ -1283,6 +1283,44 @@ promote them into release gates.
 
 ---
 
+## v2.4 — owner-prioritized canvas/layer slice (under verification)
+
+Active development identity: **2.4 / build 15** across the main app and thumbnail
+extension, in both Debug and Release configurations. This is not a public-release
+claim; v2.3/build 14 remains the current signed, notarized Sparkle release.
+
+The owner reprioritized the first v2.4 work on 2026-08-24 from direct editing
+friction found in production use. Code is complete and the unsigned Debug build is
+green; these remain unchecked until the owner runs the Xcode acceptance pass.
+
+- [ ] BUG-049: every keyboard/Inspector point edit refits the path frame so bounds,
+  hit-testing, paint bounds, and drop shadows follow moved anchors.
+- [ ] BUG-050 + FEAT-047: Layers selection immediately owns keyboard nudge, and the
+  visible persistent Auto-select control provides Photoshop-style selected-layer
+  canvas movement for objects under other layers.
+- [ ] BUG-051: floating trays behave as active-app palettes, returning above ordinary
+  windows on every display for both canvas-click and Command-Tab activation while
+  hiding cleanly when EXP is inactive.
+- [ ] BUG-052: Reveal in Layers and Expand/Collapse All use the live docked/floating
+  Layers surface after mode, collapse, and document changes; Reveal also makes hidden
+  or inactive panel content visible before expanding ancestors and scrolling.
+- [ ] FEAT-027: Convert to Outlines, Convert to Path, and Outline Stroke recurse
+  through selected groups/mixed selections, preserve hierarchy/contracts, and commit
+  as one undo step. Fill/Stroke recursion was already present and is included in the
+  owner regression pass. The prior backlog idea for a visible partial-success summary
+  remains separately unfinished.
+
+
+**Queued behind this slice (planned 2026-08-25, not started): Sanaa —
+FEAT-048…053.** An optional, default-off design assistant on the existing
+agent bridge (pen.dev-style "look at the canvas and draw," with the designer's
+own MCP agent reaching in — no LLM or API keys in EXP). Design, placement
+rules, switches, and per-chunk agent instructions: **`docs/SANAA-PLAN.md`**;
+entries in BACKLOG.md. FEAT-048 (the F3 write-back spine) must not start until
+the checkboxes above pass the owner's verification.
+
+---
+
 ## v2.3 — released (2026-08-21)
 
 Build 14, `MARKETING_VERSION 2.3`. The release began as the whole logged backlog,
@@ -2876,6 +2914,98 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-08-25 (Sanaa planned: pen.dev research → FEAT-048…053 + docs/SANAA-PLAN.md).**
+  Owner side-quest: explore pen.dev and scope a VERY optional pen.dev-style
+  canvas assistant ("Sanaa," Swahili: work of art). Research finding: pen.dev's
+  canvas app ships no LLM and no API keys — the user's own coding agent (Claude
+  Code/Cursor/Codex) connects over MCP and draws via tools; that is exactly
+  EXP's shipped F1/F2 architecture plus the still-unbuilt F3 write-back. Plan:
+  Sanaa = F3 (`apply_edits`, one transactional consent-gated tool, one undo
+  step per batch through `setModel`) + a presence layer (activity feed, canvas
+  highlights, VoiceOver announcements) + "Ask Sanaa" prompt starters + a
+  non-technical setup assistant + an optional avatar + an agent etiquette
+  pack. Everything defaults OFF behind Settings ▸ Sanaa; agents reach in, EXP
+  never reaches out. Owner placement decisions recorded (complete-this asks
+  in-place vs duplicate-beside; variations are new artboards, same-or-new page
+  is the designer's choice). Ids assigned via `verify_backlog_ids.sh`
+  (FEAT-048…053, clean). Full design + per-chunk instructions and test
+  scripts: `docs/SANAA-PLAN.md`. No code started — the current v2.4 slice
+  stays the only in-flight mutating work pending the owner's Xcode pass.
+
+- **2026-08-24 (Multi-Window Layers command bridge — BUG-052 fixed, needs owner
+  verification).** After confirming floating-layer keyboard movement, the owner
+  found Reveal in Layers no longer reached the floating panel. The failure shared a
+  connection with Expand/Collapse All: `AppState` stored ignored closures installed
+  by a particular `LayersPanel`, including a captured `ScrollViewProxy`. Replacing a
+  dock with a tray, collapsing/reopening its section, or switching the active document
+  could leave those commands aimed at a dead SwiftUI view with no state change to
+  wake the live one.
+
+  Both callbacks are now one observable, sequenced Layers-panel command request.
+  Exactly one mounted Layers surface consumes it; a request issued while Reveal is
+  creating or uncollapsing the panel remains pending for that new view's `onAppear`.
+  Reveal now explicitly creates/activates/expands the docked panel or creates/
+  uncollapses its floating tray before expanding ancestor rows and scrolling. The
+  source editor consumes the same command route. Normal canvas selection keeps the
+  performance decision from PERF round 8—expand ancestors when necessary, but never
+  auto-scroll. Debug build succeeds; backlog-id and diff checks are green. Owner
+  verification remains for hidden/collapsed/inactive tabs, mode/document switches,
+  and Expand/Collapse All in docked, floating, and source Layers.
+
+- **2026-08-24 (Multi-Window verification follow-up — BUG-050 completed across the
+  window boundary; BUG-051 added and fixed, needs owner verification).** The owner
+  confirmed immediate Layers-to-arrow nudge was repaired in Single-Window mode but
+  still failed with floating trays. Source tracing found the precise missing half:
+  `focusCanvasAction` assigned first responder inside the document window, but the
+  Layers tray remained AppKit's key window, so the next arrow was still delivered to
+  the tray. A Layers row selection now makes the document key before focusing its
+  canvas. This preserves the one existing nudge implementation and avoids a second
+  global arrow-key monitor that could collide with text fields or list navigation.
+
+  The same two-monitor pass exposed BUG-051: tray windows were ordinary-level peers,
+  so clicking an EXP document did not restore panels covered on another display even
+  though Command-Tab happened to reorder the app's windows. Trays are now real
+  active-app floating palettes: they stay above ordinary windows on every display
+  while EXP is active and hide on deactivation, then AppKit restores them together
+  for either activation route. Debug build succeeds and `git diff --check` is clean;
+  the actual cross-monitor ordering, field focus, and glue behavior need
+  the owner's Xcode/two-display pass.
+
+- **2026-08-24 (v2.4 development cycle identity opened).** Advanced all four
+  Xcode app/thumbnail Debug+Release configurations from public v2.3/build 14 to
+  `MARKETING_VERSION 2.4` / `CURRENT_PROJECT_VERSION 15` using the repository's
+  versioning helper. About, feedback, diagnostics, Handoff package metadata, and
+  the agent bridge all read these generated bundle values, so development builds
+  now identify themselves consistently as 2.4 (15). Historical v2.3 release notes,
+  checklist receipts, appcast metadata, and public update artifacts remain frozen
+  at 2.3 (14). Unsigned Debug build and built-bundle plist verification are green.
+
+- **2026-08-24 (v2.4 owner-prioritized point bounds, buried-layer control, and
+  recursive group operations — code complete, needs owner verification).** The owner
+  supplied a production screenshot showing a multi-point keyboard move extending
+  path ink far beyond its unchanged selection box: the stale node frame was both the
+  hit-test fast reject and the basis of the effect paint bounds, explaining the
+  unclickable geometry and clipped drop shadow as one bug (BUG-049). The shared path
+  normalizer now runs inside every keyboard/Inspector point mutation before its one
+  commit, matching the already-correct pointer close-out without adding a second undo.
+
+  Layers pointer selection now explicitly returns first-responder ownership to that
+  document's canvas, fixing immediate arrow/Shift-arrow movement (BUG-050). A new
+  persistent `Auto-select` checkbox is kept visible in the Layers header and mirrored
+  in View and Canvas Settings (FEAT-047). Default ON preserves direct topmost canvas
+  selection. OFF leaves the Layers-panel selection authoritative and tests that
+  selected geometry independently of z-order, so a buried selection can use the
+  standard drag/Option-copy/snap/undo path through layers above it.
+
+  FEAT-027 was promoted from the deferred queue at the owner's request. Convert to
+  Outlines, Convert to Path, and Outline Stroke now recurse through selected group
+  subtrees and mixed selections, skip ineligible descendants, preserve hierarchy and
+  stored layer contracts, expose correct menu/context/Inspector enablement, and use
+  one undo commit. Fill/Stroke was confirmed already recursive. The earlier backlog
+  proposal for a visible partial-success summary is still open rather than being
+  silently claimed. `xcodebuild` Debug for macOS with signing disabled succeeds;
+  existing Swift concurrency/deprecation warnings remain, with no new compile error.
 
 - **2026-08-21 (v2.3 released — GitHub, Sparkle, website, and update path
   verified).** v2.3/build 14 is public at tag `v2.3` with the headline

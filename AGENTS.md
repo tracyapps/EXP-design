@@ -39,6 +39,8 @@ EXP [design]/
 
 ## Current status
 Public **v2.3/build 14** is released and owner-verified.
+Active development is **v2.4/build 15** (`MARKETING_VERSION 2.4`,
+`CURRENT_PROJECT_VERSION 15`) across the app and thumbnail-extension configs.
 The core native editor, component states/behavior contract, semantic Handoff
 Package, agent-bridge spine, nested components, canvas pages, editable XD/Figma
 import, unified Handoff/panel IA, editable rendered HTML/CSS import, CodePen
@@ -48,8 +50,11 @@ handoff/import, and static Storybook import are shipped.
 Sparkle, website, and v2.2→v2.3 update receipts. The remaining lower-priority
 Wave 7 vector/effect queue is explicitly deferred to v2.4.
 
-**Next:** evaluate and prioritize the deferred v2.4 queue with the owner before
-starting implementation.
+The owner prioritized the first v2.4 slice on 2026-08-24: path-point bounds,
+buried-layer movement/Auto-select, and recursive group vector/type operations are
+implemented and awaiting the owner's Xcode verification pass (BUG-049, BUG-050,
+BUG-051, BUG-052, FEAT-047, FEAT-027). Do not stack another document-mutating slice until
+that pass.
 Semantic component/state reconstruction is logged as a v2.4+ research candidate;
 older Angular/AngularJS and open-shadow-root evidence are non-gating follow-ups.
 Unrestricted URL import, repository build execution, full argTypes ingestion, and

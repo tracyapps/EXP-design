@@ -24,6 +24,10 @@ import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
 
+/// A dedicated ScrollViewReader identity avoids colliding with the UUID identity
+/// that the outer `ForEach` already assigns to each top-level outline subtree.
+private struct LayerScrollTarget: Hashable { let nodeID: UUID }
+
 /// Visual treatment for the Layers section whose artboard is currently "active"
 /// — the board in focus, or the board that owns the active selection. Kept as a
 /// small, isolated set of constants so it folds cleanly into the design-token
@@ -130,6 +134,15 @@ struct LayersPanel: View {
             HStack(spacing: 6) {
                 if showsTitle { Text("Layers").expPanelTitle() }
                 Spacer(minLength: 0)
+                Toggle("Auto-select", isOn: Binding(
+                    get: { app.autoSelectLayers },
+                    set: { app.autoSelectLayers = $0 }
+                ))
+                .toggleStyle(.checkbox)
+                .controlSize(.small)
+                .font(.system(size: EXPType.small))
+                .help("When off, canvas clicks keep the layer selected here")
+                .accessibilityHint("Turn off to move a selected layer underneath other layers without selecting the layers above it.")
                 Menu {
                     Button("Expand All") { expandAll() }
                     Button("Collapse All") { collapseAll() }
@@ -267,23 +280,31 @@ struct LayersPanel: View {
             .onPasteCommand(of: [UTType(exportedAs: CanvasNSView.nodePasteboardType.rawValue)]) { _ in
                 sendCanvasAction("paste:")
             }
+            .onChange(of: app.layersPanelCommandSequence) { _, sequence in
+                consumeLayersCommand(sequence, proxy: proxy)
+            }
             .onAppear {
-                if case .document = scope {
-                    app.layersRevealSelection = {
-                        let sel = app.selectedNodeIDs
-                        revealSelectedLayers(sel)
-                        revealScroll(sel, proxy: proxy)
-                    }
-                }
+                // Also handles a request issued immediately before a hidden/collapsed
+                // Layers panel was mounted. The AppState receipt prevents a stale dock
+                // and a new tray from both consuming the same request during a switch.
+                consumeLayersCommand(app.layersPanelCommandSequence, proxy: proxy)
             }
             }   // ScrollViewReader
         }
         .background(.clear)
-        // The document panel owns the View-menu expand/collapse-all hook.
-        .onAppear {
-            if case .document = scope {
-                app.layersExpandAll = { expand in expand ? expandAll() : collapseAll() }
-            }
+    }
+
+    private func consumeLayersCommand(_ sequence: UInt, proxy: ScrollViewProxy) {
+        guard let command = app.consumeLayersPanelCommand(sequence: sequence) else { return }
+        switch command {
+        case .expandAll:
+            expandAll()
+        case .collapseAll:
+            collapseAll()
+        case .revealSelection:
+            let selection = app.selectedNodeIDs
+            revealSelectedLayers(selection)
+            revealScroll(selection, proxy: proxy)
         }
     }
 
@@ -499,16 +520,21 @@ struct LayersPanel: View {
     /// Open ancestor groups + the owning section for each selected layer.
     /// Scroll the panel so the selected layer is visible. Only fires for a SINGLE
     /// selected node (clicking one layer) — a marquee multi-select shouldn't yank
-    /// the panel around. Scrolls to the top-level ancestor row (always present in
-    /// the List; nested rows live inside their parent row and aren't scroll targets)
-    /// after expansion has had a tick to render.
+    /// the panel around. First scroll to the top-level ancestor, which makes SwiftUI's
+    /// virtualized List instantiate that subtree; on the next tick center the actual
+    /// nested row using its dedicated `LayerScrollTarget` identity.
     /// PERF round 8: no longer called automatically on selection change (see
     /// the .onChange above). Kept for the upcoming explicit Reveal action.
     private func revealScroll(_ sel: Set<UUID>, proxy: ScrollViewProxy) {
         guard sel.count == 1, let id = sel.first else { return }
         let top = ancestorGroupIDs(of: id).first ?? id
         DispatchQueue.main.async {
-            withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo(top, anchor: .center) }
+            proxy.scrollTo(top, anchor: .center)
+            DispatchQueue.main.async {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    proxy.scrollTo(LayerScrollTarget(nodeID: id), anchor: .center)
+                }
+            }
         }
     }
 
@@ -589,6 +615,11 @@ struct LayersPanel: View {
             app.selectedNodeIDs = [id]
             app.selectionAnchorID = id
         }
+        // These are pointer-tap rows, not native List selection rows, so AppKit does
+        // not consistently move first-responder focus. Hand keyboard ownership to the
+        // canvas after the click: arrows now nudge the layer just selected instead of
+        // continuing to edit whatever Inspector field happened to own focus before.
+        sendCanvasAction("focusCanvasAction:")
     }
 
     // MARK: Grouping (front-of-stack first)
@@ -1373,6 +1404,7 @@ private struct LayerOutlineRow: View {
                              undoManager: nil)
                      }
                  })
+            .id(LayerScrollTarget(nodeID: node.id))
             .frame(height: rowH)
             .background {
                 if dropIndicator?.id == node.id, dropIndicator?.place == .into {

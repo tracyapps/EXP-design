@@ -203,6 +203,18 @@ final class PanelHub {
         trays.append(PanelTray(panels: [id]))
     }
 
+    /// Ensure a floating panel both exists and has visible content. Membership alone
+    /// is insufficient because a tray can keep the panel while its section is
+    /// collapsed; Reveal in Layers must undo that collapse before it can scroll.
+    func revealPanel(_ id: PanelID) {
+        ensurePanelTray(id)
+        guard let index = trays.firstIndex(where: { $0.panels.contains(id) }),
+              trays[index].collapsed.contains(id) else { return }
+        var next = trays
+        next[index].collapsed.remove(id)
+        trays = next
+    }
+
     /// Show/hide a panel: add a tray for it, or remove it from its tray.
     func togglePanel(_ id: PanelID) {
         if isPanelInTrays(id) {
