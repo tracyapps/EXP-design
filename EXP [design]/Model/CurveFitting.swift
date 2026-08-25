@@ -45,7 +45,8 @@ enum CurveFitting {
     /// - Returns: anchors with control handles. Fewer than two usable samples
     ///   returns them unchanged as corner points rather than failing — a caller
     ///   should never get an empty path back from a stroke the user drew.
-    static func fit(_ samples: [CGPoint], tolerance: CGFloat) -> [PathPoint] {
+    static func fit(_ samples: [CGPoint], tolerance: CGFloat,
+                    cornerAngle: CGFloat = defaultCornerAngle) -> [PathPoint] {
         let points = deduplicated(samples)
         guard points.count >= 2 else {
             return points.map { PathPoint(point: $0) }
@@ -58,11 +59,69 @@ enum CurveFitting {
 
         let errorSq = max(tolerance, 0.01) * max(tolerance, 0.01)
         var segments: [[CGPoint]] = []
-        fitCubic(points, first: 0, last: points.count - 1,
-                 tHat1: leftTangent(points, 0),
-                 tHat2: rightTangent(points, points.count - 1),
-                 errorSq: errorSq, depth: 0, into: &segments)
+        // Fit each run BETWEEN corners independently. This is the difference
+        // between a pencil that can draw teeth and one that cannot: see
+        // `cornerIndices` for why Schneider alone cannot.
+        var breaks = [0]
+        breaks.append(contentsOf: cornerIndices(points, angleDegrees: cornerAngle))
+        breaks.append(points.count - 1)
+        for k in 0..<(breaks.count - 1) {
+            let first = breaks[k], last = breaks[k + 1]
+            guard last > first else { continue }
+            fitCubic(points, first: first, last: last,
+                     tHat1: leftTangent(points, first),
+                     tHat2: rightTangent(points, last),
+                     errorSq: errorSq, depth: 0, into: &segments)
+        }
         return anchors(from: segments)
+    }
+
+    // MARK: Corners
+
+    /// Direction change, in degrees, above which a sample is a CORNER rather than
+    /// part of a smooth curve.
+    static let defaultCornerAngle: CGFloat = 55
+
+    /// Samples looked at either side when measuring direction at a candidate
+    /// corner. Adjacent samples alone are hopeless: at 1.5pt spacing, ordinary
+    /// hand tremor turns a straight line into a corner every other point.
+    private static let cornerWindow = 3
+
+    /// Arms shorter than this have no meaningful direction, so they cannot vote
+    /// on whether a sample is a corner.
+    private static let cornerMinArm: CGFloat = 1.0
+
+    /// Indices where the stroke turns sharply enough to be a corner.
+    ///
+    /// WHY THIS EXISTS: Schneider's algorithm assumes smooth data. At a genuine
+    /// corner it splits and then computes the shared tangent as the AVERAGE of the
+    /// incoming and outgoing directions — which at a sharp corner describes
+    /// neither, and very nearly cancels. The least-squares solve then hands back
+    /// enormous handle lengths trying to satisfy an impossible tangent, and the
+    /// result is a curve that balloons far outside the stroke that was drawn.
+    /// Splitting at corners FIRST means each run is genuinely smooth, which is
+    /// what the algorithm needs, and the two runs meet at an anchor whose two
+    /// handles were fitted independently — the definition of a corner point.
+    private static func cornerIndices(_ d: [CGPoint], angleDegrees: CGFloat) -> [Int] {
+        guard d.count >= 3 else { return [] }
+        let threshold = cos(min(max(angleDegrees, 1), 179) * .pi / 180)
+        var corners: [Int] = []
+        var i = 1
+        while i < d.count - 1 {
+            let back = d[max(0, i - cornerWindow)]
+            let forward = d[min(d.count - 1, i + cornerWindow)]
+            guard distance(d[i], back) >= cornerMinArm,
+                  distance(forward, d[i]) >= cornerMinArm else { i += 1; continue }
+            let incoming = normalize(sub(d[i], back))
+            let outgoing = normalize(sub(forward, d[i]))
+            if dot(incoming, outgoing) < threshold {
+                corners.append(i)
+                i += cornerWindow      // one corner must not fire several times
+            } else {
+                i += 1
+            }
+        }
+        return corners
     }
 
     // MARK: Sample hygiene
@@ -88,6 +147,12 @@ enum CurveFitting {
     /// for no visible gain. At the limit we accept the current fit rather than
     /// keep going — the result is slightly loose, never wrong, and never hangs.
     private static let maxDepth = 16
+
+    /// Largest handle length the least-squares solve may produce, as a multiple of
+    /// the segment's chord. For reference, a quarter-circle arc needs about 0.39×
+    /// its chord and a half-circle about 0.67×, so 1.5 leaves real curves alone and
+    /// only catches the runaway solutions.
+    private static let maxHandleChordFactor: CGFloat = 1.5
 
     private static func fitCubic(_ d: [CGPoint], first: Int, last: Int,
                                  tHat1: CGPoint, tHat2: CGPoint,
@@ -201,7 +266,17 @@ enum CurveFitting {
             let dist = segLength / 3
             return [p0, add(p0, scale(tHat1, dist)), add(p3, scale(tHat2, dist)), p3]
         }
-        return [p0, add(p0, scale(tHat1, alphaL)), add(p3, scale(tHat2, alphaR)), p3]
+        // Clamp the handle length. Schneider's solve is UNBOUNDED, and an unbounded
+        // handle is precisely the "one point flew off and drew a huge loop" failure:
+        // when the data does not constrain the tangent, the least-squares answer can
+        // put a control point far outside the stroke. A clamped handle merely fits
+        // worse, which `computeMaxError` then resolves by splitting — strictly
+        // better than emitting a loop nobody drew.
+        let maxAlpha = segLength * maxHandleChordFactor
+        return [p0,
+                add(p0, scale(tHat1, min(alphaL, maxAlpha))),
+                add(p3, scale(tHat2, min(alphaR, maxAlpha))),
+                p3]
     }
 
     // MARK: Parameterisation

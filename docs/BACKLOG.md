@@ -3336,6 +3336,50 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   magnitude below a page reflow or a full scene render. It was left simple on
   purpose. If profiling ever says otherwise, the fix is an incremental bbox that
   re-bases the locals only when the origin actually moves.
+- **Owner findings on second use, 2026-08-25 — three reports, two fixed, one NOT
+  reproduced.**
+  1. *"Shows only straight lines while drawing."* Working as built: the live preview
+     is the raw captured polyline. Left as-is for now, because the real complaint
+     underneath it is (3) — when the fit tracks the stroke, preview and result stop
+     disagreeing. If it still reads wrong afterwards, the fix is to fit the tail of
+     the stroke live, not to change the capture.
+  2. **Sharp corners were fitted as smooth curves — FIXED.** Schneider's algorithm
+     assumes smooth data. At a genuine corner it splits and computes the shared
+     tangent as the AVERAGE of the incoming and outgoing directions, which describes
+     neither and very nearly cancels; the solve then returns enormous handle lengths
+     chasing an impossible tangent. `CurveFitting` now finds corners FIRST
+     (direction measured over a 3-sample window, 55° threshold, minimum arm length
+     so tremor does not register) and fits each run between them independently. The
+     two runs meet at an anchor whose handles were fitted separately — which is what
+     a corner point is. Verified on a synthetic 7-vertex zigzag: all 5 interior
+     corners detected.
+  3. **Unbounded handle length — FIXED.** Schneider's least-squares solve has no
+     upper bound, and an unbounded handle is exactly the "one node flew way beyond
+     where I drew" failure: a control point placed far outside the stroke draws a
+     large loop. Handles are now clamped to 1.5× the segment chord (a quarter-circle
+     needs ~0.39×, a half-circle ~0.67×, so real curves are untouched). A clamped
+     handle merely fits worse, which the error test then resolves by splitting.
+- **NOT REPRODUCED, and therefore NOT claimed fixed.** A standalone port of the
+  fitter was run against synthetic zigzags — clean, and with ±0.8pt noise and 60%
+  speed variation — at tolerances 0.5 through 4.0. Worst deviation stayed under 3pt
+  and no control point escaped the drawn bounds by more than 3.3pt. **Nothing in
+  those runs resembles the large excursion in the owner's screenshot.** Both fixes
+  above are defensible on their own terms, but the actual failure has not been
+  demonstrated, so it must not be marked fixed on this evidence.
+- **The decisive next step is real data, not another hypothesis.** A `.design` file
+  stores every `PathPoint`, so one bad stroke saved into the connected folder gives
+  the exact anchors and handles the fitter produced. That answers in one read
+  whether an ANCHOR landed outside the stroke (impossible by construction — every
+  anchor is an input sample — so it would mean the sample list is wrong) or a HANDLE
+  did (a fitting problem, which the clamp now bounds). Those two causes need
+  completely different fixes and guessing between them has already cost one wrong
+  answer today.
+- **Lag: one more per-sample cost removed, still unmeasured.** Each sample used to
+  re-base every existing point to a moving frame origin — O(n) per sample, O(n²) per
+  stroke. The origin only moves when the stroke extends past its own left or top
+  edge, so the common case now appends ONE point and touches nothing else. Whether
+  that is enough is unknown; Testing Mode's perf HUD names the frame cost directly
+  and is the right instrument rather than a third guess.
 - **What was verified:** `xcodebuild` Debug succeeds for both the `EXP [design]`
   and `EXPThumbnail` schemes with signing disabled, zero errors, and no warnings in
   the new file or any edited range. **The lag fix itself is NOT measured** — the

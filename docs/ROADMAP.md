@@ -2997,6 +2997,38 @@ font import → Phase 9, shadows → Phase 10._
 
 ## Progress Log
 
+- **2026-08-25 (pencil, second round — two fitting defects fixed, the reported
+  failure NOT reproduced).** The owner drew with the tool and reported three things:
+  the preview shows straight lines, sharp corners come out rounded, and one node
+  "went way beyond where i drew," drawing a large loop.
+
+  Two real defects were found and fixed in `CurveFitting`. Schneider's algorithm
+  assumes smooth data, so at a genuine corner it averages the incoming and outgoing
+  directions into a tangent that describes neither and nearly cancels — corners are
+  now detected FIRST (3-sample direction window, 55°, minimum arm length so tremor
+  does not register) and each run between them is fitted independently, meeting at an
+  anchor whose two handles were fitted separately, which is the definition of a
+  corner. And the least-squares solve is unbounded, which is precisely how a control
+  point ends up far outside the stroke drawing a loop; handles are now clamped to
+  1.5× the chord, well above what real curvature needs.
+
+  **Neither fix is claimed to fix what the owner saw.** A standalone port of the
+  fitter was run against synthetic zigzags, clean and with ±0.8pt noise and 60% speed
+  variation, at four tolerances. Worst deviation stayed under 3pt and no handle
+  escaped the drawn bounds by more than 3.3pt — nothing resembling the screenshot.
+  The failure has not been demonstrated, so it stays open.
+
+  The next step is deliberately data, not a third hypothesis: a `.design` file stores
+  every `PathPoint`, so one saved bad stroke says whether an ANCHOR landed outside the
+  stroke — impossible by construction, since every anchor is an input sample, which
+  would mean the SAMPLES are wrong — or a HANDLE did, which is a fitting problem the
+  clamp now bounds. Those have completely different fixes.
+
+  Lag: the O(n) per-sample re-base of every point to a moving frame origin was
+  removed; the origin only moves when the stroke extends past its own left or top
+  edge, so the common case appends one point. Still unmeasured. Testing Mode's perf
+  HUD is the instrument, not more guessing.
+
 - **2026-08-25 (pencil lag — two defects in the live stroke path, fixed).** The
   owner drew with the new tool and reported lag. Neither cause was in the curve
   fitting; both were in how the in-progress stroke talked to the canvas, and both

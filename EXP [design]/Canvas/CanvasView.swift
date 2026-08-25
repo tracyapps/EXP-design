@@ -265,6 +265,9 @@ final class CanvasNSView: NSView {
     private var pencilNodeID: UUID?
     private var pencilBaseline: Document?
     private var pencilSamples: [CGPoint] = []
+    /// Running bounds of the stroke in DOCUMENT space. Kept so a sample can be
+    /// APPENDED in O(1) instead of re-basing every existing point each tick.
+    private var pencilFrame: CGRect = .zero
 
     // Node tool: a point-group drag that started on the path BODY (not an anchor),
     // so a click-without-drag there deselects the points (Adobe direct-select).
@@ -1200,6 +1203,7 @@ final class CanvasNSView: NSView {
         let docP = viewToDoc(p)
         pencilBaseline = document.model
         pencilSamples = [docP]
+        pencilFrame = CGRect(origin: docP, size: .zero)
         let node = Node(name: "Path", frame: CGRect(origin: docP, size: .zero),
                         content: .path(PathShape(points: [PathPoint(point: .zero)])))
         withNodes { $0.append(node) }
@@ -1216,12 +1220,35 @@ final class CanvasNSView: NSView {
         if let last = pencilSamples.last,
            hypot(docP.x - last.x, docP.y - last.y) < Self.pencilMinSampleDistance { return }
         pencilSamples.append(docP)
+
         // Live feedback is the RAW polyline. It is cheap, it is honest about what was
         // actually captured, and it is replaced by the fitted curve on release.
         // Re-fitting every tick would cost far more and would show a curve that keeps
         // rewriting itself under the cursor.
-        applyPencilPoints(pencilSamples.map { PathPoint(point: $0) }, closed: false,
-                          to: id, live: true)
+        //
+        // The frame has to stay correct DURING the stroke (culling and `nodeHit`
+        // both read it), but re-basing every local point to a moving origin is O(n)
+        // per sample and O(n²) over a stroke. The origin only moves when the stroke
+        // extends past its own left or top edge, so the common case appends ONE
+        // point and touches nothing else.
+        let minX = min(pencilFrame.minX, docP.x), minY = min(pencilFrame.minY, docP.y)
+        let maxX = max(pencilFrame.maxX, docP.x), maxY = max(pencilFrame.maxY, docP.y)
+        let grown = CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+        let originMoved = minX != pencilFrame.minX || minY != pencilFrame.minY
+        pencilFrame = grown
+        if originMoved {
+            applyPencilPoints(pencilSamples.map { PathPoint(point: $0) }, closed: false,
+                              to: id, live: true)
+        } else {
+            updateNodeLive(id) {
+                $0.frame = grown
+                if case .path(var ps) = $0.content {
+                    ps.points.append(PathPoint(point: CGPoint(x: docP.x - minX,
+                                                              y: docP.y - minY)))
+                    $0.content = .path(ps)
+                }
+            }
+        }
         didEdit = true
         needsDisplay = true
     }
@@ -1274,6 +1301,7 @@ final class CanvasNSView: NSView {
             pencilNodeID = nil
             pencilBaseline = nil
             pencilSamples = []
+            pencilFrame = .zero
             dragMode = .none
             needsDisplay = true
         }
