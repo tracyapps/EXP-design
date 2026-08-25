@@ -658,7 +658,10 @@ with the design. Full chunk breakdown, risks, and release mapping live in
           fully supported—the skill improves recognition and guidance but must
           never be required to connect. Version/test each wrapper against the
           shared contract so agent-specific instructions cannot silently drift.
-  - [ ] **F3 — separately consented, undo-safe write-back (v2.3+).**
+  - [ ] **F3 — separately consented, undo-safe write-back (v2.3+).** Built as
+        FEAT-048 (`apply_edits`) on 2026-08-25 under the Sanaa name; the box stays
+        unchecked because no runtime verification has been run
+        (`scripts/verify_sanaa_write_gate.sh`).
 - [x] **Panel IA + tool-discoverability pass** — v2.1, coordinated with F2 so
       the new Handoff panel joins an intentional system rather than becoming one
       more destination. Inventory every shipped command and reorganize docked/
