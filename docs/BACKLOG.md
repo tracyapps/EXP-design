@@ -2997,8 +2997,14 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: feature
 - Priority: P1
 - Area: canvas · tools · vector
-- Status: **needs-verify — implemented 2026-08-25; builds clean, NO runtime
-  verification has been run**
+- Status: **done — owner verified 2026-08-25** ("feels natural. exactly what i
+  expect to happen").
+- Owner verification 2026-08-25 covered the core behaviour AND the flagged change:
+  pressing a different object's body now selects and drags in one gesture, and the
+  owner confirmed that is what they expect. The wider regression list below
+  (Option-drag, snapping, groups, rotated/flipped ancestors, locked objects,
+  click-without-drag) was not separately walked through — recorded here so a later
+  session does not read this sign-off as broader than it was.
 - Repro/Detail: Owner request 2026-08-11. Because the point tool will not move a
   whole object when nothing is point-selected, a failed tool switch (BUG-028) leaves
   the app feeling broken rather than merely in the wrong mode. Owner's proposal:
@@ -3240,7 +3246,8 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: feature
 - Priority: P2
 - Area: canvas · tools · vector
-- Status: **deferred to v2.4 by owner decision 2026-08-21**
+- Status: **needs-verify — implemented 2026-08-25; builds clean, NO runtime
+  verification has been run**
 - Repro/Detail: Owner request 2026-08-11: "add pencil, to just click/draw which turns
   into pen points automatically."
 - Hypothesis: the standard approach is capture the pointer polyline, then fit cubic
@@ -3255,11 +3262,77 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   Accessibility note: a freehand tool cannot be the ONLY way to do anything, so it
   must produce a path that is then fully editable by the existing keyboard-operable
   point tools — which it will be.
+- Implementation 2026-08-25.
+  - **`Model/CurveFitting.swift` (new, app-target only)** — Schneider's algorithm
+    as the entry specified: chord-length parameterisation, a least-squares solve
+    for the two control points with endpoints and tangent directions fixed,
+    Newton-Raphson reparameterisation when the fit is close, and recursive
+    splitting at the worst sample when it is not. Pure geometry — no AppKit, no
+    model mutation, no drawing — so it is testable on its own.
+  - **One deliberate deviation from the paper, called out at the code site.**
+    Schneider writes `iterationError = error * error`, which is unit-ambiguous:
+    `error` is compared against a SQUARED distance, so squaring it again means
+    something different at every scale. This reparameterises when the fit is within
+    4× the tolerance in real distance (16× squared) — scale-independent, and a
+    judgement call rather than a value from the paper.
+  - **Two defensive limits, both chosen to fail loose rather than wrong.** A
+    recursion ceiling of 16 accepts the current fit instead of splitting forever on
+    a tight scribble at a small tolerance; and a singular least-squares solve falls
+    back to Schneider's own one-third-chord heuristic rather than emitting inverted
+    handles.
+  - **Capture.** Samples are taken in DOCUMENT space, so zoom changes only how
+    densely a stroke is sampled on screen, never what gets drawn. Samples closer
+    than 1.5pt are dropped. The live preview during the drag is the RAW polyline —
+    cheap, honest about what was captured, and replaced by the fitted curve on
+    release; re-fitting per tick would cost far more and show a curve rewriting
+    itself under the cursor.
+  - **The frame is refitted live, not just at the end**, because `nodeHit` uses it
+    as its bounding-box reject and culling uses it too — a stale frame mid-stroke
+    makes the ink unclickable and can make it vanish while being drawn.
+  - **Closing:** proximity, the freehand convention — the stroke closes if the
+    release lands within 12 VIEW points of where it began AND there are at least 8
+    samples, so a short scribble that happens to end near its start is not closed
+    behind the designer's back. Measured on screen so the gesture means the same
+    thing at every zoom. **This is the most likely thing to feel wrong; if it
+    does, both numbers are one constant each.**
+  - **Fidelity control:** `exp.pref.pencilFidelity` (Double, default 2.0 points of
+    allowed deviation), exposed as Settings ▸ Canvas ▸ Pencil ▸ Fidelity, a slider
+    from 0.5 to 10 labelled Accurate ↔ Smooth with the live value in points. The
+    footnote states which direction is which, because "fidelity" alone tells a
+    designer nothing, and states that it affects new strokes only.
+  - **Command coverage:** Tool case + symbol + label, ToolsStrip button beside the
+    pen, `N` in `keyDown` (Illustrator's Pencil key), `@objc pencilToolAction:`,
+    and a Tools-menu item routed through `sendCanvasAction`. Switching tools
+    mid-stroke finishes the stroke rather than abandoning it.
+  - **A click is not a stroke:** fewer than two samples removes the node, restores
+    the baseline, and registers no undo step at all.
+- **The output is an ordinary path and nothing about it is special afterwards** —
+  that was the accessibility requirement in this entry (a freehand tool cannot be
+  the only way to do anything), and it is satisfied structurally rather than by a
+  promise: the pencil emits the same `PathShape` the pen does, so every existing
+  keyboard-operable point tool, the Inspector, export, and Convert to Outlines all
+  work on it with no new code.
+- **Not implemented, and not claimed:** pressure and tilt from `NSEvent`, which the
+  entry explicitly scoped out as a later addition. Also no smoothing pass before
+  fitting — the tolerance is the only control, deliberately.
+- **What was verified:** `xcodebuild` Debug succeeds for both the `EXP [design]`
+  and `EXPThumbnail` schemes with signing disabled, zero errors, and no warnings in
+  the new file or any edited range. `CurveFitting.swift` is app-target only, as the
+  synchronized-group exception set confirms. **That is the entire claim** — no
+  stroke has ever been drawn with this tool, so every acceptance line below is open,
+  and the fitted output has never been looked at.
 - Acceptance: dragging with the pencil produces an editable `PathShape` with a
   sensible number of anchors and handles; a fidelity/smoothing control adjusts it;
   the result is indistinguishable in the model from a pen-drawn path and is fully
   point-editable, exportable, and undoable in one step. Closing the path is
   possible. Tool is reachable per the command-coverage rule.
+- Owner pass to run: draw slow and fast strokes, and a deliberate circle to test the
+  proximity close; check the anchor count looks sane rather than one-per-sample;
+  move the fidelity slider to both ends and confirm the difference is obvious;
+  edit a pencil path with the node tool including keyboard nudge; undo one stroke in
+  one step; save, reopen, and export it to SVG and PNG; draw inside a group and
+  inside a rotated ancestor; switch tools mid-stroke; and confirm a single click
+  leaves nothing behind and nothing in the undo stack.
 
 ### FEAT-030 — "Balanced" curve handle mode
 - Type: feature

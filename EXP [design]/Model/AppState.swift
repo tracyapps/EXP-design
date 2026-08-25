@@ -887,6 +887,10 @@ enum Tool: Hashable {
     case polygon
     case line
     case pen
+    /// Freehand: drag a stroke, which is fitted to bezier anchors on release
+    /// (FEAT-029). The output is an ordinary path — nothing about it is special
+    /// afterwards, which is the point.
+    case pencil
     case text
     case image       // action tool: opens the importer (reverts to select)
     case component   // action tool: makes an empty component + opens its editor
@@ -906,6 +910,7 @@ enum Tool: Hashable {
         case .polygon:   return "triangleshape"
         case .line:      return "line.diagonal"
         case .pen:       return "point.topleft.down.to.point.bottomright.curvepath.fill"
+        case .pencil:    return "scribble"
         case .text:      return "character.textbox"
         case .image:     return "photo.fill"
         case .component: return "square.on.square.squareshape.controlhandles"
@@ -926,6 +931,7 @@ enum Tool: Hashable {
         case .polygon:   return "Polygon"
         case .line:      return "Line"
         case .pen:       return "Pen"
+        case .pencil:    return "Pencil"
         case .text:      return "Text"
         case .image:     return "Place Image"
         case .component: return "New Component"
@@ -944,6 +950,8 @@ enum Tool: Hashable {
         case .polygon:   return "G"
         case .line:      return "L"
         case .pen:       return "P"
+        // N, following Illustrator's Pencil.
+        case .pencil:    return "N"
         case .text:      return "T"
         case .image:     return "\u{21E7}\u{2318}P"
         case .component: return ""

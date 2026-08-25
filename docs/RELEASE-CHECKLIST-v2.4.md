@@ -60,12 +60,17 @@ no code change. Both entries below are unfixed and unverified as of 2026-08-25.
       canvas at every zoom and in export at every scale, and an unrenderable blur
       degrades in resolution rather than in radius, never silently.
 
-- [ ] FEAT-025 — direct-select moves whole objects in one undo step; anchors and
+- [x] FEAT-025 — owner verified 2026-08-25 (core behaviour + the flagged
+      select-and-drag change). Regression items below not separately walked.
+- [ ] FEAT-025 regression — direct-select moves whole objects in one undo step; anchors and
       handles still win; Option-drag, snapping, nested and rotated ancestors, locked
       objects, and click-without-drag all still behave. BUG-028 is NOT claimed fixed.
       Look hard at the changed behaviour: pressing a DIFFERENT object now selects
       AND drags in one gesture.
-- [ ] FEAT-029 — pencil output is an ordinary, fully point-editable path.
+- [ ] FEAT-029 — pencil output is an ordinary, fully point-editable path; anchor
+      count is sane; the fidelity slider makes an obvious difference at both ends;
+      one stroke is one undo step; a click leaves nothing behind. Watch the
+      proximity close (12pt / 8 samples) — most likely thing to feel wrong.
 - [ ] FEAT-028 — canvas, PNG, PDF, SVG, and HTML/CSS handoff all agree, with the
       browser-support caveat stated in the export contract rather than implied.
 - [ ] FEAT-031 — per-point line ends round-trip through save and SVG export.

@@ -39,6 +39,7 @@ enum AppPreferences {
     static let performanceMode     = "exp.pref.performanceMode"     // String (CanvasPerformanceMode raw), default "balanced"
     static let statesBarCompact    = "exp.pref.statesBarCompact"    // Bool, default false (extended chip row)
     static let artboardSpacing     = "exp.pref.artboardSpacing"     // Double (points), default 160
+    static let pencilFidelity      = "exp.pref.pencilFidelity"      // Double (points of allowed deviation), default 2
     static let requestedSettingsPane = "exp.settings.requestedPane" // String (SettingsPane raw); "" = none. Lets a window jump Settings to a pane.
     static let interfaceTypeSize    = "exp.pref.interfaceTypeSize"  // EXPInterfaceTypeSize raw value
     static let tooltipVerbosity     = "exp.pref.tooltipVerbosity"   // EXPTooltipVerbosity raw value
@@ -55,6 +56,7 @@ enum AppPreferences {
     static let defaultTextBoxTrim         = "capBaseline"
     static let defaultPerformanceMode     = "balanced"
     static let defaultArtboardSpacing: Double = 160
+    static let defaultPencilFidelity: Double = 2
     static let defaultInterfaceTypeSize = EXPInterfaceTypeSize.standard.rawValue
     static let defaultTooltipVerbosity = EXPTooltipVerbosity.full.rawValue
 }
@@ -89,6 +91,15 @@ extension AppPreferences {
     static var artboardSpacingValue: CGFloat {
         CGFloat(UserDefaults.standard.object(forKey: artboardSpacing) as? Double
                 ?? defaultArtboardSpacing)
+    }
+
+    /// How far, in document points, a fitted pencil curve may stray from the stroke
+    /// the designer actually drew. Small = accurate, more anchors; large = smooth,
+    /// fewer anchors. Read straight from UserDefaults so the canvas (AppKit) and
+    /// `@AppStorage` views can never disagree — the same pattern as artboard spacing.
+    static var pencilFidelityValue: CGFloat {
+        CGFloat(UserDefaults.standard.object(forKey: pencilFidelity) as? Double
+                ?? defaultPencilFidelity)
     }
 }
 
@@ -320,6 +331,8 @@ private struct CanvasSettingsPane: View {
         AppPreferences.defaultPerformanceMode
     @AppStorage(AppPreferences.artboardSpacing) private var artboardSpacing =
         AppPreferences.defaultArtboardSpacing
+    @AppStorage(AppPreferences.pencilFidelity) private var pencilFidelity =
+        AppPreferences.defaultPencilFidelity
 
     /// Typed bridge over the stored raw string (falls back to Balanced).
     private var performanceMode: Binding<AppState.CanvasPerformanceMode> {
@@ -391,6 +404,36 @@ private struct CanvasSettingsPane: View {
 
                 Stepper("Subdivisions per cell: \(gridSubdivisions)",
                         value: $gridSubdivisions, in: 1...10)
+            }
+
+            // FEAT-029. This is the one control that decides whether a freehand tool
+            // is usable, so it gets a real home rather than a hidden default. The
+            // number is how far, in document points, the fitted curve may stray from
+            // what was drawn — stated in the footnote because "fidelity" alone tells
+            // a designer nothing about which direction is which.
+            SettingsGroup("Pencil",
+                          footnote: "Lower values follow your stroke closely and leave more anchor points to edit. Higher values smooth the stroke into fewer points. This affects new strokes only \u{2014} paths you have already drawn are ordinary paths and never change.") {
+                LabeledContent("Fidelity") {
+                    HStack(spacing: 8) {
+                        Text("Accurate")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .accessibilityHidden(true)
+                        Slider(value: $pencilFidelity, in: 0.5...10, step: 0.5)
+                            .frame(maxWidth: 180)
+                            .accessibilityLabel("Pencil fidelity")
+                            .accessibilityValue("\(pencilFidelity, specifier: "%.1f") points of allowed deviation")
+                            .accessibilityHint("Lower follows your stroke closely with more points; higher smooths it into fewer points.")
+                        Text("Smooth")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .accessibilityHidden(true)
+                        Text("\(pencilFidelity, specifier: "%.1f") pt")
+                            .monospacedDigit()
+                            .frame(width: 48, alignment: .trailing)
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
         }
     }

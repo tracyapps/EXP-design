@@ -195,6 +195,10 @@ final class CanvasNSView: NSView {
         case drawLine(id: UUID, startDoc: CGPoint)
         case lineEndpoint(id: UUID, movingStart: Bool, fixedDoc: CGPoint)
         case penHandle(nodeID: UUID, anchorIndex: Int)     // pen: drag the new anchor's handles
+        // pencil: accumulate a freehand stroke. The samples live in
+        // `pencilSamples` rather than the case so a long stroke does not copy an
+        // ever-growing array on every enum assignment.
+        case pencilStroke
         case pathPoint(nodeID: UUID, target: PathPointTarget)  // node tool: drag an anchor/handle
         // node tool: drag every selected anchor/handle together by the same
         // delta, so grabbing one selected point (or the shape body, see
@@ -256,6 +260,11 @@ final class CanvasNSView: NSView {
     // Pen tool session (spans multiple clicks until closed/finished).
     private var penNodeID: UUID?
     private var penBaseline: Document?
+    // Pencil (FEAT-029). Samples are captured in DOCUMENT space so zoom never
+    // changes what gets drawn — only how densely it is sampled on screen.
+    private var pencilNodeID: UUID?
+    private var pencilBaseline: Document?
+    private var pencilSamples: [CGPoint] = []
 
     // Node tool: a point-group drag that started on the path BODY (not an anchor),
     // so a click-without-drag there deselects the points (Adobe direct-select).
@@ -1172,6 +1181,126 @@ final class CanvasNSView: NSView {
         penNodeID = nil
         penBaseline = nil
         needsDisplay = true
+    }
+
+    // MARK: Pencil (FEAT-029)
+
+    /// Samples closer together than this (in DOCUMENT space) are discarded. Every
+    /// mouse event on a slow stroke produces near-identical points, which cost the
+    /// live redraw and tell the fitter nothing it does not already know.
+    private static let pencilMinSampleDistance: CGFloat = 1.5
+
+    /// Close the stroke if the release lands within this many VIEW points of where
+    /// it started. Measured on screen, not in the document, so the gesture means the
+    /// same thing at every zoom.
+    private static let pencilCloseDistance: CGFloat = 12
+
+    private func pencilMouseDown(_ p: CGPoint) {
+        guard let app, let document else { return }
+        let docP = viewToDoc(p)
+        pencilBaseline = document.model
+        pencilSamples = [docP]
+        let node = Node(name: "Path", frame: CGRect(origin: docP, size: .zero),
+                        content: .path(PathShape(points: [PathPoint(point: .zero)])))
+        withNodes { $0.append(node) }
+        app.selectedArtboardID = nil
+        app.selectedNodeIDs = [node.id]
+        pencilNodeID = node.id
+        dragMode = .pencilStroke
+        needsDisplay = true
+    }
+
+    private func pencilMouseDragged(_ p: CGPoint) {
+        guard let id = pencilNodeID else { return }
+        let docP = viewToDoc(p)
+        if let last = pencilSamples.last,
+           hypot(docP.x - last.x, docP.y - last.y) < Self.pencilMinSampleDistance { return }
+        pencilSamples.append(docP)
+        // Live feedback is the RAW polyline. It is cheap, it is honest about what was
+        // actually captured, and it is replaced by the fitted curve on release.
+        // Re-fitting every tick would cost far more and would show a curve that keeps
+        // rewriting itself under the cursor.
+        applyPencilPoints(pencilSamples.map { PathPoint(point: $0) }, closed: false, to: id)
+        didEdit = true
+        needsDisplay = true
+    }
+
+    /// Write anchors given in DOCUMENT space into the node, re-based to node-local
+    /// space with the frame refitted around them. Done live rather than only at the
+    /// end because `nodeHit` uses the frame as its bounding-box reject and culling
+    /// uses it too — a stale frame mid-stroke means the ink stops being clickable
+    /// and can vanish while being drawn.
+    private func applyPencilPoints(_ docPoints: [PathPoint], closed: Bool, to id: UUID) {
+        guard !docPoints.isEmpty else { return }
+        var xs: [CGFloat] = [], ys: [CGFloat] = []
+        for pt in docPoints {
+            xs.append(pt.point.x); ys.append(pt.point.y)
+            if let c = pt.controlIn { xs.append(c.x); ys.append(c.y) }
+            if let c = pt.controlOut { xs.append(c.x); ys.append(c.y) }
+        }
+        guard let minX = xs.min(), let minY = ys.min(),
+              let maxX = xs.max(), let maxY = ys.max() else { return }
+        func rebase(_ q: CGPoint) -> CGPoint { CGPoint(x: q.x - minX, y: q.y - minY) }
+        let local = docPoints.map {
+            PathPoint(point: rebase($0.point),
+                      controlIn: $0.controlIn.map(rebase),
+                      controlOut: $0.controlOut.map(rebase))
+        }
+        updateNode(id) {
+            $0.frame = CGRect(x: minX, y: minY,
+                              width: max(maxX - minX, 0), height: max(maxY - minY, 0))
+            if case .path(var ps) = $0.content {
+                ps.points = local
+                ps.closed = closed
+                $0.content = .path(ps)
+            }
+        }
+    }
+
+    /// Fit the captured samples and commit the whole stroke as ONE undo step.
+    private func finishPencilStroke() {
+        guard let id = pencilNodeID else { return }
+        defer {
+            pencilNodeID = nil
+            pencilBaseline = nil
+            pencilSamples = []
+            dragMode = .none
+            needsDisplay = true
+        }
+        // A click is not a stroke: leave nothing behind, and no undo step for it.
+        guard pencilSamples.count >= 2 else {
+            withNodes { $0.removeAll { $0.id == id } }
+            app?.selectedNodeIDs = []
+            if let baseline = pencilBaseline { document?.model = baseline }
+            return
+        }
+        let closed = shouldClosePencilStroke()
+        let fitted = CurveFitting.fit(pencilSamples,
+                                      tolerance: AppPreferences.pencilFidelityValue)
+        // The fitter can only fail by returning too little to draw. Keeping the raw
+        // polyline is better than discarding what the designer just drew.
+        let points = fitted.count >= 2 ? fitted : pencilSamples.map { PathPoint(point: $0) }
+        applyPencilPoints(points, closed: closed, to: id)
+        normalizePath(id)
+        if let baseline = pencilBaseline {
+            document?.registerUndo(restoring: baseline, undoManager: undoManager,
+                                   actionName: "Draw Path")
+        }
+    }
+
+    /// True when the stroke ended close enough to where it began to have meant it.
+    /// Requires a real loop's worth of samples so a short scribble that happens to
+    /// end near its start is not closed behind the designer's back.
+    private func shouldClosePencilStroke() -> Bool {
+        guard pencilSamples.count >= 8,
+              let first = pencilSamples.first, let last = pencilSamples.last else { return false }
+        let a = docToViewPoint(first), b = docToViewPoint(last)
+        return hypot(a.x - b.x, a.y - b.y) <= Self.pencilCloseDistance
+    }
+
+    /// Finish any active pencil stroke if the tool is no longer the pencil.
+    func endPencilIfNeeded() {
+        if pencilNodeID != nil, app?.tool != .pencil { finishPencilStroke() }
     }
 
     /// Finish any active pen session if the tool is no longer the pen.
@@ -7088,6 +7217,7 @@ final class CanvasNSView: NSView {
     /// Switch tools, finishing any in-progress pen path first.
     private func setTool(_ tool: Tool) {
         if penNodeID != nil, tool != .pen { finishPen() }
+        if pencilNodeID != nil, tool != .pencil { finishPencilStroke() }
         app?.tool = tool
         refreshCursor()
     }
@@ -7112,6 +7242,7 @@ final class CanvasNSView: NSView {
     @objc func selectToolAction(_ s: Any?)     { setTool(.select) }
     @objc func nodeToolAction(_ s: Any?)       { setTool(.node) }
     @objc func penToolAction(_ s: Any?)        { setTool(.pen) }
+    @objc func pencilToolAction(_ s: Any?)     { setTool(.pencil) }
     @objc func textToolAction(_ s: Any?)       { setTool(.text) }
     @objc func rectangleToolAction(_ s: Any?)  { setTool(.rectangle) }
     @objc func ellipseToolAction(_ s: Any?)    { setTool(.ellipse) }
@@ -7215,7 +7346,7 @@ final class CanvasNSView: NSView {
                 if let n = node(hover.leafID), penAddable(n) { return Self.addPointCursor }
             }
             return .crosshair
-        case .rectangle, .ellipse, .polygon, .line, .artboard:
+        case .rectangle, .ellipse, .polygon, .line, .artboard, .pencil:
             return .crosshair
         case .pan:
             return .openHand
@@ -7367,6 +7498,7 @@ final class CanvasNSView: NSView {
             case "g": setTool(.polygon);   return
             case "l": setTool(.line);      return
             case "p": setTool(.pen);       return
+            case "n": setTool(.pencil);    return   // Illustrator's Pencil key
             case "t": setTool(.text);      return
             case "f": setTool(.artboard);  return   // Figma's Frame key
             case "i": eyedropToSelection(); return   // sample → apply to selection
@@ -7460,6 +7592,12 @@ final class CanvasNSView: NSView {
         // Node tool: edit the selected path's points/handles.
         if app.tool == .node {
             nodeToolMouseDown(p, shift: shift)
+            return
+        }
+
+        // Pencil tool: capture a freehand stroke; fitted to anchors on release.
+        if app.tool == .pencil {
+            pencilMouseDown(p)
             return
         }
 
@@ -8191,6 +8329,9 @@ final class CanvasNSView: NSView {
             didEdit = true
             needsDisplay = true
 
+        case .pencilStroke:
+            pencilMouseDragged(p)
+
         case .marquee:
             marqueeCurrent = p
             needsDisplay = true
@@ -8226,6 +8367,9 @@ final class CanvasNSView: NSView {
             registerUndoForGesture()
             app?.tool = .select
             refreshCursor()
+
+        case .pencilStroke:
+            finishPencilStroke()
 
         case .drawArtboard(let id, _):
             // A bare click lands the same default the New Artboard menu's primary

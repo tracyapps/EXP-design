@@ -2997,6 +2997,57 @@ font import → Phase 9, shadows → Phase 10._
 
 ## Progress Log
 
+- **2026-08-25 (FEAT-025 owner-verified; FEAT-029 pencil tool built, unverified).**
+  The owner confirmed direct-select object movement — "feels natural, exactly what i
+  expect to happen" — including the flagged change where pressing a different
+  object now selects and drags in one gesture. Recorded as a real receipt, with a
+  note that the wider regression list was not separately walked so a later session
+  cannot read the sign-off as broader than it was. That is the first Wave C item
+  closed.
+
+  The pencil then landed. `Model/CurveFitting.swift` is Schneider's 1990 algorithm
+  as the entry asked for by name: chord-length parameterisation, a least-squares
+  solve for the two control points with endpoints and tangents fixed,
+  Newton-Raphson reparameterisation when the fit is close, recursive splitting when
+  it is not. Pure geometry, app-target only, testable without the app.
+
+  One deviation from the paper is called out at the code site rather than buried:
+  Schneider's `iterationError = error * error` is unit-ambiguous, because `error` is
+  already being compared against a squared distance, so squaring it again means
+  something different at every scale. This reparameterises when the fit is within 4×
+  the tolerance in real distance. That is a judgement call, not a value from the
+  paper, and it is labelled as one.
+
+  Two defensive limits both fail LOOSE rather than wrong — a recursion ceiling that
+  accepts the current fit instead of splitting forever, and a singular least-squares
+  solve that falls back to Schneider's own one-third-chord heuristic instead of
+  emitting inverted handles. That is the same principle BUG-053 was filed for:
+  degrade visibly, never silently produce a different picture.
+
+  The interaction decisions worth arguing with: samples are captured in DOCUMENT
+  space so zoom changes only sampling density, never the drawing; the live preview
+  is the raw polyline, replaced by the fitted curve on release; the node frame is
+  refitted every tick because `nodeHit` uses it as a bounding-box reject and a stale
+  frame makes ink unclickable mid-stroke; and the stroke closes by proximity — 12
+  view points, minimum 8 samples — which is the freehand convention but is the most
+  likely thing to feel wrong. Both numbers are one constant each.
+
+  Fidelity is exposed properly rather than left a hidden default: Settings ▸ Canvas
+  ▸ Pencil, a 0.5–10pt slider labelled Accurate ↔ Smooth, with a footnote saying
+  which direction is which, because the word "fidelity" tells a designer nothing on
+  its own. Full command coverage: tool, strip button, `N`, `@objc` action, menu item
+  through `sendCanvasAction`.
+
+  The accessibility requirement in the entry — a freehand tool cannot be the only
+  way to do anything — is met structurally, not by promise: the pencil emits the
+  same `PathShape` the pen does, so the keyboard-operable point tools, Inspector,
+  export, and Convert to Outlines all already work on it. Pressure and tilt stay
+  out, as the entry scoped them.
+
+  Both schemes build clean, zero errors, no warnings in the new file or any edited
+  range. No stroke has ever been drawn with this tool; the fitted output has never
+  been looked at.
+
 - **2026-08-25 (Wave C opened — FEAT-025 direct-select object move, code complete,
   unverified).** The owner asked for vector tools next, so the first thing today
   that adds to their verification queue. `nodeToolMouseDown`'s press-target ladder

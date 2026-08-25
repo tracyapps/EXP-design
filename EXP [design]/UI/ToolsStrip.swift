@@ -27,7 +27,7 @@ struct ToolsStrip: View {
     /// shape, and grouping it with the shape tools would imply otherwise.
     private let toolGroups: [[Tool]] = [
         [.pan, .select, .node],
-        [.rectangle, .ellipse, .polygon, .line, .pen],
+        [.rectangle, .ellipse, .polygon, .line, .pen, .pencil],
         [.text, .image, .component],
         [.artboard]
     ]

@@ -483,6 +483,7 @@ private struct ToolsCommandItems: View {
         Button("Edit Points") { sendEditorAction("nodeToolAction:") }
         Divider()
         Button("Pen") { sendEditorAction("penToolAction:") }
+        Button("Pencil") { sendEditorAction("pencilToolAction:") }
         Button("Text") { sendEditorAction("textToolAction:") }
         Divider()
         Button("Rectangle") { sendEditorAction("rectangleToolAction:") }
