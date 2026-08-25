@@ -1271,13 +1271,35 @@ final class CanvasNSView: NSView {
             return
         }
 
-        // 3) Click landed on a DIFFERENT path's body — switch which path is
-        //    being point-edited (its points start unselected).
-        if let leaf = hitPath(atDoc: viewToDoc(p)).last, leaf.id != selectedPath()?.id {
-            setSelectedPoints([])
-            app.selectedNodeIDs = [leaf.id]
-            app.selectedArtboardID = nil
-            needsDisplay = true
+        // 3) FEAT-025 — the press landed on an object's BODY with nothing finer to
+        //    edit under the cursor, so move the whole object, the way Illustrator's
+        //    Direct Selection does. Pressing an anchor or a handle already won at
+        //    step 1, and a point selection on THIS object already won at step 2, so
+        //    reaching this line means a point edit was never what was being asked
+        //    for. `.last` is the deepest leaf rather than the group around it —
+        //    addressing individual objects IS the direct-selection semantic.
+        //
+        //    Reuses `beginSelectedNodeDrag`, the one route the select tool and
+        //    Auto-select already share, so Option-copy, snapping, nested movement,
+        //    smart guides and one-step undo stay a single implementation instead of
+        //    becoming a second copy that drifts.
+        //
+        //    Arming the drag costs a click nothing: the `.nodes` case in mouseUp
+        //    registers undo only `if didEdit`, so a press that never moves still
+        //    just selects, exactly as it did before this existed.
+        //
+        //    THIS IS NOT A FIX FOR BUG-028 and must never be recorded as one.
+        //    Making the wrong mode less painful is not the same as making the tool
+        //    switch work; BUG-028 is still live and is fixed and verified on its own.
+        if let leaf = hitPath(atDoc: viewToDoc(p)).last {
+            if leaf.id != selectedPath()?.id {
+                // Switching which object the tool addresses. Its points start
+                // unselected — unchanged from before this feature.
+                setSelectedPoints([])
+                app.selectedNodeIDs = [leaf.id]
+                app.selectedArtboardID = nil
+            }
+            beginSelectedNodeDrag(at: viewToDoc(p))
             return
         }
 

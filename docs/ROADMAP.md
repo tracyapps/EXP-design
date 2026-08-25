@@ -2997,6 +2997,36 @@ font import → Phase 9, shadows → Phase 10._
 
 ## Progress Log
 
+- **2026-08-25 (Wave C opened — FEAT-025 direct-select object move, code complete,
+  unverified).** The owner asked for vector tools next, so the first thing today
+  that adds to their verification queue. `nodeToolMouseDown`'s press-target ladder
+  gains a third rung: anchor or handle wins, then a point selection on the object
+  under the cursor, then — new — the object's body moves the whole object. Reaching
+  the third rung is itself the proof that a point edit was not being asked for, so
+  no extra "is anything selected" test was needed.
+
+  The implementation is deliberately small because `beginSelectedNodeDrag` already
+  existed and its own comment says it is shared "so Option-drag, nested movement,
+  smart guides, and one-step undo remain one implementation." FEAT-025 became a
+  third caller rather than a second copy. It also means a plain click still costs
+  nothing: `.nodes` in `mouseUp` registers undo only `if didEdit`.
+
+  One judgement call worth the owner's eyes: pressing a DIFFERENT object's body used
+  to only switch which object the tool addressed, needing a second press to move it.
+  It now switches and drags in the same gesture — Illustrator's model, and the
+  removal of exactly the friction this entry was filed about, but a real change to
+  existing behaviour and the most likely thing to feel wrong. Reverting it is one
+  `if`.
+
+  Two things deliberately not claimed. The entry's hypothesis also describes
+  segment dragging; EXP has no segment hit-test and this did not add one, so a press
+  on a bare segment falls through to the object move and segment editing stays
+  unbuilt. And this is still not a fix for BUG-028 — the warning is written at the
+  call site so a later reader cannot mistake one for the other.
+
+  Debug build succeeds, zero errors, 46 warnings all pre-existing and none in the
+  edited range. No pointer interaction has been exercised.
+
 - **2026-08-25 (FEAT-051 research gate closed — and it found a possible blocker).**
   Chosen deliberately as the next piece of work because it is research: the owner is
   short on testing time, Wave A and FEAT-048 are already awaiting verification, and

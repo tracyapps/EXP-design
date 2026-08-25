@@ -2997,7 +2997,8 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: feature
 - Priority: P1
 - Area: canvas · tools · vector
-- Status: **deferred to v2.4 by owner decision 2026-08-21**
+- Status: **needs-verify — implemented 2026-08-25; builds clean, NO runtime
+  verification has been run**
 - Repro/Detail: Owner request 2026-08-11. Because the point tool will not move a
   whole object when nothing is point-selected, a failed tool switch (BUG-028) leaves
   the app feeling broken rather than merely in the wrong mode. Owner's proposal:
@@ -3012,11 +3013,51 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   bug. CRITICAL: it must NOT be treated as a fix for BUG-028. Making the wrong mode
   less painful is not the same as making the tool switch work, and shipping only
   this would hide a live event-routing bug.
+- Implementation 2026-08-25, in `nodeToolMouseDown` (`CanvasView.swift`). The
+  press-target ladder now reads: (1) an anchor or handle wins, unchanged; (2) a
+  point selection on the object under the cursor wins, unchanged; (3) **new** — the
+  press landed on an object's body with nothing finer to edit, so the whole object
+  moves. Reaching step 3 is itself the proof that a point edit was not what was
+  asked for, which is why no extra "is anything point-selected" test is needed.
+  `.last` of the hit chain is the deepest leaf rather than its enclosing group,
+  because addressing individual objects IS the direct-selection semantic.
+- **It reuses `beginSelectedNodeDrag`, the route the select tool and Auto-select
+  already share**, so Option-copy, snapping, nested movement, smart guides, and
+  one-step undo remain one implementation rather than a second copy that drifts.
+  That also means arming the drag costs a plain click nothing: the `.nodes` case in
+  `mouseUp` registers undo only `if didEdit`, so a press that never moves still just
+  selects, exactly as before.
+- **One deliberate behaviour change beyond the literal acceptance text — please look
+  at this specifically.** Pressing a DIFFERENT object's body previously only
+  switched which object the tool addressed; it took a second press to move it. It
+  now switches AND arms the drag, so the tool behaves the same way wherever you
+  press. That is Illustrator's model and it removes exactly the two-step friction
+  this entry was filed about, but it IS a change to existing behaviour and it is the
+  most likely thing to feel wrong. If it does, the fix is one `if` — restore the
+  early return in the switching branch.
+- **Not implemented, and not claimed:** the Hypothesis paragraph above also
+  describes "press on a path segment → edit that segment." EXP has no segment
+  hit-test or segment drag today, and this change did not add one. A press on a
+  segment that is not near an anchor falls through to the whole-object move. Segment
+  editing remains unbuilt; log it separately if it is wanted.
+- **Still NOT a fix for BUG-028.** The code carries that warning at the call site so
+  a later reader cannot mistake one for the other. BUG-028 remains open, live, and
+  separately verifiable.
+- **What was verified:** `xcodebuild` Debug for the `EXP [design]` scheme succeeds
+  with signing disabled, zero errors, and no new warnings (46 total, all
+  pre-existing; none in the edited range). `CanvasView.swift` is app-target only, so
+  the EXPThumbnail scheme is unaffected. **That is the entire claim** — no pointer
+  interaction has been exercised, so every line of the acceptance below is open.
 - Acceptance: with the point tool active and nothing point-selected, dragging inside
   an object's fill moves the whole object in one undo step. With points selected,
   dragging moves the points as before. Pressing directly on a point or handle always
   wins over the whole-object drag. BUG-028 is fixed separately and verified
   separately.
+- Owner regression pass to run alongside the acceptance above: Option-drag copies,
+  snapping and smart guides, dragging a node that lives inside a group, dragging
+  inside a rotated or flipped ancestor, a locked object (must stay unmovable), a
+  plain click with no movement (must select and register no undo step), and
+  switching between two objects by pressing each in turn.
 
 ### FEAT-026 — Transform box (resize + rotate) for a selection of points
 - Type: feature
