@@ -1372,8 +1372,9 @@ removes a daily "the app feels broken" moment.
 - ~~FEAT-031 — line end options.~~ **Already shipped and owner-verified 2026-08-21;
   it was carried into this list in error when the v2.4 scope was written on
   2026-08-25 and is struck out rather than deleted so the correction is visible.**
-- [ ] FEAT-030 (P3) — "balanced" (symmetric) curve handle mode. Confirm with the owner
-  which of the three anchor modes is actually missing before building.
+- [ ] FEAT-030 (P3) — symmetric curve handles. Owner chose symmetric 2026-08-26.
+  Handle pairing is implemented and derived from geometry rather than stored (so it
+  round-trips through SVG); the explicit mode-setting commands are not built.
 - [ ] BUG-048 — placed SVG `stroke-dasharray` imports as the wrong stroke pattern.
 - [ ] BUG-034 Stage 2 — implement spread for arbitrary silhouettes so canvas stops
   diverging from SVG export. Stage 1 (disclosure) is already owner-verified.
@@ -2998,6 +2999,34 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-08-26 (FEAT-030 — the entry's premise was wrong, and the real finding is
+  better).** The entry guessed EXP "presumably has two" of the three anchor
+  behaviours and asked to confirm which was missing. Source says it has exactly ONE
+  for editing: `pathPointDrag` sets one control point and nothing else, so every
+  anchor edits as a corner. But `penHandleDrag` creates perfectly mirrored handles —
+  its own comment says "so it stays mirrored." **The pen makes symmetric anchors and
+  the node tool breaks them on the first drag**, which is almost certainly the
+  asymmetry behind the owner's "unsure how."
+
+  The owner chose symmetric. Implemented as a DERIVED mode rather than a stored one,
+  which is the whole design decision: SVG records only coordinates, so a stored mode
+  could not survive an export and re-import — a risk the entry itself flags — while a
+  derived mode survives because it is the coordinates. It also leaves `PathPoint`
+  untouched, so every existing document opens unchanged with no decoder rewrite, and
+  it gives the pen's existing output meaning with no migration.
+
+  Worth recording: the first version was wrong and a table caught it. It classified
+  the pair using the DRAGGED position against the partner that had not moved yet, so
+  the handles stopped being collinear the instant one was rotated and the mirroring
+  silently switched itself off. The mode is now read from the pair BEFORE the drag,
+  with the constraint applied to where the handle is now — seven cases checked. That
+  is twice today a standalone check has caught something that would otherwise have
+  reached the owner as "it doesn't work."
+
+  Not built: the explicit set-this-anchor-to commands in inspector, context menu and
+  menu bar. Dragging plus Option covers converting in practice, but the acceptance
+  asks for the commands and they carry a command-coverage obligation.
 
 - **2026-08-25 (FEAT-028 partly signed off; a Wave C list error corrected; BUG-048
   dasharray import implemented).** The owner confirmed live-text stroke renders

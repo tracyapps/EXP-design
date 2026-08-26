@@ -1647,14 +1647,93 @@ final class CanvasNSView: NSView {
         case .controlIn(let c, let i):
             // Shift snaps a handle to 45°/axis about its own anchor.
             if shift, let a = ps.editPoint(contour: c, index: i)?.point { local = constrainLineEndpoint(local, from: a) }
-            ps.mutatePoint(contour: c, index: i) { $0.controlIn = local }
+            let partner = Self.partnerHandle(for: ps.editPoint(contour: c, index: i),
+                                             dragged: local, draggingIn: true,
+                                             breakPair: optionHeld)
+            ps.mutatePoint(contour: c, index: i) {
+                $0.controlIn = local
+                if let partner { $0.controlOut = partner }
+            }
         case .controlOut(let c, let i):
             if shift, let a = ps.editPoint(contour: c, index: i)?.point { local = constrainLineEndpoint(local, from: a) }
-            ps.mutatePoint(contour: c, index: i) { $0.controlOut = local }
+            let partner = Self.partnerHandle(for: ps.editPoint(contour: c, index: i),
+                                             dragged: local, draggingIn: false,
+                                             breakPair: optionHeld)
+            ps.mutatePoint(contour: c, index: i) {
+                $0.controlOut = local
+                if let partner { $0.controlIn = partner }
+            }
         }
         updateNodeLive(nodeID) { $0.content = .path(ps) }
         didEdit = true
         needsDisplay = true
+    }
+
+    // MARK: Handle pairing (FEAT-030)
+
+    /// Where the OPPOSITE handle should go when one is dragged, or nil to leave it
+    /// exactly where it is.
+    ///
+    /// **The mode is derived from the handles, not stored on the anchor**, and that
+    /// is the whole design decision. Two reasons, both of which a stored enum would
+    /// lose:
+    ///
+    /// 1. It round-trips through everything, for free. SVG records only the
+    ///    resulting coordinates, so a STORED mode could not survive an export and
+    ///    re-import — the entry for FEAT-030 flags exactly that risk. A derived mode
+    ///    survives because it IS the coordinates.
+    /// 2. No change to `PathPoint`, so every existing document opens unchanged and
+    ///    no hand-written decoder is needed (the FEAT-022 trap).
+    ///
+    /// It also makes the pen's existing output mean something. `penHandleDrag`
+    /// already creates perfectly mirrored handles — the node tool was then editing
+    /// them independently, which is why dragging one handle used to break a curve
+    /// the pen had just made smooth.
+    ///
+    /// - symmetric (collinear AND equal length) → mirror exactly.
+    /// - smooth (collinear, unequal length) → stay collinear, keep your own length.
+    /// - corner (anything else) → independent, which is what EXP always did.
+    ///
+    /// Option breaks the pair for this drag, the Illustrator convention, and is how
+    /// a symmetric or smooth anchor is turned into a corner.
+    static func partnerHandle(for point: PathPoint?, dragged: CGPoint,
+                              draggingIn: Bool, breakPair: Bool) -> CGPoint? {
+        guard !breakPair, let point else { return nil }
+        // The mode is read from how the pair stood BEFORE this drag, and the
+        // constraint is then applied to where the handle is NOW. Reading it from the
+        // dragged position instead would compare the new direction against a partner
+        // that has not moved yet, so the pair would stop being collinear the instant
+        // the handle was rotated and the mirroring would silently switch itself off.
+        guard let draggedOriginal = draggingIn ? point.controlIn : point.controlOut,
+              let other = draggingIn ? point.controlOut : point.controlIn else { return nil }
+        let anchor = point.point
+        func vector(_ q: CGPoint) -> CGPoint { CGPoint(x: q.x - anchor.x, y: q.y - anchor.y) }
+        let originalVector = vector(draggedOriginal)
+        let otherVector = vector(other)
+        let originalLength = hypot(originalVector.x, originalVector.y)
+        let otherLength = hypot(otherVector.x, otherVector.y)
+        // A handle sitting on its own anchor has no direction to classify.
+        guard originalLength > 0.001, otherLength > 0.001 else { return nil }
+
+        // Collinear and opposed: the cross product vanishes and the dot is negative.
+        // Both tolerances are RELATIVE to the handle lengths, so the test means the
+        // same thing on a 10pt glyph curve and a 1000pt sweep.
+        let cross = originalVector.x * otherVector.y - originalVector.y * otherVector.x
+        let dot = originalVector.x * otherVector.x + originalVector.y * otherVector.y
+        guard dot < 0, abs(cross) <= originalLength * otherLength * 0.02 else {
+            return nil   // corner: the handles were already independent
+        }
+        let symmetric = abs(originalLength - otherLength)
+            <= max(originalLength, otherLength) * 0.02
+
+        let dragVector = vector(dragged)
+        let dragLength = hypot(dragVector.x, dragVector.y)
+        guard dragLength > 0.001 else { return nil }
+        // Symmetric mirrors the new length too; smooth keeps the partner's own.
+        let keepLength = symmetric ? dragLength : otherLength
+        let scale = keepLength / dragLength
+        return CGPoint(x: anchor.x - dragVector.x * scale,
+                       y: anchor.y - dragVector.y * scale)
     }
 
     // MARK: Convert to path

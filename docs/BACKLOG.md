@@ -3535,7 +3535,8 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: feature
 - Priority: P3
 - Area: canvas · vector
-- Status: **deferred to v2.4 by owner decision 2026-08-21**
+- Status: **needs-verify — handle pairing implemented 2026-08-26; the explicit
+  mode-setting commands are NOT built (see below)**
 - Repro/Detail: Owner request 2026-08-11: "add 'balanced' curve handle option?
   unsure how."
 - Hypothesis: the owner's uncertainty is about naming, not concept. There are three
@@ -3548,6 +3549,45 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   enum on the anchor plus a constraint applied on handle drag, with a way to convert
   an existing anchor between modes (Illustrator uses Option-drag on a handle to
   break symmetry).
+- **Owner decision 2026-08-26: symmetric — mirror direction AND length.**
+- **The entry's premise was wrong, and the truth is more useful.** It guessed EXP
+  "presumably has two" of the three anchor behaviours. Source says EXP has exactly
+  ONE for editing: `pathPointDrag` sets `controlIn` or `controlOut` and nothing
+  else, so every anchor edits as a CORNER. Meanwhile `penHandleDrag` creates
+  perfectly mirrored handles — its own comment says "so it stays mirrored." **So the
+  pen makes symmetric anchors and the node tool breaks them on the first drag.**
+  That asymmetry between the two tools is almost certainly what prompted "add
+  'balanced' curve handle option? unsure how."
+- **Implementation 2026-08-26: the mode is DERIVED from the handles, not stored.**
+  `partnerHandle` classifies the pair and returns where the opposite handle belongs:
+  collinear and equal length → symmetric, mirror exactly; collinear and unequal →
+  smooth, stay collinear and keep your own length; anything else → corner, untouched,
+  which is exactly what EXP did before. Option breaks the pair for that drag — the
+  Illustrator convention, and the way a symmetric anchor becomes a corner.
+- **Why derived rather than stored, which is the whole design decision.** (1) It
+  round-trips through everything for free. SVG records only the resulting
+  coordinates, so a stored mode could not survive an export and re-import — the
+  hypothesis above flags exactly that risk and asks for it to be stated rather than
+  implied. A derived mode survives because it IS the coordinates. (2) `PathPoint`
+  is untouched, so every existing document opens unchanged and no hand-written
+  decoder is needed (the FEAT-022 synthesized-decoder trap). (3) It gives the pen's
+  existing output meaning immediately, with no migration.
+- Tolerances are RELATIVE to handle length (2% on both collinearity and length
+  match), so the classification means the same thing on a 10pt glyph curve and a
+  1000pt sweep.
+- **A bug the test caught before the owner did:** the first version classified the
+  pair using the DRAGGED position against the not-yet-moved partner, so the two
+  stopped being collinear the moment a handle was rotated and the mirroring silently
+  switched itself off. The mode is now read from the pair's state BEFORE the drag and
+  the constraint applied to where the handle is now. Verified against seven cases
+  (symmetric rotate, symmetric extend, smooth rotate, already-corner, Option-break,
+  missing partner, zero-length drag) — all correct.
+- **NOT built:** the explicit "set this anchor to symmetric / smooth / corner"
+  commands in the inspector, context menu, and menu bar. Dragging and Option-drag
+  cover converting in practice, but the acceptance asks for the commands and they are
+  a separate piece of surface with a command-coverage obligation.
+- **What was verified:** Debug build clean, zero errors; the pairing maths checked
+  against a seven-case table. No handle has been dragged in the app.
 - Acceptance: an anchor can be set to symmetric/balanced, smooth, or corner from the
   inspector, a context menu, and the menu bar; dragging a handle on a balanced
   anchor mirrors the opposite handle in both direction and length; converting
