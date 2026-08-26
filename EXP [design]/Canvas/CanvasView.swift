@@ -6130,26 +6130,31 @@ final class CanvasNSView: NSView {
                     // outset — the spread ring must survive outside the object.
                     EffectsRender.drawDropShadow(e, scale: app.zoom, in: ctx,
                                                  castBounds: outset.boundingBoxOfPath,
-                                                 knockout: {
-                        if !dissolves.isEmpty { ctx.saveGState(); applyDissolveMasks() }
-                        ctx.addPath(s.path(spread: 0)); ctx.setFillColor(NSColor.black.cgColor); ctx.fillPath()
-                        if !dissolves.isEmpty { ctx.restoreGState() }
-                    }) {
-                        if !dissolves.isEmpty { ctx.saveGState(); applyDissolveMasks() }
-                        ctx.addPath(outset); ctx.setFillColor(NSColor.black.cgColor); ctx.fillPath()
-                        if !dissolves.isEmpty { ctx.restoreGState() }
+                                                 spreadAppliedByCaster: s.appliesSpreadAnalytically,
+                                                 knockout: { c in
+                        if !dissolves.isEmpty { c.saveGState(); applyDissolveMasks() }
+                        c.addPath(s.path(spread: 0)); c.setFillColor(NSColor.black.cgColor); c.fillPath()
+                        if !dissolves.isEmpty { c.restoreGState() }
+                    }) { c in
+                        if !dissolves.isEmpty { c.saveGState(); applyDissolveMasks() }
+                        c.addPath(outset); c.setFillColor(NSColor.black.cgColor); c.fillPath()
+                        if !dissolves.isEmpty { c.restoreGState() }
                     }
                 } else {
+                    // No silhouette at all (text, groups, instances): the shadow is
+                    // cast from rendered content, so spread has to go through the
+                    // alpha route.
                     EffectsRender.drawDropShadow(e, scale: app.zoom, in: ctx,
                                                  castBounds: rect,
-                                                 knockout: {
-                        if !dissolves.isEmpty { ctx.saveGState(); applyDissolveMasks() }
-                        self.drawNodeContent(node, frameDoc: frameDoc, rect: rect, in: ctx)
-                        if !dissolves.isEmpty { ctx.restoreGState() }
-                    }) {
-                        if !dissolves.isEmpty { ctx.saveGState(); applyDissolveMasks() }
-                        self.drawNodeContent(node, frameDoc: frameDoc, rect: rect, in: ctx)
-                        if !dissolves.isEmpty { ctx.restoreGState() }
+                                                 spreadAppliedByCaster: false,
+                                                 knockout: { c in
+                        if !dissolves.isEmpty { c.saveGState(); applyDissolveMasks() }
+                        self.drawNodeContent(node, frameDoc: frameDoc, rect: rect, in: c)
+                        if !dissolves.isEmpty { c.restoreGState() }
+                    }) { c in
+                        if !dissolves.isEmpty { c.saveGState(); applyDissolveMasks() }
+                        self.drawNodeContent(node, frameDoc: frameDoc, rect: rect, in: c)
+                        if !dissolves.isEmpty { c.restoreGState() }
                     }
                 }
             }

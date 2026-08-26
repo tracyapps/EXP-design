@@ -81,10 +81,26 @@ no code change. Both entries below are unfixed and unverified as of 2026-08-25.
       Check both alignments at several weights; confirm Convert to Outlines
       preserves the appearance (NOT implemented yet); open the HTML in a browser
       older than Chrome 123 if one is to hand, or accept the caveat as stated.
-- [ ] FEAT-030 — balanced/smooth/corner conversion, undoable, anchor does not move.
+- [x] FEAT-030 handle pairing — owner verified 2026-08-26 (pen tool feel + the
+      behaviour option). Covers PAIRING only.
+- [ ] FEAT-030 remaining — the explicit balanced/smooth/corner conversion commands
+      are NOT built and are not covered by the sign-off above. Original line:
+      balanced/smooth/corner conversion, undoable, anchor does not move.
 - [ ] BUG-048 — placed SVG dash patterns import as the authored pattern.
 - [ ] BUG-034 Stage 2 — canvas spread matches SVG export; the Stage 1 disclosure
       note is removed only where it has genuinely stopped being true.
+      **Code complete 2026-08-26 — NOT owner verified; no shadow rendered at
+      runtime yet.** Walk it on a TEXT node and a POLYGON, positive and negative
+      spread, then zoom to 25% and 400% and confirm the shadow does not change
+      shape. Compare canvas against both PNG and SVG. Check the squared-off corners
+      at a large spread are present in BOTH — rounded corners on either side means
+      the wrong kernel. Confirm the Inspector note no longer appears for a drop
+      shadow, and DOES still appear for an inner shadow on a polygon.
+      `scripts/verify_morphology_spread.sh` re-checks the kernel itself.
+- [ ] BUG-055 — logged 2026-08-26, NOT fixed and not scoped into v2.4. Listed here
+      only so the release notes do not imply shadow spread is now uniformly
+      correct: SVG export still drops INNER-shadow spread that canvas and PNG
+      render.
 
 ### Wave D — Sanaa companion
 

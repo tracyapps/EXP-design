@@ -158,6 +158,53 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   and in export at every scale. A blur too large to render at full resolution
   degrades in resolution, never in radius, and never silently.
 
+### BUG-055 — SVG export drops inner-shadow spread on every shape
+
+- Type: bug (fidelity/divergence)
+- Priority: P2
+- Area: color · effects · export
+- Status: **open — found 2026-08-26 while closing BUG-034 Stage 2. Not fixed.**
+- **Found by reading, not by report.** Nobody has hit this in a document yet. It was
+  turned up while checking which BUG-034 disclosure cases were still true after
+  Stage 2 landed, and it is logged now so a later session does not rediscover it as
+  a surprise.
+- **Divergence:** `ExportRenderer.svgEffectsFilter` emits
+  `<feMorphology operator="dilate|erode" radius="|spread|">` in its DROP-shadow
+  branch whenever `e.spread != 0`, and emits nothing of the sort in its INNER-shadow
+  branch — that branch goes straight from `SourceAlpha` to `feGaussianBlur`. So a
+  non-zero inner-shadow spread renders on canvas and in PNG (both call
+  `EffectsRender.drawInnerShadow` with `hole: s.path(spread: -spread)`) and vanishes
+  in SVG.
+- **This runs the OPPOSITE way from BUG-034**, which is what makes it easy to miss.
+  BUG-034 was "export shows more than the canvas". This is "the canvas shows more
+  than the export". Same founding test fails either way: what you see is not what
+  you get.
+- Scope, from source reading (NOT from rendering anything):
+  - rect / ellipse / image: canvas + PNG apply inner-shadow spread; SVG drops it.
+    **This is the live divergence.**
+  - polygon / closed path (`.custom` silhouette): `path(spread:)` returns the path
+    unchanged, so canvas and PNG ignore it too — all three agree, all three ignore
+    it. Consistent, and separately wrong; see the note below.
+  - text / group / line / instance / open path: no silhouette, so canvas and PNG
+    draw no inner shadow at all. Whether SVG emits one for those nodes was NOT
+    checked — if it does, that is a bigger divergence than spread and belongs in
+    this entry once someone looks.
+- Likely fix, by symmetry with the drop-shadow branch: emit the same `feMorphology`
+  on the inner-shadow path with the sign inverted (positive spread on an inner
+  shadow shrinks the hole, so it is `erode` where the drop shadow dilates). Confirm
+  the direction against a rendered pair before believing that sentence — it is
+  reasoning about the code, not an observation.
+- Second, separable half: `.custom` silhouettes ignore inner-shadow spread on both
+  the canvas and PNG. BUG-034 Stage 2 built exactly the mechanism that would fix it
+  (`EffectsRender.spreadMask`), but wiring it into `drawInnerShadow` is a second
+  change with its own verification, so it is NOT claimed here.
+- Acceptance: an inner shadow with a non-zero spread renders the same in canvas, PNG
+  and SVG within antialiasing tolerance, in both spread directions; a document
+  importing inner-shadow spread from CSS/Figma/SVG still round-trips it untouched;
+  and if the fix cannot cover a shape class, the Inspector says so rather than the
+  canvas quietly disagreeing (the BUG-034 Stage 1 pattern, which is already wired
+  and effect-kind aware).
+
 ### BUG-052 — Reveal in Layers and layer-tree commands lose the live floating panel
 - Type: bug
 - Priority: P1
@@ -876,8 +923,8 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: bug (fidelity/divergence) + feature (implement spread for arbitrary silhouettes)
 - Priority: P1 — the divergence half. The implementation half is Wave 7.
 - Area: color · effects · export · canvas
-- Status: **Stage 1 DONE — owner verified 2026-08-19. Stage 2 deferred to v2.4 by
-  owner decision 2026-08-21.** The owner confirmed the note appears on a text node with a non-zero
+- Status: **Stage 1 DONE — owner verified 2026-08-19. Stage 2 CODE COMPLETE
+  2026-08-26 — awaiting owner verification; no shadow has been rendered at runtime.** The owner confirmed the note appears on a text node with a non-zero
   spread, and independently confirmed the other half of the divergence by finding
   `feMorphology radius` in the SVG export — which is exactly the gap Stage 1 exists
   to disclose and Stage 2 exists to close.
@@ -898,6 +945,57 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   build (`EffectsRender.swift` is shared with the extension); no stored value is read
   or written by any of the above. NOT verified: the note's wording and placement at
   narrow panel widths, and with VoiceOver.
+- **STAGE 2 APPLIED 2026-08-26 — spread now works for arbitrary silhouettes.**
+  - `Silhouette.appliesSpreadAnalytically` — false for `.custom`, true otherwise.
+    One property, next to `path(spread:)`, so the two cannot drift.
+  - `EffectsRender.drawDropShadow` gained `castBounds:` and
+    `spreadAppliedByCaster:`, and its `caster`/`knockout` closures now take a
+    `CGContext` (matching `drawLayerBlur`'s existing convention in the same file).
+    Analytic silhouettes still outset their outline; everything else passes
+    `spreadAppliedByCaster: false` and gets the raster route.
+  - `EffectsRender.spreadMask(spread:scale:bounds:draw:)` — new. Replays the caster
+    into a tightly bounded offscreen bitmap and grows or shrinks its ALPHA with
+    `CIMorphologyRectangleMaximum` / `Minimum`. Radius comes from document points
+    times the caller's `scale`, so it is zoom-independent by construction.
+  - The shadow clip pad now includes spread, or a dilated edge would be clipped away
+    by the very guard that bounds the buffer.
+  - All four call sites updated: canvas with and without a silhouette, export with
+    and without. Canvas and raster export share the one implementation.
+- **VERIFIED for Stage 2 — by measurement, not by reading:** `scripts/`
+  `verify_morphology_spread.sh` (+ `MorphologySpreadCheck.swift`) tests the two
+  assumptions the whole approach rests on, against a known 40×40 square:
+  - `side = |spread| * 2 + 1` moves the alpha edge by EXACTLY |spread| px — checked
+    at r = 1, 2, 4, 8, dilate and erode, all four sides. 8/8 pass.
+  - The structuring element is genuinely a BOX: the extreme corner of the dilated
+    bounding box reads alpha 255 under `CIMorphologyRectangleMaximum` and 0 under
+    the disc-shaped `CIMorphologyMaximum`. This is the trap the hypothesis flagged;
+    it is now measured rather than believed.
+  Both the app target and EXPThumbnail build (`EffectsRender.swift` is shared).
+- **NOT VERIFIED for Stage 2 — nothing has been rendered at runtime.** No shadow has
+  been drawn on a canvas or written to a PNG/SVG in this state. Specifically still
+  open: canvas-vs-SVG agreement within antialiasing tolerance on a real document;
+  stability across zoom levels; interactive cost at large radii (the separable
+  van Herk / Gil-Werman argument in the hypothesis was NOT needed — Core Image does
+  the work — so its cost profile is unmeasured); the golden fixtures the acceptance
+  criteria ask for; and the narrowed Inspector note at small panel widths and with
+  VoiceOver.
+- **KNOWN SILENT FALLBACK, recorded deliberately:** `spreadMask` returns nil if its
+  size guards trip (`maxLayerPixels` / `maxLayerDimension`) or a Core Image step
+  fails, and the shadow is then cast UNSPREAD with no indication. It matches how the
+  existing blur guards behave and it protects the same allocation, but it is a case
+  where the picture can differ from the stored value without saying so. Not
+  surfaced in `previewsSpread`, because it is a per-render bound rather than a
+  per-node capability.
+- **`previewsSpread` is now `previewsSpread(_:kind:)`.** With drop-shadow spread
+  universal, leaving the Stage 1 disclosure firing on drop shadows would have made
+  the note itself the lie. It now answers per effect kind, and the Inspector row
+  narrows to the one case still true: inner-shadow spread on a shape with no
+  analytic outline.
+- **The Stage 2 trace turned up a SECOND divergence, running the other way — see
+  BUG-055.** SVG export's inner-shadow branch emits no `<feMorphology>` at all, so
+  SVG drops inner-shadow spread that canvas and PNG both render. It is logged
+  separately rather than folded in here, so its fix and its verification stay
+  separable from this one.
 - **OWNER DECISION 2026-08-11 — keep spread in the model, implement it everywhere
   (Stage 2 committed).** The owner first proposed REMOVING spread entirely — *"if
   'spread' wasn't there, I probably wouldn't miss it... I'd rather remove it for all
@@ -3535,8 +3633,10 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: feature
 - Priority: P3
 - Area: canvas · vector
-- Status: **needs-verify — handle pairing implemented 2026-08-26; the explicit
-  mode-setting commands are NOT built (see below)**
+- Status: **done — owner verified 2026-08-26** ("feels much better and the option to
+  modify the behavior works great"). The explicit mode-setting commands in the
+  inspector, context menu, and menu bar remain unbuilt; dragging plus Option covers
+  converting in practice.
 - Repro/Detail: Owner request 2026-08-11: "add 'balanced' curve handle option?
   unsure how."
 - Hypothesis: the owner's uncertainty is about naming, not concept. There are three

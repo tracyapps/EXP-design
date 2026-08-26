@@ -1372,12 +1372,23 @@ removes a daily "the app feels broken" moment.
 - ~~FEAT-031 — line end options.~~ **Already shipped and owner-verified 2026-08-21;
   it was carried into this list in error when the v2.4 scope was written on
   2026-08-25 and is struck out rather than deleted so the correction is visible.**
-- [ ] FEAT-030 (P3) — symmetric curve handles. Owner chose symmetric 2026-08-26.
+- [x] FEAT-030 (P3) — symmetric curve handles. **Owner verified 2026-08-26** —
+  "that pen tool feels much better and the option to modify the behavior works
+  great." The sign-off covers the PAIRING behaviour only; the explicit
+  balanced/smooth/corner mode-setting commands are still not built and are NOT
+  covered by it. Owner chose symmetric 2026-08-26.
   Handle pairing is implemented and derived from geometry rather than stored (so it
   round-trips through SVG); the explicit mode-setting commands are not built.
 - [ ] BUG-048 — placed SVG `stroke-dasharray` imports as the wrong stroke pattern.
-- [ ] BUG-034 Stage 2 — implement spread for arbitrary silhouettes so canvas stops
+- [x] BUG-034 Stage 2 — implement spread for arbitrary silhouettes so canvas stops
   diverging from SVG export. Stage 1 (disclosure) is already owner-verified.
+  **Code complete 2026-08-26; owner verification outstanding — no shadow has been
+  rendered at runtime.** Tracing it surfaced a second divergence running the OTHER
+  way (SVG drops inner-shadow spread that canvas and PNG both show): logged as
+  BUG-055, deliberately not fixed alongside.
+- [ ] BUG-055 (P2) — SVG export drops inner-shadow spread on every shape. Found
+  2026-08-26 while closing BUG-034 Stage 2. Not scoped into this wave; logged so it
+  is not rediscovered as a surprise.
 
 ### Wave D — Sanaa becomes a companion
 
@@ -2999,6 +3010,52 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-08-26 (BUG-034 Stage 2 — canvas spread for arbitrary silhouettes, and a
+  second divergence found running the other way).** Wave C's last item.
+  `drawDropShadow` now takes `castBounds` and a `spreadAppliedByCaster` flag:
+  analytic silhouettes (rect / rounded-rect / ellipse / image) keep outsetting their
+  outline exactly as before, and everything else — polygons, closed paths, text,
+  groups, lines, instances — routes through a new `spreadMask`, which grows or
+  shrinks the caster's rendered ALPHA before it is blurred and offset. The knockout
+  for "preserve transparency" still punches the TRUE silhouette, so the spread ring
+  survives outside the object. Canvas and raster export call the one code path, so
+  they cannot drift apart again.
+
+  **The trap the entry warned about was real, and it is now measured rather than
+  assumed.** `feMorphology`'s structuring element is a RECTANGLE, so this uses
+  `CIMorphologyRectangleMaximum` / `Minimum`, not the disc-shaped
+  `CIMorphologyMaximum` — the "nicer" circular kernel would have looked correct in
+  isolation and quietly disagreed with the exported SVG, which is the exact failure
+  BUG-034 exists to close. `scripts/verify_morphology_spread.sh` (new, with
+  `scripts/MorphologySpreadCheck.swift`) measures both load-bearing assumptions
+  against a known 40×40 square: `side = |spread| * 2 + 1` moves the alpha edge by
+  exactly |spread| px at r = 1, 2, 4 and 8, in BOTH directions, and the dilated
+  corner reads alpha 255 for the rectangle element against 0 for the disc. Eight
+  growth cases and the shape test all pass. Neither claim was taken from the docs.
+
+  **What this did NOT fix — found while tracing it, logged not folded in.** SVG
+  export's inner-shadow branch emits no `<feMorphology>` at all, so SVG drops
+  inner-shadow spread that the canvas and PNG both render. Same class of defect as
+  BUG-034, opposite direction. It is now BUG-055; keeping it separate keeps its fix
+  and its verification separable from this one.
+
+  `EffectsRender.previewsSpread` is therefore effect-kind aware now, and the
+  Inspector's Stage 1 disclosure narrows to the single case still true — inner-shadow
+  spread on a shape with no analytic outline. Leaving it warning about a drop-shadow
+  divergence that no longer exists would have been its own quiet lie.
+
+  **NOT verified: no shadow has been rendered at runtime.** Both the app and
+  EXPThumbnail targets build and the kernel is measured, but nothing has been drawn
+  on a canvas or written to a file. Also unverified: the acceptance criteria's
+  zoom-stability requirement, interactive cost at large radii, the golden fixtures
+  the entry asks for, and the narrowed Inspector note at small panel widths or with
+  VoiceOver. And one honest caveat in the code: `spreadMask` returns nil and falls
+  back SILENTLY to an unspread shadow if its size guards trip
+  (`maxLayerPixels` / `maxLayerDimension`). That is deliberate — it is a
+  bounded-allocation fallback that can fire on canvas or export, not a per-node
+  capability — but it is a case where the picture can differ from the value without
+  saying so, so it is recorded here rather than left in the code alone.
 
 - **2026-08-26 (FEAT-030 — the entry's premise was wrong, and the real finding is
   better).** The entry guessed EXP "presumably has two" of the three anchor
