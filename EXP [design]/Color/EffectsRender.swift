@@ -56,50 +56,29 @@ struct Silhouette {
             return p
         }
     }
-    /// True when `path(spread:)` can genuinely grow or shrink this outline.
-    /// A `.custom` path comes back unchanged, which is why spread needs the raster
-    /// route for it (BUG-034 Stage 2).
-    var appliesSpreadAnalytically: Bool {
-        if case .custom = shape { return false }
-        return true
-    }
-
     var clip: CGPath { path(spread: 0) }
 }
 
 enum EffectsRender {
 
-    /// Whether the CANVAS preview honours a shadow's `spread` for this node and
-    /// this effect kind. The Effects inspector reads this to disclose a divergence
-    /// rather than let the canvas quietly contradict the exported file.
+    /// Whether the CANVAS preview can honour a shadow's `spread` for this node.
     ///
-    /// BUG-034. DROP SHADOW is settled as of Stage 2: analytic silhouettes
-    /// (rect / rounded-rect / ellipse / image) still outset their outline, and
-    /// everything else — polygons, closed paths, text, groups, lines, instances —
-    /// goes through `spreadMask`, which grows or shrinks the rendered alpha with
-    /// the same BOX structuring element `<feMorphology>` uses. So this returns true
-    /// for every node type. The one escape hatch is `spreadMask`'s size guard: past
-    /// `maxLayerPixels` / `maxLayerDimension` it returns nil and the shadow is cast
-    /// unspread. That is a bounded-allocation fallback that can fire on either the
-    /// canvas or raster export, not a per-node capability, so it is not reported
-    /// here — see that function.
-    ///
-    /// INNER SHADOW is still analytic-only: it is drawn from `Silhouette.clip` and
-    /// `path(spread:)`, which returns a `.custom` path unchanged, and a node with
-    /// no silhouette gets no inner shadow at all. RASTER export shares that code,
-    /// so canvas and PNG agree. SVG export does not — its inner-shadow branch emits
-    /// no `<feMorphology>` at all, so SVG drops inner-shadow spread even on the
-    /// rect / ellipse / image nodes where the canvas does show it. That divergence
-    /// runs the other way and is tracked separately (BUG-055); this predicate
-    /// answers only "does the canvas show it".
-    ///
-    /// Deleting `Effect.spread` was considered and rejected: the CSS, Figma and
-    /// SVG importers all read spread, so dropping the field would silently lose
-    /// imported data.
+    /// BUG-034. `Silhouette.path(spread:)` above can only grow or shrink a
+    /// rect / rounded-rect / ellipse outline; a `.custom` path comes back
+    /// unchanged, and text, groups, lines and instances have no silhouette at all
+    /// (their shadow is blurred from rendered content). SVG export takes the other
+    /// road entirely — `ExportRenderer` emits `<feMorphology>` for ANY node type
+    /// whenever spread is non-zero — so canvas and export can legitimately
+    /// disagree. Stage 1 of the fix is to SAY where they disagree (the Effects
+    /// inspector reads this). The first Stage 2 alpha-mask attempt was rolled back
+    /// 2026-08-26 after WindowServer watchdog failures and a kernel panic; see
+    /// BACKLOG BUG-034 before attempting another live-canvas implementation.
+    /// Deleting `Effect.spread` was considered and rejected:
+    /// the CSS, Figma and SVG importers all read spread, so dropping the field
+    /// would silently lose imported data.
     ///
     /// Keep in sync with `CanvasNSView.nodeSilhouette`.
-    static func previewsSpread(_ node: Node, kind: Effect.Kind) -> Bool {
-        guard kind == .innerShadow else { return true }
+    static func previewsSpread(_ node: Node) -> Bool {
         switch node.content {
         case .rectangle, .ellipse, .image: return true
         default: return false
@@ -172,61 +151,6 @@ enum EffectsRender {
         ctx.restoreGState()
     }
 
-    /// Grow (positive spread) or shrink (negative) an arbitrary caster's ALPHA,
-    /// using the same BOX structuring element SVG's `feMorphology` uses.
-    ///
-    /// The exporter emits `<feMorphology radius="|spread|">`, and the SVG spec
-    /// defines that structuring element as a RECTANGLE — which is why this uses
-    /// `CIMorphologyRectangle*` rather than the disc-shaped `CIMorphologyMaximum`.
-    /// Picking the disc would look plausible and quietly disagree with the export,
-    /// which is exactly the class of bug BUG-034 exists to close.
-    ///
-    /// Returns the filtered image and the rect it occupies in the caller's space.
-    static func spreadMask(spread: CGFloat, scale: CGFloat, bounds: CGRect,
-                           draw: (CGContext) -> Void) -> (image: CGImage, rect: CGRect)? {
-        guard spread != 0, !bounds.isNull, bounds.width > 0, bounds.height > 0 else { return nil }
-        let deviceScale = max(1, scale)
-        // Pad by the growth plus a little, so a dilated edge is never clipped by
-        // the bitmap it was rendered into.
-        let pad = abs(spread) + 2 / deviceScale
-        let expanded = bounds.insetBy(dx: -pad, dy: -pad)
-        let width = max(1, Int(ceil(expanded.width * deviceScale)))
-        let height = max(1, Int(ceil(expanded.height * deviceScale)))
-        guard width <= maxLayerDimension, height <= maxLayerDimension,
-              width <= maxLayerPixels / max(1, height),
-              let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
-              let bitmap = CGContext(data: nil, width: width, height: height,
-                                     bitsPerComponent: 8, bytesPerRow: 0,
-                                     space: colorSpace,
-                                     bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
-        else { return nil }
-
-        // Match EXP's top-left, y-down drawing space inside the offscreen bitmap.
-        bitmap.translateBy(x: 0, y: CGFloat(height))
-        bitmap.scaleBy(x: deviceScale, y: -deviceScale)
-        bitmap.translateBy(x: -expanded.minX, y: -expanded.minY)
-        let graphics = NSGraphicsContext(cgContext: bitmap, flipped: true)
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = graphics
-        draw(bitmap)
-        NSGraphicsContext.restoreGraphicsState()
-
-        guard let source = bitmap.makeImage() else { return nil }
-        // feMorphology's rectangle is 2r wide, so the kernel reaches r on each
-        // side. Core Image wants odd pixel dimensions.
-        let reach = max(1, Int((abs(spread) * deviceScale).rounded()))
-        let side = reach * 2 + 1
-        let input = CIImage(cgImage: source)
-        let name = spread > 0 ? "CIMorphologyRectangleMaximum" : "CIMorphologyRectangleMinimum"
-        guard let filter = CIFilter(name: name) else { return nil }
-        filter.setValue(input.clampedToExtent(), forKey: kCIInputImageKey)
-        filter.setValue(side, forKey: "inputWidth")
-        filter.setValue(side, forKey: "inputHeight")
-        guard let output = filter.outputImage?.cropped(to: input.extent),
-              let result = ciContext.createCGImage(output, from: input.extent) else { return nil }
-        return (result, expanded)
-    }
-
     /// Hard ceiling on a shadow's blur radius in DEVICE space (points × scale).
     /// `setShadow`'s cost (and the offscreen surface Core Graphics allocates for it)
     /// grows with the blur radius, and `blur = e.blur * zoom` is otherwise unbounded:
@@ -255,9 +179,7 @@ enum EffectsRender {
     /// export's `feComposite operator="out"`.
     static func drawDropShadow(_ e: Effect, scale: CGFloat, in ctx: CGContext,
                                castBounds: CGRect? = nil,
-                               spreadAppliedByCaster: Bool = true,
-                               knockout: ((CGContext) -> Void)? = nil,
-                               caster: (CGContext) -> Void) {
+                               knockout: (() -> Void)? = nil, caster: () -> Void) {
         guard e.isEnabled, e.kind == .dropShadow else { return }
         ctx.saveGState()
         // Flipped (y-down) context: negate the height so +Y reads as *down*,
@@ -265,35 +187,9 @@ enum EffectsRender {
         let blurPx = min(max(0, e.blur * scale), maxShadowBlurPx)
         if let b = castBounds {
             // Everything the shadow can reach: caster bounds grown by the blur
-            // radius, the offset, and the SPREAD, plus a small pad for antialiasing
-            // fringe. Spread was missing here, which clipped a grown shadow to the
-            // un-grown bounds even where the outset itself worked.
-            let pad = blurPx + (abs(e.dx) + abs(e.dy)) * scale
-                + max(0, CGFloat(e.spread)) * scale + 8
+            // radius and the offset, plus a small pad for antialiasing fringe.
+            let pad = blurPx + (abs(e.dx) + abs(e.dy)) * scale + 8
             ctx.clip(to: b.insetBy(dx: -pad, dy: -pad))
-        }
-
-        // BUG-034 Stage 2. When the caller could NOT outset the outline
-        // analytically — an arbitrary path, or a node with no silhouette at all —
-        // grow the caster's ALPHA instead, with the same BOX structuring element
-        // SVG's `feMorphology` uses. That is what stops the canvas disagreeing with
-        // the exporter, which has always emitted `<feMorphology>` for any node type.
-        //
-        // A local function rather than a stored closure on purpose: `caster` is
-        // non-escaping, and assigning it to a `var` would force it to escape and
-        // make every call site pay for a heap-allocated closure on the hot path.
-        var grown: (image: CGImage, rect: CGRect)?
-        if !spreadAppliedByCaster, e.spread != 0, let b = castBounds {
-            grown = spreadMask(spread: CGFloat(e.spread), scale: scale,
-                               bounds: b, draw: caster)
-        }
-        func paint(_ c: CGContext) {
-            guard let grown else { caster(c); return }
-            c.saveGState()
-            c.translateBy(x: grown.rect.minX, y: grown.rect.maxY)
-            c.scaleBy(x: 1, y: -1)
-            c.draw(grown.image, in: CGRect(origin: .zero, size: grown.rect.size))
-            c.restoreGState()
         }
         if e.preserveTransparency, let knockout {
             // Outer layer: (shadowed caster) − (object's own pixels).
@@ -302,14 +198,14 @@ enum EffectsRender {
                           blur: blurPx,
                           color: PaintRender.nsColor(e.color).cgColor)
             ctx.beginTransparencyLayer(auxiliaryInfo: nil)
-            paint(ctx)
+            caster()
             ctx.endTransparencyLayer()
             // Punch: clear the shadow state, then erase the object's footprint
             // from the layer (grouped so overlapping punch drawing acts once).
             ctx.setShadow(offset: .zero, blur: 0, color: nil)
             ctx.setBlendMode(.destinationOut)
             ctx.beginTransparencyLayer(auxiliaryInfo: nil)
-            knockout(ctx)
+            knockout()
             ctx.endTransparencyLayer()
             ctx.endTransparencyLayer()
         } else {
@@ -317,7 +213,7 @@ enum EffectsRender {
                           blur: blurPx,
                           color: PaintRender.nsColor(e.color).cgColor)
             ctx.beginTransparencyLayer(auxiliaryInfo: nil)
-            paint(ctx)
+            caster()
             ctx.endTransparencyLayer()
         }
         ctx.restoreGState()

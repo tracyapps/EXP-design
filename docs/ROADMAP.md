@@ -1380,14 +1380,16 @@ removes a daily "the app feels broken" moment.
   Handle pairing is implemented and derived from geometry rather than stored (so it
   round-trips through SVG); the explicit mode-setting commands are not built.
 - [ ] BUG-048 — placed SVG `stroke-dasharray` imports as the wrong stroke pattern.
-- [x] BUG-034 Stage 2 — implement spread for arbitrary silhouettes so canvas stops
+- [ ] BUG-034 Stage 2 — implement spread for arbitrary silhouettes so canvas stops
   diverging from SVG export. Stage 1 (disclosure) is already owner-verified.
-  **Code complete 2026-08-26; owner verification outstanding — no shadow has been
-  rendered at runtime.** Tracing it surfaced a second divergence running the OTHER
-  way (SVG drops inner-shadow spread that canvas and PNG both show): logged as
-  BUG-055, deliberately not fixed alongside.
+  **First implementation rolled back 2026-08-26 after repeated WindowServer
+  watchdog failures and a kernel panic.** Stage 1 is restored. A replacement must
+  meet the resource/zoom/WindowServer gates recorded in BACKLOG before runtime
+  verification. The investigation also surfaced BUG-055, a separate SVG
+  inner-shadow divergence.
 - [ ] BUG-055 (P2) — SVG export drops inner-shadow spread on every shape. Found
-  2026-08-26 while closing BUG-034 Stage 2. Not scoped into this wave; logged so it
+  2026-08-26 while reviewing the first BUG-034 Stage 2 attempt. Not scoped into this
+  wave; logged so it
   is not rediscovered as a surprise.
 
 ### Wave D — Sanaa becomes a companion
@@ -1476,8 +1478,9 @@ sticker edge at blur 0 cannot be stacked, and stacking does nothing for imported
 content. Resolution: consistency by ADDING, not removing. `Effect.spread` stays and
 keeps round-tripping. Split accordingly: **Stage 1 in Wave 2** — a disclosure-only
 change (say where spread is not yet previewed; alter no stored values, suppress no
-`feMorphology`). **Stage 2 in Wave 7, now committed** — implement real spread by
-dilating the alpha mask rather than offsetting glyph geometry. The trap to verify first: `feMorphology` uses a BOX structuring
+`feMorphology`). **Stage 2 in Wave C remains open; its first Core Image attempt was
+rolled back 2026-08-26 as a P0 safety incident** — implement real spread without
+synchronous unbounded canvas/GPU work. The trap to verify first: `feMorphology` uses a BOX structuring
 element, not a circle, so a "nicer" circular dilation on canvas would re-introduce
 the divergence in a subtler form. Also confirm whether raster export follows the
 canvas or the SVG path, and whether inner shadows share the gap.
@@ -3011,24 +3014,54 @@ font import → Phase 9, shadows → Phase 10._
 
 ## Progress Log
 
-- **2026-08-26 (BUG-034 Stage 2 — canvas spread for arbitrary silhouettes, and a
+- **2026-08-26 (P0 safety rollback — BUG-034 Stage 2 linked to repeated whole-Mac
+  failures).** Owner reported multiple Mac crashes beginning only after the shadow
+  spread change. Local postmortem evidence matches that experience: commit `2f64dc6`
+  landed at 22:10; WindowServer watchdog reports followed at 23:07, 23:35, 23:35 and
+  23:48, with a 23:37 kernel panic caused by WindowServer missing check-ins for 120
+  seconds after two induced crashes. At 23:07 EXP was 957 MB resident after 510
+  seconds with Core Image and Metal queues active; at 23:48 it was 672 MB resident
+  after 310 seconds and had consumed 298 seconds of user CPU. WindowServer was
+  sampled in `com.apple.SkyLight.mtl_submit`; thermal and compression pressure were
+  not the cause.
+
+  Root cause in the attempted implementation: the live draw path synchronously
+  allocated up to a 32-million-pixel RGBA bitmap per affected shadow before Core
+  Image source/intermediate/result surfaces and transparency layers; it had no cache
+  or aggregate frame budget. It also passed `app.zoom` as the bitmap device scale
+  even though caster bounds were already in zoomed view coordinates, making
+  dimensions grow approximately with zoom squared. The dissolve helper additionally
+  clipped the outer canvas context when the closure was drawing into the offscreen
+  context.
+
+  **Rolled back:** the four production files now exactly match parent `4285ab7` for
+  this feature; the temporary morphology scripts are removed; the Stage 1 disclosure
+  is restored; no model/schema or stored spread value changed. The earlier FEAT-028,
+  BUG-048, FEAT-029 and FEAT-030 work remains intact. BUG-034 Stage 2 is open again.
+  A future attempt must separate user-space zoom from backing scale, enforce an
+  aggregate allocation budget, avoid synchronous per-redraw Core Image/Metal work,
+  cache/cancel safely, and pass realistic text/group zoom, memory, CPU and
+  WindowServer-responsiveness gates before the disclosure can be removed.
+
+- **2026-08-26 (HISTORICAL ATTEMPT, ROLLED BACK LATER THE SAME DAY — BUG-034 Stage
+  2 canvas spread for arbitrary silhouettes, and a
   second divergence found running the other way).** Wave C's last item.
-  `drawDropShadow` now takes `castBounds` and a `spreadAppliedByCaster` flag:
+  The attempt made `drawDropShadow` take `castBounds` and a
+  `spreadAppliedByCaster` flag:
   analytic silhouettes (rect / rounded-rect / ellipse / image) keep outsetting their
   outline exactly as before, and everything else — polygons, closed paths, text,
   groups, lines, instances — routes through a new `spreadMask`, which grows or
   shrinks the caster's rendered ALPHA before it is blurred and offset. The knockout
-  for "preserve transparency" still punches the TRUE silhouette, so the spread ring
-  survives outside the object. Canvas and raster export call the one code path, so
-  they cannot drift apart again.
+  for "preserve transparency" still punched the TRUE silhouette, so the spread ring
+  survived outside the object. Canvas and raster export called the one code path.
 
   **The trap the entry warned about was real, and it is now measured rather than
-  assumed.** `feMorphology`'s structuring element is a RECTANGLE, so this uses
+  assumed.** `feMorphology`'s structuring element is a RECTANGLE, so the attempt used
   `CIMorphologyRectangleMaximum` / `Minimum`, not the disc-shaped
   `CIMorphologyMaximum` — the "nicer" circular kernel would have looked correct in
   isolation and quietly disagreed with the exported SVG, which is the exact failure
-  BUG-034 exists to close. `scripts/verify_morphology_spread.sh` (new, with
-  `scripts/MorphologySpreadCheck.swift`) measures both load-bearing assumptions
+  BUG-034 exists to close. A temporary `verify_morphology_spread.sh` probe (removed
+  with the rollback) measured both load-bearing kernel assumptions
   against a known 40×40 square: `side = |spread| * 2 + 1` moves the alpha edge by
   exactly |spread| px at r = 1, 2, 4 and 8, in BOTH directions, and the dilated
   corner reads alpha 255 for the rectangle element against 0 for the disc. Eight
@@ -3040,22 +3073,17 @@ font import → Phase 9, shadows → Phase 10._
   BUG-034, opposite direction. It is now BUG-055; keeping it separate keeps its fix
   and its verification separable from this one.
 
-  `EffectsRender.previewsSpread` is therefore effect-kind aware now, and the
-  Inspector's Stage 1 disclosure narrows to the single case still true — inner-shadow
-  spread on a shape with no analytic outline. Leaving it warning about a drop-shadow
-  divergence that no longer exists would have been its own quiet lie.
+  The attempt made `EffectsRender.previewsSpread` effect-kind aware and narrowed the
+  Inspector disclosure. The rollback restored the original Stage 1 predicate and
+  disclosure because the drop-shadow divergence exists again.
 
-  **NOT verified: no shadow has been rendered at runtime.** Both the app and
-  EXPThumbnail targets build and the kernel is measured, but nothing has been drawn
-  on a canvas or written to a file. Also unverified: the acceptance criteria's
-  zoom-stability requirement, interactive cost at large radii, the golden fixtures
-  the entry asks for, and the narrowed Inspector note at small panel widths or with
-  VoiceOver. And one honest caveat in the code: `spreadMask` returns nil and falls
-  back SILENTLY to an unspread shadow if its size guards trip
-  (`maxLayerPixels` / `maxLayerDimension`). That is deliberate — it is a
-  bounded-allocation fallback that can fire on canvas or export, not a per-node
-  capability — but it is a case where the picture can differ from the value without
-  saying so, so it is recorded here rather than left in the code alone.
+  **It was not verified before the owner encountered the failure.** Both the app and
+  EXPThumbnail targets built and the small kernel probe passed, but the attempted
+  code had not been exercised on a real canvas before the crashes. Unverified were
+  zoom stability, interactive cost at realistic dimensions, golden fixtures, and
+  the narrowed Inspector note. The attempted `spreadMask` also silently fell back
+  to an unspread shadow when its per-surface guards tripped. The rollback removed
+  all of this code; this paragraph remains only as the historical record.
 
 - **2026-08-26 (FEAT-030 — the entry's premise was wrong, and the real finding is
   better).** The entry guessed EXP "presumably has two" of the three anchor
@@ -5006,7 +5034,7 @@ font import → Phase 9, shadows → Phase 10._
   Current next-free: BUG-038, FEAT-042, PERF-007, INFRA-004.
   **NEXT:** unchanged — Wave 1, starting with BUG-024 and BUG-025.
 
-- **2026-08-11 (spread: owner proposed removing it; pushed back; Stage 2 committed).**
+- **2026-08-11 (spread: owner proposed removing it; pushed back; Stage 2 selected).**
   Owner's follow-up call on BUG-034 was to delete spread outright — *"if 'spread'
   wasn't there, I probably wouldn't miss it... I'd rather remove it for all instead of
   feeling like something is missing because it's inconsistent"* — with FEAT-023
@@ -5028,7 +5056,7 @@ font import → Phase 9, shadows → Phase 10._
   they wanted by adding rather than removing. Stage 1 accordingly narrowed to a
   DISCLOSURE-ONLY change in Wave 2 — state where spread is not yet previewed on
   canvas, alter no stored values, suppress no `feMorphology` emission, because both
-  would destroy imported data Stage 2 is about to render correctly. No migration is
+  would destroy imported data Stage 2 is intended to render correctly. No migration is
   needed since nothing is being removed. Added a second golden fixture requirement:
   a CSS `box-shadow` with a non-zero fourth value imported and re-exported unchanged,
   since the import round-trip is the reason the field survives at all.

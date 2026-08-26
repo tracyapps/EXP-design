@@ -163,11 +163,12 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: bug (fidelity/divergence)
 - Priority: P2
 - Area: color · effects · export
-- Status: **open — found 2026-08-26 while closing BUG-034 Stage 2. Not fixed.**
+- Status: **open — found 2026-08-26 while reviewing the first BUG-034 Stage 2
+  attempt. Not fixed.**
 - **Found by reading, not by report.** Nobody has hit this in a document yet. It was
-  turned up while checking which BUG-034 disclosure cases were still true after
-  Stage 2 landed, and it is logged now so a later session does not rediscover it as
-  a surprise.
+  turned up while checking which BUG-034 disclosure cases would remain after Stage
+  2. The attempted Stage 2 implementation was later rolled back; this independent
+  divergence remains logged so a later session does not rediscover it as a surprise.
 - **Divergence:** `ExportRenderer.svgEffectsFilter` emits
   `<feMorphology operator="dilate|erode" radius="|spread|">` in its DROP-shadow
   branch whenever `e.spread != 0`, and emits nothing of the sort in its INNER-shadow
@@ -195,15 +196,14 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   the direction against a rendered pair before believing that sentence — it is
   reasoning about the code, not an observation.
 - Second, separable half: `.custom` silhouettes ignore inner-shadow spread on both
-  the canvas and PNG. BUG-034 Stage 2 built exactly the mechanism that would fix it
-  (`EffectsRender.spreadMask`), but wiring it into `drawInnerShadow` is a second
-  change with its own verification, so it is NOT claimed here.
+  the canvas and PNG. The rolled-back BUG-034 Stage 2 attempt introduced a possible
+  alpha-mask mechanism, but it proved unsafe and no longer exists in the source.
+  Any future inner-shadow work needs its own bounded design and verification.
 - Acceptance: an inner shadow with a non-zero spread renders the same in canvas, PNG
   and SVG within antialiasing tolerance, in both spread directions; a document
   importing inner-shadow spread from CSS/Figma/SVG still round-trips it untouched;
   and if the fix cannot cover a shape class, the Inspector says so rather than the
-  canvas quietly disagreeing (the BUG-034 Stage 1 pattern, which is already wired
-  and effect-kind aware).
+  canvas quietly disagreeing (the existing BUG-034 Stage 1 pattern).
 
 ### BUG-052 — Reveal in Layers and layer-tree commands lose the live floating panel
 - Type: bug
@@ -921,10 +921,11 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 
 ### BUG-034 — Spread is silently dropped on canvas but IS applied in SVG export (text, paths, lines, groups)
 - Type: bug (fidelity/divergence) + feature (implement spread for arbitrary silhouettes)
-- Priority: P1 — the divergence half. The implementation half is Wave 7.
+- Priority: P1 — the divergence half. The implementation half is Wave C.
 - Area: color · effects · export · canvas
-- Status: **Stage 1 DONE — owner verified 2026-08-19. Stage 2 CODE COMPLETE
-  2026-08-26 — awaiting owner verification; no shadow has been rendered at runtime.** The owner confirmed the note appears on a text node with a non-zero
+- Status: **Stage 1 DONE — owner verified 2026-08-19. Stage 2 OPEN — first
+  implementation attempt rolled back 2026-08-26 after repeated WindowServer
+  watchdog failures and a whole-Mac kernel panic.** The owner confirmed the note appears on a text node with a non-zero
   spread, and independently confirmed the other half of the divergence by finding
   `feMorphology radius` in the SVG export — which is exactly the gap Stage 1 exists
   to disclose and Stage 2 exists to close.
@@ -945,59 +946,49 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   build (`EffectsRender.swift` is shared with the extension); no stored value is read
   or written by any of the above. NOT verified: the note's wording and placement at
   narrow panel widths, and with VoiceOver.
-- **STAGE 2 APPLIED 2026-08-26 — spread now works for arbitrary silhouettes.**
-  - `Silhouette.appliesSpreadAnalytically` — false for `.custom`, true otherwise.
-    One property, next to `path(spread:)`, so the two cannot drift.
-  - `EffectsRender.drawDropShadow` gained `castBounds:` and
-    `spreadAppliedByCaster:`, and its `caster`/`knockout` closures now take a
-    `CGContext` (matching `drawLayerBlur`'s existing convention in the same file).
-    Analytic silhouettes still outset their outline; everything else passes
-    `spreadAppliedByCaster: false` and gets the raster route.
-  - `EffectsRender.spreadMask(spread:scale:bounds:draw:)` — new. Replays the caster
-    into a tightly bounded offscreen bitmap and grows or shrinks its ALPHA with
-    `CIMorphologyRectangleMaximum` / `Minimum`. Radius comes from document points
-    times the caller's `scale`, so it is zoom-independent by construction.
-  - The shadow clip pad now includes spread, or a dilated edge would be clipped away
-    by the very guard that bounds the buffer.
-  - All four call sites updated: canvas with and without a silhouette, export with
-    and without. Canvas and raster export share the one implementation.
-- **VERIFIED for Stage 2 — by measurement, not by reading:** `scripts/`
-  `verify_morphology_spread.sh` (+ `MorphologySpreadCheck.swift`) tests the two
-  assumptions the whole approach rests on, against a known 40×40 square:
-  - `side = |spread| * 2 + 1` moves the alpha edge by EXACTLY |spread| px — checked
-    at r = 1, 2, 4, 8, dilate and erode, all four sides. 8/8 pass.
-  - The structuring element is genuinely a BOX: the extreme corner of the dilated
-    bounding box reads alpha 255 under `CIMorphologyRectangleMaximum` and 0 under
-    the disc-shaped `CIMorphologyMaximum`. This is the trap the hypothesis flagged;
-    it is now measured rather than believed.
-  Both the app target and EXPThumbnail build (`EffectsRender.swift` is shared).
-- **NOT VERIFIED for Stage 2 — nothing has been rendered at runtime.** No shadow has
-  been drawn on a canvas or written to a PNG/SVG in this state. Specifically still
-  open: canvas-vs-SVG agreement within antialiasing tolerance on a real document;
-  stability across zoom levels; interactive cost at large radii (the separable
-  van Herk / Gil-Werman argument in the hypothesis was NOT needed — Core Image does
-  the work — so its cost profile is unmeasured); the golden fixtures the acceptance
-  criteria ask for; and the narrowed Inspector note at small panel widths and with
-  VoiceOver.
-- **KNOWN SILENT FALLBACK, recorded deliberately:** `spreadMask` returns nil if its
-  size guards trip (`maxLayerPixels` / `maxLayerDimension`) or a Core Image step
-  fails, and the shadow is then cast UNSPREAD with no indication. It matches how the
-  existing blur guards behave and it protects the same allocation, but it is a case
-  where the picture can differ from the stored value without saying so. Not
-  surfaced in `previewsSpread`, because it is a per-render bound rather than a
-  per-node capability.
-- **`previewsSpread` is now `previewsSpread(_:kind:)`.** With drop-shadow spread
-  universal, leaving the Stage 1 disclosure firing on drop shadows would have made
-  the note itself the lie. It now answers per effect kind, and the Inspector row
-  narrows to the one case still true: inner-shadow spread on a shape with no
-  analytic outline.
+- **STAGE 2 ATTEMPT 2026-08-26 — ROLLED BACK AS A P0 SAFETY INCIDENT.** Commit
+  `2f64dc6` put `CIMorphologyRectangleMaximum` / `Minimum` synchronously in the
+  canvas draw path for arbitrary drop-shadow casters. The small 200×200 kernel probe
+  passed, but it did not exercise real canvas dimensions, redraw frequency, zoom,
+  aggregate allocations, or WindowServer interaction.
+  - Postmortem evidence: WindowServer watchdog reports at 23:07, 23:35, 23:35 and
+    23:48 followed the 22:10 commit. The 23:07 report sampled EXP at 957,499,312
+    resident bytes after 510 seconds with `CI_CGImageProviderCallbackQueue`,
+    `CI::complete_intermediate`, and `com.Metal.CommandQueueDispatch` active. The
+    23:48 report sampled EXP at 672,254,112 resident bytes after 310 seconds and
+    298.19 seconds of user CPU. Between them, the 23:37 kernel panic says WindowServer
+    failed to check in for 120 seconds after two induced crashes. WindowServer was
+    observed blocked in `com.apple.SkyLight.mtl_submit`; thermal pressure was nominal
+    and the panic reported healthy compression/swap pressure.
+  - Root mechanism: `spreadMask` allowed one 32,000,000-pixel RGBA CGContext (128 MB)
+    before accounting for the source CGImage, Core Image intermediates/result, and
+    transparency layers, and performed that work synchronously per affected shadow
+    redraw with no cache or aggregate frame budget.
+  - Scale defect: the caster bounds were already converted by `docToView`, but
+    `app.zoom` was passed again as the bitmap's device scale. Allocation dimensions
+    therefore grew approximately with zoom squared. A 400×200 document node at 400%
+    with spread 8 requested a 6,468×3,268 source bitmap: 80.6 MiB before the other
+    surfaces.
+  - Context defect: the dissolve-mask helper captured the outer canvas `ctx`; when
+    the caster closure received the offscreen bitmap context, dissolve clipping was
+    still applied to the live canvas context and restored on the wrong context.
+  - Rollback: the four production files were restored exactly to parent `4285ab7`,
+    the temporary morphology scripts were removed, and the truthful Stage 1
+    disclosure was restored. No persisted model/schema changed, so documents and
+    imported spread values remain intact.
+  - Future gate: do not re-enter the live canvas with synchronous per-redraw Core
+    Image morphology. Separate document-to-view spread from view-to-device backing
+    scale; impose an aggregate byte budget, not only a per-surface limit; cache or
+    move work off the interactive draw path; handle cancellation/invalidation; and
+    prove memory, CPU, zoom stability and WindowServer responsiveness on realistic
+    text/group fixtures before removing the Stage 1 disclosure.
 - **The Stage 2 trace turned up a SECOND divergence, running the other way — see
   BUG-055.** SVG export's inner-shadow branch emits no `<feMorphology>` at all, so
   SVG drops inner-shadow spread that canvas and PNG both render. It is logged
   separately rather than folded in here, so its fix and its verification stay
   separable from this one.
 - **OWNER DECISION 2026-08-11 — keep spread in the model, implement it everywhere
-  (Stage 2 committed).** The owner first proposed REMOVING spread entirely — *"if
+  when a safe Stage 2 design exists.** The owner first proposed REMOVING spread entirely — *"if
   'spread' wasn't there, I probably wouldn't miss it... I'd rather remove it for all
   instead of feeling like something is missing because it's inconsistent."* The
   consistency instinct was right; the premise did not survive checking the importers,
@@ -1024,7 +1015,8 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   which is where spread arrives regardless of authoring habits.
   **Resolution:** consistency is achieved by making spread work on every node type,
   not by deleting it — adding rather than removing. `Effect.spread` stays in the
-  model and keeps round-tripping. Stage 2 is committed to Wave 7.
+  model and keeps round-tripping. Stage 2 remains in Wave C, open after the unsafe
+  first implementation was rolled back.
 - Repro/Detail: Owner report 2026-08-11: "shadow spread not working in effects."
   Clarified same day — **a drop shadow on TEXT**, i.e. a complex/content-based
   caster, not a rectangle or ellipse. So this is NOT a regression against Phase 10's
@@ -1058,10 +1050,11 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
     So annotate the Spread control to say it is not yet previewed on canvas for
     text/paths/lines/groups, and surface the same note on export. Do NOT zero, clamp,
     or strip stored spread values, and do NOT suppress the `feMorphology` emission —
-    both would destroy imported data that Stage 2 is about to render correctly. This
+    both would destroy imported data that Stage 2 is intended to render correctly. This
     is a disclosure change only. No migration is required, because nothing is being
     removed.
-  - **Stage 2 (Wave 7, committed) — implement spread for arbitrary silhouettes.**
+  - **Stage 2 (Wave C, open; first attempt rolled back) — implement spread for
+    arbitrary silhouettes without synchronous unbounded canvas/GPU work.**
 - Hypothesis for Stage 2 — more tractable than it first sounds, with one trap:
   1. **Dilate the ALPHA MASK, not the path.** Offsetting glyph outlines as geometry
      (Minkowski sum / polygon offsetting) is genuinely hard and unnecessary. Text,
@@ -1086,11 +1079,13 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
      interactive. If large radii still cost too much, reuse the EXISTING async tile
      pattern from noise/dissolve (LIFO generation via `tileReadyNotification`) rather
      than inventing a second caching mechanism.
-  4. **Resolution independence:** the dilation radius must be expressed in document
-     points and converted with the same `scale` already threaded through
-     `drawDropShadow`, and clamped like `maxShadowBlurPx` for the same reason.
-     Computing it in raw device pixels would make the shadow change shape as the user
-     zooms — a classic and very visible bug.
+  4. **Resolution independence requires TWO distinct scales:** convert the document
+     spread into view-space geometry with canvas zoom, but rasterize already-view-
+     space bounds using the display backing scale. Never pass `app.zoom` as the
+     bitmap device scale after `docToView`; that was the zoom-squared allocation bug
+     in the rolled-back attempt. Export has its own explicit output scale. Computing
+     the radius in raw device pixels would also make the shadow change shape as the
+     user zooms — a classic and very visible bug.
   5. **Negative spread must erode**, matching the `operator="erode"` the exporter
      already emits. Both directions, both shadow kinds.
   6. **Glyphs merging into a blob at large spread is CORRECT** — it is what a true

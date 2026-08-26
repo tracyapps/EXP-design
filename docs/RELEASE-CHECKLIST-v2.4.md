@@ -89,14 +89,11 @@ no code change. Both entries below are unfixed and unverified as of 2026-08-25.
 - [ ] BUG-048 — placed SVG dash patterns import as the authored pattern.
 - [ ] BUG-034 Stage 2 — canvas spread matches SVG export; the Stage 1 disclosure
       note is removed only where it has genuinely stopped being true.
-      **Code complete 2026-08-26 — NOT owner verified; no shadow rendered at
-      runtime yet.** Walk it on a TEXT node and a POLYGON, positive and negative
-      spread, then zoom to 25% and 400% and confirm the shadow does not change
-      shape. Compare canvas against both PNG and SVG. Check the squared-off corners
-      at a large spread are present in BOTH — rounded corners on either side means
-      the wrong kernel. Confirm the Inspector note no longer appears for a drop
-      shadow, and DOES still appear for an inner shadow on a polygon.
-      `scripts/verify_morphology_spread.sh` re-checks the kernel itself.
+      **OPEN — first implementation rolled back 2026-08-26 after repeated
+      WindowServer watchdog failures and a kernel panic.** Stage 1 disclosure is
+      restored. Before another runtime pass, the implementation must separate zoom
+      from backing scale, bound aggregate allocations, avoid synchronous per-redraw
+      Core Image/Metal morphology, and pass realistic memory/CPU/WindowServer gates.
 - [ ] BUG-055 — logged 2026-08-26, NOT fixed and not scoped into v2.4. Listed here
       only so the release notes do not imply shadow spread is now uniformly
       correct: SVG export still drops INNER-shadow spread that canvas and PNG
@@ -359,4 +356,3 @@ documentation-only commit before announcing the release.
 - [ ] GitHub release is public and its downloaded asset matches the local ZIP.
 - [ ] Production appcast and v2.4 HTML notes are live.
 - [ ] Public v2.3 → v2.4 Sparkle update proof is green.
-

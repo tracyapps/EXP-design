@@ -3379,17 +3379,16 @@ struct RightPanel: View {
 
     // MARK: Effects (drop / inner shadow) — applies to any node type
 
-    /// BUG-034. Stage 2 closed the DROP SHADOW gap — every node type now previews
-    /// spread — so this row is left carrying one case: INNER shadow spread on a
-    /// shape with no analytic outline (polygon, path, text, group, line, instance).
-    /// Where the canvas and the exported file disagree, say so — a preview that
-    /// quietly differs from the export is the thing this tool exists to prevent.
-    /// Text, not colour, carries the message (WCAG 2.1 AA §1.4.1), and it reuses
-    /// the established tertiary caption token rather than introducing a new colour;
-    /// that token's contrast was NOT re-measured for this change.
+    /// BUG-034 Stage 1. SVG export applies shadow spread to every node type; the
+    /// canvas can only grow rectangle, ellipse and image outlines today. Where the
+    /// two disagree, say so — a preview that quietly differs from the exported file
+    /// is the thing this tool exists to prevent. Text, not colour, carries the
+    /// message (WCAG 2.1 AA §1.4.1), and it reuses the established tertiary caption
+    /// token rather than introducing a new colour; that token's contrast was NOT
+    /// re-measured for this change.
     @ViewBuilder
     private func spreadNotPreviewedNote() -> some View {
-        Label("Inner shadow spread isn\u{2019}t previewed on this shape \u{2014} it needs a rectangle, ellipse or image outline. The value is kept and is applied in PNG export; SVG export drops inner-shadow spread on every shape.",
+        Label("Spread isn\u{2019}t previewed on this shape yet \u{2014} the canvas can only grow rectangle, ellipse and image outlines. The value is kept, and it IS applied in SVG export.",
               systemImage: "info.circle")
             .font(.caption)
             .foregroundStyle(EXPColor.textTertiary)
@@ -3576,7 +3575,7 @@ struct RightPanel: View {
             if effect.kind == .dropShadow || effect.kind == .innerShadow,
                effect.spread != 0,
                let node = selectedNode,
-               !EffectsRender.previewsSpread(node, kind: effect.kind) {
+               !EffectsRender.previewsSpread(node) {
                 spreadNotPreviewedNote()
             }
             if effect.kind == .dropShadow {

@@ -818,21 +818,18 @@ final class ExportRenderView: NSView {
                 let outset = s.path(spread: CGFloat(e.spread))
                 EffectsRender.drawDropShadow(e, scale: 1, in: ctx,
                                              castBounds: outset.boundingBoxOfPath,
-                                             spreadAppliedByCaster: s.appliesSpreadAnalytically,
-                                             knockout: { c in
+                                             knockout: {
                     // True silhouette (spread 0) — mirrors the canvas.
-                    c.addPath(s.path(spread: 0)); c.setFillColor(NSColor.black.cgColor); c.fillPath()
-                }) { c in
-                    c.addPath(outset); c.setFillColor(NSColor.black.cgColor); c.fillPath()
+                    ctx.addPath(s.path(spread: 0)); ctx.setFillColor(NSColor.black.cgColor); ctx.fillPath()
+                }) {
+                    ctx.addPath(outset); ctx.setFillColor(NSColor.black.cgColor); ctx.fillPath()
                 }
             } else {
-                // No silhouette: spread goes through the alpha route, same as canvas.
                 EffectsRender.drawDropShadow(e, scale: 1, in: ctx, castBounds: rect,
-                                             spreadAppliedByCaster: false,
-                                             knockout: { c in
-                    self.drawExportNodeContent(node, rect: rect, in: c)
-                }) { c in
-                    self.drawExportNodeContent(node, rect: rect, in: c)
+                                             knockout: {
+                    self.drawExportNodeContent(node, rect: rect, in: ctx)
+                }) {
+                    self.drawExportNodeContent(node, rect: rect, in: ctx)
                 }
             }
         }
