@@ -15,6 +15,12 @@ struct EXP__design_App: App {
     // See UI/FontRegistration.swift for the licensing note.
     init() {
         EXPFonts.registerBundledFonts()
+        #if DEBUG
+        // Opt-in packaged-runtime receipt; inert in ordinary launches and
+        // compiled out of Release. See SanaaRuntimeAppProbe.swift.
+        if SanaaRuntimeAppProbe.startIfRequested() { return }
+        if SanaaActivityAppProbe.startIfRequested() { return }
+        #endif
         AgentBridgeController.shared.startIfEnabled()
         // Single-letter tool shortcuts, centrally (BUG-028). Installed before any
         // view renders so there is no window in which the old canvas-focus-only
@@ -499,6 +505,8 @@ private struct ToolsCommandItems: View {
 
 private struct ViewCommandItems: View {
     @FocusedValue(\.editorMenu) private var menu
+    @AppStorage(SanaaPreferences.enabled) private var sanaaEnabled = false
+    @State private var sanaaActivity = SanaaActivityController.shared
     /// Checked state for the two snap commands. A `Button` in a menu can only ever
     /// look the same whether the thing it toggles is on or off, which makes a
     /// toggle command unusable — you cannot tell what pressing it will do. These
@@ -547,6 +555,17 @@ private struct ViewCommandItems: View {
             .disabled(menu == nil)
         Button("Reveal Selection in Layers") { sendEditorAction("revealSelectionInLayersAction:") }
             .disabled(menu?.canRevealSelectionInLayers != true)
+        if sanaaEnabled {
+            Divider()
+            Button("Select Sanaa's Last Changes") {
+                sendEditorAction("selectLatestSanaaChangesAction:")
+            }
+            .disabled(menu == nil || !sanaaActivity.canActOnLatestReceipt)
+            Button("Go to Sanaa's Last Changes") {
+                sendEditorAction("goToLatestSanaaChangesAction:")
+            }
+            .disabled(menu == nil || !sanaaActivity.canActOnLatestReceipt)
+        }
         Divider()
         Button("Show / Hide Rulers") { sendEditorAction("toggleRulersAction:") }
             .keyboardShortcut("r", modifiers: .command)

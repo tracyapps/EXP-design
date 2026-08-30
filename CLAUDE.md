@@ -145,17 +145,21 @@ GitHub, Sparkle, website, and v2.2→v2.3 update receipts.
 **v2.4 scope, set by the owner 2026-08-25:** ship BOTH the deferred vector/tool
 queue and Sanaa, with **Sanaa as the headline**. Waves and gates live in
 ROADMAP → v2.4 and `docs/RELEASE-CHECKLIST-v2.4.md` §A.
-Wave A (BUG-049, BUG-050, BUG-051, BUG-052, FEAT-047, FEAT-027) is committed at
-`a803df0` and awaiting the owner's Xcode verification pass.
-Wave B is Sanaa's core (FEAT-048 → 049 → 050; read `docs/SANAA-PLAN.md` first).
-Wave C is the vector queue (FEAT-025 leads, then 029, 028, 031, 030, BUG-048,
-BUG-034 Stage 2). Wave D is Sanaa's companion chunks (FEAT-051/052/053).
+Wave A (BUG-049, BUG-050, BUG-051, BUG-052, FEAT-047, FEAT-027) is
+**owner-verified 2026-08-27** — all six items passed the Xcode acceptance pass.
+Wave B's core (FEAT-048 → 049) is also **owner-verified 2026-08-27**: FEAT-048's
+write-back and FEAT-049's canvas conversation/apply_edits flow were exercised
+end-to-end (a design started and edited entirely through Sanaa). FEAT-050 ("Ask
+Sanaa" prompt starters) is not yet built. Wave C is the vector queue (FEAT-025
+leads, then 029, 028, 031, 030, BUG-048, BUG-034 Stage 2) and is NOT started —
+BUG-053 (raster export silently drops noise/dissolve effects) leads it and is
+still open. Wave D is Sanaa's companion chunks (FEAT-051/052/053), not started.
 **Sequencing rule:** never start a document-mutating slice while another one
 awaits owner verification.
 
-**Next:** run `scripts/verify_sanaa_write_gate.sh` against a running EXP with a
-scratch document (FEAT-048 is built but entirely unverified at runtime), then
-FEAT-049.
+**Next:** Wave C, starting with BUG-053 (raster export drops noise/dissolve
+effects — a fidelity bug, ranks above the rest of the vector queue), then
+FEAT-025. FEAT-050 can run in parallel since it doesn't mutate documents.
 
 **Backlog hygiene:** run `scripts/verify_backlog_ids.sh` before assigning a new id.
 Ids are referenced from ROADMAP, PERF-LOG and PERF-TODO as well as BACKLOG, so

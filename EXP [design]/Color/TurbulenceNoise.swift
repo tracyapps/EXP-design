@@ -251,6 +251,31 @@ enum TurbulenceNoise {
         return nil
     }
 
+    /// Blocking counterpart to `cachedAsync` for one-shot renderers: return a
+    /// warm tile or generate it on the calling thread right now, storing through
+    /// the same LRU. Does not post `tileReadyNotification` — sync callers consume
+    /// the return value directly, and posting would only kick a needless canvas
+    /// redraw. If the async worker happens to be generating the same key, the
+    /// worst case is one duplicated build; `store` handles the overwrite.
+    private static func cachedSync(_ key: Key, make: @Sendable () -> CGImage?) -> CGImage? {
+        tileLock.lock()
+        if let hit = tileCache[key] {
+            // Promote on hit, same as the async path — keeps eviction truly LRU.
+            if tileOrder.last != key {
+                tileOrder.removeAll { $0 == key }
+                tileOrder.append(key)
+            }
+            tileLock.unlock()
+            return hit
+        }
+        tileLock.unlock()
+        guard let img = make() else { return nil }
+        tileLock.lock()
+        store(key, img)
+        tileLock.unlock()
+        return img
+    }
+
     /// Single background worker: pop the NEWEST pending key, generate it, store,
     /// notify, repeat until the stack is empty.
     private static func drainPending() {
@@ -304,11 +329,10 @@ enum TurbulenceNoise {
 
     // MARK: Public tiles
 
-    /// RGBA turbulence tile for a noise effect on a node of `size` model points.
-    /// Monochrome = channel 0 in all of R/G/B; color = channels 0/1/2. Alpha 1
-    /// throughout — the caller applies `effect.amount` via `ctx.setAlpha`.
-    /// Non-blocking: nil on a cold cache (the caller skips noise this frame).
-    static func noiseImage(for e: Effect, size: CGSize) -> CGImage? {
+    /// Cache key + off-thread builder shared by the async (canvas) and sync
+    /// (one-shot export) noise paths, so the two can never drift.
+    private static func noiseTileRequest(for e: Effect, size: CGSize)
+        -> (key: Key, make: @Sendable () -> CGImage?)? {
         guard let (pw, ph, step) = tileDims(for: size) else { return nil }
         let key = Key(kind: "noise", type: e.turbulenceType, freq: Double(e.frequency),
                       octaves: e.octaves, seed: e.seed, mono: e.monochrome,
@@ -316,7 +340,7 @@ enum TurbulenceNoise {
         // Capture only value types so the background closure stays Sendable-clean.
         let seed = e.seed, oct = e.octaves, freq = Double(e.frequency)
         let mono = e.monochrome, fractal = e.turbulenceType == .fractalNoise
-        return cachedAsync(key) {
+        let make: @Sendable () -> CGImage? = {
             let lat = lattice(seed: seed)
             var buf = [UInt8](repeating: 255, count: pw * ph * 4)   // alpha stays 255
             buf.withUnsafeMutableBufferPointer { bufPtr in
@@ -343,12 +367,32 @@ enum TurbulenceNoise {
             }
             return rgbaImage(buf, pw, ph)
         }
+        return (key, make)
     }
 
-    /// Grayscale luminance mask for `CGContext.clip(to:mask:)`: white where the
-    /// node survives, black where it has dissolved. `e.amount` is the fraction
-    /// removed (threshold). Non-blocking: nil on a cold cache.
-    static func dissolveMask(for e: Effect, size: CGSize) -> CGImage? {
+    /// RGBA turbulence tile for a noise effect on a node of `size` model points.
+    /// Monochrome = channel 0 in all of R/G/B; color = channels 0/1/2. Alpha 1
+    /// throughout — the caller applies `effect.amount` via `ctx.setAlpha`.
+    /// Non-blocking: nil on a cold cache (the caller skips noise this frame).
+    static func noiseImage(for e: Effect, size: CGSize) -> CGImage? {
+        guard let req = noiseTileRequest(for: e, size: size) else { return nil }
+        return cachedAsync(req.key, make: req.make)
+    }
+
+    /// Blocking variant for one-shot renderers (raster export, Quick Look
+    /// thumbnails). They cannot "skip this frame" while a tile generates the way
+    /// the live canvas can — a missing tile there means the effect is silently
+    /// absent from the output, which is exactly the divergence BUG-053 was filed
+    /// for. Generates on the calling thread, then shares the async cache (a warm
+    /// canvas makes exports instant). The canvas render loop never calls this.
+    static func noiseImageSync(for e: Effect, size: CGSize) -> CGImage? {
+        guard let req = noiseTileRequest(for: e, size: size) else { return nil }
+        return cachedSync(req.key, make: req.make)
+    }
+
+    /// Cache key + builder shared by the async and sync dissolve paths.
+    private static func dissolveMaskRequest(for e: Effect, size: CGSize)
+        -> (key: Key, make: @Sendable () -> CGImage?)? {
         guard let (pw, ph, step) = tileDims(for: size) else { return nil }
         let threshold = Double(min(1, max(0, e.amount)))
         let key = Key(kind: "mask", type: e.turbulenceType, freq: Double(e.frequency),
@@ -356,7 +400,7 @@ enum TurbulenceNoise {
                       threshold: threshold, w: pw, h: ph)
         let seed = e.seed, oct = e.octaves, freq = Double(e.frequency)
         let fractal = e.turbulenceType == .fractalNoise
-        return cachedAsync(key) {
+        let make: @Sendable () -> CGImage? = {
             let lat = lattice(seed: seed)
             var buf = [UInt8](repeating: 0, count: pw * ph)
             buf.withUnsafeMutableBufferPointer { bufPtr in
@@ -373,6 +417,23 @@ enum TurbulenceNoise {
             }
             return grayMask(buf, pw, ph)
         }
+        return (key, make)
+    }
+
+    /// Grayscale luminance mask for `CGContext.clip(to:mask:)`: white where the
+    /// node survives, black where it has dissolved. `e.amount` is the fraction
+    /// removed (threshold). Non-blocking: nil on a cold cache.
+    static func dissolveMask(for e: Effect, size: CGSize) -> CGImage? {
+        guard let req = dissolveMaskRequest(for: e, size: size) else { return nil }
+        return cachedAsync(req.key, make: req.make)
+    }
+
+    /// Blocking variant of `dissolveMask` for one-shot renderers — see
+    /// `noiseImageSync`. A cold cache must never make an export render the node
+    /// undissolved.
+    static func dissolveMaskSync(for e: Effect, size: CGSize) -> CGImage? {
+        guard let req = dissolveMaskRequest(for: e, size: size) else { return nil }
+        return cachedSync(req.key, make: req.make)
     }
 
     // MARK: CGImage builders

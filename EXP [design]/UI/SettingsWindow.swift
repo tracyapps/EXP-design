@@ -17,6 +17,7 @@
 //
 
 import SwiftUI
+import AppKit
 
 // MARK: - Shared preference keys (the single source of truth for both sides)
 
@@ -449,15 +450,174 @@ private struct CanvasSettingsPane: View {
 private struct SanaaSettingsPane: View {
     @AppStorage(SanaaPreferences.enabled) private var enabled = false
     @AppStorage(SanaaPreferences.writeEnabled) private var writeEnabled = false
+    @AppStorage(AppPreferences.accentOverride) private var accentOverride = ""
+    @State private var bridge = AgentBridgeController.shared
+    @State private var activity = SanaaActivityController.shared
+    @State private var setupKind = AgentSetupKind.claudeCode
+    @State private var copiedSetup = false
+
+    private enum AgentSetupKind: String, CaseIterable, Identifiable {
+        case claudeCode = "Claude Code"
+        case claudeDesktop = "Claude Desktop"
+        case stdioJSON = "Other MCP app (JSON)"
+        case helperPath = "Helper path"
+        var id: Self { self }
+    }
+
+    private var effectiveAccent: Color {
+        guard let override = EXPColor.hexColor(accentOverride) else {
+            return Color(nsColor: .controlAccentColor)
+        }
+        return Color(nsColor: override)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
+            SettingsGroup("Conversation agent",
+                          footnote: "Sanaa uses the supported local runtime shown here. EXP ships no language model or API key. Account and usage details come directly from that runtime and may be absent for providers that do not expose them.") {
+                statusRow(title: activity.selectedAgent.name,
+                          detail: conversationStatus,
+                          symbol: "message.and.waveform")
+
+                if let account = activity.account {
+                    VStack(alignment: .leading, spacing: 4) {
+                        if let email = account.email, !email.isEmpty {
+                            settingsValue("Account", value: email)
+                        }
+                        settingsValue("Plan", value: accountPlan(account))
+                        if let hostVersion = activity.hostVersion, !hostVersion.isEmpty {
+                            settingsValue("Host", value: "Codex \(hostVersion)")
+                        }
+                    }
+                }
+
+                ForEach(activity.rateLimits) { limit in
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(limitTitle(limit))
+                            .font(.callout.weight(.medium))
+                            .foregroundStyle(EXPColor.textPrimary)
+                        if let primary = limit.primary {
+                            usageWindow(primary,
+                                        label: limit.secondary == nil ? "Current window" : "Short window")
+                        }
+                        if let secondary = limit.secondary {
+                            usageWindow(secondary, label: "Long window")
+                        }
+                        if let reached = limit.reachedType, !reached.isEmpty {
+                            Label("Limit reached: \(reached)", systemImage: "exclamationmark.circle")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(EXPColor.surfaceField,
+                                in: RoundedRectangle(cornerRadius: EXPMetric.radiusField,
+                                                     style: .continuous))
+                }
+
+                if let usage = activity.usageSummary {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Token activity")
+                            .font(.callout.weight(.medium))
+                            .foregroundStyle(EXPColor.textPrimary)
+                        if let tokens = usage.lifetimeTokens {
+                            settingsValue("Lifetime", value: "\(tokens.formatted()) tokens")
+                        }
+                        if let date = usage.latestDate, let tokens = usage.latestTokens {
+                            settingsValue(date, value: "\(tokens.formatted()) tokens")
+                        }
+                        if let streak = usage.currentStreakDays {
+                            settingsValue("Current streak", value: "\(streak) days")
+                        }
+                    }
+                }
+
+                HStack(spacing: 10) {
+                    Button(activity.phase == .failed || activity.phase == .idle
+                           ? "Reconnect" : "Refresh status") {
+                        if activity.phase == .failed || activity.phase == .idle {
+                            activity.reconnect()
+                        } else {
+                            activity.refreshAccountStatus()
+                        }
+                    }
+                    .buttonStyle(.exp(.secondary))
+                    .disabled(!enabled || activity.phase == .connecting)
+                    .accessibilityHint("Refreshes connection, account, and available usage information")
+                }
+            }
+
+            SettingsGroup("Canvas access",
+                          footnote: "Off by default. EXP accepts connections only from your macOS user through a local socket; it opens no network port and sends no document data on its own. A connected agent processes requested content under that provider's privacy settings.") {
+                Toggle("Allow local agent access", isOn: Binding(
+                    get: { bridge.isEnabled },
+                    set: { bridge.setEnabled($0) }
+                ))
+                .toggleStyle(.switch)
+                .tint(effectiveAccent)
+                .accessibilityHint("Starts or stops EXP's local canvas connection")
+
+                statusRow(title: "Canvas bridge",
+                          detail: canvasStatus,
+                          symbol: "point.3.connected.trianglepath.dotted")
+
+                ForEach(bridge.connectedClients) { client in
+                    HStack(spacing: 8) {
+                        Image(systemName: "person.crop.circle.badge.checkmark")
+                            .foregroundStyle(EXPColor.textSecondary)
+                            .accessibilityHidden(true)
+                        Text(client.displayName)
+                            .foregroundStyle(EXPColor.textPrimary)
+                        Spacer(minLength: 8)
+                        Text(client.connectionCount == 1
+                             ? "Connected" : "\(client.connectionCount) connections")
+                            .font(.footnote)
+                            .foregroundStyle(EXPColor.textSecondary)
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+                if bridge.unidentifiedConnectionCount > 0 {
+                    Text("\(bridge.unidentifiedConnectionCount) connection\(bridge.unidentifiedConnectionCount == 1 ? "" : "s") still identifying…")
+                        .font(.footnote)
+                        .foregroundStyle(EXPColor.textSecondary)
+                }
+            }
+
+            SettingsGroup("Connect another canvas agent",
+                          footnote: setupNote ?? "Copy this setup into the agent app you want to connect. The connection becomes visible above after that app starts EXP's helper.") {
+                Picker("Setup for", selection: $setupKind) {
+                    ForEach(AgentSetupKind.allCases) { kind in
+                        Text(kind.rawValue).tag(kind)
+                    }
+                }
+                .pickerStyle(.menu)
+
+                Text(setupText)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(EXPColor.textSecondary)
+                    .textSelection(.enabled)
+                    .padding(EXPMetric.sm)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(EXPColor.surfaceField,
+                                in: RoundedRectangle(cornerRadius: EXPMetric.radiusField))
+                    .accessibilityLabel("Agent setup command")
+
+                Button(copiedSetup ? "Copied" : "Copy setup") { copySetup() }
+                    .buttonStyle(.exp(.secondary))
+                    .accessibilityHint("Copies the selected local agent setup")
+            }
+
             SettingsGroup("Sanaa",
-                          footnote: "Sanaa is not an AI inside EXP. EXP ships no language model, stores no API keys, and never sends your work anywhere on its own. Sanaa is the name for what the agent YOU connected does when it draws here — the same local connection the Handoff panel's \u{201C}Allow local agent access\u{201D} switch controls, with permission to write as well as read.") {
+                          footnote: "Sanaa is the design collaborator presented inside EXP. Conversation access and canvas access are separate: the first lets you chat, while the canvas switches decide whether an agent may inspect or change the frontmost document.") {
                 Toggle("Enable Sanaa", isOn: $enabled)
+                    .toggleStyle(.switch)
+                    .tint(effectiveAccent)
                     .accessibilityHint("Shows Sanaa's controls in EXP. Off by default; with this off, EXP shows no trace of Sanaa anywhere.")
 
                 Toggle("Allow Sanaa to draw", isOn: $writeEnabled)
+                    .toggleStyle(.switch)
+                    .tint(effectiveAccent)
                     .disabled(!enabled)
                     .accessibilityHint("Lets a connected agent add pages, artboards, and layers. Changing work already on the canvas asks you again, per document.")
 
@@ -475,13 +635,20 @@ private struct SanaaSettingsPane: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
+        .onAppear {
+            if enabled { activity.activate() }
+        }
         // Turning Sanaa off must not leave a live permission behind for the next
         // time it is turned on.
         .onChange(of: enabled) { _, isOn in
             if !isOn {
                 writeEnabled = false
                 SanaaConsent.shared.forgetEverything()
+                SanaaActivityController.shared.disable()
             }
+            // Conditional floating trays stay saved but must open/close now,
+            // without waiting for another panel mutation.
+            PanelWindowManager.shared.reconcile()
         }
         .onChange(of: writeEnabled) { _, isOn in
             if !isOn { SanaaConsent.shared.forgetEverything() }
@@ -492,6 +659,141 @@ private struct SanaaSettingsPane: View {
         if !enabled { return "Sanaa is off. Nothing in EXP mentions it and the agent connection stays read-only." }
         if !writeEnabled { return "Sanaa is on and can read your document, but cannot change it." }
         return "Sanaa can add new work. Changes to what is already on your canvas still ask you, per document."
+    }
+
+    private var conversationStatus: String {
+        switch activity.phase {
+        case .off: return "Off"
+        case .idle: return "Disconnected"
+        case .connecting: return "Connecting…"
+        case .ready: return "Connected and ready"
+        case .replying: return "Connected — replying"
+        case .stopping: return "Connected — stopping reply"
+        case .failed: return activity.failureMessage ?? "Disconnected"
+        }
+    }
+
+    private var canvasStatus: String {
+        if let error = bridge.lastError { return "Unavailable — \(error)" }
+        guard bridge.isEnabled, bridge.isRunning else { return "Off" }
+        guard bridge.connectionCount > 0 else { return "Ready — no agent connected" }
+        return bridge.connectionCount == 1
+            ? "1 connection active · \(accessDescription)"
+            : "\(bridge.connectionCount) connections active · \(accessDescription)"
+    }
+
+    private var accessDescription: String {
+        enabled && writeEnabled ? "can read and draw" : "read only"
+    }
+
+    private var helperPath: String {
+        Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/exp-mcp").path
+    }
+
+    private var setupText: String {
+        switch setupKind {
+        case .claudeCode:
+            let escaped = helperPath.replacingOccurrences(of: "'", with: "'\\''")
+            return "claude mcp add --scope user exp-design -- '\(escaped)'"
+        case .claudeDesktop, .stdioJSON:
+            let object: [String: Any] = [
+                "mcpServers": ["exp-design": ["command": helperPath, "args": []]]
+            ]
+            guard let data = try? JSONSerialization.data(
+                withJSONObject: object, options: [.prettyPrinted, .sortedKeys]
+            ) else { return helperPath }
+            return String(data: data, encoding: .utf8) ?? helperPath
+        case .helperPath:
+            return helperPath
+        }
+    }
+
+    private var setupNote: String? {
+        switch setupKind {
+        case .claudeDesktop:
+            return "Manual local-server configuration. Claude Desktop may also offer extension-based installation for packaged servers."
+        case .stdioJSON:
+            return "Use this with an MCP host that accepts a stdio server configuration."
+        default:
+            return nil
+        }
+    }
+
+    private func statusRow(title: String, detail: String, symbol: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: symbol)
+                .foregroundStyle(EXPColor.textSecondary)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).foregroundStyle(EXPColor.textPrimary)
+                Text(detail)
+                    .font(.footnote)
+                    .foregroundStyle(EXPColor.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private func settingsValue(_ label: String, value: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text(label).foregroundStyle(EXPColor.textSecondary)
+            Spacer(minLength: 10)
+            Text(value)
+                .foregroundStyle(EXPColor.textPrimary)
+                .multilineTextAlignment(.trailing)
+                .textSelection(.enabled)
+        }
+        .font(.footnote)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func usageWindow(_ window: SanaaRuntimeUsageWindow,
+                             label: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(label)
+                Spacer(minLength: 8)
+                Text("\(Int(window.usedPercent.rounded()))% used")
+                    .monospacedDigit()
+            }
+            .font(.footnote)
+            .foregroundStyle(EXPColor.textSecondary)
+            ProgressView(value: window.usedPercent, total: 100)
+                .tint(effectiveAccent)
+            if let resetsAt = window.resetsAt {
+                Text("Resets \(Date(timeIntervalSince1970: TimeInterval(resetsAt)), style: .relative)")
+                    .font(.caption2)
+                    .foregroundStyle(EXPColor.textTertiary)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(label), \(Int(window.usedPercent.rounded())) percent used")
+    }
+
+    private func limitTitle(_ limit: SanaaRuntimeRateLimit) -> String {
+        if let name = limit.name, !name.isEmpty, name != limit.limitID { return name }
+        return limit.limitID == "codex" ? "Codex usage" : limit.limitID
+    }
+
+    private func accountPlan(_ account: SanaaRuntimeAccount) -> String {
+        if let plan = account.planType, !plan.isEmpty { return plan.capitalized }
+        switch account.type {
+        case "apiKey": return "API key"
+        case "chatgpt": return "ChatGPT"
+        default: return account.type
+        }
+    }
+
+    private func copySetup() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(setupText, forType: .string)
+        copiedSetup = true
+        Task {
+            try? await Task.sleep(for: .seconds(1.5))
+            copiedSetup = false
+        }
     }
 }
 

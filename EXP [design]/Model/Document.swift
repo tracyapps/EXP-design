@@ -2357,7 +2357,7 @@ extension Node {
 ///                alpha mask: the classic scattered-pixel dissolve. Frequency
 ///                sets clump size; amount is the fraction dissolved away.
 struct Effect: Identifiable, Codable, Sendable {
-    enum Kind: String, Codable, Sendable {
+    enum Kind: String, Codable, Sendable, CaseIterable {
         case dropShadow, innerShadow, layerBlur, backgroundBlur, noise, dissolve
     }
     /// SVG `feTurbulence type=` — fractalNoise is smoother (signed octaves

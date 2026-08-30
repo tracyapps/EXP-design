@@ -302,6 +302,9 @@ enum SanaaEdits {
         return ["created": ["pages": builder.createdPages,
                             "artboards": builder.createdArtboards,
                             "nodes": builder.createdNodes],
+                "affected": ["pages": builder.affectedPages,
+                             "artboardIds": builder.affectedArtboardIDs,
+                             "nodeIds": builder.affectedNodeIDs],
                 "undoStep": "Sanaa: \(summary)"]
     }
 
@@ -484,10 +487,28 @@ extension SanaaEdits {
         private var lastCreatedPage: UUID?
         private var lastCreatedArtboard: UUID?
         private var touchedPages: Set<UUID> = []
+        private var touchedArtboards: Set<UUID> = []
+        private var touchedNodes: Set<UUID> = []
 
         private(set) var createdPages: [[String: String]] = []
         private(set) var createdArtboards: [[String: String]] = []
         private(set) var createdNodes: [[String: String]] = []
+
+        var affectedPages: [[String: String]] {
+            model.pages.compactMap { page in
+                touchedPages.contains(page.id)
+                    ? ["id": page.id.uuidString, "name": page.name]
+                    : nil
+            }
+        }
+
+        var affectedArtboardIDs: [String] {
+            touchedArtboards.map(\.uuidString).sorted()
+        }
+
+        var affectedNodeIDs: [String] {
+            touchedNodes.map(\.uuidString).sorted()
+        }
 
         init(model: Document, activePageID: UUID?) {
             self.model = model
@@ -599,6 +620,7 @@ extension SanaaEdits {
             artboardsByOpIndex[index] = id
             lastCreatedArtboard = id
             touchedPages.insert(pageID)
+            touchedArtboards.insert(id)
             createdArtboards.append(["id": id.uuidString, "name": name,
                                      "pageId": pageID.uuidString])
         }
@@ -663,6 +685,7 @@ extension SanaaEdits {
                 fresh[i].frame.origin.x += delta.x
                 fresh[i].frame.origin.y += delta.y
                 fresh[i].artboardID = id
+                touchedNodes.insert(fresh[i].id)
                 createdNodes.append(["id": fresh[i].id.uuidString, "name": fresh[i].name,
                                      "artboardId": id.uuidString])
             }
@@ -673,6 +696,7 @@ extension SanaaEdits {
             lastCreatedArtboard = id
             touchedPages.insert(targetPageID)
             touchedPages.insert(sourcePageID)
+            touchedArtboards.insert(id)
             createdArtboards.append(["id": id.uuidString, "name": copy.name,
                                      "pageId": targetPageID.uuidString])
         }
@@ -693,11 +717,13 @@ extension SanaaEdits {
                     fresh[i].frame.origin.y += resolved.artboard.frame.minY
                 }
                 fresh[i].artboardID = resolved.artboard.id
+                touchedNodes.insert(fresh[i].id)
                 createdNodes.append(["id": fresh[i].id.uuidString, "name": fresh[i].name,
                                      "artboardId": resolved.artboard.id.uuidString])
             }
             model.pages[pageIndex].nodes.append(contentsOf: fresh)
             touchedPages.insert(resolved.pageID)
+            touchedArtboards.insert(resolved.artboard.id)
         }
 
         private mutating func replaceNode(id: UUID, with node: Node) throws {
@@ -712,8 +738,14 @@ extension SanaaEdits {
                     if replacement.artboardID == nil { replacement.artboardID = existing.artboardID }
                     return replacement
                 }) {
+                    if let existing = Self.node(id, in: model.pages[pageIndex].nodes),
+                       let artboard = existing.artboardID
+                        ?? model.owningArtboard(of: existing, on: model.pages[pageIndex].id)?.id {
+                        touchedArtboards.insert(artboard)
+                    }
                     model.pages[pageIndex].nodes = nodes
                     touchedPages.insert(model.pages[pageIndex].id)
+                    touchedNodes.insert(id)
                     done = true
                 }
             }
@@ -726,6 +758,18 @@ extension SanaaEdits {
             let wanted = Set(ids)
             var removed: Set<UUID> = []
             for pageIndex in model.pages.indices {
+                for id in wanted {
+                    // A nested child's frame is parent-local. Resolve ownership
+                    // through its page-level root before removing the subtree so
+                    // the receipt can still select the affected artboard later.
+                    guard let root = model.pages[pageIndex].nodes.first(where: {
+                        Self.node(id, in: [$0]) != nil
+                    }) else { continue }
+                    if let artboard = root.artboardID
+                        ?? model.owningArtboard(of: root, on: model.pages[pageIndex].id)?.id {
+                        touchedArtboards.insert(artboard)
+                    }
+                }
                 var nodes = model.pages[pageIndex].nodes
                 let hit = Self.prune(wanted, from: &nodes, removed: &removed)
                 guard hit else { continue }
@@ -740,6 +784,7 @@ extension SanaaEdits {
                 throw SanaaEditError.malformed(
                     "no node exists with id \(missing.map(\.uuidString).sorted().joined(separator: ", ")).")
             }
+            touchedNodes.formUnion(removed)
         }
 
         // MARK: Reference resolution
@@ -809,6 +854,15 @@ extension SanaaEdits {
                 }
             }
             return false
+        }
+
+        private static func node(_ id: UUID, in nodes: [Node]) -> Node? {
+            for node in nodes {
+                if node.id == id { return node }
+                if case .group(let children) = node.content,
+                   let match = self.node(id, in: children) { return match }
+            }
+            return nil
         }
 
         /// Remove every wanted node wherever it lives, recording what was found.

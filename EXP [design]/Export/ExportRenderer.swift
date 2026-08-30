@@ -688,7 +688,7 @@ final class ExportRenderView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
         if drawBackground {
-            PaintRender.fillRect(artboard.background, rect: bounds, in: ctx)
+            PaintRender.fillRect(artboard.background, rect: bounds, in: ctx, pdfSafeAlpha: true)
         }
         ctx.clip(to: bounds)
         let off = CGPoint(x: -artboard.frame.minX, y: -artboard.frame.minY)
@@ -777,7 +777,18 @@ final class ExportRenderView: NSView {
         // Single-compositing-op nodes (one fill OR one stroke, no effects) get
         // plain context alpha/blend instead of a transparency layer — identical
         // pixels, no layer buffer. Mirrors CanvasView.isSinglePaintOp.
-        let usesLayer = needsGroup && !exportIsSinglePaintOp(node)
+        // Blended-EFFECT-noise nodes join that route too: CG's PDF rasterizer
+        // resamples image draws made INSIDE a transparency group (measured
+        // 2026-08-28, raw-CG repro: fine grain smears to its local average —
+        // the flat colorDodge speckle in the owner's fixture), while a direct
+        // draw with the blend gs is exact. Such nodes composite their whole
+        // tail offscreen (below) and the resulting single image takes the
+        // direct path.
+        let blendedNoise = node.effects.contains {
+            $0.isEnabled && $0.kind == .noise && $0.amount > 0 && $0.blend != .normal
+        }
+        let blendedNoiseRoute = needsGroup && blendedNoise
+        let usesLayer = needsGroup && !exportIsSinglePaintOp(node) && !blendedNoiseRoute
         if !usesLayer && needsGroup {
             ctx.saveGState()
             ctx.setAlpha(groupAlpha)
@@ -810,47 +821,263 @@ final class ExportRenderView: NSView {
         }
         defer { if rotating || flipping { ctx.restoreGState() } }
 
-        // Effects (scale 1 — export is in model points). Mirrors the canvas.
+        // Effects (scale 1 — export is in model points). Same order the canvas
+        // draws and `svgEffectsFilter` documents: dissolve masks everything the
+        // node draws (shadow casters included, so a dissolved node casts a
+        // dissolved shadow); drop shadows under the content; inner shadows over
+        // it; noise last. BUG-053: the raster path used to omit noise/dissolve
+        // entirely, so PNG/JPG/PDF silently disagreed with canvas and SVG.
         let enabled = node.effects.filter { $0.isEnabled }
         let sil = exportSilhouette(node, rect: rect)
+        let dissolves = enabled.filter { $0.kind == .dissolve && $0.amount > 0 }
+        let noises = enabled.filter { $0.kind == .noise && $0.amount > 0 }
+        /// Clip `target` through each dissolve's thresholded-noise mask (the
+        /// tile is node-local model space; export draws in model space, so
+        /// mapping it over `rect` is the identity at scale 1), then draw.
+        /// Target-parameterized because the knockout-shadow helper below draws
+        /// into an offscreen bitmap in the SAME user space. Synchronous on
+        /// purpose: a one-shot export cannot skip a frame while a tile builds.
+        func withDissolveMasks(_ target: CGContext, _ draw: () -> Void) {
+            if dissolves.isEmpty { draw(); return }
+            target.saveGState()
+            for e in dissolves {
+                if let m = TurbulenceNoise.dissolveMaskSync(for: e, size: node.frame.size) {
+                    target.clip(to: rect, mask: m)
+                }
+            }
+            draw()
+            target.restoreGState()
+        }
         for e in enabled where e.kind == .dropShadow {
+            if e.preserveTransparency {
+                // The knockout's .destinationOut is honored only in bitmap
+                // contexts — measured while fixing BUG-053, CG silently ignores
+                // it in the PDF context this path renders into, leaving the
+                // shadow under semi-transparent fills. Render offscreen, where
+                // it works, and composite the raster back.
+                drawExportKnockoutShadow(e, node: node, rect: rect, sil: sil,
+                                         in: ctx, withDissolveMasks: withDissolveMasks)
+            } else if let s = sil {
+                let outset = s.path(spread: CGFloat(e.spread))
+                EffectsRender.drawDropShadow(e, scale: 1, in: ctx,
+                                             castBounds: outset.boundingBoxOfPath) {
+                    withDissolveMasks(ctx) {
+                        ctx.addPath(outset); ctx.setFillColor(NSColor.black.cgColor); ctx.fillPath()
+                    }
+                }
+            } else {
+                EffectsRender.drawDropShadow(e, scale: 1, in: ctx, castBounds: rect) {
+                    withDissolveMasks(ctx) { self.drawExportNodeContent(node, rect: rect, in: ctx) }
+                }
+            }
+        }
+
+        // Everything the node itself draws — content, inner shadows, noise — in
+        // the canvas's order, parameterized by target context so the offscreen
+        // route below can replay it into a bitmap.
+        let drawTail: (CGContext) -> Void = { target in
+            let layerBlurs = enabled.filter { $0.kind == .layerBlur && $0.blur > 0 }
+            if layerBlurs.isEmpty {
+                self.drawExportNodeContent(node, rect: rect, in: target)
+            } else {
+                EffectsRender.drawLayerBlur(layerBlurs,
+                                            bounds: self.exportPaintBounds(node, offset: offset),
+                                            deviceScale: 1, in: target) { blurContext in
+                    self.drawExportNodeContent(node, rect: rect, in: blurContext)
+                }
+            }
+
+            if let s = sil {
+                for e in enabled where e.kind == .innerShadow {
+                    EffectsRender.drawInnerShadow(e, clip: s.clip, hole: s.path(spread: -CGFloat(e.spread)),
+                                                  in: target, scale: 1)
+                }
+            }
+
+            // Noise last. Silhouette nodes clip to the shape path. Silhouette-
+            // less nodes (text/group/line/instance) clip through a content-alpha
+            // mask: the canvas punches with .destinationIn directly, but that
+            // mode (like every Porter-Duff mode) silently degrades in a PDF
+            // context — it fell back to Normal and the grain leaked outside the
+            // node's pixels. An alpha mask clip emits a PDF soft mask instead,
+            // which round-trips (the dissolve masks above prove the mechanism).
+            if !noises.isEmpty {
+                if let s = sil {
+                    for e in noises {
+                        EffectsRender.drawNoise(e, clip: s.clip, rect: rect,
+                                                modelSize: node.frame.size, in: target,
+                                                synchronous: true)
+                    }
+                } else {
+                    let mask = self.exportContentAlphaMask(node, rect: rect)
+                    if let mask {
+                        target.saveGState()
+                        target.clip(to: rect, mask: mask)
+                    }
+                    for e in noises {
+                        EffectsRender.drawNoise(e, clip: nil, rect: rect,
+                                                modelSize: node.frame.size, in: target,
+                                                synchronous: true)
+                    }
+                    if mask != nil { target.restoreGState() }
+                }
+            }
+        }
+
+        // The blended-noise route: composite the node's own pixels — content,
+        // inner shadows, noise, in the canvas's order — offscreen, where blend
+        // semantics match the canvas exactly, then draw the single image with
+        // the node's alpha/blend applied directly (the caller's direct path).
+        // Two measured reasons this must not draw inside a transparency group:
+        // CG's PDF rasterizer resamples in-group image draws (grain smears to
+        // its local average) and collapses in-group blend-mode image draws
+        // (raw-CG repros, 2026-08-28). Direct gs-blend image draws are exact.
+        if blendedNoiseRoute {
+            let bounds = exportPaintBounds(node, offset: offset).insetBy(dx: -2, dy: -2)
+            let w = Int(ceil(bounds.width)), h = Int(ceil(bounds.height))
+            if w > 0, h > 0, w <= 12_000, h <= 12_000, w * h <= 32_000_000,
+               let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+               let bitmap = CGContext(data: nil, width: w, height: h,
+                                      bitsPerComponent: 8, bytesPerRow: 0, space: colorSpace,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) {
+                bitmap.translateBy(x: 0, y: CGFloat(h))
+                bitmap.scaleBy(x: 1, y: -1)
+                bitmap.translateBy(x: -bounds.minX, y: -bounds.minY)
+                let graphics = NSGraphicsContext(cgContext: bitmap, flipped: true)
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = graphics
+                withDissolveMasks(bitmap) { drawTail(bitmap) }
+                NSGraphicsContext.restoreGraphicsState()
+                if let image = bitmap.makeImage() {
+                    ctx.saveGState()
+                    // Grain must stay CRISP: without this the PDF rasterizer
+                    // linearly resamples the composite when rasterizing at 2×/3×,
+                    // halving the grain's amplitude (measured). .none maps to the
+                    // image's /Interpolate false — nearest-neighbor at any scale,
+                    // the same per-pixel blocks the retina canvas shows.
+                    ctx.interpolationQuality = .none
+                    ctx.translateBy(x: bounds.minX, y: bounds.maxY)
+                    ctx.scaleBy(x: 1, y: -1)
+                    ctx.draw(image, in: CGRect(origin: .zero, size: bounds.size))
+                    ctx.restoreGState()
+                    return
+                }
+                // Bitmap makeImage failed — fall through to the vector tail
+                // rather than dropping the node. The blend collapses, but the
+                // node renders.
+            }
+        }
+        withDissolveMasks(ctx) { drawTail(ctx) }
+    }
+
+    /// Preserve-transparency drop shadow for the PDF-intermediate render path:
+    /// the whole `EffectsRender.drawDropShadow` call (shadow + .destinationOut
+    /// knockout) is drawn into a tightly bounded offscreen bitmap — where
+    /// Porter-Duff modes are honored — and composited back once, the same
+    /// bitmap/flip/composite dance `drawLayerBlur` already ships. The bitmap's
+    /// user space matches the caller's, so `rect`, silhouettes, and dissolve
+    /// masks all apply unchanged.
+    private func drawExportKnockoutShadow(_ e: Effect, node: Node, rect: CGRect,
+                                          sil: Silhouette?, in ctx: CGContext,
+                                          withDissolveMasks: @escaping (CGContext, () -> Void) -> Void) {
+        let castBounds: CGRect
+        if let s = sil { castBounds = s.path(spread: CGFloat(e.spread)).boundingBoxOfPath }
+        else { castBounds = rect }
+        let blurPx = min(max(0, e.blur), EffectsRender.maxShadowBlurPx)
+        let pad = blurPx + abs(e.dx) + abs(e.dy) + 8
+        let box = castBounds.insetBy(dx: -pad, dy: -pad)
+        let w = Int(ceil(box.width)), h = Int(ceil(box.height))
+        guard w > 0, h > 0, w <= 12_000, h <= 12_000, w * h <= 32_000_000,
+              let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+              let bitmap = CGContext(data: nil, width: w, height: h,
+                                     bitsPerComponent: 8, bytesPerRow: 0, space: colorSpace,
+                                     bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else {
+            // Degenerate size — draw the vector path instead (its knockout will
+            // no-op in PDF, but the shadow itself still renders). Never drop
+            // the effect silently.
             if let s = sil {
                 let outset = s.path(spread: CGFloat(e.spread))
                 EffectsRender.drawDropShadow(e, scale: 1, in: ctx,
                                              castBounds: outset.boundingBoxOfPath,
                                              knockout: {
-                    // True silhouette (spread 0) — mirrors the canvas.
-                    ctx.addPath(s.path(spread: 0)); ctx.setFillColor(NSColor.black.cgColor); ctx.fillPath()
+                    withDissolveMasks(ctx) {
+                        ctx.addPath(s.path(spread: 0)); ctx.setFillColor(NSColor.black.cgColor); ctx.fillPath()
+                    }
                 }) {
-                    ctx.addPath(outset); ctx.setFillColor(NSColor.black.cgColor); ctx.fillPath()
+                    withDissolveMasks(ctx) {
+                        ctx.addPath(outset); ctx.setFillColor(NSColor.black.cgColor); ctx.fillPath()
+                    }
                 }
             } else {
                 EffectsRender.drawDropShadow(e, scale: 1, in: ctx, castBounds: rect,
                                              knockout: {
-                    self.drawExportNodeContent(node, rect: rect, in: ctx)
+                    withDissolveMasks(ctx) { self.drawExportNodeContent(node, rect: rect, in: ctx) }
                 }) {
-                    self.drawExportNodeContent(node, rect: rect, in: ctx)
+                    withDissolveMasks(ctx) { self.drawExportNodeContent(node, rect: rect, in: ctx) }
                 }
             }
+            return
         }
-
-        let layerBlurs = enabled.filter { $0.kind == .layerBlur && $0.blur > 0 }
-        if layerBlurs.isEmpty {
-            drawExportNodeContent(node, rect: rect, in: ctx)
-        } else {
-            EffectsRender.drawLayerBlur(layerBlurs,
-                                        bounds: exportPaintBounds(node, offset: offset),
-                                        deviceScale: 1, in: ctx) { blurContext in
-                self.drawExportNodeContent(node, rect: rect, in: blurContext)
-            }
-        }
-
+        bitmap.translateBy(x: 0, y: CGFloat(h))
+        bitmap.scaleBy(x: 1, y: -1)
+        bitmap.translateBy(x: -box.minX, y: -box.minY)
+        let graphics = NSGraphicsContext(cgContext: bitmap, flipped: true)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = graphics
         if let s = sil {
-            for e in enabled where e.kind == .innerShadow {
-                EffectsRender.drawInnerShadow(e, clip: s.clip, hole: s.path(spread: -CGFloat(e.spread)),
-                                              in: ctx, scale: 1)
+            let outset = s.path(spread: CGFloat(e.spread))
+            EffectsRender.drawDropShadow(e, scale: 1, in: bitmap,
+                                         castBounds: outset.boundingBoxOfPath,
+                                         knockout: {
+                withDissolveMasks(bitmap) {
+                    bitmap.addPath(s.path(spread: 0)); bitmap.setFillColor(NSColor.black.cgColor); bitmap.fillPath()
+                }
+            }) {
+                withDissolveMasks(bitmap) {
+                    bitmap.addPath(outset); bitmap.setFillColor(NSColor.black.cgColor); bitmap.fillPath()
+                }
+            }
+        } else {
+            EffectsRender.drawDropShadow(e, scale: 1, in: bitmap, castBounds: rect,
+                                         knockout: {
+                withDissolveMasks(bitmap) { self.drawExportNodeContent(node, rect: rect, in: bitmap) }
+            }) {
+                withDissolveMasks(bitmap) { self.drawExportNodeContent(node, rect: rect, in: bitmap) }
             }
         }
+        NSGraphicsContext.restoreGraphicsState()
+        guard let image = bitmap.makeImage() else { return }
+        ctx.saveGState()
+        ctx.translateBy(x: box.minX, y: box.maxY)
+        ctx.scaleBy(x: 1, y: -1)
+        ctx.draw(image, in: CGRect(origin: .zero, size: box.size))
+        ctx.restoreGState()
+    }
+
+    /// The node's content alpha as an image, for clipping noise on
+    /// silhouette-less nodes through the PDF-safe mask route (see drawExportNode).
+    /// Returns nil only for degenerate sizes; callers then fall back to the
+    /// node-frame clip — the effect still renders, never silently dropped.
+    private func exportContentAlphaMask(_ node: Node, rect: CGRect) -> CGImage? {
+        let padded = rect.insetBy(dx: -2, dy: -2)   // keep the antialias fringe
+        let w = Int(ceil(padded.width)), h = Int(ceil(padded.height))
+        guard w > 0, h > 0, w <= 12_000, h <= 12_000,
+              w * h <= 32_000_000,
+              let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+              let bitmap = CGContext(data: nil, width: w, height: h,
+                                     bitsPerComponent: 8, bytesPerRow: 0, space: colorSpace,
+                                     bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return nil }
+        bitmap.translateBy(x: 0, y: CGFloat(h))
+        bitmap.scaleBy(x: 1, y: -1)
+        bitmap.translateBy(x: -padded.minX, y: -padded.minY)
+        let graphics = NSGraphicsContext(cgContext: bitmap, flipped: true)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = graphics
+        drawExportNodeContent(node, rect: rect, in: bitmap)
+        NSGraphicsContext.restoreGraphicsState()
+        return bitmap.makeImage()
     }
 
     private func exportSilhouette(_ node: Node, rect: CGRect) -> Silhouette? {
@@ -870,7 +1097,7 @@ final class ExportRenderView: NSView {
         switch node.content {
         case .rectangle(let s):
             let path = NSBezierPath(cgPath: s.effectiveRadii.path(in: rect))
-            PaintRender.fill(s.fill, path: path, bounds: rect, in: ctx)
+            PaintRender.fill(s.fill, path: path, bounds: rect, in: ctx, pdfSafeAlpha: true)
             if s.strokeWidth > 0 {
                 PaintRender.strokeAligned(path, width: s.strokeWidth,
                                           alignment: s.strokeAlignment, color: s.stroke.ns,
@@ -878,7 +1105,7 @@ final class ExportRenderView: NSView {
             }
         case .ellipse(let s):
             let path = NSBezierPath(ovalIn: rect)
-            PaintRender.fill(s.fill, path: path, bounds: rect, in: ctx)
+            PaintRender.fill(s.fill, path: path, bounds: rect, in: ctx, pdfSafeAlpha: true)
             if s.strokeWidth > 0 {
                 PaintRender.strokeAligned(path, width: s.strokeWidth,
                                           alignment: s.strokeAlignment, color: s.stroke.ns,
@@ -886,7 +1113,7 @@ final class ExportRenderView: NSView {
             }
         case .polygon(let s):
             let path = Self.polygonPath(s.vertices(in: rect))
-            PaintRender.fill(s.fill, path: path, bounds: rect, in: ctx)
+            PaintRender.fill(s.fill, path: path, bounds: rect, in: ctx, pdfSafeAlpha: true)
             if s.strokeWidth > 0 {
                 PaintRender.strokeAligned(path, width: s.strokeWidth,
                                           alignment: s.strokeAlignment, color: s.stroke.ns,
@@ -912,7 +1139,7 @@ final class ExportRenderView: NSView {
         case .path(let ps):
             let path = nsPath(ps, origin: rect.origin)
             if ps.isMultiContour || (ps.closed && ps.points.count >= 2) {
-                PaintRender.fill(ps.fill, path: path, bounds: path.bounds, in: ctx)
+                PaintRender.fill(ps.fill, path: path, bounds: path.bounds, in: ctx, pdfSafeAlpha: true)
             }
             if ps.strokeWidth > 0 {
                 PaintRender.strokeAligned(path, width: ps.strokeWidth,
@@ -946,7 +1173,7 @@ final class ExportRenderView: NSView {
                                  width: max(0, rect.width - pad.marginW),
                                  height: max(0, rect.height - pad.marginH))
                 let path = NSBezierPath(roundedRect: box, xRadius: pad.cornerRadius, yRadius: pad.cornerRadius)
-                if let fill = pad.fill { PaintRender.fill(fill, path: path, bounds: box, in: ctx) }
+                if let fill = pad.fill { PaintRender.fill(fill, path: path, bounds: box, in: ctx, pdfSafeAlpha: true) }
                 if pad.strokeWidth > 0, let stroke = pad.stroke {
                     PaintRender.strokeAligned(path, width: pad.strokeWidth,
                                               alignment: pad.strokeAlignment,

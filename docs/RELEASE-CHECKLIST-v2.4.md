@@ -31,34 +31,84 @@ v2.4 is a large release (ROADMAP → v2.4). No wave starts while the previous
 wave awaits verification, and no wave is checked here on a build alone — each
 line is an owner Xcode pass, not an agent claim.
 
-### Wave A — carry-in slice (committed `a803df0`)
+### Wave A — carry-in slice (committed `a803df0`) — ✅ owner-verified 2026-08-27
 
-- [ ] BUG-049 — point-edit bounds, hit-testing, and shadow paint bounds.
-- [ ] BUG-050 — immediate arrow nudge from Layers, docked and floating.
-- [ ] BUG-051 — tray palette ordering across displays, both activation routes.
-- [ ] BUG-052 — Reveal in Layers / Expand · Collapse All against the live panel.
-- [ ] FEAT-047 — Auto-select on and off, including buried-layer drag and undo.
-- [ ] FEAT-027 — recursive Convert to Outlines / Convert to Path / Outline Stroke.
+- [x] BUG-049 — point-edit bounds, hit-testing, and shadow paint bounds.
+- [x] BUG-050 — immediate arrow nudge from Layers, docked and floating.
+- [x] BUG-051 — tray palette ordering across displays, both activation routes.
+- [x] BUG-052 — Reveal in Layers / Expand · Collapse All against the live panel.
+- [x] FEAT-047 — Auto-select on and off, including buried-layer drag and undo.
+- [x] FEAT-027 — recursive Convert to Outlines / Convert to Path / Outline Stroke.
 
 ### Wave B — Sanaa core
 
-- [ ] FEAT-048 — socket create/undo, the full gate matrix, and a real-client batch
+First live FEAT-048 gate run 2026-08-26 was **partial/failed**: the disabled phase
+created a probe artboard, the enabled happy path created its expected artboard,
+and the original shell verifier miscounted both because it counted JSON-RPC
+envelope ids and did not parse escaped tool payloads. The verifier is repaired;
+the rebuilt rerun passed all **11/11 automated cases**. Owner manual MCP approval,
+per-document consent, applied change, and named one-step undo/redo passed
+2026-08-26. The final owner pass confirmed a real-client three-artboard batch,
+save/reopen, Quick Look, PNG/SVG/Handoff HTML fidelity, appearance, and VoiceOver.
+Both FEAT-048 gates are complete.
+
+FEAT-049's canvas-only Codex route, success-backed receipts, Select/Go commands,
+highlight/Reduce Motion behavior, and VoiceOver announcement implementation are
+built as of 2026-08-26. Automated packaged IPC is **7/7** with **4/4** negative
+trust/protocol gates, a signed Debug build verifies deeply, and both the sandboxed
+EXP→helper→Codex stream and app-facing transcript/clear probes pass. The unchecked
+lines below deliberately remain owner/distribution gates.
+
+First owner canvas pass found the Codex MCP server's `auto` approval mode could
+silently reject a read in the headless runtime. It now uses `approve` only for the
+exact seven-tool EXP allowlist; EXP still owns every write gate. Fresh packaged and
+signed-sandboxed `list_artboards → get_artboard` regressions pass with no prompt.
+Connection/setup now lives in Settings ▸ Sanaa, with direct Handoff/Sanaa panel
+links, per-client canvas status, and optional account/plan/rate-limit/token-activity
+details sourced from Codex app-server. The packaged 7/7 contract now also repeats
+an explicit account-status refresh and received all three optional detail surfaces
+on the owner's signed-in Codex account.
+
+- [x] FEAT-048 — socket create/undo, the full gate matrix, and a real-client batch
       that saves, reopens, and exports identically to hand-drawn content.
-- [ ] FEAT-048 — with Sanaa disabled, EXP shows no trace of it anywhere.
-- [ ] FEAT-049 — feed order, highlights, announcements, Reduce Motion variant.
-- [ ] FEAT-050 — placement sheets, enablement matrix, keyboard and VoiceOver.
+- [x] FEAT-048 — with Sanaa disabled, EXP shows no trace of it anywhere.
+- [x] FEAT-049 — bundled Sanaa Runtime passes signing/notarization and restricted
+      IPC gates; Codex account/setup, Send, streamed reply, Stop, reconnect/resume,
+      signed-out/host-missing failures, and canvas-only tool allowlist are proven.
+- [x] FEAT-049 — conditional Sanaa panel, transcript order/scrolling, explicit
+      tool/update receipts, highlights, announcements, Reduce Motion variant,
+      Settings connection/usage layout, jump links, and multi-client status.
+      **Owner-verified 2026-08-27**: started a design from a blank canvas through
+      Sanaa and edited every piece it drew once content existed on the canvas.
+- [ ] FEAT-050 — placement sheets, enablement matrix, keyboard and VoiceOver. NOT
+      built yet.
 
 ### Wave C — vector toolset, and the export fidelity bug
 
 Run `docs/EXPORT-FIDELITY-TEST-FIXTURES.md` first — it is self-contained and needs
-no code change. Both entries below are unfixed and unverified as of 2026-08-25.
+no code change. Both fixes are BUILT 2026-08-27 (BUG-053 in full — see its BACKLOG
+implementation notes, including two measured-and-fixed PDF Porter-Duff defects —
+plus BUG-054's silent fail-open); `scripts/verify_effect_export_coverage.sh` is
+their automated gate and passes 6/6. The lines below are the owner fixture runs,
+which remain the acceptance.
 
 - [ ] BUG-053 — Fixture A run; `noise` and `dissolve` render in PNG, JPG, and PDF
-      as they do on canvas and in SVG. The hard-edged dark rectangle in the owner's
-      original file is accounted for, not just gone.
+  as they do on canvas and in SVG. The hard-edged dark rectangle in the owner's
+  original file is accounted for, not just gone. Re-export the original light-leak
+  file against the canvas screenshot.
 - [ ] BUG-054 — Fixture B run; a blur renders at the same model-space radius on
-      canvas at every zoom and in export at every scale, and an unrenderable blur
-      degrades in resolution rather than in radius, never silently.
+  canvas at every zoom and in export at every scale, and an unrenderable blur
+  degrades in resolution rather than in radius, never silently. NOTE: the
+  degrade-not-drop half is fixed 2026-08-27; the device-space radius clamps are
+  still open (BACKLOG BUG-054 records why they wait on the bounded offscreen
+  shadow renderer and the BUG-034 resource gates) — run Fixture B and record
+  which predictions hold for what shipped.
+- [ ] BUG-056 — gradients with transparent stops export opaque through the PDF
+  path. Fix built 2026-08-28 (BACKLOG BUG-056; the failure was isolated to raw
+  CoreGraphics dropping CGGradient stop alpha in PDF emission). Owner gate:
+  re-export the owner's FX-A-2 extended test file and the original light-leak
+  file; canvas and PNG must agree on the glow falloffs at 1× and at 2×/3×
+  export scales. Covered by `verify_effect_export_coverage.sh` (7/7).
 
 - [x] FEAT-025 — owner verified 2026-08-25 (core behaviour + the flagged
       select-and-drag change). Regression items below not separately walked.
@@ -138,6 +188,7 @@ scripts/verify_figma_importer.sh
 scripts/verify_semantic_html_contract.sh
 scripts/verify_semantic_html_package.sh
 scripts/verify_svg_token_bridge.sh
+scripts/verify_effect_export_coverage.sh
 scripts/verify_codepen_package_import.sh
 scripts/verify_rendered_html_importer.sh
 scripts/verify_rendered_html_webkit.sh

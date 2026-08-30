@@ -12,6 +12,8 @@
 		89BA6E6A2FE720550056C6DC /* Quartz.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 89BA6E692FE720550056C6DC /* Quartz.framework */; };
 		89BA6E712FE720550056C6DC /* EXPThumbnail.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 89BA6E652FE720550056C6DC /* EXPThumbnail.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		89C000013002100000000001 /* exp-mcp in Agent Helpers */ = {isa = PBXBuildFile; fileRef = 89C000043002100000000004 /* exp-mcp */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		89D100013002200000000001 /* sanaa-runtime in Agent Helpers */ = {isa = PBXBuildFile; fileRef = 89D100043002200000000004 /* sanaa-runtime */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
+		89D1000D300220000000000D /* SanaaRuntimeProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89D1000E300220000000000E /* SanaaRuntimeProtocol.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -28,6 +30,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = 89C000073002100000000007;
 			remoteInfo = "exp-mcp";
+		};
+		89D100023002200000000002 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 89BA6DF62FD083870056C6DC /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 89D100073002200000000007;
+			remoteInfo = "sanaa-runtime";
 		};
 /* End PBXContainerItemProxy section */
 
@@ -50,6 +59,7 @@
 			dstSubfolderSpec = 1;
 			files = (
 				89C000013002100000000001 /* exp-mcp in Agent Helpers */,
+				89D100013002200000000001 /* sanaa-runtime in Agent Helpers */,
 			);
 			name = "Agent Helpers";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -62,6 +72,8 @@
 		89BA6E672FE720550056C6DC /* QuickLookThumbnailing.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuickLookThumbnailing.framework; path = System/Library/Frameworks/QuickLookThumbnailing.framework; sourceTree = SDKROOT; };
 		89BA6E692FE720550056C6DC /* Quartz.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Quartz.framework; path = System/Library/Frameworks/Quartz.framework; sourceTree = SDKROOT; };
 		89C000043002100000000004 /* exp-mcp */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = "exp-mcp"; sourceTree = BUILT_PRODUCTS_DIR; };
+		89D100043002200000000004 /* sanaa-runtime */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = "sanaa-runtime"; sourceTree = BUILT_PRODUCTS_DIR; };
+		89D1000E300220000000000E /* SanaaRuntimeProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SanaaRuntimeProtocol.swift; path = "EXP [design]/UI/SanaaRuntimeProtocol.swift"; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -112,6 +124,11 @@
 			path = "exp-mcp";
 			sourceTree = "<group>";
 		};
+		89D100053002200000000005 /* sanaa-runtime */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "sanaa-runtime";
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -139,6 +156,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		89D100063002200000000006 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -148,6 +172,8 @@
 				89BA6E002FD083870056C6DC /* EXP [design] */,
 				89BA6E6B2FE720550056C6DC /* EXPThumbnail */,
 				89C000053002100000000005 /* exp-mcp */,
+				89D100053002200000000005 /* sanaa-runtime */,
+				89D1000E300220000000000E /* SanaaRuntimeProtocol.swift */,
 				89BA6E662FE720550056C6DC /* Frameworks */,
 				89BA6DFF2FD083870056C6DC /* Products */,
 			);
@@ -159,6 +185,7 @@
 				89BA6DFE2FD083870056C6DC /* EXP [design].app */,
 				89BA6E652FE720550056C6DC /* EXPThumbnail.appex */,
 				89C000043002100000000004 /* exp-mcp */,
+				89D100043002200000000004 /* sanaa-runtime */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -190,6 +217,7 @@
 			dependencies = (
 				89BA6E702FE720550056C6DC /* PBXTargetDependency */,
 				89C000093002100000000009 /* PBXTargetDependency */,
+				89D100093002200000000009 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				89BA6E002FD083870056C6DC /* EXP [design] */,
@@ -245,6 +273,27 @@
 			productReference = 89C000043002100000000004 /* exp-mcp */;
 			productType = "com.apple.product-type.tool";
 		};
+		89D100073002200000000007 /* sanaa-runtime */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 89D1000C300220000000000C /* Build configuration list for PBXNativeTarget "sanaa-runtime" */;
+			buildPhases = (
+				89D100083002200000000008 /* Sources */,
+				89D100063002200000000006 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				89D100053002200000000005 /* sanaa-runtime */,
+			);
+			name = "sanaa-runtime";
+			packageProductDependencies = (
+			);
+			productName = "sanaa-runtime";
+			productReference = 89D100043002200000000004 /* sanaa-runtime */;
+			productType = "com.apple.product-type.tool";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -262,6 +311,9 @@
 						CreatedOnToolsVersion = 26.3;
 					};
 					89C000073002100000000007 = {
+						CreatedOnToolsVersion = 26.3;
+					};
+					89D100073002200000000007 = {
 						CreatedOnToolsVersion = 26.3;
 					};
 				};
@@ -286,6 +338,7 @@
 				89BA6DFD2FD083870056C6DC /* EXP [design] */,
 				89BA6E642FE720550056C6DC /* EXPThumbnail */,
 				89C000073002100000000007 /* exp-mcp */,
+				89D100073002200000000007 /* sanaa-runtime */,
 			);
 		};
 /* End PBXProject section */
@@ -329,6 +382,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		89D100083002200000000008 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				89D1000D300220000000000D /* SanaaRuntimeProtocol.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -341,6 +402,11 @@
 			isa = PBXTargetDependency;
 			target = 89C000073002100000000007 /* exp-mcp */;
 			targetProxy = 89C000023002100000000002 /* PBXContainerItemProxy */;
+		};
+		89D100093002200000000009 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 89D100073002200000000007 /* sanaa-runtime */;
+			targetProxy = 89D100023002200000000002 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -629,6 +695,46 @@
 			};
 			name = Release;
 		};
+		89D1000A300220000000000A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 15;
+				DEVELOPMENT_TEAM = 65LD7TZAL3;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.2;
+				MARKETING_VERSION = 2.4;
+				PRODUCT_BUNDLE_IDENTIFIER = "tapps.EXP--design-.sanaa-runtime";
+				PRODUCT_NAME = "sanaa-runtime";
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		89D1000B300220000000000B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 15;
+				DEVELOPMENT_TEAM = 65LD7TZAL3;
+				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 26.2;
+				MARKETING_VERSION = 2.4;
+				PRODUCT_BUNDLE_IDENTIFIER = "tapps.EXP--design-.sanaa-runtime";
+				PRODUCT_NAME = "sanaa-runtime";
+				SKIP_INSTALL = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -664,6 +770,15 @@
 			buildConfigurations = (
 				89C0000A300210000000000A /* Debug */,
 				89C0000B300210000000000B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		89D1000C300220000000000C /* Build configuration list for PBXNativeTarget "sanaa-runtime" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				89D1000A300220000000000A /* Debug */,
+				89D1000B300220000000000B /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

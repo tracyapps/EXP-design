@@ -431,7 +431,8 @@ final class AppState {
     /// in Multi-Window, this window's dock columns in Single-Window. Used for the
     /// Window menu's checkmarks + toggling.
     func isPanelShown(_ id: PanelID) -> Bool {
-        workspaceMode == .multiWindow
+        guard id.isAvailable else { return false }
+        return workspaceMode == .multiWindow
             ? PanelHub.shared.isPanelInTrays(id)
             : isPanelVisible(id)
     }
@@ -439,6 +440,7 @@ final class AppState {
     /// Show/hide a panel, acting on whichever mode is active: this window's dock
     /// in Single-Window, or the shared trays in Multi-Window.
     func togglePanel(_ id: PanelID) {
+        guard id.isAvailable else { return }
         if workspaceMode == .multiWindow {
             PanelHub.shared.togglePanel(id)
             return
@@ -463,6 +465,7 @@ final class AppState {
     /// a panel can exist in the layout while its tray is collapsed or its dock tab
     /// is inactive, neither of which `isPanelShown` distinguishes.
     func revealPanel(_ id: PanelID) {
+        guard id.isAvailable else { return }
         if workspaceMode == .multiWindow {
             PanelHub.shared.revealPanel(id)
             PanelWindowManager.shared.reconcile()
@@ -480,7 +483,10 @@ final class AppState {
     }
 
     /// Reveal a closed panel (Window-menu): adds it to the shared trays.
-    func ensurePanelTray(_ panel: PanelID) { PanelHub.shared.ensurePanelTray(panel) }
+    func ensurePanelTray(_ panel: PanelID) {
+        guard panel.isAvailable else { return }
+        PanelHub.shared.ensurePanelTray(panel)
+    }
 
     // MARK: Camera (the viewport into the document)
     //

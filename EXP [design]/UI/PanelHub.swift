@@ -192,6 +192,16 @@ final class PanelHub {
         trays.contains { $0.panels.contains(id) }
     }
 
+    /// Presentation-only projection. Conditional panels stay in the persisted
+    /// tray model while unavailable, but do not produce headers or windows.
+    func availablePanels(in tray: PanelTray) -> [PanelID] {
+        tray.panels.filter(\.isAvailable)
+    }
+
+    func hasAvailablePanels(in tray: PanelTray) -> Bool {
+        !availablePanels(in: tray).isEmpty
+    }
+
     func seedTraysIfNeeded() {
         guard trays.isEmpty else { return }
         trays = Self.defaultPanels.map { PanelTray(panels: [$0]) }
@@ -199,6 +209,7 @@ final class PanelHub {
 
     /// Show a closed panel in its own tray (Window-menu reveal); no-op if shown.
     func ensurePanelTray(_ id: PanelID) {
+        guard id.isAvailable else { return }
         guard !isPanelInTrays(id) else { return }
         trays.append(PanelTray(panels: [id]))
     }
@@ -207,6 +218,7 @@ final class PanelHub {
     /// is insufficient because a tray can keep the panel while its section is
     /// collapsed; Reveal in Layers must undo that collapse before it can scroll.
     func revealPanel(_ id: PanelID) {
+        guard id.isAvailable else { return }
         ensurePanelTray(id)
         guard let index = trays.firstIndex(where: { $0.panels.contains(id) }),
               trays[index].collapsed.contains(id) else { return }
@@ -217,6 +229,7 @@ final class PanelHub {
 
     /// Show/hide a panel: add a tray for it, or remove it from its tray.
     func togglePanel(_ id: PanelID) {
+        guard id.isAvailable else { return }
         if isPanelInTrays(id) {
             var t = trays
             for i in t.indices { t[i].panels.removeAll { $0 == id }; t[i].collapsed.remove(id) }
@@ -321,7 +334,8 @@ final class PanelHub {
     /// Every tray in `trayID`'s group, left to right. Empty when it is not glued.
     func groupMembers(of trayID: UUID) -> [PanelTray] {
         guard let group = trays.first(where: { $0.id == trayID })?.groupID else { return [] }
-        return trays.filter { $0.groupID == group }.sorted { $0.frame.minX < $1.frame.minX }
+        return trays.filter { $0.groupID == group && hasAvailablePanels(in: $0) }
+            .sorted { $0.frame.minX < $1.frame.minX }
     }
 
     /// The tray whose right edge meets `trayID`'s left edge in the same group.

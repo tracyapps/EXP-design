@@ -38,8 +38,9 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: bug (fidelity/divergence — the failure this tool exists to prevent)
 - Priority: P1
 - Area: export · effects · canvas
-- Status: **open — root cause identified 2026-08-25 by source inspection; not yet
-  reproduced by running the renderer, and no fix written**
+- Status: **fix built 2026-08-27 (implementation notes below); awaiting the
+  owner's Fixture A run. Automated twin of Fixture A plus three PDF-path probes
+  pass 6/6; token-bridge regression and full app + EXPThumbnail builds pass.**
 - Repro/Detail: Owner built layered light-leak graphics using overlay / color /
   color-dodge layers at various opacities, one of them a blue layer carrying a
   `noise` (feTurbulence) effect. PNG export does not match the canvas: the broad
@@ -94,6 +95,17 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   this being the cause of the rectangle — but the mode is genuinely unrepresentable
   in PDF, so verify it rather than assume. Test: disable preserve-transparency on
   EVERY drop shadow in the document at once.
+  **MEASURED 2026-08-27 while fixing this entry: the PDF behavior is neither
+  honored nor black — the knockout draw is silently IGNORED.** A preserve-
+  transparency shadow exported pixel-identically to the same shadow without
+  preserve-transparency: the shadow stays under semi-transparent fills, so those
+  fills export darker than the canvas renders them (canvas knocks out, export
+  does not). Fixed in the same pass (see implementation notes); the black-paint
+  scenario does not occur.
+  The sibling mode `.destinationIn` (the group-noise punch for silhouette-less
+  nodes) behaves differently: it **falls back to Normal**, which painted the
+  node's content over the grain and leaked noise outside the node's pixels.
+  Also fixed — see implementation notes.
 - **Decisive test before writing any fix: `docs/EXPORT-FIDELITY-TEST-FIXTURES.md`,
   Fixture A (~15 min).** Build instructions are exact and self-contained — artboard
   size, layer positions, effect values, which exports to take, and a table of what
@@ -110,6 +122,46 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   next effect kind free to go missing the same way. Prefer one shared effect
   pipeline over a fourth hand-kept mirror. See also BUG-054, found the same day,
   which is the same drift in the blur geometry.
+- **Implementation 2026-08-27.** `drawExportNode` now draws dissolve and noise in
+  the canvas's exact order: dissolve masks clip everything the node draws (shadow
+  casters included, so a dissolved node casts a dissolved shadow), drop shadows
+  under, inner shadows over, noise last. Two structural pieces were required
+  beyond the branches:
+  1. *Synchronous turbulence tiles.* The canvas tile cache is deliberately
+     non-blocking ("skip this frame, redraw on `tileReadyNotification`") — a
+     one-shot export cannot skip a frame, and a cold cache would have reproduced
+     exactly this bug's silence. `TurbulenceNoise` gained
+     `noiseImageSync`/`dissolveMaskSync` (shared key + builder, shared LRU via a
+     `cachedSync` counterpart to `cachedAsync`; no notification posted). The
+     canvas render path is unchanged and never calls them.
+  2. *PDF-safe composites for the two Porter-Duff sites.* CG honors
+     `.destinationIn`/`.destinationOut` only in bitmap contexts; both measured
+     behaviors above are fixed for the PDF-intermediate path only: silhouette-less
+     noise clips through a content-alpha mask (`CGContext.clip(to:mask:)`, which
+     CG emits as a PDF soft mask — the dissolve masks already proved that route),
+     and preserve-transparency shadows render whole into a bounded offscreen
+     bitmap via the same dance `drawLayerBlur` ships, then composite back. The
+     canvas code paths are untouched.
+  Quick Look thumbnails compile `ExportRenderer.swift`/`EffectsRender.swift`/
+  `TurbulenceNoise.swift` directly, so the fix covers PNG, JPG, PDF export AND
+  thumbnails in one change. `Effect.Kind` is now `CaseIterable` so checks can
+  enumerate it.
+- **Regression gate:** `scripts/verify_effect_export_coverage.sh` compiles the
+  real renderer headlessly and passes **6/6** — the automated Fixture A (plain /
+  noise-at-Color-Dodge / dissolve, asserting grain, backdrop lift, and speckle),
+  an `Kind.allCases` sweep proving every renderable kind changes BOTH raster and
+  SVG output vs a no-effect baseline (a future kind an exporter forgets fails
+  here; `backgroundBlur` is allowlisted while it is globally feature-flagged
+  off), the group-noise punch probe, the knockout probe (distinguishes honored /
+  ignored / black), and BUG-054's oversized-layer probe. `verify_svg_token_bridge.sh`
+  still passes; Debug builds of the app and EXPThumbnail targets succeed.
+- **Not claimed by this pass:** the hand-kept mirror remains — `drawExportNode`
+  still duplicates the canvas's effect ORDER by comment (the shared-pipeline
+  refactor is future work); shadows on the raster path are still cast from the
+  UNBLURRED source while `svgFilter` casts them from the blurred source
+  (untested by the fixtures — stacked effects are explicitly out of their
+  scope); the owner's Fixture A run and the original light-leak file re-export
+  are the acceptance gates.
 - Acceptance: every `Effect.Kind` renders in canvas, SVG, PNG, JPG, and PDF, or is
   refused at authoring time — no effect is silently ignored by an exporter. A
   regression fixture covering all six kinds exports identically across raster and
@@ -120,8 +172,10 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: bug (fidelity/divergence)
 - Priority: P2
 - Area: export · effects · canvas · perf
-- Status: **open — found 2026-08-25 while tracing BUG-053; NOT the cause of the
-  owner's reported divergence (see BUG-053), but a real one in its own right**
+- Status: **half fixed 2026-08-27 — the silent fail-open is closed (detail at the
+  end); the radius-space divergences remain open. Fixture B owner run pending.
+  Originally found 2026-08-25 while tracing BUG-053; NOT the cause of the owner's
+  reported divergence (see BUG-053), but a real one in its own right.**
 - **Honest history:** this was first written up as the explanation for BUG-053's
   evidence. It is not. The owner's observation that a noise layer "is not
   registering" led to the real cause. The measurements that pointed here — light
@@ -157,6 +211,27 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Acceptance: a blur renders at the same MODEL-space radius on canvas at every zoom
   and in export at every scale. A blur too large to render at full resolution
   degrades in resolution, never in radius, and never silently.
+- **Fixed 2026-08-27, the fail-open half:** `drawLayerBlur`'s size guards no longer
+  drop the blur. A layer whose full-resolution bitmap would exceed
+  `maxLayerDimension`/`maxLayerPixels` now renders at a reduced scale, blurs with
+  the proportionally reduced sigma, and composites back at full size — radius in
+  model space preserved, resolution degraded. This was BUG-053-class silence: an
+  oversized heavily-blurred layer (the kind that trips the guards) exported with
+  NO blur at all, and the canvas dropped it the same way. Proven by the
+  oversized-layer probe in `scripts/verify_effect_export_coverage.sh` (13,000pt
+  layer vs the 12,000pt guard renders blurred, not bare).
+- **Still open, deliberately:** (1) the shadow/inner-shadow blur clamp
+  `min(blur × scale, 200)` is still applied in DEVICE space, so canvas
+  (scale = zoom) and export (scale = 1) agree only at 100% zoom. Moving the clamp
+  to model space — `min(blur, 200) × scale` — unbounds the device sigma at high
+  zoom, which is the exact "Surface too large"/render-thread hang the clamp was
+  added to prevent; it needs the bounded offscreen shadow renderer (the same
+  bitmap pattern the BUG-053 knockout fix introduced) and must respect the
+  BUG-034 Stage 2 resource gates before touching the live canvas path.
+  (2) canvas `drawLayerBlur` still multiplies sigma by backing scale but not by
+  zoom while its bounds/pad are view-space, so canvas layer blur is
+  model-consistent only at 100% zoom; export is model-consistent. Same constraint
+  class — fix under the BUG-034 gates, not casually.
 
 ### BUG-055 — SVG export drops inner-shadow spread on every shape
 
@@ -273,11 +348,65 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   events. A row selection now makes its document window key and then focuses that
   canvas; the trays remain visually forward as non-key floating palettes.
 - Acceptance: one click on any visible Layers row followed immediately by an arrow
-  moves that layer by one point; Shift-arrow moves it by ten. This works after focus
-  was in an Inspector text field, from both docked and floating Layers panels, and
+  moves that layer by one point; Shift-arrow moves by ten. This works after focus
+  was in the Inspector, from both docked and floating Layers panels, and
   for nested or visually covered layers. The click remains a normal accessible layer
   selection and does not start a move. Double-click rename and panel text fields can
   still reclaim key focus when deliberately invoked.
+
+### BUG-056 — Gradients with transparent stops export OPAQUE through the PDF intermediate
+- Type: bug (fidelity/divergence — same family as BUG-053)
+- Priority: P1
+- Area: export · color · gradients
+- Status: **fix built 2026-08-28 (implementation notes below); owner re-export of
+  the modified FX-A-2 test file is the acceptance gate. Automated probe passes —
+  export now matches a direct canvas-truth bitmap within ±3/255 across the falloff.**
+- Repro/Detail: Owner extended the BUG-053 test file (FX-A-2: three panels of
+  overlapping radial-gradient glows with noise effects and blend modes) and found
+  the PNG export nothing like the canvas: gradients that fade to transparent
+  rendered as hard-edged fully-saturated blobs, overlaps showed hard seams, blend
+  modes looked lost (screenshot 2026-08-28 8.31 AM).
+- **Root cause is in CoreGraphics, not EXP: CG's PDF emitter drops CGGradient stop
+  ALPHA.** Proven at the raw-API level (2026-08-28): a bare `CGContext(PDF)` +
+  `drawRadialGradient` with stops alpha 0.9→0.0 produces a fully opaque gradient —
+  no EXP code in the path. PDF shading functions have no alpha component and CG
+  flattens stop alpha to opaque rather than synthesizing a soft mask. Wrapping the
+  draw in a transparency layer does not help (measured). Bitmap contexts (the live
+  canvas) are exact; SVG export emits `stop-opacity` and is exact. So canvas and
+  SVG agreed while PNG, JPG, PDF, and Quick Look thumbnails (all PDF-intermediate)
+  silently flattened every gradient-to-transparent since gradients shipped. The
+  BUG-053 fixture could not catch it — Fixture A uses solid fills only.
+- Implementation 2026-08-28: `PaintRender.fill`/`fillRect`/`drawGradient` gained a
+  `pdfSafeAlpha` flag. When set (all `ExportRenderer` call sites; the canvas keeps
+  the default false — it is correct as-is) and any stop has alpha < 1, coverage is
+  rendered as a rect-sized white×alpha RGBA bitmap and applied with
+  `CGContext.clip(to:mask:)` — the PDF soft-mask route the dissolve and
+  content-alpha masks already proved — while the COLOR ramp draws as an opaque
+  vector shading. The mask is capped (4096 px max dimension, 8M px) so huge
+  gradients cannot allocate huge bitmaps; a smooth ramp resamples gracefully.
+  Symmetry note: for stops that vary color AND alpha, both routes show the
+  lerped hue under lerped coverage, so canvas and export agree.
+- **Follow-up 2026-08-28 (owner's 2× export, "still a little choppy"):** the PDF
+  rasterizer nearest-samples the soft mask when scaling it — a 1×-baked mask at
+  2× export advanced the falloff in uniform 2px runs (measured run-length
+  histograms; 3px runs at 3×). Setting `interpolationQuality` on the rasterizing
+  context changes nothing, so the mask is now baked at **3× supersample** (same
+  caps; `drawLayerBlur`-style `scaleBy(scale, -scale)` CTM — the original mask
+  CTM omitted the scale factor and worked only at 1×). Post-fix run-length
+  distributions match a direct canvas-truth bitmap at 2× and 3× (max run 4 vs
+  truth's 3 at 2×; quantization itself produces runs of 1–4).
+- Regression gate: the `gradientAlphaThroughPDF` probe in
+  `scripts/verify_effect_export_coverage.sh` (now **7/7**) renders a radial
+  white 0.9→0 gradient, exports PNG, and compares five radii against a
+  direct-bitmap render of the same gradient within ±3/255, plus asserts real
+  falloff so the flat-opaque regression fails loudly, plus asserts at 2× and 3×
+  that no run of ≥6 identical pixels appears in the falloff (the stepping
+  signature the supersample fixes).
+- Not claimed: gradient strokes (the model's strokes are solid `RGBAColor` —
+  nothing to fix); text fills (attributed strings, solid only). Owner gate:
+  re-export FX-A-2 and the original light-leak file and compare against the
+  canvas at 1× and 2×+ (the mask is resolution-capped — at extreme export scales
+  the alpha ramp softens slightly; the color ramp stays vector at every scale).
 
 ### BUG-049 — Keyboard point moves leave path bounds, hit-testing, and shadows stale
 - Type: bug
@@ -2412,21 +2541,24 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   is keyboard- and VoiceOver-operable, persists across relaunch, and stays in sync
   between Layers, View, and Settings.
 
-> **Sanaa cluster (FEAT-048 … FEAT-053).** EXP's optional design assistant —
+> **Sanaa cluster (FEAT-048 … FEAT-060).** EXP's optional design assistant —
 > pen.dev-style "look at the canvas and draw" on the EXISTING agent bridge
 > (agents reach in; no LLM or API keys in EXP; everything OFF by default).
 > The full design, placement rules, architecture, and per-chunk agent
 > instructions live in **`docs/SANAA-PLAN.md`** — read it before starting any
 > entry below. Sequencing rule: FEAT-048 must not start until the current
 > v2.4 slice (BUG-049…052, FEAT-047, FEAT-027) passes owner verification, and
-> 048 → 049 → 050 is the intended order.
+> 048 → 049 → 050 is the intended order. FEAT-054–060 (Part II — the knowledge pack + facts tool, SANAA-PLAN §10):
+> 054/055 plus the FEAT-050 amendment are v2.4 Wave D additions (non-mutating;
+> build order 054 → 055 → 050 amendment); 056–060 are v2.5 candidates
+> awaiting owner gates.
 
 ### FEAT-048 — Sanaa: `apply_edits` consented, undo-safe write-back (F3 spine)
 - Type: feature
 - Priority: P2
 - Area: export · model · chrome
-- Status: **needs-verify — implemented 2026-08-25; NO runtime verification has been
-  run yet (see "What is NOT verified" below)**
+- Status: **needs-verify — implemented 2026-08-25; automated runtime gate 11/11
+  on 2026-08-26; manual gates remain (see "What is NOT verified" below)**
 - Repro/Detail: The agent bridge is read-only. Add ONE transactional write tool,
   `apply_edits` (typed ops: createPage/createArtboard/duplicateArtboard/
   insertNodes/replaceNode/removeNodes), gated behind new default-off switches
@@ -2454,7 +2586,10 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   Sanaa is off. Settings gains a Sanaa pane — the one Sanaa surface that exists
   while Sanaa is off, because it is where you turn it on — and turning either
   switch off clears live consent. The Handoff agent capsule now reads CAN DRAW or
-  READ ONLY from the live switches (text, not colour).
+  READ ONLY from the live switches (text, not colour). Follow-up 2026-08-26:
+  both Sanaa controls now use native switch presentation, and their on-state plus
+  Handoff's agent-access switch observe EXP's effective app accent instead of
+  staying on the macOS blue when an app accent override is active.
 - Two design decisions worth keeping: (1) **consent is asked after a dry run, not
   before.** The batch is applied to a copy of the document first, so a call that
   was never going to work ("no node exists with id …") cannot put a permission
@@ -2467,27 +2602,43 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   alongside real UUIDs. That also cleanly decides consent: a batch reference can
   only point at something this batch created, so `insertNodes` is "in place" —
   and consent-gated — exactly when its `artboardId` is a real UUID.
-- **What is NOT verified.** The Debug build is green for both the app and
-  EXPThumbnail schemes (the new file is app-target only, confirmed against the
-  synchronized-group exception set), and `git diff --check` is clean. Nothing
-  else. No socket call has been made, no gate has been exercised at runtime, the
-  consent sheet has never been displayed, and no VoiceOver/appearance pass has
-  been run — the session had no reachable EXP instance and no access to the app's
-  sandbox container. `scripts/verify_sanaa_write_gate.sh` was written to run the
-  whole SANAA-PLAN §6 test-2 matrix in one command; it has never been executed.
-  Treat every acceptance line above as open.
+- **What is NOT verified.** First live gate run 2026-08-26 returned 8 pass / 3
+  fail, but that headline hid two verifier defects: nested tool-result JSON was
+  matched as if it were the outer response, and `artboard_count` counted the two
+  JSON-RPC envelope ids rather than artboards. The owner confirmed a one-artboard
+  scratch document became three: Phase 1 unexpectedly created `Gate probe` while
+  the master switch was intended off, and Phase 3 successfully created `Sanaa
+  gate test` with the right undo-step payload but was falsely reported as an
+  unexpected reply. Phase 2's write switch and all seven malformed-input error
+  messages behaved correctly. The script now counts escaped artboard ids and
+  recognizes the nested success payload; a focused invalid call proved the new
+  accounting held the live document at 3 → 3. The owner then relaunched the
+  rebuilt switch UI and the complete automated matrix passed **11/11**, including
+  the disabled master-switch case that had written during the first run. Still
+  open: verify the undo labels, run both manual consent choices/re-ask timing,
+  real-client save/reopen/export, and the owner AX and appearance pass.
 
-### FEAT-049 — Sanaa: presence layer (activity feed, canvas highlights, announcements)
+### FEAT-049 — Sanaa: dedicated panel, presence, activity, and announcements
 - Type: feature
 - Priority: P2
 - Area: chrome · canvas
 - Status: open
-- Repro/Detail: Applied batches must be visible and reviewable: session-scoped
-  in-memory activity feed (client, time, summary, affected ids) with "Select
-  Sanaa's changes" and "Go there"; a one-pulse canvas highlight on affected
-  nodes (static outline under Reduce Motion); a VoiceOver announcement per
-  batch. Draw in the canvas overlay — no companion windows. Command coverage +
-  `sendCanvasAction` for the two new actions. Depends on FEAT-048.
+- Repro/Detail: Sanaa gets a dedicated first-class dockable panel, available only
+  while her master setting is enabled. Off means absent from Window menu, docks,
+  and floating trays without destroying saved placement; on restores availability
+  and may remain visible while idle/disconnected. The panel holds a scrollable,
+  session-only chronological transcript: editable designer prompts, explicitly
+  agent-posted progress/replies, and applied-batch receipts (client, time, summary,
+  affected ids) with "Select Sanaa's changes" and "Go there". The prompt composer
+  stays anchored at the bottom. A one-pulse canvas highlight (static outline under
+  Reduce Motion) and VoiceOver announcement accompany each batch. Standard
+  multi-window trays already provide the floating form; a separate single-window
+  "Pop Out Sanaa" command is deferred pending real use. Depends on FEAT-048.
+- Transport boundary: the MCP bridge cannot initiate an external agent turn or
+  capture arbitrary host output. The first honest composer action remains "Copy
+  prompt for my agent"; a bounded non-mutating tool may let an already-running
+  agent explicitly post status/replies. Direct Send/streaming requires a separate
+  host/auth/privacy/cancellation research gate and must not be faked.
 - Acceptance: SANAA-PLAN §6/FEAT-049 — scripted batches show correct feed
   order/highlights/announcements, reduced-motion variant verified, menu
   enablement matrix passes, disabling Sanaa clears every surface without
@@ -2502,9 +2653,10 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   variations… / Do repetitive work…". Sheets collect the owner's placement
   decisions up front (complete: in-place vs duplicate-beside, default
   duplicate; variations: count + same page vs new page, default new page) and
-  compose an id-rich prompt onto the clipboard ("Copy prompt for my agent" —
-  the external-agent seam stays explicit). Full five-way command coverage; the
-  sheet is the parameter surface. Depends on FEAT-048.
+  compose an id-rich prompt into Sanaa's panel for editing, then copy it to the
+  external agent ("Copy prompt for my agent" — the seam stays explicit). Full
+  five-way command coverage; the sheet is the parameter surface. Depends on
+  FEAT-048 and pairs with the FEAT-049 panel.
 - Acceptance: SANAA-PLAN §6/FEAT-050 — enablement matrix across selection
   shapes, pasted prompts drive correctly-placed `apply_edits` batches in a real
   agent, sheets pass keyboard/VoiceOver checks.
@@ -2601,6 +2753,190 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Acceptance: SANAA-PLAN §6/FEAT-053 — a cold real-agent session run through
   the three starter scenarios scores clean against the etiquette list, and a
   vague "finish this" makes the agent ask about placement instead of guessing.
+
+### FEAT-054 — Sanaa: design knowledge pack (versioned MCP resources)
+- Type: feature
+- Priority: P2 (v2.4, Wave D)
+- Area: export · infra
+- Status: open
+- Repro/Detail: Sanaa's advice quality depends on design knowledge the host
+  agent does not reliably have. Ship versioned markdown modules as app-bundle
+  resources served via MCP resources (`exp://sanaa/knowledge/<module>` +
+  `exp://sanaa/knowledge/index`): design-principles, color (incl. dark-mode
+  section), typography, spacing-layout (descriptive only — no spacing tokens
+  exist in the model), components-states, copy-microcopy, `styles/<name>` (6–8
+  named aesthetics with concrete attribute descriptors; public taxonomies:
+  uistyleguide.com, DesignerUp), anti-generic (incl. steering rules from
+  Anthropic's public frontend-design skill, named as a public source),
+  critique-framework, directions, a11y-foundations (standards map with URLs:
+  508 → WCAG 2.0 AA; DOJ Title II → WCAG 2.1 AA with the Apr 2026 IFR
+  deadline extension, entity-scoped, re-verify before citing; WCAG 2.2 current
+  REC; EN 301 549 v3.2.1; EAA from 28 Jun 2025; APCA advisory-only; automation
+  coverage 30–40% (UK GDS/DWP guidance), up to ~57% (Deque vendor study),
+  with sources), voice.md, INDEX + pack CHANGELOG. Frontmatter
+  (name/version/updated) + TL;DR-first; baseInstructions gains ~3 pointer
+  lines only. **RESEARCH GATE first:** verify a packaged Codex thread can call
+  resources/list + resources/read through exp-mcp; if not, serve via a
+  `get_design_guidance` read tool added to BOTH `AgentBridge.toolDefinitions`
+  and the runtime `enabled_tools` allowlist. NON-mutating; the pack adds no
+  write path. Module specs: SANAA-PLAN §10/FEAT-054. Builds on the FEAT-053
+  resource seam (either may land first); full value with FEAT-055.
+- Acceptance: SANAA-PLAN §10/FEAT-054 — cold-agent behavior tests (critique
+  cites computed facts, directions diverge on named axes, copy matches
+  voice.md, "make it good" prompts get questions + options instead of silent
+  restyling), token-budget check (INDEX + modules bounded, thread instructions
+  grow ≤ 3 pointer lines), `scripts/verify_sanaa_write_gate.sh` unchanged
+  (no write path added), real-client pass through Codex + one non-Codex MCP
+  client.
+
+### FEAT-055 — Sanaa: computed design facts read tool (`get_design_facts`)
+- Type: feature
+- Priority: P2 (v2.4, Wave D)
+- Area: export · model
+- Status: open
+- Repro/Detail: New NON-mutating MCP read tool `get_design_facts` (artboardId
+  or selection) built on the shipped `Color/ContrastMath.swift`: colorPairs
+  (resolved vs alpha-flattened backing; flattened pairs labeled as estimates
+  with the base reported — WCAG defines no alpha-blending method; 4.5:1 /
+  3:1 large-text thresholds cited to SC 1.4.3; large-text bold via fontName
+  heuristic, labeled as heuristic — TextRun has no weight flag),
+  nonTextContrast (3:1, SC 1.4.11, only where determinable), textSizes,
+  targetSizes (heuristic interactive classification via NodeSemantics roles /
+  component a11y roles / control relationships — no isControl flag exists;
+  24×24 CSS px ≈ points at 1× per SC 2.5.8 with the five exceptions listed),
+  spacingInventory (descriptive only — no spacing tokens exist, no
+  rule-checking implied), fontInventory, and an explicit `notAssessed` list.
+  Output = measured values + criterion citations + heuristics used; NEVER
+  verdicts ("non-compliant"/"fails ADA" forbidden — measured facts, not
+  verdicts). Must extend `AgentBridge.toolDefinitions` AND the hard-coded
+  `enabled_tools` string in `sanaa-runtime/CodexAdapter.swift` (both, or the
+  adapter kills the host). Instance overrides resolved via the deterministic
+  model path; caps + explicit `truncated` flag for large boards; no model
+  changes (new app-target-only `Export/SanaaFacts.swift` expected). Spec:
+  SANAA-PLAN §10/FEAT-055.
+- Acceptance: SANAA-PLAN §10/FEAT-055 — golden fixtures with known ratios
+  match ContrastMath unit expectations (4.5:1 / 3:1 boundaries, large-text
+  cases); honesty cases (alpha reports its flattening base, gradients and
+  rotated text → notAssessed with reason, truncation flag on oversized
+  boards); both-allowlist regression through the packaged Codex thread;
+  no-write proof (document state untouched); FEAT-048 gate matrix unchanged.
+
+### FEAT-056 — Sanaa: critique mode (v2.5 candidate)
+- Type: feature
+- Priority: P2 (v2.5 candidate)
+- Area: chrome · canvas
+- Status: open
+- Repro/Detail: "Ask Sanaa ▸ Critique this…" renders structured, severity-
+  sorted findings in the panel — What works / Measured findings (citing
+  `get_design_facts` values + criteria) / Design observations (judgment,
+  rationale required) / Open questions / Couldn't assess (the facts tool's
+  `notAssessed` values plus the design-stage coverage note) — per the
+  critique-framework module.
+  Each finding references node ids with tap-to-select reusing FEAT-049's
+  receipt Select/Go action infrastructure (findings are a NEW transcript row
+  kind, not applied-batch receipts — receipts are minted only by the apply
+  path today). Fixes are opt-in follow-ups per finding only; critique alone
+  never writes. Never unprompted (SANAA-PLAN §7). The v2.4 minimal slice is
+  the FEAT-050 amendment (§6). Depends on FEAT-055 + FEAT-054. Spec: SANAA-PLAN
+  §10/FEAT-056.
+- Acceptance: SANAA-PLAN §10/FEAT-056 — on golden documents every measured
+  finding traces to a facts value; the Couldn't-assess group matches the
+  facts tool's notAssessed list; tap-to-select hits exactly the referenced
+  nodes; severity sort holds; zero writes from critique alone; voice pass
+  against voice.md.
+
+### FEAT-057 — Sanaa: design directions engine (v2.5 candidate)
+- Type: feature
+- Priority: P3 (v2.5 candidate)
+- Area: chrome · canvas
+- Status: open
+- Repro/Detail: Upgrades the "Draw variations" composition to 3–4 DISTINCT
+  directions along named axes (layout strategy, density, color strategy, type
+  mood), each with a one-line rationale + tradeoff; style anchor field
+  (default: the document's own language via tokens + existing artboards;
+  optional named aesthetic via styles modules); anti-generic rules from
+  anti-generic.md (slop-tell blocklist, one signature element, subject
+  grounding); diversity ≠ extremes; respect the document's tokens unless the
+  designer asks to depart. Non-mutating code — prompt composition only.
+  Depends on FEAT-054. Spec: SANAA-PLAN §10/FEAT-057.
+- Acceptance: SANAA-PLAN §10/FEAT-057 — owner-rubric divergence scoring over
+  golden prompts shows genuinely axis-divergent directions with honest
+  rationales and no repeat of the same default cluster.
+
+### FEAT-058 — Sanaa: cleanup & repetitive ops (`apply_edits` v2) (v2.5 candidate)
+- Type: feature
+- Priority: P2 (v2.5 candidate)
+- Area: export · model
+- Status: open
+- Repro/Detail: MUTATING — the §8 sequencing rule applies in full. New op
+  kinds inside the existing parse → dry-run → consent → rebuild pipeline:
+  `restyleNodes` (property set by predicate), `applyToken` (Design Language
+  value matched BY VALUE — no fill↔token links exist; sets values, creates no
+  links), `normalizeSpacing` (snap auto-layout gaps/sibling deltas to a stated
+  scale), `renameNodes` (pattern/prefix/sequence). The consent receipt shows
+  the exact affected ids + count BEFORE apply (dry-run pass already exists);
+  default predicates narrow; component-SOURCE restyle warns "this changes
+  every use of <component>"; instance internals are skipped (document-level
+  writes only) and the receipt says so; caps ≤200 ops, one consent, one undo
+  step "Sanaa: <summary>" unchanged. Preview and apply must resolve
+  predicates through the SAME code path (assert identical id sets). Anchored-
+  relationship remapping discipline preserved (BUG-010 hazard). Spec:
+  SANAA-PLAN §10/FEAT-058.
+- Acceptance: SANAA-PLAN §10/FEAT-058 — gate-matrix extension (new ops under
+  every switch state); predicate-safety cases (empty match, unexpected broad
+  match, preview-equals-apply proof); source-restyle warning; 201-op cap;
+  undo label correct.
+
+### FEAT-059 — Sanaa: a11y guided fixes (v2.5 candidate)
+- Type: feature
+- Priority: P2 (v2.5 candidate)
+- Area: export · model
+- Status: open
+- Repro/Detail: MUTATING — consented `apply_edits` fix batches composed from
+  `get_design_facts` findings. Contrast fixes via
+  `ContrastMath.suggestForeground` (hue/chroma-preserving) with a
+  nearest-token option; when a token value is the culprit, propose "fix the
+  token, not the instance" (edit the Design Language value) instead of
+  repainting instances. Target-size proposals are version-scoped: ≥24×24
+  CSS px supports SC 2.5.8 (WCAG 2.2 AA — beyond the WCAG 2.0/2.1 baselines
+  US law references), ≥44×44 meets SC 2.5.5 (AAA); spacing is common
+  practice (no WCAG criterion sets spacing values); the tool reports sizes,
+  never pass/fail (the five 2.5.8 exceptions require judgment). Design-stage vs implementation-stage honesty: canvas fixes cover
+  color/size/spacing only — keyboard, focus, and ARIA semantics live in the
+  Handoff export + `docs/SEMANTIC-HTML-CONTRACT.md`, and Sanaa never claims
+  canvas fixes for implementation-stage criteria. Claim copy value-first and
+  judgment-last ("This pair reads 4.53:1 — above the 4.5:1 minimum in SC
+  1.4.3 (large-text rules and unmeasurable fills excluded). Apply, or look
+  at the token instead?"), never unscoped "meets WCAG" / "ADA compliant";
+  the notAssessed list rides along in every proposal;
+  suggested fills respect the document palette. Depends on FEAT-055 +
+  FEAT-058. Spec: SANAA-PLAN §10/FEAT-059.
+- Acceptance: SANAA-PLAN §10/FEAT-059 — suggestions round-trip ContrastMath
+  unit expectations; token-culprit case proposes the token edit; proposal
+  copy passes criteria-level claim checks; consent/undo gates unchanged.
+
+### FEAT-060 — Sanaa: design-quality evaluation harness (v2.5 candidate)
+- Type: feature
+- Priority: P3 (v2.5 candidate)
+- Area: infra
+- Status: open
+- Repro/Detail: `scripts/verify_sanaa_design_quality.sh` (matching the repo's
+  verify-script culture) drives a fresh agent through golden documents +
+  golden prompts and saves full transcripts for owner review. Automated
+  checks ONLY for deterministic parts: placement respected (SANAA-PLAN §3
+  rules), valid facts JSON (schema + criterion citations present, no verdict
+  vocabulary), voice-lint on transcripts (banned words, compliance-claim
+  patterns). Aesthetic quality stays a human gate — LLM-judge agreement with
+  humans on design quality tops out around ~70% (WebDevJudge), with
+  position/verbosity biases, so a judge may only nominate candidates, never
+  grade. Lite version (golden set + hand review) is folded into FEAT-054/055
+  acceptance and ships with them; this chunk is the full runner. Transcripts
+  stay session-local (they contain designer content). Spec: SANAA-PLAN
+  §10/FEAT-060.
+- Acceptance: SANAA-PLAN §10/FEAT-060 — runner produces reviewable
+  transcripts; deterministic checks fail correctly on doctored transcripts
+  (seeded verdict words, placement violations, malformed facts JSON); script
+  output states plainly that green means "behaved," not "good."
 
 ### FEAT-021 — Named workspace presets ("Laptop", "Dual-monitor")
 - Type: feature

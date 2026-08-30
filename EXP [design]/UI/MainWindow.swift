@@ -35,6 +35,7 @@ struct MainWindow: View {
 
     // Document name + edited flag, observed from the NSWindow, for the heading.
     @State private var windowChrome = WindowChrome()
+    @AppStorage(SanaaPreferences.enabled) private var sanaaEnabled = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -98,6 +99,10 @@ struct MainWindow: View {
         .onChange(of: controlActiveState) { _, state in if state == .key { activate() } }
         .onChange(of: app.workspaceMode) { _, _ in activate() }
         .onChange(of: PanelHub.shared.trays) { _, _ in PanelWindowManager.shared.reconcile() }
+        .onChange(of: sanaaEnabled) { _, enabled in
+            if !enabled { SanaaActivityController.shared.disable() }
+            PanelWindowManager.shared.reconcile()
+        }
         // Configure the NSWindow for a custom glass heading (transparent titlebar,
         // content under it, non-opaque so the heading's behind-window glass shows).
         .background(WindowConfigurator(chrome: windowChrome))

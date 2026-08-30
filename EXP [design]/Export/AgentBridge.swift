@@ -31,13 +31,31 @@ enum AgentBridgeLocation {
 final class AgentBridgeController {
     static let shared = AgentBridgeController()
 
+    struct ConnectedClient: Identifiable, Equatable {
+        var id: String { rawName }
+        let rawName: String
+        let displayName: String
+        let connectionCount: Int
+    }
+
     @ObservationIgnored private var server: AgentSocketServer?
     @ObservationIgnored private var terminationObserver: NSObjectProtocol?
 
     private(set) var isRunning = false
     private(set) var connectionCount = 0
-    private(set) var clientName: String?
+    private(set) var connectedClients: [ConnectedClient] = []
     private(set) var lastError: String?
+    @ObservationIgnored private var clientNamesByConnection: [UUID: String] = [:]
+
+    var unidentifiedConnectionCount: Int {
+        max(0, connectionCount - connectedClients.reduce(0) { $0 + $1.connectionCount })
+    }
+
+    /// Kept for the single-client status/receipt path. With multiple clients,
+    /// request routing supplies the exact connection identity instead.
+    var clientName: String? {
+        connectedClients.count == 1 ? connectedClients[0].displayName : nil
+    }
 
     var isEnabled: Bool {
         UserDefaults.standard.bool(forKey: AgentBridgeLocation.enabledDefaultsKey)
@@ -65,15 +83,26 @@ final class AgentBridgeController {
                     Task { @MainActor in
                         let bridge = AgentBridgeController.shared
                         bridge.connectionCount = count
-                        if count == 0 { bridge.clientName = nil }
+                        if count == 0 {
+                            bridge.clientNamesByConnection.removeAll()
+                            bridge.rebuildConnectedClients()
+                        }
                     }
                 },
-                handler: { request, reply in
+                connectionClosed: { connectionID in
+                    Task { @MainActor in
+                        let bridge = AgentBridgeController.shared
+                        bridge.clientNamesByConnection.removeValue(forKey: connectionID)
+                        bridge.rebuildConnectedClients()
+                    }
+                },
+                handler: { connectionID, request, reply in
                     Task { @MainActor in
                         if let name = Self.initializingClientName(in: request) {
-                            AgentBridgeController.shared.clientName = name
+                            AgentBridgeController.shared.recordClient(name, for: connectionID)
                         }
-                        reply(await AgentMCPRouter.handle(request))
+                        let client = AgentBridgeController.shared.clientDisplayName(for: connectionID)
+                        reply(await AgentMCPRouter.handle(request, client: client))
                     }
                 })
             server = socketServer
@@ -95,7 +124,8 @@ final class AgentBridgeController {
         server = nil
         isRunning = false
         connectionCount = 0
-        clientName = nil
+        clientNamesByConnection.removeAll()
+        rebuildConnectedClients()
         if let terminationObserver { NotificationCenter.default.removeObserver(terminationObserver) }
         terminationObserver = nil
     }
@@ -109,6 +139,37 @@ final class AgentBridgeController {
               !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         return name
     }
+
+    private func recordClient(_ name: String, for connectionID: UUID) {
+        clientNamesByConnection[connectionID] = name
+        rebuildConnectedClients()
+    }
+
+    private func clientDisplayName(for connectionID: UUID) -> String {
+        guard let rawName = clientNamesByConnection[connectionID] else {
+            return "A connected agent"
+        }
+        return Self.displayName(for: rawName)
+    }
+
+    private func rebuildConnectedClients() {
+        connectedClients = Dictionary(grouping: clientNamesByConnection.values, by: { $0 })
+            .map { rawName, sessions in
+                ConnectedClient(rawName: rawName,
+                                displayName: Self.displayName(for: rawName),
+                                connectionCount: sessions.count)
+            }
+            .sorted { $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending }
+    }
+
+    private static func displayName(for rawName: String) -> String {
+        switch rawName.lowercased() {
+        case "codex-mcp-client", "exp-sanaa-runtime": return "Sanaa (Codex)"
+        case "claude-code": return "Claude Code"
+        case "claude-desktop": return "Claude Desktop"
+        default: return rawName
+        }
+    }
 }
 
 @MainActor
@@ -116,7 +177,7 @@ private enum AgentMCPRouter {
     private static let protocolVersion = "2025-06-18"
     private static let orientationURI = "exp://orientation"
 
-    static func handle(_ data: Data) async -> Data? {
+    static func handle(_ data: Data, client: String) async -> Data? {
         guard let request = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               request["jsonrpc"] as? String == "2.0",
               let method = request["method"] as? String else {
@@ -145,7 +206,8 @@ private enum AgentMCPRouter {
                 return response(id: id!, errorCode: -32602, message: "tools/call requires a tool name")
             }
             let arguments = params["arguments"] as? [String: Any] ?? [:]
-            return response(id: id!, result: await callTool(name, arguments: arguments))
+            return response(id: id!, result: await callTool(name, arguments: arguments,
+                                                             client: client))
         case "resources/list":
             return response(id: id!, result: ["resources": [[
                 "uri": orientationURI,
@@ -263,7 +325,9 @@ private enum AgentMCPRouter {
         return ActiveContext(document: document.model, app: app, sourceURL: hub.activeFileURL)
     }
 
-    private static func callTool(_ name: String, arguments: [String: Any]) async -> [String: Any] {
+    private static func callTool(_ name: String,
+                                 arguments: [String: Any],
+                                 client: String) async -> [String: Any] {
         guard let context = activeContext() else { return toolError("No EXP document is currently open") }
         do {
             switch name {
@@ -301,7 +365,7 @@ private enum AgentMCPRouter {
                 return toolJSON(["node": try jsonObject(found.node), "scope": found.scope,
                                  "sourceId": found.sourceID?.uuidString ?? NSNull()])
             case "apply_edits":
-                return await applyEdits(arguments)
+                return await applyEdits(arguments, client: client)
             case "get_tokens":
                 guard arguments.isEmpty else { return toolError("get_tokens accepts no arguments") }
                 let data = try DesignLanguageIO.exportDesignTokensJSON(context.document.designLanguage)
@@ -318,22 +382,56 @@ private enum AgentMCPRouter {
     /// The one write path. Every gate lives in `SanaaEdits`; this only supplies
     /// the live document, its undo manager, and the name of the agent asking, so
     /// the consent sheet can say who is at the door.
-    private static func applyEdits(_ arguments: [String: Any]) async -> [String: Any] {
+    private static func applyEdits(_ arguments: [String: Any],
+                                   client: String) async -> [String: Any] {
         let hub = PanelHub.shared
         guard let document = hub.activeDocument, let app = hub.activeApp else {
             return toolError(SanaaEditError.noDocument.localizedDescription)
         }
         let name = hub.activeFileURL?.deletingPathExtension().lastPathComponent ?? "Untitled"
-        let client = AgentBridgeController.shared.clientName ?? "A connected agent"
         do {
             let result = try await SanaaEdits.apply(
                 arguments: arguments, client: client,
                 target: SanaaEdits.Target(document: document, app: app,
                                           undoManager: hub.activeUndo, name: name))
+            recordAppliedBatch(result,
+                               summary: arguments["summary"] as? String ?? "Canvas update",
+                               client: client,
+                               document: document)
             return toolJSON(result)
         } catch {
             return toolError(error.localizedDescription)
         }
+    }
+
+    /// FEAT-049's activity truth starts here, after the live document commit.
+    /// Host-side tool notifications are intentionally insufficient evidence.
+    private static func recordAppliedBatch(_ result: [String: Any],
+                                           summary: String,
+                                           client: String,
+                                           document: ExpDocument) {
+        let affected = result["affected"] as? [String: Any] ?? [:]
+        let pages: [SanaaAffectedPage] = (affected["pages"] as? [[String: String]] ?? [])
+            .compactMap { value in
+                guard let rawID = value["id"], let id = UUID(uuidString: rawID),
+                      let name = value["name"] else { return nil }
+                return SanaaAffectedPage(id: id, name: name)
+            }
+        let artboardIDs = Set((affected["artboardIds"] as? [String] ?? [])
+            .compactMap(UUID.init(uuidString:)))
+        let nodeIDs = Set((affected["nodeIds"] as? [String] ?? [])
+            .compactMap(UUID.init(uuidString:)))
+        let created = result["created"] as? [String: Any] ?? [:]
+        SanaaActivityController.shared.recordAppliedBatch(
+            client: client,
+            summary: summary,
+            document: document,
+            pages: pages,
+            artboardIDs: artboardIDs,
+            nodeIDs: nodeIDs,
+            createdArtboardCount: (created["artboards"] as? [[String: String]])?.count ?? 0,
+            createdNodeCount: (created["nodes"] as? [[String: String]])?.count ?? 0
+        )
     }
 
     private struct FoundNode {
@@ -402,28 +500,60 @@ private enum AgentMCPRouter {
 /// POSIX listener kept outside MainActor. Its serial queue owns every descriptor
 /// and client buffer; only parsed requests cross to the main-actor router.
 private nonisolated final class AgentSocketServer: @unchecked Sendable {
-    typealias Handler = @Sendable (Data, @escaping @Sendable (Data?) -> Void) -> Void
+    typealias Handler = @Sendable (UUID, Data, @escaping @Sendable (Data?) -> Void) -> Void
     typealias ConnectionsChanged = @Sendable (Int) -> Void
+    typealias ConnectionClosed = @Sendable (UUID) -> Void
 
     private struct Client {
+        var id: UUID
         var readSource: any DispatchSourceRead
         var writeSource: (any DispatchSourceWrite)?
         var readBuffer = Data()
         var writeBuffer = Data()
+        /// Set once `readBuffer` exceeds `maxLineBytes` before a terminating
+        /// newline turns up. While true, incoming bytes are swallowed (not
+        /// buffered) until that newline finally arrives, so one oversized
+        /// message cannot grow without bound in memory.
+        var discardingOversizedLine = false
     }
+
+    /// NDJSON framing bound for one request line. `SanaaEdits` deliberately
+    /// treats this as the payload cap for `apply_edits` (see its `maxOperations`
+    /// doc comment) — so hitting it is an expected, not exceptional, shape of
+    /// request, and must fail with a JSON-RPC error the caller can read rather
+    /// than by silently closing the connection out from under them.
+    private static let maxLineBytes = 4 * 1_024 * 1_024
+
+    private static let oversizedLineResponse: Data = {
+        let megabytes = maxLineBytes / (1_024 * 1_024)
+        let object: [String: Any] = [
+            "jsonrpc": "2.0",
+            "id": NSNull(),
+            "error": ["code": -32003,
+                      "message": "EXP could not read this request: one message was larger than the \(megabytes) MB the agent bridge accepts. Split apply_edits into smaller batches."]
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]) else {
+            return Data("{\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32003,\"message\":\"Request too large\"}}".utf8)
+        }
+        return data
+    }()
 
     private let socketURL: URL
     private let handler: Handler
     private let connectionsChanged: ConnectionsChanged
+    private let connectionClosed: ConnectionClosed
     private let queue = DispatchQueue(label: "app.expdesign.agent-bridge")
     private var listener: Int32 = -1
     private var listenerSource: (any DispatchSourceRead)?
     private var clients: [Int32: Client] = [:]
 
-    init(socketURL: URL, connectionsChanged: @escaping ConnectionsChanged,
+    init(socketURL: URL,
+         connectionsChanged: @escaping ConnectionsChanged,
+         connectionClosed: @escaping ConnectionClosed,
          handler: @escaping Handler) throws {
         self.socketURL = socketURL
         self.connectionsChanged = connectionsChanged
+        self.connectionClosed = connectionClosed
         self.handler = handler
         try start()
     }
@@ -514,7 +644,7 @@ private nonisolated final class AgentSocketServer: @unchecked Sendable {
             let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
             source.setEventHandler { [weak self] in self?.readClient(fd) }
             source.setCancelHandler {}
-            clients[fd] = Client(readSource: source)
+            clients[fd] = Client(id: UUID(), readSource: source)
             source.resume()
             connectionsChanged(clients.count)
         }
@@ -525,15 +655,44 @@ private nonisolated final class AgentSocketServer: @unchecked Sendable {
         let count = Darwin.read(fd, &bytes, bytes.count)
         if count < 0, errno == EAGAIN || errno == EWOULDBLOCK { return }
         guard count > 0 else { closeClient(fd); return }
-        clients[fd]?.readBuffer.append(contentsOf: bytes.prefix(count))
         guard var client = clients[fd] else { return }
-        if client.readBuffer.count > 4 * 1_024 * 1_024 { closeClient(fd); return }
+
+        if client.discardingOversizedLine {
+            // Still swallowing the tail of a message already rejected below;
+            // look for its terminating newline in this chunk before resuming
+            // normal framing on whatever follows it.
+            if let newline = bytes.prefix(count).firstIndex(of: 0x0A) {
+                client.discardingOversizedLine = false
+                client.readBuffer = Data(bytes[(newline + 1)..<count])
+            } else {
+                clients[fd] = client
+                return
+            }
+        } else {
+            client.readBuffer.append(contentsOf: bytes.prefix(count))
+        }
+
+        // A request this large will never be something EXP can parse or hold
+        // as one message. Reject it with a JSON-RPC error and keep the
+        // connection alive — closing it here (the prior behavior) tore down
+        // the whole agent connection over one oversized apply_edits batch,
+        // which read to a connected agent as the canvas connection itself
+        // vanishing mid-turn rather than as one refused request.
+        if !client.readBuffer.contains(0x0A), client.readBuffer.count > Self.maxLineBytes {
+            client.readBuffer.removeAll(keepingCapacity: false)
+            client.discardingOversizedLine = true
+            clients[fd] = client
+            DiagnosticLog.shared.log("[Agent bridge] rejected an oversized request (> \(Self.maxLineBytes) bytes) instead of closing the connection")
+            enqueue(Self.oversizedLineResponse + Data([0x0A]), to: fd)
+            return
+        }
+
         while let newline = client.readBuffer.firstIndex(of: 0x0A) {
             var line = client.readBuffer.subdata(in: client.readBuffer.startIndex..<newline)
             client.readBuffer.removeSubrange(client.readBuffer.startIndex...newline)
             if line.last == 0x0D { line.removeLast() }
             guard !line.isEmpty else { continue }
-            handler(line) { [weak self] response in
+            handler(client.id, line) { [weak self] response in
                 guard let response else { return }
                 self?.queue.async { [weak self] in self?.enqueue(response + Data([0x0A]), to: fd) }
             }
@@ -585,6 +744,7 @@ private nonisolated final class AgentSocketServer: @unchecked Sendable {
         client.readSource.cancel()
         client.writeSource?.cancel()
         Darwin.close(fd)
+        connectionClosed(client.id)
         connectionsChanged(clients.count)
     }
 

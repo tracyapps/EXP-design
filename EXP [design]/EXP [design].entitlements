@@ -6,6 +6,20 @@
 	<true/>
 	<key>com.apple.security.files.user-selected.read-write</key>
 	<true/>
+	<!-- The bundled Sanaa Runtime inherits EXP's sandbox. Codex's npm launcher
+	     resolves to a separately signed native binary under one of these two
+	     standard prefixes; the runtime receives no general home-directory read. -->
+	<key>com.apple.security.temporary-exception.files.absolute-path.read-only</key>
+	<array>
+		<string>/usr/local/lib/node_modules/@openai/codex/</string>
+		<string>/opt/homebrew/lib/node_modules/@openai/codex/</string>
+	</array>
+	<!-- Sanaa's isolated CODEX_HOME lives in EXP's container. Only the existing
+	     Codex account token remains outside it; EXP never parses this file. -->
+	<key>com.apple.security.temporary-exception.files.home-relative-path.read-write</key>
+	<array>
+		<string>/.codex/auth.json</string>
+	</array>
 	<key>com.apple.security.network.client</key>
 	<true/>
 	<!-- App Sandbox classifies AF_UNIX bind() as a server operation too. The

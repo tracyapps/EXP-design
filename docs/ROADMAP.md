@@ -1301,24 +1301,24 @@ below exists so it never becomes one long unverifiable window.
 document-mutating starts while another mutating slice awaits the owner's
 verification. Waves alternate; each wave ends at a verification gate.
 
-### Wave A — carry-in slice (code complete 2026-08-24, awaiting owner verification)
+### Wave A — carry-in slice — ✅ COMPLETE, owner-verified 2026-08-27
 
 Reprioritized by the owner on 2026-08-24 from direct editing friction found in
-production use. Committed on 2026-08-25 as `a803df0`; the unsigned Debug build is
-green. These stay unchecked until the owner runs the Xcode acceptance pass.
+production use. Committed on 2026-08-25 as `a803df0`. Owner ran the Xcode
+acceptance pass and confirmed all six items 2026-08-27.
 
-- [ ] BUG-049: every keyboard/Inspector point edit refits the path frame so bounds,
+- [x] BUG-049: every keyboard/Inspector point edit refits the path frame so bounds,
   hit-testing, paint bounds, and drop shadows follow moved anchors.
-- [ ] BUG-050 + FEAT-047: Layers selection immediately owns keyboard nudge, and the
+- [x] BUG-050 + FEAT-047: Layers selection immediately owns keyboard nudge, and the
   visible persistent Auto-select control provides Photoshop-style selected-layer
   canvas movement for objects under other layers.
-- [ ] BUG-051: floating trays behave as active-app palettes, returning above ordinary
+- [x] BUG-051: floating trays behave as active-app palettes, returning above ordinary
   windows on every display for both canvas-click and Command-Tab activation while
   hiding cleanly when EXP is inactive.
-- [ ] BUG-052: Reveal in Layers and Expand/Collapse All use the live docked/floating
+- [x] BUG-052: Reveal in Layers and Expand/Collapse All use the live docked/floating
   Layers surface after mode, collapse, and document changes; Reveal also makes hidden
   or inactive panel content visible before expanding ancestors and scrolling.
-- [ ] FEAT-027: Convert to Outlines, Convert to Path, and Outline Stroke recurse
+- [x] FEAT-027: Convert to Outlines, Convert to Path, and Outline Stroke recurse
   through selected groups/mixed selections, preserve hierarchy/contracts, and commit
   as one undo step. Fill/Stroke recursion was already present and is included in the
   owner regression pass. The prior backlog idea for a visible partial-success summary
@@ -1326,16 +1326,36 @@ green. These stay unchecked until the owner runs the Xcode acceptance pass.
 
 ### Wave B — Sanaa, the minimal lovable core (the headline)
 
-The optional, default-off design assistant on the EXISTING agent bridge:
-pen.dev-style "look at the canvas and draw," with the designer's own MCP agent
-reaching in — **no LLM and no API keys in EXP**. Full design, placement rules,
-switches, and per-chunk agent instructions: **`docs/SANAA-PLAN.md`**.
+The optional, default-off design assistant on the EXISTING document bridge:
+pen.dev-style "look at the canvas and draw," with the designer's supported local
+agent host doing the thinking — **no LLM and no vendor API keys in EXP**. Owner
+decision 2026-08-26: the finished flow is type/send/stream in Sanaa's panel through
+a provider-neutral local runtime, not clipboard handoff. Full design, placement
+rules, runtime gates, switches, and per-chunk instructions: **`docs/SANAA-PLAN.md`**.
 
-- [ ] FEAT-048 — `apply_edits`: consented, undo-safe write-back (the F3 spine).
-  Code complete 2026-08-25 and building clean; **no runtime verification has been
-  run** — run `scripts/verify_sanaa_write_gate.sh` before checking this.
-- [ ] FEAT-049 — presence: activity feed, canvas highlights, VoiceOver announcements. ~2 sessions.
-- [ ] FEAT-050 — "Ask Sanaa" prompt starters with placement dialogs. ~1–2 sessions.
+- [x] FEAT-048 — `apply_edits`: consented, undo-safe write-back (the F3 spine).
+  Code complete 2026-08-25 and building clean. After repairing the verifier and
+  clarifying the switch UI, the owner's rebuilt runtime rerun passed **all 11/11
+  automated cases on 2026-08-26**. The owner confirmed the manual MCP approval,
+  per-document consent, applied change, and named one-step undo/redo path on
+  2026-08-26. The final owner pass then confirmed a real-client three-artboard
+  batch, save/reopen, Quick Look, PNG/SVG/Handoff HTML fidelity, system appearance,
+  and VoiceOver. FEAT-048 is owner-verified complete.
+- [x] FEAT-049 — provider-neutral local Sanaa Runtime plus dedicated conditional
+  panel: real send/stream/stop/reconnect, session transcript/activity, canvas
+  highlights, and VoiceOver announcements. Codex app-server developer probe passed
+  **7/7 on 2026-08-26**; the packaged helper/IPC repeated **7/7 + 4/4 negative
+  trust gates**, and the dedicated conversation panel passes its signed app seam.
+  The Codex adapter now runs with an isolated home and only EXP's seven canvas
+  tools; successful batches produce page/id receipts, Select/Go actions, semantic
+  canvas highlights, and verified VoiceOver announcements. **Owner end-to-end
+  verified 2026-08-27**: started a design from a blank canvas via Sanaa and was
+  able to edit every piece it drew once content existed on the canvas. Distribution
+  signing/notarization and the separate Claude gate are release-packaging steps,
+  tracked in Wave E, not open functional work.
+- [ ] FEAT-050 — "Ask Sanaa" prompt starters feeding the panel composer, with
+  placement dialogs and Send through the configured runtime; Copy remains the
+  honest fallback when no supported host is available. ~1–2 sessions.
 
 Intended order is 048 → 049 → 050. 048 is the only chunk in this wave that mutates
 documents; 049 and 050 sit on top of it.
@@ -1343,17 +1363,17 @@ documents; 049 and 050 sit on top of it.
 ### Wave C — the vector toolset grows up, and one fidelity bug that outranks it
 
 - [ ] **BUG-053 (P1) — raster export silently drops the `noise` and `dissolve`
-  effects.** Found in the owner's production use 2026-08-25. `drawExportNode`
-  implements three of the six `Effect.Kind` cases; `EffectsRender.drawNoise` has a
-  single call site in the whole app and it is the canvas. The canvas and the SVG
-  exporter agree; the raster exporter is the odd one out, so PNG, JPG, and PDF
-  quietly omit two effect kinds. **This is the export silently not matching the
-  design — it outranks everything else in this wave and arguably leads the
-  release.**
+  effects.** Found in the owner's production use 2026-08-25. **Fix built
+  2026-08-27** (BACKLOG has the implementation notes, including two measured and
+  fixed PDF Porter-Duff defects); automated gate
+  `scripts/verify_effect_export_coverage.sh` passes 6/6. Awaiting the owner's
+  Fixture A run and a re-export of the original light-leak file.
 - [ ] **BUG-054 (P2) — effect blur radii live in three different spaces across the
   two render paths**, including a performance clamp applied in device space that
   makes an export depend on the zoom the document happened to be at. Found while
-  tracing BUG-053; a real divergence, but not the one the owner reported.
+  tracing BUG-053. **Half fixed 2026-08-27** — oversized layer blurs degrade in
+  resolution instead of silently dropping; the device-space radius clamps remain
+  open behind the BUG-034 resource gates. Awaiting the owner's Fixture B run.
 
 
 The queue the owner explicitly deferred from v2.3 on 2026-08-21, plus the one
@@ -1394,7 +1414,13 @@ removes a daily "the app feels broken" moment.
 
 ### Wave D — Sanaa becomes a companion
 
-Order is free; none of these mutate documents.
+Order is free; none of these mutate documents. The Part II additions
+(SANAA-PLAN §10, drafted 2026-08-29) keep that true. Build order within
+them: **054 → 055 → the FEAT-050 amendment** — the amended starters
+compose facts-first prompts against tools that must already exist. If
+FEAT-050 (Wave B base) ships before 054/055, its starters ship with plain
+prompt composition and gain the facts-first composition when the amendment
+lands. 054 and 055 are otherwise independent of each other.
 
 - [ ] FEAT-051 — guided setup assistant for non-technical designers. **Research gate
   CLOSED 2026-08-25:** DXT is now `.mcpb` (CLI `@anthropic-ai/mcpb`); Claude Desktop
@@ -1406,6 +1432,24 @@ Order is free; none of these mutate documents.
   copy-paste setup excellent" instead. Details in BACKLOG.
 - [ ] FEAT-052 (P3) — the Sanaa avatar/character (owner-designed assets).
 - [ ] FEAT-053 (P3) — capability pack / agent etiquette guide (`exp://sanaa/guide`).
+- [ ] FEAT-050 amendment (2026-08-29, SANAA-PLAN §6) — the Ask Sanaa starters
+  gain **"Critique this…"** and **"Design directions…"**, composing
+  facts-first prompts per the Part II critique-framework/directions modules;
+  starters reordered so critique and cleanup lead. Non-mutating; composes
+  against Wave B's FEAT-050 surface (see that checklist item and BACKLOG
+  FEAT-050).
+- [ ] FEAT-054 (P2) — Sanaa design knowledge pack: versioned markdown modules
+  (design principles, color/dark mode, typography, spacing, states, copy,
+  styles, anti-generic, critique framework, directions, a11y foundations,
+  voice) served as MCP resources (`exp://sanaa/knowledge/<module>` + index).
+  **Research gate first:** whether the Codex thread can call resources/read —
+  else serve via a `get_design_guidance` read tool added to BOTH allowlist
+  locations. Non-mutating. SANAA-PLAN §10/FEAT-054.
+- [ ] FEAT-055 (P2) — `get_design_facts`: computed design facts read tool
+  over ContrastMath (contrast pairs with resolved/flattened backing, text and
+  target sizes, spacing inventory, fonts) — measured values + criterion
+  citations + an explicit notAssessed list, never verdicts. Non-mutating.
+  SANAA-PLAN §10/FEAT-055.
 
 ### Wave E — release
 
@@ -1415,7 +1459,11 @@ Order is free; none of these mutate documents.
 research item behind its unanswered SVG/import round-trip questions; FEAT-034's
 remaining Design Language surfaces, FEAT-009, FEAT-019, and the PERF queue ride
 along only if a wave finishes early. Semantic component/state reconstruction
-remains a v2.4+ research candidate, not a commitment.
+remains a v2.4+ research candidate, not a commitment. The Part II v2.5 candidates — FEAT-056 (critique mode), 057
+(design directions engine), 058 (cleanup & repetitive ops / `apply_edits`
+v2, mutating — sequencing rule applies), 059 (a11y guided fixes, mutating),
+060 (design-quality evaluation harness) — are scoped in SANAA-PLAN Part II
+(§10) and stay open in BACKLOG, not in this release.
 
 ---
 
@@ -3014,6 +3062,377 @@ font import → Phase 9, shadows → Phase 10._
 
 ## Progress Log
 
+- **2026-08-29 (Sanaa Part II — knowledge pack + design facts: roadmap
+drafted, no code).** The owner asked for Sanaa to be genuinely GOOD at design —
+critique and
+guidance, options for hard UI problems, tedious cleanup, accessibility
+  grounding, style awareness — while staying strictly optional and framed as
+  working WITH the designer. Drafted as SANAA-PLAN Part II (§10, awaiting
+  owner review): FEAT-054 (design knowledge pack as versioned MCP resources)
+  and FEAT-055 (`get_design_facts`, computed design facts over ContrastMath)
+  are v2.4 Wave D additions — both non-mutating, ≈4–6 sessions including the
+  FEAT-050 amendment, build order 054 → 055 → 050 amendment — and FEAT-056…060 (critique
+  mode, directions engine, cleanup ops / apply_edits v2, a11y guided fixes,
+  design-quality harness) are v2.5 candidates kept out of the release. The
+  FEAT-050 starters gain "Critique this…" / "Design directions…" with critique
+  and cleanup leading. New standing principle: measured facts, not verdicts —
+  EXP computes, Sanaa interprets; verdict language ("non-compliant," "fails
+  ADA") never appears in tool output or Sanaa copy. Research grounding: the
+  designer-trust framing (voice rules traced to documented trust cases, e.g.
+  the Config 2024 Rename-Layers-vs-Make-Designs split), a verified
+  accessibility-standards fact table (508 → WCAG 2.0 AA; DOJ Title II → WCAG
+  2.1 AA with the April 2026 IFR deadline extension — entity-scoped, re-verify
+  before citing), design-knowledge encoding + anti-generic rules, and the
+  LLM-judge ceiling (~70% human agreement) that keeps aesthetic quality a
+  human gate. Backlog ids FEAT-054…060 are proposed pending the usual
+  `scripts/verify_backlog_ids.sh` run. **Owner gates:** review SANAA-PLAN
+  Part II, then approve the Wave D additions. Nothing was built in this
+  session.
+
+- **2026-08-28 (later — BUG-056 follow-up: 2×/3× exports were "choppy"; mask now
+  supersampled).** The owner's 2× re-export showed stepping in the gradient
+  falloff. Measured: the PDF rasterizer nearest-samples the soft mask when
+  scaling — a 1×-baked mask advances in uniform 2px runs at 2× (3px at 3×);
+  `interpolationQuality` on the rasterizing context has no effect. Fix: the
+  gradient alpha mask is baked at 3× supersample (same 4096px/8Mpx caps; also
+  fixed the mask CTM which omitted the scale factor). Post-fix run-length
+  histograms match a direct canvas-truth bitmap at 2× and 3×. The check's
+  gradient probe now also asserts smoothness at 2×/3× (no ≥6px constant runs) —
+  still **7/7**; token bridge 4/4; app + EXPThumbnail Debug builds green.
+  Owner gate unchanged: re-export FX-A-2 at 2×/3× and compare against canvas.
+
+- **2026-08-28 (owner fixture pass surfaced BUG-056 — gradient alpha flattened by
+  the PDF export path; fixed same day, gated).** The owner ran the BUG-053
+  verification and Fixture A passed, but their extended test file (FX-A-2:
+  overlapping transparent-gradient glows with noise and blends) exposed a new
+  P1: gradients with transparent stops exported as hard-edged opaque blobs.
+  Isolated to raw CoreGraphics — a bare `CGContext(PDF)` + `drawRadialGradient`
+  with alpha stops flattens alpha to opaque (PDF shadings carry no alpha; CG
+  synthesizes no soft mask; transparency layers do not help). The live canvas
+  (bitmap) and SVG were always correct; PNG/JPG/PDF/thumbnails silently diverged
+  since gradients shipped — Fixture A couldn't see it (solid fills only). Fix:
+  `PaintRender` gained a `pdfSafeAlpha` route (all export call sites; canvas
+  untouched) — coverage rides a rect-sized soft-mask bitmap (the proven dissolve
+  mechanism) while the color ramp stays vector and opaque. The check grew a
+  `gradientAlphaThroughPDF` probe comparing export against a direct canvas-truth
+  bitmap within ±3/255 — `verify_effect_export_coverage.sh` now passes **7/7**;
+  token-bridge 4/4; app + EXPThumbnail Debug builds succeed. **Owner gate:**
+  re-export FX-A-2 (and the original light-leak file) and compare against the
+  canvas at 1× and 2×/3× — BUG-056's backlog entry states what is and is not
+  claimed. E2/E3-style Color-Dodge noise still saturates centers BY DESIGN
+  (canvas does the same); the earlier BUG-053 gates stand unchanged.
+
+- **2026-08-27 (Wave C opened — BUG-053 fixed, BUG-054's silent-drop half fixed;
+  owner fixture gates next).** The P1 export-fidelity bug is built: raster export
+  (PNG/JPG/PDF, and Quick Look thumbnails, which compile the same renderer) now
+  draws `noise` and `dissolve` in the canvas's documented order — dissolve masks
+  everything including shadow casters, noise last. Two enabling pieces: synchronous
+  turbulence-tile variants for one-shot renderers (the canvas's skip-a-frame cache
+  cannot serve an export), and PDF-safe replacements for both Porter-Duff sites,
+  because CG honors `.destinationIn`/`.destinationOut` only in bitmap contexts:
+  silhouette-less noise now clips through a content-alpha soft mask, and
+  preserve-transparency shadows render whole into a bounded offscreen bitmap
+  (`drawLayerBlur`'s existing pattern) then composite back. Measured before the
+  fix: the group-noise punch fell back to Normal (grain leaked), and the shadow
+  knockout was silently IGNORED — preserve-transparency exports were
+  pixel-identical to plain ones, so semi-transparent fills exported darker than
+  canvas. The canvas render path itself is untouched. BUG-054's fail-open layer-
+  blur guards are also closed: oversized layers degrade in resolution instead of
+  silently losing the blur; the device-space radius clamps remain open behind the
+  BUG-034 resource gates (BACKLOG has the precise notes). New regression gate
+  `scripts/verify_effect_export_coverage.sh` passes **6/6** (automated Fixture A,
+  an `Effect.Kind.allCases` raster+SVG sweep so a future unrendered kind fails
+  the check, group-noise punch, knockout, oversized-blur); `verify_svg_token_bridge.sh`
+  still passes; Debug builds of the app and EXPThumbnail targets succeed.
+  **Owner gates:** run `docs/EXPORT-FIDELITY-TEST-FIXTURES.md` Fixture A (and B
+  if convenient), then re-export the original light-leak file — the hard-edged
+  dark rectangle should now resolve as the dissolved layer it always was, and
+  the blue noise layer should register as Color Dodge. Not claimed: the
+  canvas/export effect-order code is still a hand-kept mirror (shared-pipeline
+  refactor is future work), and raster shadows still cast from the unblurred
+  source where SVG casts from the blurred one (untested by the fixtures).
+
+- **2026-08-27 (Wave A and Wave B core owner-verified; Wave C is next).** Owner
+  ran the Xcode acceptance pass on Wave A and confirmed all six items: BUG-049,
+  BUG-050, BUG-051, BUG-052, FEAT-047, FEAT-027. Separately, owner exercised
+  FEAT-049 end-to-end in real use — started a design from a blank canvas through
+  Sanaa's panel and was able to edit every piece Sanaa drew once content existed
+  on the canvas. FEAT-048 and FEAT-049 (Wave B's core) are both owner-verified;
+  FEAT-050 (prompt-starter buttons) remains unbuilt and is the only open Wave B
+  item. Updated ROADMAP, CLAUDE.md, and RELEASE-CHECKLIST-v2.4.md §A to match.
+  Considered whether v2.4 is release-ready: no — Wave C (the vector queue, led by
+  BUG-053's raster export dropping noise/dissolve effects) has not been started,
+  and Wave D (Sanaa companion pieces) has not been started either. Next: Wave C,
+  starting with BUG-053.
+
+- **2026-08-26 (FEAT-049 connection/settings consolidation built; owner UI gate
+  next).** After the owner confirmed Sanaa's repaired canvas route works, the
+  connection/setup surface moved from the narrow Handoff panel into Settings ▸
+  Sanaa. Handoff now keeps only live status plus **Manage Agent Connections…**;
+  Sanaa's own status bar has the same direct jump. Settings is organized into
+  Conversation agent, Canvas access, Connect another canvas agent, Sanaa
+  permissions, and drawing behavior. It shows explicit connected/disconnected/
+  error states, account/plan/host details, named active MCP clients, read-only vs.
+  can-draw access, and copyable setup for Claude Code/Desktop or another stdio MCP
+  host.
+
+  Current official [Codex app-server documentation](https://developers.openai.com/codex/app-server)
+  now exposes `account/rateLimits/read` and `account/usage/read`, so Settings shows
+  real used-percent/reset windows and returned token activity rather than a fake
+  allowance estimate; every field remains optional for providers that omit it.
+  The provider-neutral IPC gained an explicit status refresh. A composer agent
+  picker is wired to appear only when multiple **send-capable** runtime adapters
+  exist; generic canvas-only MCP clients stay out because EXP cannot push prompts
+  into them. AgentBridge now tracks names per socket and attributes writes to the
+  requesting client, fixing the old last-connected-name ambiguity when several
+  agents are live.
+
+  Evidence: `git diff --check` passes; a fresh unsigned Debug app build succeeds;
+  the packaged runtime remains **7/7 + 4/4 negative** and its new explicit status
+  refresh returned account, rate-limit, and token-activity surfaces **3/3** without
+  printing identity. Owner gate: inspect the new Settings layout at narrow/roomy
+  sizes, follow both jump links, connect/disconnect one and multiple MCP clients,
+  and repeat keyboard/VoiceOver/appearance checks.
+
+- **2026-08-26 (FEAT-049 owner canvas pass 1 — invisible MCP read approval fixed).**
+  The first in-panel canvas prompt reached `list_artboards`, then Sanaa reported that
+  EXP rejected the next read and asked the designer to approve a prompt that did not
+  exist. Root cause was the runtime's Codex MCP mode: `auto` may classify a tool as
+  needing approval, while the intentionally headless thread's `approvalPolicy=never`
+  rejects that boundary without presenting UI. Codex's current official
+  [configuration schema](https://github.com/openai/codex/blob/main/codex-rs/core/config.schema.json)
+  distinguishes `auto`, `prompt`, `writes`, and `approve`; the isolated server now
+  uses `approve`. This pre-approves only the seven tools already named by
+  `enabled_tools`; EXP's own drawing switch, per-document write consent, validation,
+  and one-step Undo still gate `apply_edits` exactly as before.
+
+  Added `--strict-config`, which immediately caught and removed one stale ignored
+  `tools.view_image` override; the supported image-generation feature flag was
+  already disabled. Added an optional real canvas-read regression to the packaged
+  verifier and the signed app probe. Fresh packaged and Apple Development-signed,
+  sandboxed paths both pass `list_artboards → get_artboard` with zero host approval
+  requests; the complete packaged **7/7 + 4/4 negative** contract remains green.
+  Sanaa's instructions now also forbid inventing an EXP prompt when a tool result
+  does not explicitly report one. Owner should rebuild and repeat the original
+  canvas creation prompt; the write/receipt/highlight pass remains open.
+
+- **2026-08-26 (Sanaa Runtime R4 — canvas-only route and applied-batch presence
+  built; owner gate next).** FEAT-048 is closed, so the packaged runtime now starts
+  Sanaa-owned Codex conversations with one MCP server: EXP's bundled, signed
+  `exp-mcp`. A private app-container `CODEX_HOME` links only the existing Codex
+  `auth.json`; the designer's ordinary config, sessions, plugins, skills, and MCP
+  servers are not inherited. Shell, filesystem, browser, app, computer-use, image,
+  and multi-agent capabilities are disabled, while EXP exposes only its six reads
+  plus the already-consented `apply_edits`. Foreign tool/server activity and host
+  approval requests fail closed.
+
+  Applied truth begins only after `SanaaEdits` commits. Its result now includes
+  affected pages/artboards/nodes; AgentBridge turns that success into an in-memory
+  transcript receipt with client, time, summary, page, **Select changes**, and **Go
+  there**. View-menu commands cover the latest viable receipt and disable for a
+  closed/different document. The canvas draws a one-second semantic-accent fade, or
+  a static two-second outline under Reduce Motion. VoiceOver uses Apple's verified
+  `.announcementRequested` payload with announcement text and medium priority.
+
+  Evidence: unsigned and Apple Development-signed Debug builds pass; strict deep
+  signature verification passes for the app plus both hardened-runtime helpers;
+  the narrowed sandbox exception exposes only `~/.codex/auth.json`; Codex config
+  parsing reports exactly `exp-design`; and `verify_sanaa_runtime_packaged.sh`
+  passes **7/7** plus **4/4** negative trust/protocol gates. The signed sandboxed
+  EXP→helper→Codex probe and the app-facing Send→stream→transcript→master-off-clear
+  probe both pass. FEAT-049 stays open for the owner's real in-panel read/write/
+  receipt/highlight/AX pass, distribution archive/notarization, and the independently
+  gated Claude adapter.
+
+- **2026-08-26 (FEAT-048 COMPLETE — owner-verified real-client fidelity,
+  appearance, and VoiceOver).** The owner completed the remaining acceptance
+  matrix after the earlier 11/11 automated gate and manual consent/undo pass. A
+  real connected client created a three-artboard batch in one transaction with
+  the correct named undo; the resulting content survived save/reopen and matched
+  native hand-drawn content in Quick Look, PNG, SVG, and Handoff HTML. The owner
+  also completed the system-appearance and VoiceOver pass. Both FEAT-048 release
+  checklist gates are closed, so the sequencing lock is lifted and FEAT-049 may
+  now route Sanaa's packaged runtime through the already-verified write boundary.
+
+- **2026-08-26 (FEAT-048 owner manual pass 1 — MCP approval, consent, change,
+  and undo confirmed).** The owner completed the manual connected-client path and
+  confirmed the permission/consent/edit/undo behaviors from the focused walkthrough.
+  This joins the existing 11/11 automated gate matrix; it does not claim the still-
+  open real-client save/reopen/export fidelity or appearance/VoiceOver receipts.
+
+  The test also produced a useful onboarding finding rather than a product defect:
+  Claude Code's Agent View dispatch box created a separate background session for
+  every short prompt, leaving each correctly configured `exp-design` MCP call under
+  **Needs input** at its tool-approval boundary. Attaching to one session and
+  approving its MCP calls made the existing connection work. Sanaa's dedicated
+  in-app flow should remove that session/approval plumbing from the designer's
+  normal experience; log it as direct evidence for FEAT-051's non-technical setup
+  and explanation work.
+
+- **2026-08-26 (Sanaa Runtime R3 — dedicated panel, real conversation, and calm
+  work presence).** Connected the signed `SanaaRuntimeClient` to a new app-wide,
+  session-scoped `SanaaActivityController` and first-class Sanaa panel. The panel
+  provides real Send/stream/Stop/reconnect, chronological designer/assistant/status
+  transcript, an anchored composer with Command-Return, retained draft plus Copy
+  fallback on host failure, and an honest text-only/no-canvas-tools state. Long
+  replies scroll inside the panel; actual scroll geometry preserves the designer's
+  reading position and offers **New update** instead of forcing them to the bottom.
+
+  `PanelID.sanaa` now participates in the existing dock/tray/workspace system only
+  while the master switch is enabled. Turning Sanaa off removes her from the dock,
+  Panel Hub, Window menu, and floating trays without overwriting saved placement;
+  it also clears the in-memory transcript/draft/conversation and stops the child
+  runtime as the privacy boundary. Re-enabling restores the saved placement. First
+  enable in single-window mode uses the right dock; multi-window mode never creates
+  an unsolicited floating window.
+
+  Owner feedback added a delayed, human-scale work indicator: before Sanaa's first
+  visible text, the status says **Sanaa is thinking** immediately, but the compact
+  three-dot bubble waits 1.5 seconds so fast replies do not flicker. It disappears
+  on the first streamed delta, Stop, completion, or failure. Reduce Motion shows
+  three steady dots. The same presentation contract includes **Designing** with a
+  paintbrush and generic **Working** for future real tool activity, but neither is
+  emitted while this runtime is truthfully text-only.
+
+  Fresh evidence: signed Debug and universal arm64+x86_64 unsigned Release builds
+  pass with no new warnings; both Release app and helper contain both architectures.
+  A signed sandboxed activity receipt passed Send → stream → ordered transcript →
+  master-off clearing. Isolated UI verification passed enabled panel placement,
+  Ready/thinking status, real Send and streamed reply, composer clearing, and the
+  master-off absence from both dock and Window menu. The visual test app contained
+  only a disposable blank document and was moved to Trash after termination.
+
+  This advances but does not close FEAT-049. Owner gates remain for the >1.5-second
+  animated-dot case, Reduce Motion, VoiceOver reading/announcements, long-history
+  scroll behavior, host-missing/signed-out/reconnect/Stop states, and multi-window
+  placement. Canvas-only MCP routing, applied-batch receipts/actions/highlights,
+  distribution archive/notarization, and the independently gated Claude adapter
+  remain. Do not exercise runtime → `apply_edits` until FEAT-048's manual mutation
+  gates close.
+
+- **2026-08-26 (Sanaa Runtime R2 — packaged helper/client boundary and signed
+  sandbox path pass).** Added the production-shaped `sanaa-runtime` command-line
+  target, embedded at `Contents/Helpers` with hardened runtime and Code Sign on
+  Copy, plus the app-side `SanaaRuntimeClient` and a shared provider-neutral
+  line-delimited JSON protocol. Both ends authenticate the boundary: the helper
+  accepts only this team's signed EXP parent in Release, the app accepts only its
+  bundled team-signed helper, and the helper accepts only the native `codex`
+  executable signed by OpenAI. Session binding refuses cross-session messages;
+  the Debug shell-parent bypass is compiled out of Release.
+
+  The Codex adapter now implements real connect/account/start/Send/stream/Stop/
+  resume/delete while exposing only normalized Sanaa events. It starts an empty
+  text-only workspace with read-only host sandbox, `approvalPolicy=never`, no MCP
+  servers, and the available shell/browser/computer-use/image/apps/plugins/
+  multi-agent/workspace-dependency features disabled. Any server-initiated tool
+  or approval request is refused and surfaced instead of executed. The runtime
+  has no EXP document socket and cannot call `apply_edits` in this slice.
+
+  The sandboxed helper inherits EXP's sandbox, so the app entitlement now grants
+  read-only access to the two standard npm Codex package roots and read/write only
+  to the account's `~/.codex` state. The adapter sets `CODEX_HOME` from the OS
+  account record because macOS remaps a sandboxed process's default home to the
+  app container. Automatic discovery launches the signed architecture-specific
+  native binary, never the JavaScript npm shim or an arbitrary PATH entry.
+
+  Fresh evidence: the packaged helper IPC verifier passed **7/7** for session
+  bind + initialize, signed-in account, restricted conversation, normalized
+  streaming with zero tool/approval events, exact active-turn Stop, helper/Codex
+  loss + resume, retained context, and exact thread deletion. Negative trust and
+  protocol gates passed **4/4** (unsupported protocol, wrong session, missing
+  host, and non-OpenAI executable). A separately signed Debug app run passed the
+  real sandboxed EXP → signed helper → automatically discovered Codex stream;
+  deep code-signing verification passed. The universal arm64+x86_64 unsigned
+  Release build also succeeds, proving the Debug parent bypass is absent.
+
+  This closes the requested non-document-mutating helper/client boundary, not
+  FEAT-049 overall. Distribution archive/notarization, the dedicated Sanaa panel
+  UI and accessibility pass, canvas-only MCP tool routing, and the independently
+  gated Claude adapter remain. **Next:** connect `SanaaRuntimeClient` to the
+  dedicated panel for real Send/stream/Stop/resume with honest host-missing and
+  signed-out states, while keeping the transport text-only until FEAT-048's
+  manual consent/undo/save-reopen-export/appearance/VoiceOver mutation gates
+  close.
+
+- **2026-08-26 (Sanaa Runtime R1 — Codex app-server conversation transport 7/7).**
+  The owner approved the heavier seamless flow: type in Sanaa's EXP panel, stream
+  the response there, Stop it there, and retain/reconnect the conversation without
+  a clipboard jump. The old Copy-only boundary is now an implementation fallback,
+  not the target experience. MCP sampling was rejected as the foundation because
+  the 2026-07-28 MCP specification deprecates it; supported host adapters are the
+  new boundary.
+
+  Added `scripts/sanaa_runtime_probe.swift`, an isolated developer proof against
+  the installed Codex CLI 0.147.0 app-server. It uses an empty temporary working
+  directory, read-only sandbox, `approvalPolicy=never`, text-only instructions,
+  and no EXP connection. Fresh live result: **7/7 passed** — initialize, signed-in
+  account reuse without logging identity, thread start, streamed assistant deltas,
+  interrupt after first delta, app-server restart + thread resume, retained prior
+  context, and exact probe-thread cleanup. The first live attempt also corrected
+  two false assumptions in the probe: `requiresOpenaiAuth` is a provider
+  requirement rather than signed-in state, and Stop must be tested against an
+  active streamed turn instead of racing a potentially completed turn. The one
+  probe thread left by that failed attempt was identified exactly and deleted
+  through `thread/delete`; it is not recoverable and contained only probe text.
+
+  This proves the Codex host protocol, not the production boundary. Next is a
+  bundled, separately signed Sanaa Runtime helper with normalized events and
+  authenticated IPC, followed by a canvas-only Codex thread whose sole agent tools
+  are EXP MCP read/apply_edits. Sandbox/signing/notarization, host-missing/signed-out,
+  disconnect/reconnect, approval routing, and the separate Claude adapter remain
+  explicit gates. Existing FEAT-048 write code and its 11/11 verifier were untouched.
+
+- **2026-08-26 (FEAT-048 automated gate 11/11; Sanaa's dedicated panel direction
+  locked — prompt-transport conclusion superseded by the newer R1 entry above).**
+  After relaunching the rebuilt app with the native accent-aware
+  switches and repaired verifier, the owner reran the full automated write-gate
+  matrix: all 11 cases passed. This clears the automated master/write/malformed/
+  transaction matrix, including the master-off case that wrote during the first
+  run. It does not silently clear the manual gates: consent decline/allow/re-ask,
+  undo labels, real-agent save/reopen/export fidelity, appearance, and VoiceOver
+  remain before FEAT-048 is checked.
+
+  Owner direction for FEAT-049/050: Sanaa gets her own first-class panel, not a
+  Handoff subsection. It is unavailable everywhere when the master switch is off
+  (no Window-menu item, dock group, or floating tray), but hiding must preserve
+  the designer's saved placement so enabling restores it. When enabled it may stay
+  visible while idle or disconnected and participates in the existing dock/tray/
+  workspace system; that system already supplies the multi-monitor floating form.
+  A separate one-off "Pop Out Sanaa" command in single-window mode is deferred
+  until usage proves it useful.
+
+  The panel design is a scrollable chronological session transcript with a prompt
+  composer anchored at the bottom: designer prompts, explicitly agent-posted
+  progress/replies, and applied-batch receipts with Select/Go there actions. One
+  hard architecture boundary is recorded rather than papered over: EXP's MCP
+  server cannot initiate a Claude/Codex turn or capture arbitrary host output.
+  Until a supported bidirectional host transport passes research, the honest v1
+  action is "Copy prompt for my agent"; an already-running agent may explicitly
+  post bounded status/reply messages through a non-mutating tool. No fake Send or
+  spinner. FEAT-050's starters now populate this composer for review/editing.
+
+- **2026-08-26 (FEAT-048 first live gate exposed one unresolved gate result and a
+  verifier that could not count).** The owner ran `verify_sanaa_write_gate.sh`
+  against a one-artboard scratch document. EXP created `Gate probe` during the
+  phase intended to have Sanaa disabled and correctly advertised/executed
+  `apply_edits` for the state it actually observed; Phase 2 correctly refused
+  drawing with only the write switch off; Phase 3 correctly created `Sanaa gate
+  test` and returned `Sanaa: gate matrix artboard`. The scratch document ended
+  with three artboards, confirming both successful writes.
+
+  The script obscured that evidence in two ways: its happy-path glob looked for
+  unescaped JSON even though MCP tool JSON is nested as escaped text, and its
+  artboard counter counted response-envelope ids 1 and 2 on every call. Both are
+  repaired. A read-only live query now reports the actual three artboards, the
+  recorded Phase 3 response is recognized, and a focused invalid request returned
+  the expected missing-summary error while the corrected count stayed 3 → 3.
+  The app Debug build succeeds. At the owner's request, Settings' two Sanaa
+  checkboxes are now native switches; those switches and Handoff's existing
+  agent-access switch all observe EXP's effective app accent, including the app
+  override instead of macOS blue. **Still blocking FEAT-049:** launch the rebuilt
+  UI, rerun all three phases to isolate the intended-off result, then complete the
+  manual decline/allow/session-consent cases and appearance/VoiceOver pass.
+
 - **2026-08-26 (P0 safety rollback — BUG-034 Stage 2 linked to repeated whole-Mac
   failures).** Owner reported multiple Mac crashes beginning only after the shadow
   spread change. Local postmortem evidence matches that experience: commit `2f64dc6`
@@ -3529,8 +3948,10 @@ font import → Phase 9, shadows → Phase 10._
   step per batch through `setModel`) + a presence layer (activity feed, canvas
   highlights, VoiceOver announcements) + "Ask Sanaa" prompt starters + a
   non-technical setup assistant + an optional avatar + an agent etiquette
-  pack. Everything defaults OFF behind Settings ▸ Sanaa; agents reach in, EXP
-  never reaches out. Owner placement decisions recorded (complete-this asks
+  pack. Everything defaults OFF behind Settings ▸ Sanaa. The reach-in-only
+  transport assumption in this historical entry was superseded by the
+  owner-approved local Sanaa Runtime on 2026-08-26; the no-embedded-model/no-key
+  boundary remains. Owner placement decisions recorded (complete-this asks
   in-place vs duplicate-beside; variations are new artboards, same-or-new page
   is the designer's choice). Ids assigned via `verify_backlog_ids.sh`
   (FEAT-048…053, clean). Full design + per-chunk instructions and test

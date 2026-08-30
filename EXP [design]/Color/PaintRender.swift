@@ -13,7 +13,13 @@ enum PaintRender {
 
     /// Fill an `NSBezierPath` (already in the current context's coordinates) with
     /// a paint. `bounds` is the path's bounding rect, used to place the gradient.
-    static func fill(_ paint: Paint, path: NSBezierPath, bounds: CGRect, in ctx: CGContext) {
+    /// `pdfSafeAlpha` routes gradient stops' ALPHA through a soft mask — required
+    /// when the context emits PDF (raster export, thumbnails): CG's PDF emitter
+    /// drops stop alpha entirely (PDF shadings have no alpha component), so a
+    /// gradient-to-transparent fills OPAQUE there. The live canvas (bitmap
+    /// context) keeps the direct path — it is correct there.
+    static func fill(_ paint: Paint, path: NSBezierPath, bounds: CGRect, in ctx: CGContext,
+                     pdfSafeAlpha: Bool = false) {
         switch paint {
         case .solid(let c):
             nsColor(c).setFill()
@@ -21,7 +27,7 @@ enum PaintRender {
         case .gradient(let g):
             ctx.saveGState()
             path.addClip()
-            drawGradient(g, in: bounds, ctx: ctx)
+            drawGradient(g, in: bounds, ctx: ctx, pdfSafeAlpha: pdfSafeAlpha)
             ctx.restoreGState()
         }
     }
@@ -118,7 +124,8 @@ enum PaintRender {
         ctx.restoreGState()
     }
 
-    static func fillRect(_ paint: Paint, rect: CGRect, in ctx: CGContext) {
+    static func fillRect(_ paint: Paint, rect: CGRect, in ctx: CGContext,
+                         pdfSafeAlpha: Bool = false) {
         switch paint {
         case .solid(let c):
             nsColor(c).setFill()
@@ -126,24 +133,51 @@ enum PaintRender {
         case .gradient(let g):
             ctx.saveGState()
             ctx.clip(to: rect)
-            drawGradient(g, in: rect, ctx: ctx)
+            drawGradient(g, in: rect, ctx: ctx, pdfSafeAlpha: pdfSafeAlpha)
             ctx.restoreGState()
         }
     }
 
-    static func drawGradient(_ g: GradientFill, in rect: CGRect, ctx: CGContext) {
+    static func drawGradient(_ g: GradientFill, in rect: CGRect, ctx: CGContext,
+                             pdfSafeAlpha: Bool = false) {
         let stops = g.sortedStops
         guard !stops.isEmpty else { return }
         // Interpolate in sRGB — matching the stop colors (which are sRGB CGColors),
         // the solid-fill path, and export. The old device-RGB space is UNMANAGED, so
-        // it rendered one way in the live window (a device context) and another in the
-        // color-managed offscreen blit bitmap — a gradient color shift (darkening) seen
+        // it rendered one way in the live window (a device context) and another in
+        // the color-managed offscreen blit bitmap — a gradient color shift (darkening) seen
         // ONLY while panning/zooming. sRGB is color-matched identically in both paths.
         let space = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
-        let colors = stops.map { cgColor($0.color) } as CFArray
-        let locations = stops.map { CGFloat($0.position) }
-        guard let gradient = CGGradient(colorsSpace: space, colors: colors, locations: locations) else { return }
         let opts: CGGradientDrawingOptions = [.drawsBeforeStartLocation, .drawsAfterEndLocation]
+        func ramp(_ colors: [CGColor]) -> CGGradient? {
+            let locations = stops.map { CGFloat($0.position) }
+            return CGGradient(colorsSpace: space, colors: colors as CFArray, locations: locations)
+        }
+        // PDF-bound contexts: CG drops stop ALPHA (a shading's color space has no
+        // alpha component — a white 0.9→0.0 radial exports as a SOLID opaque
+        // disc). Coverage therefore rides a soft mask — the same PDF-safe route
+        // the dissolve masks and noise content masks already use — while the
+        // color ramp stays vector. Bitmap contexts (the canvas) are exact as-is.
+        if pdfSafeAlpha, stops.contains(where: { $0.color.a < 0.999 }),
+           let mask = gradientAlphaMask(g, in: rect),
+           let gradient = ramp(stops.map { cgColorOpaque($0.color) }) {
+            ctx.saveGState()
+            ctx.clip(to: rect, mask: mask)
+            switch g.kind {
+            case .linear:
+                let (s, e) = g.linearPoints(in: rect)
+                ctx.drawLinearGradient(gradient, start: s, end: e, options: opts)
+            case .radial:
+                let c = CGPoint(x: rect.midX, y: rect.midY)
+                let r = max(1, hypot(rect.width, rect.height) / 2)
+                ctx.drawRadialGradient(gradient, startCenter: c, startRadius: 0,
+                                       endCenter: c, endRadius: r, options: opts)
+            }
+            ctx.restoreGState()
+            return
+        }
+        let colors = stops.map { cgColor($0.color) }
+        guard let gradient = ramp(colors) else { return }
         switch g.kind {
         case .linear:
             let (s, e) = g.linearPoints(in: rect)
@@ -156,10 +190,61 @@ enum PaintRender {
         }
     }
 
+    /// Coverage ramp for `drawGradient(pdfSafeAlpha:)`: the gradient drawn into a
+    /// rect-sized RGBA bitmap with white at each stop's ALPHA, so the alpha
+    /// channel alone is the mask `CGContext.clip(to:mask:)` consumes. Same
+    /// geometry formulas as the color ramp; same flipped user-space mapping the
+    /// export renderer's offscreen bitmaps use.
+    ///
+    /// Baked at 3× supersample: the PDF rasterizer nearest-samples this mask
+    /// when scaling (measured 2026-08-28: a 1× mask exported at 2× advanced the
+    /// falloff in 2px steps — "choppy" gradients), so 1×/2×/3× raster exports
+    /// read it natively or nearly so. The pixel caps keep worst-case memory
+    /// bounded; a ramp forced below 3× still resamples more gracefully than the
+    /// 8-bit color path bands.
+    private static func gradientAlphaMask(_ g: GradientFill, in rect: CGRect) -> CGImage? {
+        guard rect.width > 0, rect.height > 0 else { return nil }
+        let scale = min(3, 4096 / max(rect.width, rect.height),
+                        (8_000_000 / (rect.width * rect.height)).squareRoot())
+        let pw = max(1, Int(rect.width * scale)), ph = max(1, Int(rect.height * scale))
+        guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+              let bitmap = CGContext(data: nil, width: pw, height: ph,
+                                     bitsPerComponent: 8, bytesPerRow: 0, space: colorSpace,
+                                     bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return nil }
+        bitmap.translateBy(x: 0, y: CGFloat(ph))
+        bitmap.scaleBy(x: scale, y: -scale)
+        bitmap.translateBy(x: -rect.minX, y: -rect.minY)
+        let stops = g.sortedStops
+        let colors = stops.map {
+            CGColor(srgbRed: 1, green: 1, blue: 1, alpha: CGFloat($0.color.a))
+        }
+        let locations = stops.map { CGFloat($0.position) }
+        guard let gradient = CGGradient(colorsSpace: colorSpace, colors: colors as CFArray,
+                                        locations: locations) else { return nil }
+        let opts: CGGradientDrawingOptions = [.drawsBeforeStartLocation, .drawsAfterEndLocation]
+        switch g.kind {
+        case .linear:
+            let (s, e) = g.linearPoints(in: rect)
+            bitmap.drawLinearGradient(gradient, start: s, end: e, options: opts)
+        case .radial:
+            let c = CGPoint(x: rect.midX, y: rect.midY)
+            let r = max(1, hypot(rect.width, rect.height) / 2)
+            bitmap.drawRadialGradient(gradient, startCenter: c, startRadius: 0,
+                                      endCenter: c, endRadius: r, options: opts)
+        }
+        return bitmap.makeImage()
+    }
+
     static func nsColor(_ c: RGBAColor) -> NSColor {
         NSColor(srgbRed: CGFloat(c.r), green: CGFloat(c.g), blue: CGFloat(c.b), alpha: CGFloat(c.a))
     }
     static func cgColor(_ c: RGBAColor) -> CGColor {
         CGColor(srgbRed: CGFloat(c.r), green: CGFloat(c.g), blue: CGFloat(c.b), alpha: CGFloat(c.a))
+    }
+    /// The stop color with alpha forced to 1 — for the masked (pdfSafeAlpha)
+    /// gradient path, where coverage comes from the mask, not the color.
+    static func cgColorOpaque(_ c: RGBAColor) -> CGColor {
+        CGColor(srgbRed: CGFloat(c.r), green: CGFloat(c.g), blue: CGFloat(c.b), alpha: 1)
     }
 }

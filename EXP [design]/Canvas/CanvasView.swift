@@ -341,6 +341,18 @@ final class CanvasNSView: NSView {
     /// same page-switch funnel that normally restores per-page view state.
     private var pendingPageFocus: (pageID: UUID, bounds: CGRect)?
 
+    private struct SanaaHighlight {
+        var documentID: ObjectIdentifier
+        var pageID: UUID?
+        var artboardIDs: Set<UUID>
+        var nodeIDs: Set<UUID>
+        var beganAt: TimeInterval
+        var duration: TimeInterval
+        var pulses: Bool
+    }
+    private var sanaaHighlight: SanaaHighlight?
+    private var sanaaHighlightTimer: Timer?
+
     // Inline text editing: an NSTextView overlay sits over the node while you
     // type; the model is updated on commit.
     private var editingNodeID: UUID?
@@ -408,6 +420,9 @@ final class CanvasNSView: NSView {
         setAccessibilityLabel("Design canvas")
         setAccessibilityRoleDescription("design canvas")
         observeNoiseTiles()
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(showSanaaHighlight(_:)),
+            name: .sanaaCanvasHighlight, object: nil)
     }
 
     /// Noise / dissolve tiles are generated off the render thread (see
@@ -426,8 +441,42 @@ final class CanvasNSView: NSView {
         needsDisplay = true
     }
 
+    @objc private func showSanaaHighlight(_ notification: Notification) {
+        guard case .document = scope,
+              let request = notification.object as? SanaaCanvasHighlightRequest,
+              let document,
+              request.document === document else { return }
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        sanaaHighlight = SanaaHighlight(
+            documentID: ObjectIdentifier(document),
+            pageID: request.pageID,
+            artboardIDs: request.artboardIDs,
+            nodeIDs: request.nodeIDs,
+            beganAt: ProcessInfo.processInfo.systemUptime,
+            duration: reduceMotion ? 2 : 1,
+            pulses: !reduceMotion
+        )
+        sanaaHighlightTimer?.invalidate()
+        let interval: TimeInterval = reduceMotion ? 2 : (1.0 / 30.0)
+        let timer = Timer(timeInterval: interval, repeats: !reduceMotion) { [weak self] timer in
+            guard let self, let highlight = self.sanaaHighlight else {
+                timer.invalidate()
+                return
+            }
+            if ProcessInfo.processInfo.systemUptime - highlight.beganAt >= highlight.duration {
+                self.sanaaHighlight = nil
+                timer.invalidate()
+            }
+            self.needsDisplay = true
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        sanaaHighlightTimer = timer
+        needsDisplay = true
+    }
+
     deinit {
         cameraPersistTimer?.invalidate()
+        sanaaHighlightTimer?.invalidate()
         if let spaceKeyUpMonitor { NSEvent.removeMonitor(spaceKeyUpMonitor) }
         NotificationCenter.default.removeObserver(self)
     }
@@ -4799,6 +4848,7 @@ final class CanvasNSView: NSView {
         // Live pan/zoom: blit the cached gesture snapshot instead of re-rendering
         // the scene (see the "Pan/zoom bitmap blit" section above).
         if let ctx = NSGraphicsContext.current?.cgContext, drawPanZoomBlit(into: ctx) {
+            drawSanaaHighlight(in: ctx)
             if perf.enabled {
                 perf.record("frame(blit)", ms: (CFAbsoluteTimeGetCurrent() - perfFrameT0) * 1000)
                 perf.flushIfNeeded()
@@ -4815,6 +4865,7 @@ final class CanvasNSView: NSView {
             // document until release), and leaving it out of this branch is exactly
             // why the stroke went invisible while the mouse was down.
             if case .pencilStroke = dragMode { drawPencilPreview(in: ctx) }
+            drawSanaaHighlight(in: ctx)
             if perf.enabled {
                 perf.record("frame(drag)", ms: (CFAbsoluteTimeGetCurrent() - perfFrameT0) * 1000)
                 perf.flushIfNeeded()
@@ -4953,6 +5004,7 @@ final class CanvasNSView: NSView {
 
         // Selection chrome on top (shared with the drag-overlay blit path).
         perf.measure("draw-chrome") { drawSelectionChrome(in: ctx) }
+        if !capturingSnapshot { drawSanaaHighlight(in: ctx) }
 
         var rubberBandStart: CGPoint?
         if case .marquee(let start, _) = dragMode { rubberBandStart = start }
@@ -5087,6 +5139,37 @@ final class CanvasNSView: NSView {
                 }
             }
         }
+    }
+
+    /// A short-lived, non-interactive overlay after an applied Sanaa batch.
+    /// Motion-enabled mode gently fades for one second; Reduce Motion receives
+    /// the same information as a static two-second outline.
+    private func drawSanaaHighlight(in ctx: CGContext) {
+        guard let highlight = sanaaHighlight, let document,
+              ObjectIdentifier(document) == highlight.documentID,
+              highlight.pageID == nil || highlight.pageID == activePageID else { return }
+        let age = ProcessInfo.processInfo.systemUptime - highlight.beganAt
+        guard age < highlight.duration else { return }
+        let progress = max(0, min(1, age / highlight.duration))
+        let alpha: CGFloat = highlight.pulses
+            ? CGFloat(0.9 - progress * 0.65)
+            : 0.85
+        let pulse = highlight.pulses ? CGFloat(sin(progress * .pi)) : 0
+
+        ctx.saveGState()
+        ctx.setStrokeColor(NSColor.controlAccentColor.withAlphaComponent(alpha).cgColor)
+        ctx.setLineWidth(2 + pulse * 1.5)
+        ctx.setLineJoin(.round)
+        for artboard in currentArtboards where highlight.artboardIDs.contains(artboard.id) {
+            ctx.stroke(docToView(artboard.frame).insetBy(dx: -4, dy: -4))
+        }
+        for id in highlight.nodeIDs {
+            guard let node = node(id) else { continue }
+            let offset = nodeOffset(id)
+            let frame = node.frame.offsetBy(dx: offset.x, dy: offset.y)
+            ctx.stroke(docToView(frame).insetBy(dx: -4, dy: -4))
+        }
+        ctx.restoreGState()
     }
 
     // MARK: Rulers
@@ -11107,6 +11190,12 @@ final class CanvasNSView: NSView {
     /// Bring the selection on screen. Deliberately "center", not "zoom to" — it
     /// preserves your zoom unless the selection can't fit at it.
     @objc func centerSelectionAction(_ sender: Any?) { revealInViewport(selectionBounds()) }
+    @objc func selectLatestSanaaChangesAction(_ sender: Any?) {
+        SanaaActivityController.shared.selectLatestChanges()
+    }
+    @objc func goToLatestSanaaChangesAction(_ sender: Any?) {
+        SanaaActivityController.shared.goToLatestChanges()
+    }
     @objc func zoomInAction(_ sender: Any?) {
         app?.viewportSize = bounds.size
         app?.zoomIn()
@@ -12920,6 +13009,9 @@ extension CanvasNSView: NSMenuItemValidation {
             return !isSourceScope && (app?.selectedArtboardIDs.count ?? 0) >= 2
         case #selector(centerSelectionAction(_:)):
             return hasNodes || hasArtboards
+        case #selector(selectLatestSanaaChangesAction(_:)),
+             #selector(goToLatestSanaaChangesAction(_:)):
+            return !isSourceScope && SanaaActivityController.shared.canActOnLatestReceipt
         case #selector(selectAll(_:)):
             return !currentNodes.isEmpty || (!isSourceScope && !currentArtboards.isEmpty)
         case #selector(deselectAllAction(_:)):

@@ -53,7 +53,10 @@ call() { # call <tool> <arguments-json>
 }
 
 artboard_count() {
-  call list_artboards '{}' | grep -o '"id"' | wc -l | tr -d ' '
+  # Tool payloads are JSON text nested inside the JSON-RPC response, so their
+  # quotes are escaped. Count only artboard ids in that nested payload; the old
+  # plain-quote pattern counted the two envelope ids (1 and 2) on every call.
+  call list_artboards '{}' | grep -o '\\"id\\"' | wc -l | tr -d ' '
 }
 
 # assert_refused <label> <expected substring> <arguments-json>
@@ -88,7 +91,7 @@ pause_for() {
 
 # ---------------------------------------------------------------- phase 1
 if phase_wanted 1; then
-  pause_for 'Settings ▸ Sanaa: "Enable Sanaa" OFF.'
+  pause_for 'Settings ▸ Sanaa: "Enable Sanaa" OFF; confirm the status says "Sanaa is off."'
   echo "Phase 1 — Sanaa disabled"
   assert_refused "master switch off" "Sanaa is turned off in EXP" \
     '{"summary":"gate probe","ops":[{"op":"createArtboard","name":"Gate probe","frame":{"width":320,"height":200}}]}'
@@ -101,7 +104,7 @@ fi
 
 # ---------------------------------------------------------------- phase 2
 if phase_wanted 2; then
-  pause_for 'Settings ▸ Sanaa: "Enable Sanaa" ON, "Allow Sanaa to draw" OFF.'
+  pause_for 'Settings ▸ Sanaa: enabled ON, drawing OFF; confirm the status says Sanaa can read but cannot change.'
   echo "Phase 2 — enabled but not allowed to draw"
   assert_refused "write switch off" "not allowed to draw" \
     '{"summary":"gate probe","ops":[{"op":"createArtboard","name":"Gate probe","frame":{"width":320,"height":200}}]}'
@@ -109,19 +112,21 @@ fi
 
 # ---------------------------------------------------------------- phase 3
 if phase_wanted 3; then
-  pause_for 'Settings ▸ Sanaa: BOTH switches ON. Use a scratch document.'
+  pause_for 'Settings ▸ Sanaa: BOTH switches ON; confirm the status says Sanaa can add new work. Use a scratch document.'
   echo "Phase 3 — both switches on"
 
   before="$(artboard_count)"
   reply="$(call apply_edits '{"summary":"gate matrix artboard","ops":[{"op":"createArtboard","name":"Sanaa gate test","frame":{"width":320,"height":200},"placement":{"kind":"samePage"}}]}')"
   after="$(artboard_count)"
-  case "$reply" in
-    *'"isError"'*) bad "happy path — createArtboard was refused" "$reply" ;;
-    *'"artboards"'*)
-      if [ "$after" -eq $((before+1)) ]; then ok "happy path — one artboard created and its id returned"
-      else bad "happy path — artboard count went $before -> $after" "$reply"; fi ;;
-    *) bad "happy path — unexpected reply" "$reply" ;;
-  esac
+  if printf '%s\n' "$reply" | grep -q '"isError"'; then
+    bad "happy path — createArtboard was refused" "$reply"
+  elif ! printf '%s\n' "$reply" | grep -q '\\"artboards\\"'; then
+    bad "happy path — response did not return created artboards" "$reply"
+  elif [ "$after" -eq $((before+1)) ]; then
+    ok "happy path — one artboard created and its id returned"
+  else
+    bad "happy path — artboard count went $before -> $after" "$reply"
+  fi
   echo "     (now press Command-Z in EXP: the step must read \"Undo Sanaa: gate matrix artboard\")"
 
   assert_refused "missing summary" "requires a short" \

@@ -108,11 +108,23 @@ enum EffectsRender {
         let maxSigma = active.map(\.blur).max() ?? 0
         let pad = maxSigma * 3 + 2 / scale
         let expanded = bounds.insetBy(dx: -pad, dy: -pad)
-        let width = max(1, Int(ceil(expanded.width * scale)))
-        let height = max(1, Int(ceil(expanded.height * scale)))
-        guard width <= maxLayerDimension, height <= maxLayerDimension,
-              width <= maxLayerPixels / max(1, height),
-              let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+        // A layer too large for a full-resolution bitmap degrades in
+        // RESOLUTION, never in radius: render at a reduced scale and composite
+        // back at full size (BUG-054 — the old guards failed open to
+        // `draw(ctx)`, so an oversized heavily-blurred layer silently lost its
+        // blur entirely, on canvas AND in export).
+        var renderScale = scale
+        let fullW = ceil(expanded.width * scale), fullH = ceil(expanded.height * scale)
+        if fullW > CGFloat(maxLayerDimension) || fullH > CGFloat(maxLayerDimension)
+            || fullW * fullH > CGFloat(maxLayerPixels) {
+            let dimFit = min(CGFloat(maxLayerDimension) / fullW,
+                             CGFloat(maxLayerDimension) / fullH)
+            let pixFit = (CGFloat(maxLayerPixels) / (fullW * fullH)).squareRoot()
+            renderScale = scale * min(1, max(dimFit, pixFit))
+        }
+        let width = max(1, Int(ceil(expanded.width * renderScale)))
+        let height = max(1, Int(ceil(expanded.height * renderScale)))
+        guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
               let bitmap = CGContext(data: nil, width: width, height: height,
                                      bitsPerComponent: 8, bytesPerRow: 0,
                                      space: colorSpace,
@@ -124,7 +136,7 @@ enum EffectsRender {
 
         // Match EXP's top-left, y-down drawing space inside the offscreen bitmap.
         bitmap.translateBy(x: 0, y: CGFloat(height))
-        bitmap.scaleBy(x: scale, y: -scale)
+        bitmap.scaleBy(x: renderScale, y: -renderScale)
         bitmap.translateBy(x: -expanded.minX, y: -expanded.minY)
         let graphics = NSGraphicsContext(cgContext: bitmap, flipped: true)
         NSGraphicsContext.saveGraphicsState()
@@ -135,7 +147,7 @@ enum EffectsRender {
         guard let image = bitmap.makeImage() else { draw(ctx); return }
         var filtered = CIImage(cgImage: image)
         for effect in active {
-            let sigma = Double(min(maxShadowBlurPx, effect.blur * scale))
+            let sigma = Double(min(maxShadowBlurPx, effect.blur * renderScale))
             filtered = filtered.clampedToExtent()
                 .applyingGaussianBlur(sigma: sigma)
                 .cropped(to: filtered.extent)
@@ -176,7 +188,11 @@ enum EffectsRender {
     /// `.destinationOut`, so the shadow exists only OUTSIDE the object. That is
     /// what keeps a semi-transparent fill from going black on its own shadow.
     /// Partial alpha knocks out proportionally — identical semantics to the SVG
-    /// export's `feComposite operator="out"`.
+    /// export's `feComposite operator="out"`. NOTE: `.destinationOut` is only
+    /// honored in BITMAP contexts — CG silently ignores it in a PDF context
+    /// (measured while fixing BUG-053), so PDF-intermediate callers must render
+    /// this call offscreen and composite the raster back (see
+    /// ExportRenderer.drawExportKnockoutShadow).
     static func drawDropShadow(_ e: Effect, scale: CGFloat, in ctx: CGContext,
                                castBounds: CGRect? = nil,
                                knockout: (() -> Void)? = nil, caster: () -> Void) {
@@ -255,9 +271,16 @@ enum EffectsRender {
     /// `rect` is the node's frame in the ctx's space; `modelSize` its size in
     /// model points (the tile is generated in model space so texture scale is
     /// zoom-independent and matches the SVG export's feTurbulence).
-    static func drawNoise(_ e: Effect, clip: CGPath?, rect: CGRect, modelSize: CGSize, in ctx: CGContext) {
+    /// `synchronous` is for one-shot renderers (export, thumbnails), which
+    /// cannot skip a frame while a cold tile generates — the default false keeps
+    /// the canvas non-blocking as always.
+    static func drawNoise(_ e: Effect, clip: CGPath?, rect: CGRect, modelSize: CGSize, in ctx: CGContext,
+                          synchronous: Bool = false) {
         guard e.isEnabled, e.kind == .noise, e.amount > 0 else { return }
-        guard let tile = TurbulenceNoise.noiseImage(for: e, size: modelSize) else { return }
+        let tile = synchronous
+            ? TurbulenceNoise.noiseImageSync(for: e, size: modelSize)
+            : TurbulenceNoise.noiseImage(for: e, size: modelSize)
+        guard let tile else { return }
         ctx.saveGState()
         if let clip {
             ctx.addPath(clip)

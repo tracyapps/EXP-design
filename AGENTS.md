@@ -61,9 +61,23 @@ BUG-034 Stage 2). Wave D is Sanaa's companion chunks (FEAT-051/052/053).
 **Sequencing rule:** never start a document-mutating slice while another one
 awaits owner verification.
 
-**Next:** run `scripts/verify_sanaa_write_gate.sh` against a running EXP with a
-scratch document (FEAT-048 is built but entirely unverified at runtime), then
-FEAT-049.
+FEAT-048 is complete: its repaired **11/11** gate matrix, manual consent/undo,
+real-client save/reopen/export, appearance, and VoiceOver passes are owner-verified.
+Owner decision 2026-08-26: FEAT-049 includes a provider-neutral
+local Sanaa Runtime so the dedicated panel supports real Send/stream/Stop/resume,
+with Copy only as a host-missing fallback. The isolated Codex app-server transport
+probe and packaged helper IPC pass **7/7**, plus **4/4** negative trust gates. The
+dedicated panel, isolated EXP-only MCP route, success-backed batch receipts,
+Select/Go commands, semantic canvas highlight/Reduce Motion path, and VoiceOver
+announcement are built. The first owner canvas pass exposed an invisible Codex MCP
+read approval; switching the exact allowlist from `auto` to `approve` fixes it, and
+packaged plus signed-sandboxed `list_artboards → get_artboard` regressions pass with
+zero approval requests. Signed Debug and strict deep verification pass.
+
+**Next:** owner-verify FEAT-049's real in-panel read → consented write → receipt/
+Select/Go/highlight/VoiceOver loop, plus remaining signed-out/reconnect/Stop and
+Reduce Motion states. Distribution archive/notarization and the independently
+gated Claude adapter remain before FEAT-049 closes.
 Semantic component/state reconstruction is logged as a v2.4+ research candidate;
 older Angular/AngularJS and open-shadow-root evidence are non-gating follow-ups.
 Unrestricted URL import, repository build execution, full argTypes ingestion, and

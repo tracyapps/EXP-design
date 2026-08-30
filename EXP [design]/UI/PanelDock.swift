@@ -39,6 +39,7 @@ enum PanelID: String, CaseIterable, Identifiable, Codable, Sendable {
     case designLanguage
     case components
     case handoff
+    case sanaa
 
     var id: String { rawValue }
 
@@ -50,6 +51,7 @@ enum PanelID: String, CaseIterable, Identifiable, Codable, Sendable {
         case .designLanguage: return "Design Language"
         case .components: return "Components"
         case .handoff: return "Handoff"
+        case .sanaa: return "Sanaa"
         }
     }
 
@@ -61,14 +63,21 @@ enum PanelID: String, CaseIterable, Identifiable, Codable, Sendable {
         case .designLanguage: return "swatchpalette"
         case .components: return "rectangle.3.group"
         case .handoff: return "shippingbox"
+        case .sanaa: return "message.and.waveform"
         }
     }
 
     /// False = reserved slot with placeholder content (Color, for now).
     var implemented: Bool {
         switch self {
-        case .layers, .properties, .components, .designLanguage, .handoff: return true
+        case .layers, .properties, .components, .designLanguage, .handoff, .sanaa: return true
         }
+    }
+
+    /// Availability is separate from saved placement. A disabled conditional
+    /// panel remains in the workspace/tray model so enabling can restore it.
+    var isAvailable: Bool {
+        self != .sanaa || SanaaPreferences.isEnabled
     }
 }
 
@@ -118,7 +127,8 @@ struct Workspace: Codable, Sendable {
                 PanelGroup([.properties]),
                 PanelGroup([.components]),
                 PanelGroup([.designLanguage]),
-                PanelGroup([.handoff])
+                PanelGroup([.handoff]),
+                PanelGroup([.sanaa])
             ], width: 332)   // wide enough for the full align/distribute row
         )
     }
@@ -308,15 +318,23 @@ struct DockColumnView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject var document: ExpDocument
     let side: DockSide
+    @AppStorage(SanaaPreferences.enabled) private var sanaaEnabled = false
 
     // Drag-to-reorder state (a panel heading being dragged + where it'll drop).
     @State private var draggingGroupID: UUID?
     @State private var dropIndicator: DockDropIndicator?
 
     private var visibleGroups: [PanelGroup] {
-        app.dockGroups(side).filter { g in
-            app.workspaceMode != .single
-            || g.panels.contains { isApplicable($0, app: app, document: document) }
+        app.dockGroups(side).compactMap { stored in
+            var group = stored
+            group.panels = stored.panels.filter { panel in
+                panel != .sanaa || sanaaEnabled
+            }.filter { isApplicable($0, app: app, document: document) }
+            guard !group.panels.isEmpty else { return nil }
+            if !group.panels.contains(group.activeID) {
+                group.activeID = group.panels[0]
+            }
+            return group
         }
     }
 
@@ -552,7 +570,7 @@ func isApplicable(_ id: PanelID, app: AppState, document: ExpDocument) -> Bool {
     // LIVE filter — it used to trap empty panels (Components, Design Language) out
     // of reach with no way to show them. Presence is controlled explicitly through
     // the Window menu / dock toggles instead. Kept as an extension point.
-    true
+    id.isAvailable
 }
 
 /// A single tab in a group header.
@@ -607,6 +625,7 @@ func panelContent(_ id: PanelID, document: ExpDocument) -> some View {
     case .components: ComponentsPanel(document: document)
     case .designLanguage: DesignLanguagePanel(document: document)
     case .handoff: HandoffPanel(document: document)
+    case .sanaa: SanaaPanel()
     }
 }
 
@@ -1552,7 +1571,7 @@ struct WindowMenuModel {
     var toggleLeft: () -> Void
     var toggleRight: () -> Void
     /// The panels listed in the menu, in order.
-    static let panelOrder: [PanelID] = [.layers, .properties, .components, .designLanguage, .handoff]
+    static let panelOrder: [PanelID] = [.layers, .properties, .components, .designLanguage, .handoff, .sanaa]
 }
 
 private struct WindowMenuKey: FocusedValueKey { typealias Value = WindowMenuModel }
@@ -1568,8 +1587,9 @@ extension FocusedValues {
 func makeWindowMenuModel(_ app: AppState) -> WindowMenuModel {
     WindowMenuModel(
         mode: app.workspaceMode,
-        shownPanels: Set(WindowMenuModel.panelOrder.filter { app.isPanelShown($0) }),
+        shownPanels: Set(WindowMenuModel.panelOrder.filter { $0.isAvailable && app.isPanelShown($0) }),
         toggle: { panel in
+            guard panel.isAvailable else { return }
             let willShow = !app.isPanelShown(panel)
             app.togglePanel(panel)
             guard willShow else { return }
@@ -1701,6 +1721,7 @@ struct WorkspacePresetMenuItems: View {
 
 struct WindowMenuItems: View {
     @FocusedValue(\.windowMenu) private var focused
+    @AppStorage(SanaaPreferences.enabled) private var sanaaEnabled = false
 
     private var menu: WindowMenuModel? {
         if let focused { return focused }
@@ -1711,7 +1732,7 @@ struct WindowMenuItems: View {
     var body: some View {
         Divider()
         // Per-panel show/hide (works in both modes).
-        ForEach(WindowMenuModel.panelOrder, id: \.self) { panel in
+        ForEach(availablePanels, id: \.self) { panel in
             Toggle(isOn: toggleBinding(panel)) {
                 Label(panel.title, systemImage: panel.icon)
             }
@@ -1735,6 +1756,10 @@ struct WindowMenuItems: View {
         } label: {
             Label("Workspace", systemImage: "rectangle.3.group")
         }
+    }
+
+    private var availablePanels: [PanelID] {
+        WindowMenuModel.panelOrder.filter { $0 != .sanaa || sanaaEnabled }
     }
 
     private func toggleBinding(_ panel: PanelID) -> Binding<Bool> {

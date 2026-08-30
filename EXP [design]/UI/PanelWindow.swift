@@ -76,12 +76,13 @@ final class PanelWindowManager {
             return
         }
         hub.seedTraysIfNeeded()
-        let wanted = Set(hub.trays.map { $0.id })
+        let availableTrays = hub.trays.filter { hub.hasAvailablePanels(in: $0) }
+        let wanted = Set(availableTrays.map { $0.id })
         for (id, controller) in controllers where !wanted.contains(id) {
             programmaticClose = true; controller.close(); programmaticClose = false
             controllers[id] = nil; delegates[id] = nil
         }
-        for tray in hub.trays where controllers[tray.id] == nil {
+        for tray in availableTrays where controllers[tray.id] == nil {
             open(tray)
         }
         applyGrouping()
@@ -151,7 +152,7 @@ final class PanelWindowManager {
         window.styleMask = [.titled, .closable, .resizable, .fullSizeContentView]  // content fills under the titlebar so the glass+gradient reach the very top
         window.isOpaque = false                 // let the behind-window glass show
         window.backgroundColor = .clear
-        window.title = tray.panels.map(\.title).joined(separator: " · ")
+        window.title = PanelHub.shared.availablePanels(in: tray).map(\.title).joined(separator: " · ")
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
@@ -214,7 +215,8 @@ final class PanelWindowManager {
         defer { regroupingInFlight = false }
         let hub = PanelHub.shared
         var groups: [UUID: [UUID]] = [:]
-        for tray in hub.trays.sorted(by: { $0.frame.minX < $1.frame.minX }) {
+        for tray in hub.trays.filter({ hub.hasAvailablePanels(in: $0) })
+            .sorted(by: { $0.frame.minX < $1.frame.minX }) {
             if let g = tray.groupID { groups[g, default: []].append(tray.id) }
         }
         groupParents = groupParents.filter { groups[$0.key]?.contains($0.value) == true }
@@ -303,7 +305,8 @@ final class PanelWindowManager {
                 parent.removeChildWindow(window)
             }
         }
-        for tray in PanelHub.shared.trays where tray.frame != .zero {
+        for tray in PanelHub.shared.trays
+            where tray.frame != .zero && PanelHub.shared.hasAvailablePanels(in: tray) {
             controllers[tray.id]?.window?.setFrame(tray.frame, display: true, animate: false)
         }
         applyGrouping()
@@ -579,13 +582,17 @@ struct TrayWindowView: View {
     // Reflects the window's active/key state — drives the "thinner glass when
     // inactive" behaviour (instead of the default darken-on-resign-key).
     @Environment(\.controlActiveState) private var controlActiveState
+    @AppStorage(SanaaPreferences.enabled) private var sanaaEnabled = false
     private var hub: PanelHub { .shared }
     private var tray: PanelTray? { hub.trays.first { $0.id == trayID } }
 
     var body: some View {
         Group {
-            if let tray, let app = hub.activeApp, let document = hub.activeDocument {
-                content(tray: tray, document: document)
+            if let stored = tray,
+               let presented = presentedTray(stored),
+               let app = hub.activeApp,
+               let document = hub.activeDocument {
+                content(tray: presented, document: document)
                     .environment(app)   // so the hosted panels read the active doc's state
             } else {
                 Color.clear
@@ -596,6 +603,18 @@ struct TrayWindowView: View {
         .background(WindowGlassBackground(active: controlActiveState == .key))
         .expTopEdge()   // a touch more opaque at the very top (the grab bar)
         .overlay(alignment: .topLeading) { seam }
+    }
+
+    private func presentedTray(_ stored: PanelTray) -> PanelTray? {
+        // Reading the AppStorage value makes this projection live when Settings
+        // changes, while `isAvailable` remains the one policy definition.
+        _ = sanaaEnabled
+        let panels = hub.availablePanels(in: stored)
+        guard !panels.isEmpty else { return nil }
+        var result = stored
+        result.panels = panels
+        result.collapsed = stored.collapsed.intersection(Set(panels))
+        return result
     }
 
     @ViewBuilder
@@ -679,7 +698,7 @@ struct TrayWindowView: View {
     }
 
     private var unlinkButton: some View {
-        let title = tray?.panels.map(\.title).joined(separator: ", ") ?? ""
+        let title = tray.map { hub.availablePanels(in: $0).map(\.title).joined(separator: ", ") } ?? ""
         return Button {
             hub.unglue(trayID)
             PanelWindowManager.shared.applyTrayFrames()

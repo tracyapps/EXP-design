@@ -13,21 +13,12 @@ import AppKit
 struct HandoffPanel: View {
     @ObservedObject var document: ExpDocument
     @Environment(AppState.self) private var app
+    @Environment(\.openSettings) private var openSettings
     @State private var bridge = AgentBridgeController.shared
-    @State private var setupKind = AgentSetupKind.claudeCode
-    @State private var copiedLabel: String?
     // Read through @AppStorage rather than SanaaPreferences directly so the access
     // capsule updates the moment the designer changes a switch in Settings.
     @AppStorage(SanaaPreferences.enabled) private var sanaaEnabled = false
     @AppStorage(SanaaPreferences.writeEnabled) private var sanaaWriteEnabled = false
-
-    private enum AgentSetupKind: String, CaseIterable, Identifiable {
-        case claudeCode = "Claude Code"
-        case claudeDesktop = "Claude Desktop"
-        case stdioJSON = "stdio JSON"
-        case helperPath = "Helper path"
-        var id: Self { self }
-    }
 
     private var activeArtboardCount: Int {
         document.model.page(for: app.activeCanvasPageID)?.artboards.count ?? 0
@@ -36,41 +27,6 @@ struct HandoffPanel: View {
     private var selectedExportCount: Int {
         if !app.selectedArtboardIDs.isEmpty { return app.selectedArtboardIDs.count }
         return activeArtboardCount > 0 ? 1 : 0
-    }
-
-    private var helperPath: String {
-        Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/exp-mcp").path
-    }
-
-    private var setupText: String {
-        switch setupKind {
-        case .claudeCode:
-            let escaped = helperPath.replacingOccurrences(of: "'", with: "'\\''")
-            return "claude mcp add --scope user exp-design -- '\(escaped)'"
-        case .claudeDesktop, .stdioJSON:
-            let object: [String: Any] = [
-                "mcpServers": [
-                    "exp-design": ["command": helperPath, "args": []]
-                ]
-            ]
-            guard let data = try? JSONSerialization.data(
-                withJSONObject: object, options: [.prettyPrinted, .sortedKeys]
-            ) else { return helperPath }
-            return String(data: data, encoding: .utf8) ?? helperPath
-        case .helperPath:
-            return helperPath
-        }
-    }
-
-    private var setupNote: String? {
-        switch setupKind {
-        case .claudeDesktop:
-            return "Manual local-server configuration. Claude Desktop may also offer extension-based installation for packaged servers."
-        case .stdioJSON:
-            return "Use this with any MCP host that accepts a stdio server configuration."
-        default:
-            return nil
-        }
     }
 
     var body: some View {
@@ -121,51 +77,14 @@ struct HandoffPanel: View {
                 Divider()
 
                 handoffSection("Agent", icon: "terminal") {
-                    Toggle("Allow local agent access", isOn: Binding(
-                        get: { bridge.isEnabled },
-                        set: { bridge.setEnabled($0) }
-                    ))
-                    .toggleStyle(.switch)
-                    .accessibilityHint("Starts or stops EXP's read-only local connection")
-
                     agentStatus
-
-                    Text("Off by default. The bridge accepts read-only requests from your macOS user through a local socket; EXP does not open a network port or send document data on its own. A connected agent may process requested content according to that agent's provider and privacy settings.")
+                    Text("Connection setup, permissions, connected agents, and available account usage now live together in Settings.")
                         .handoffDetail()
-
-                    if bridge.isEnabled {
-                        Picker("Setup for", selection: $setupKind) {
-                            ForEach(AgentSetupKind.allCases) { kind in Text(kind.rawValue).tag(kind) }
-                        }
-                        .pickerStyle(.menu)
-
-                        Text(setupText)
-                            .font(.system(.caption, design: .monospaced))
-                            .foregroundStyle(EXPColor.textSecondary)
-                            .textSelection(.enabled)
-                            .padding(EXPMetric.sm)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(EXPColor.surfaceField,
-                                        in: RoundedRectangle(cornerRadius: EXPMetric.radiusField))
-                            .accessibilityLabel("Agent setup command")
-
-                        if let setupNote {
-                            Text(setupNote).handoffDetail()
-                        }
-
-                        panelAction(copiedLabel == "setup" ? "Copied Setup" : "Copy Setup",
-                                    icon: copiedLabel == "setup" ? "checkmark" : "doc.on.doc") {
-                            copy(setupText, label: "setup")
-                        }
-
-                        if bridge.connectionCount > 0 {
-                            panelAction(copiedLabel == "selection" ? "Selection Prompt Copied" : "Copy Selection Prompt",
-                                        icon: copiedLabel == "selection" ? "checkmark" : "scope") {
-                                copy("Use EXP [design]'s get_selection tool to inspect my current selection. Preserve EXP node IDs when referring to layers or components.", label: "selection")
-                            }
-                            .accessibilityHint("Copies a prompt that asks the connected agent to read the current EXP selection")
-                        }
+                    panelAction("Manage Agent Connections…", icon: "gearshape") {
+                        UserDefaults.standard.set("sanaa", forKey: AppPreferences.requestedSettingsPane)
+                        openSettings()
                     }
+                    .accessibilityHint("Opens Sanaa and agent connection settings")
                 }
             }
             .padding(EXPMetric.md)
@@ -254,14 +173,6 @@ struct HandoffPanel: View {
         return bridge.connectionCount == 1 ? "1 agent connected" : "\(bridge.connectionCount) agents connected"
     }
 
-    private func copy(_ string: String, label: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(string, forType: .string)
-        copiedLabel = label
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            if copiedLabel == label { copiedLabel = nil }
-        }
-    }
 }
 
 private extension View {
