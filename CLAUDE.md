@@ -128,38 +128,24 @@ EXP [design]/
 ```
 
 ## Current status
-Public **v2.3/build 14** is released and owner-verified.
-Active development is **v2.4/build 15** (`MARKETING_VERSION 2.4`,
-`CURRENT_PROJECT_VERSION 15`) across the app and thumbnail-extension configs.
+Public **v2.4/build 15** is released, notarized, and owner-verified.
+Active development is **v2.5/build 16** (`MARKETING_VERSION 2.5`,
+`CURRENT_PROJECT_VERSION 16`) across the app, thumbnail extension, and bundled
+runtime configs. This does not alter the immutable v2.4 release or public appcast.
 The native editor, Design Language, component states/behavior contract, semantic
 Handoff Package, agent bridge, nested components, canvas pages, XD/Figma import,
 rendered HTML/CSS import, CodePen handoff/import, static Storybook import, and the
 five-family compatibility matrix are shipped. Documents save as **`.design`**
 (legacy `.exp` opens for migration).
 
-Waves 1–6 and the completed Wave 7 line/gradient work are accepted. The owner
-explicitly deferred the remaining lower-priority vector/effect queue to v2.4 on
-2026-08-21. `docs/RELEASE-CHECKLIST-v2.3.md` contains the completed notarization,
-GitHub, Sparkle, website, and v2.2→v2.3 update receipts.
+`docs/RELEASE-CHECKLIST-v2.4.md` contains the notarization, immutable artifact,
+GitHub, Sparkle, and website receipts. The preserved v2.3→v2.4 in-app Sparkle
+install/relaunch proof remains as a post-publication check.
 
-**v2.4 scope, set by the owner 2026-08-25:** ship BOTH the deferred vector/tool
-queue and Sanaa, with **Sanaa as the headline**. Waves and gates live in
-ROADMAP → v2.4 and `docs/RELEASE-CHECKLIST-v2.4.md` §A.
-Wave A (BUG-049, BUG-050, BUG-051, BUG-052, FEAT-047, FEAT-027) is
-**owner-verified 2026-08-27** — all six items passed the Xcode acceptance pass.
-Wave B's core (FEAT-048 → 049) is also **owner-verified 2026-08-27**: FEAT-048's
-write-back and FEAT-049's canvas conversation/apply_edits flow were exercised
-end-to-end (a design started and edited entirely through Sanaa). FEAT-050 ("Ask
-Sanaa" prompt starters) is not yet built. Wave C is the vector queue (FEAT-025
-leads, then 029, 028, 031, 030, BUG-048, BUG-034 Stage 2) and is NOT started —
-BUG-053 (raster export silently drops noise/dissolve effects) leads it and is
-still open. Wave D is Sanaa's companion chunks (FEAT-051/052/053), not started.
-**Sequencing rule:** never start a document-mutating slice while another one
-awaits owner verification.
-
-**Next:** Wave C, starting with BUG-053 (raster export drops noise/dissolve
-effects — a fidelity bug, ranks above the rest of the vector queue), then
-FEAT-025. FEAT-050 can run in parallel since it doesn't mutate documents.
+v2.5 has been opened as a clean development baseline only. Its scope is
+intentionally unselected; FEAT-057–060 and other backlog entries remain
+candidates, not commitments. **Next:** use ROADMAP → v2.5's owner scoping gate
+before implementing anything. Do not infer a release plan from backlog order.
 
 **Backlog hygiene:** run `scripts/verify_backlog_ids.sh` before assigning a new id.
 Ids are referenced from ROADMAP, PERF-LOG and PERF-TODO as well as BACKLOG, so

@@ -485,3 +485,10 @@ documentation-only commit before announcing the release.
 - [x] GitHub release is public and its downloaded asset matches the local ZIP.
 - [x] Production appcast, v2.4 HTML notes, and Sanaa homepage story are live.
 - [ ] Public v2.3 → v2.4 Sparkle update proof is green.
+
+## Next development cycle
+
+- [x] Opened v2.5 development at `MARKETING_VERSION 2.5` /
+      `CURRENT_PROJECT_VERSION 16` across the app, thumbnail extension, and
+      bundled runtime configurations on 2026-09-02. This does not alter the
+      immutable v2.4/build 15 release artifacts or public appcast entry.

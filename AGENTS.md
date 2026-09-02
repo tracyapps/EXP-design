@@ -39,8 +39,10 @@ EXP [design]/
 
 ## Current status
 Public **v2.4/build 15** is released, notarized, and owner-verified.
-`MARKETING_VERSION 2.4` and `CURRENT_PROJECT_VERSION 15` are aligned across the
-app and thumbnail-extension configs.
+Active development is **v2.5/build 16** (`MARKETING_VERSION 2.5`,
+`CURRENT_PROJECT_VERSION 16`) across the app, thumbnail extension, and bundled
+runtime configs. This is a development identity only; the public appcast and
+immutable v2.4 artifacts remain 2.4/build 15.
 The core native editor, component states/behavior contract, semantic Handoff
 Package, agent-bridge spine, nested components, canvas pages, editable XD/Figma
 import, unified Handoff/panel IA, editable rendered HTML/CSS import, CodePen
@@ -91,3 +93,5 @@ code write-back remain explicitly deferred pending evidence.
 Agent capability packs, Figma OAuth/Keychain/Variables, and agent write-back remain
 explicit non-gating follow-ups.
 See ROADMAP.md for the authoritative checklist and newest Progress Log entry.
+The v2.5 scope is intentionally unselected. Resume at ROADMAP → v2.5's owner
+scoping gate; do not silently promote candidate backlog items into the release.

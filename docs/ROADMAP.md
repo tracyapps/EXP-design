@@ -1286,6 +1286,21 @@ promote them into release gates.
 
 ---
 
+## v2.5 — in development
+
+Development identity: **2.5 / build 16** across the main app, thumbnail
+extension, and bundled runtime configurations. Public v2.4/build 15 artifacts,
+appcast metadata, release notes, and tag remain immutable.
+
+This opens a clean development lane; it does not choose the release scope.
+FEAT-057–060, deferred research, and the remaining backlog are candidates only.
+
+- [ ] **Owner scoping gate.** Review current evidence and choose the smallest
+      coherent v2.5 outcome before any feature implementation begins. Record the
+      selected items, exclusions, ordering, and acceptance gates here.
+
+---
+
 ## v2.4 — released (2026-09-02)
 
 Public release identity: **2.4 / build 15** across the main app and thumbnail
@@ -3147,6 +3162,16 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-09-02 (repository hygiene complete; v2.5 development opened).** Removed
+  two accidentally tracked Blender Toolkit placeholder files and ignored that
+  machine-local helper at any depth. Removed the obsolete pre-target
+  `ThumbnailExtension/ThumbnailProvider.swift`; the shipping `EXPThumbnail`
+  target and its source remain intact. Audited tracked generated/user-state paths
+  and found no other stray repository artifacts. Advanced all Xcode app,
+  thumbnail, and bundled-runtime configurations to `MARKETING_VERSION 2.5` /
+  `CURRENT_PROJECT_VERSION 16`; the public v2.4 appcast and artifacts remain
+  unchanged. **NEXT:** owner chooses the v2.5 scope at the new scoping gate.
 
 - **2026-09-02 (v2.4 is public — GitHub, Sparkle, and website verified).** The
   annotated `v2.4` tag points at the release-metadata commit, the GitHub release

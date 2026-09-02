@@ -47,6 +47,10 @@ docs/*
 # `scripts/.claude/`), so match at any depth.
 **/.claude/settings.local.json
 
+# Blender Toolkit is unrelated machine-local helper state. It was accidentally
+# initialized at both the repository root and under scripts/ in earlier work.
+**/.blender-toolkit/
+
 # E0 spike artifacts. The fixtures are source and ARE tracked; everything the
 # runner generates from them is not.
 spike/html-import/fixture1-exp-export/
