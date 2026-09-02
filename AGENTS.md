@@ -38,17 +38,17 @@ EXP [design]/
 ```
 
 ## Current status
-Public **v2.3/build 14** is released and owner-verified.
-Active development is **v2.4/build 15** (`MARKETING_VERSION 2.4`,
-`CURRENT_PROJECT_VERSION 15`) across the app and thumbnail-extension configs.
+Public **v2.4/build 15** is released, notarized, and owner-verified.
+`MARKETING_VERSION 2.4` and `CURRENT_PROJECT_VERSION 15` are aligned across the
+app and thumbnail-extension configs.
 The core native editor, component states/behavior contract, semantic Handoff
 Package, agent-bridge spine, nested components, canvas pages, editable XD/Figma
 import, unified Handoff/panel IA, editable rendered HTML/CSS import, CodePen
 handoff/import, and static Storybook import are shipped.
 
-`docs/RELEASE-CHECKLIST-v2.3.md` contains the completed notarization, GitHub,
-Sparkle, website, and v2.2→v2.3 update receipts. The remaining lower-priority
-Wave 7 vector/effect queue is explicitly deferred to v2.4.
+`docs/RELEASE-CHECKLIST-v2.4.md` contains the notarization, immutable artifact,
+GitHub, Sparkle, and website receipts. The only post-publication gate still open
+is the preserved v2.3→v2.4 in-app Sparkle install/relaunch proof.
 
 **v2.4 scope, set by the owner 2026-08-25:** ship BOTH the deferred vector/tool
 queue and Sanaa, with **Sanaa as the headline**. Waves and gates live in
@@ -81,8 +81,9 @@ FEAT-061's reader experience, and BUG-058/059's overlap fixes are also owner-ver
 2026-09-02. All v2.4 feature and source-verification gates are complete;
 FEAT-050 is fully owner-signed-off, FEAT-051/053/054 are closed, the semantic
 manifest is re-reviewed/rebaselined, release notes exist, and the homepage has
-its Sanaa feature story. The signed archive, notarization, Sparkle metadata,
-GitHub release, deploy, and public update proof remain.
+its Sanaa feature story. The signed archive, notarization, immutable zip, Sparkle
+metadata, GitHub release, and production deployment are complete. The preserved
+v2.3→v2.4 in-app updater proof remains.
 Semantic component/state reconstruction is logged as a v2.4+ research candidate;
 older Angular/AngularJS and open-shadow-root evidence are non-gating follow-ups.
 Unrestricted URL import, repository build execution, full argTypes ingestion, and

@@ -1288,9 +1288,9 @@ promote them into release gates.
 
 ## v2.4 — released (2026-09-02)
 
-Active development identity: **2.4 / build 15** across the main app and thumbnail
-extension, in both Debug and Release configurations. This is not a public-release
-claim; v2.3/build 14 remains the current signed, notarized Sparkle release.
+Public release identity: **2.4 / build 15** across the main app and thumbnail
+extension. The universal Developer ID app is notarized and stapled; the GitHub
+release, Sparkle feed, release notes, and production website are live.
 
 **Owner scope decision, 2026-08-25:** v2.4 ships BOTH the deferred vector/tool
 queue and Sanaa, with **Sanaa as the headline**. This is deliberately a large
@@ -3147,6 +3147,16 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-09-02 (v2.4 is public — GitHub, Sparkle, and website verified).** The
+  annotated `v2.4` tag points at the release-metadata commit, the GitHub release
+  “EXP [design] v2.4 — Meet Sanaa.” is public, and its downloaded asset matches
+  the immutable local ZIP byte-for-byte. Vercel completed the production deploy;
+  the live homepage exposes the new Sanaa story and both screenshots, while the
+  live appcast advertises build 15 with its EdDSA signature and the release-notes
+  endpoint is reachable. **NEXT:** run the preserved public v2.3 build through
+  Check for Updates and record the install/relaunch/document proof without
+  interrupting the owner's currently open development document.
 
 - **2026-09-02 (v2.4 notarized; immutable shipping artifact verified).** Apple
   accepted the universal Developer ID archive for notarization and Xcode exported

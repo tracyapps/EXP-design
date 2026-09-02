@@ -481,7 +481,7 @@ documentation-only commit before announcing the release.
 - [x] Shipping ZIP passed direct and unzip-roundtrip release-candidate checks.
 - [x] ZIP SHA-256:
       `9174ea9686ff20ab81a3c39ed7175cff0df3d0ed4a3c3fc36b1a08b44fe6b389`.
-- [ ] Annotated tag `v2.4` points at the release-metadata commit.
-- [ ] GitHub release is public and its downloaded asset matches the local ZIP.
-- [ ] Production appcast and v2.4 HTML notes are live.
+- [x] Annotated tag `v2.4` points at release-metadata commit `90903de`.
+- [x] GitHub release is public and its downloaded asset matches the local ZIP.
+- [x] Production appcast, v2.4 HTML notes, and Sanaa homepage story are live.
 - [ ] Public v2.3 → v2.4 Sparkle update proof is green.
