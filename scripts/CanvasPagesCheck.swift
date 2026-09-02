@@ -85,6 +85,44 @@ private enum CanvasPagesCheck {
         require(document.owningArtboard(of: resizedGroup, on: first.id)?.id == board.id,
                 "resized descendant geometry did not drive artboard entry")
 
+        // Automatic artboard placement treats visible, loose wall artwork as
+        // occupied space. Existing-board children do not become duplicate
+        // obstacles, and hidden wall layers do not reserve invisible space.
+        let wall = Node(name: "Wall swatch",
+                        frame: CGRect(x: 220, y: 0, width: 80, height: 80),
+                        content: .rectangle(RectangleShape()))
+        var hiddenWall = Node(name: "Hidden wall note",
+                              frame: CGRect(x: 320, y: 0, width: 100, height: 100),
+                              content: .rectangle(RectangleShape()))
+        hiddenWall.isVisible = false
+        var placementDocument = Document(artboards: [], nodes: [])
+        placementDocument.pages = [CanvasPage(name: "Wall",
+                                               artboards: [board],
+                                               nodes: [left, wall, hiddenWall])]
+        let placementPageID = placementDocument.pages[0].id
+        let preferred = CGRect(x: 120, y: 0, width: 100, height: 100)
+        let placed = placementDocument.availableArtboardFrame(
+            preferred: preferred, on: placementPageID, spacing: 20)
+        require(placed == CGRect(x: 320, y: 0, width: 100, height: 100),
+                "automatic artboard placement did not clear visible wall artwork")
+        require(!placed.intersects(wall.frame),
+                "automatic artboard placement still overlaps the wall layer")
+
+        var owned = left
+        owned.artboardID = board.id
+        placementDocument.pages[0].nodes = [owned]
+        let besideBoard = placementDocument.availableArtboardFrame(
+            preferred: preferred, on: placementPageID, spacing: 20)
+        require(besideBoard == preferred,
+                "an existing artboard child incorrectly reserved wall space twice")
+
+        placementDocument.pages[0].nodes = [hiddenWall]
+        let ignoringHidden = placementDocument.availableArtboardFrame(
+            preferred: CGRect(x: 320, y: 0, width: 100, height: 100),
+            on: placementPageID, spacing: 20)
+        require(ignoringHidden.origin.x == 320,
+                "a hidden wall layer incorrectly blocked automatic placement")
+
         // A mask's clip shape reduces membership geometry even when the content and
         // container extend far onto the wall.
         let maskContent = Node(name: "Wide content",
@@ -135,6 +173,6 @@ private enum CanvasPagesCheck {
         require(migrated.pages.count == 1 && migrated.pages[0].nodes.count == 2,
                 "legacy single-canvas document did not migrate into Page 1")
 
-        print("ok: canvas pages isolate and persist hysteretic group/mask ownership, deep-duplicate, round-trip, and migrate v2 documents")
+        print("ok: canvas pages isolate and persist hysteretic group/mask ownership, avoid loose wall artwork during automatic artboard placement, deep-duplicate, round-trip, and migrate v2 documents")
     }
 }

@@ -34,13 +34,87 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 
 ## 🐞 Bugs
 
+### BUG-058 — Floating Sanaa trays can cover app-authored popovers
+- Type: bug
+- Priority: P1
+- Area: chrome · windows · accessibility
+- Status: **done — owner verified resolved 2026-09-02; Debug/Release builds and
+  focused source gate pass**
+- Repro/Detail: In multi-window mode, open the Inspector colour picker while a
+  floating Sanaa tray overlaps it. The tray can draw over the picker because the
+  owner-verified palette windows intentionally use `NSWindow.Level.floating`, while
+  some SwiftUI/AppKit popovers arrive at an ordinary window level. The defect is not
+  specific to colour: any app-authored transient surface with the same ordering can
+  be covered by a sibling tray.
+- Fix: one `expTransientWindowLevel()` seam promotes app-authored popover windows to
+  the system pop-up-menu level without demoting the floating trays. It is applied to
+  both colour/paint wells, the font picker, custom component-state naming, and the
+  canvas gradient-stop editor. EXP's child-window field tips use the same level.
+  Native `NSMenu`/SwiftUI `Menu` surfaces already use system transient ordering.
+- Acceptance: with overlapping floating trays, each custom popover and field tip is
+  wholly visible above every tray; native dropdown/menu/context-menu surfaces remain
+  above trays; Escape, outside-click dismissal, keyboard focus, window dragging,
+  app deactivation, and glued-tray behavior are unchanged on one and two displays.
+
+### BUG-059 — Active Sanaa response reader stays beneath floating trays
+- Type: bug
+- Priority: P1
+- Area: chrome · windows · accessibility
+- Status: **done — owner verified the overlapping response experience 2026-09-02;
+  Debug build and focused response-window gate pass**
+- Repro/Detail: Open a full Sanaa response in multi-window mode and overlap it with
+  a floating panel tray. Clicking the reader makes it key but the reader remains at
+  `.normal`, below the `.floating` tray, so the active reading surface is obscured.
+- Fix: the existing reader window delegate raises only a key reader to `.floating`
+  and returns it to `.normal` on resign. It therefore joins the tray ordering while
+  active without becoming an always-on-top palette; menus/popovers remain above both
+  at `.popUpMenu`.
+- Acceptance: an active reader orders above all floating trays; focusing a tray or
+  document returns the reader below the trays; repeated open/focus, Command-W focus
+  restoration, glued trays, app deactivation, and one/two-display behavior remain
+  correct; transient menus and popovers still order above the reader.
+
+### BUG-057 — Automatic artboard placement can cover loose wall artwork
+- Type: bug
+- Priority: P1
+- Area: canvas · model · Sanaa
+- Status: **done — owner verified 2026-08-31; focused model regression plus
+  full unsigned Debug and optimized Release builds pass.**
+- Repro/Detail: Put rectangles, text, or a brainstorm group directly on the wall
+  rather than inside an artboard. Add an artboard from the toolbar, paste or
+  command-duplicate an artboard, or ask Sanaa to create/duplicate a same-page
+  variation. These paths could place the new board over the loose material. The
+  toolbar and Sanaa only considered existing artboard bounds; paste and Duplicate
+  used fixed `40,40` / `20,20` offsets.
+- Root cause / implementation: `Document.contentBounds(on:)` is intentionally
+  artboard-only (fit/centering should not change), but it had also become the
+  implicit placement policy. A new `availableArtboardFrame` policy searches to
+  the right from each path's preferred frame, treating existing artboards and
+  visible top-level nodes with no owning artboard as obstacles, including group /
+  mask descendant geometry. It preserves the configured artboard spacing. Hidden
+  wall layers and artboard-owned children do not reserve duplicate space. Add,
+  paste, command Duplicate, and Sanaa's automatic create/duplicate paths now use
+  the shared policy; multi-artboard paste/duplicate preserves the copied set's
+  relative layout. Explicit Sanaa coordinates, the Artboard drawing tool, and
+  Option-drag duplication remain direct so the designer can intentionally put a
+  board around wall content or place it under the pointer.
+- Regression gate: `scripts/verify_canvas_pages.sh` exercises a visible loose
+  wall node, an artboard-owned node, and a hidden wall node through the real
+  document policy. It passes, and the full app Debug build succeeds.
+- Acceptance: On a page with loose wall shapes/text/groups to the right of an
+  artboard, toolbar Add, paste, command Duplicate, and a Sanaa same-page
+  create/duplicate all land beyond the occupied material with the configured
+  spacing, preserve copied layout and ownership, select the result, and undo in
+  one step. Hidden loose layers do not block a slot. Drawing an artboard around
+  loose work intentionally still adopts/encloses it, and explicit placement is
+  not moved.
+
 ### BUG-053 — Raster export silently drops the `noise` and `dissolve` effects
 - Type: bug (fidelity/divergence — the failure this tool exists to prevent)
 - Priority: P1
 - Area: export · effects · canvas
-- Status: **fix built 2026-08-27 (implementation notes below); awaiting the
-  owner's Fixture A run. Automated twin of Fixture A plus three PDF-path probes
-  pass 6/6; token-bridge regression and full app + EXPThumbnail builds pass.**
+- Status: **done — owner verified resolved 2026-09-01.** Automated effect-export,
+  token-bridge, app, and EXPThumbnail gates pass.
 - Repro/Detail: Owner built layered light-leak graphics using overlay / color /
   color-dodge layers at various opacities, one of them a blue layer carrying a
   `noise` (feTurbulence) effect. PNG export does not match the canvas: the broad
@@ -155,13 +229,13 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   off), the group-noise punch probe, the knockout probe (distinguishes honored /
   ignored / black), and BUG-054's oversized-layer probe. `verify_svg_token_bridge.sh`
   still passes; Debug builds of the app and EXPThumbnail targets succeed.
-- **Not claimed by this pass:** the hand-kept mirror remains — `drawExportNode`
+- **Historical implementation boundary:** the hand-kept mirror remains — `drawExportNode`
   still duplicates the canvas's effect ORDER by comment (the shared-pipeline
   refactor is future work); shadows on the raster path are still cast from the
   UNBLURRED source while `svgFilter` casts them from the blurred source
   (untested by the fixtures — stacked effects are explicitly out of their
-  scope); the owner's Fixture A run and the original light-leak file re-export
-  are the acceptance gates.
+  scope). The owner completed the acceptance and marked the bug resolved
+  2026-09-01.
 - Acceptance: every `Effect.Kind` renders in canvas, SVG, PNG, JPG, and PDF, or is
   refused at authoring time — no effect is silently ignored by an exporter. A
   regression fixture covering all six kinds exports identically across raster and
@@ -172,10 +246,9 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: bug (fidelity/divergence)
 - Priority: P2
 - Area: export · effects · canvas · perf
-- Status: **half fixed 2026-08-27 — the silent fail-open is closed (detail at the
-  end); the radius-space divergences remain open. Fixture B owner run pending.
-  Originally found 2026-08-25 while tracing BUG-053; NOT the cause of the owner's
-  reported divergence (see BUG-053), but a real one in its own right.**
+- Status: **done — owner verified resolved 2026-09-01.** The silent fail-open is
+  fixed and the owner accepted the shipped blur behavior; no residual release
+  gate or scheduled follow-up remains.
 - **Honest history:** this was first written up as the explanation for BUG-053's
   evidence. It is not. The owner's observation that a noise layer "is not
   registering" led to the real cause. The measurements that pointed here — light
@@ -220,18 +293,19 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   NO blur at all, and the canvas dropped it the same way. Proven by the
   oversized-layer probe in `scripts/verify_effect_export_coverage.sh` (13,000pt
   layer vs the 12,000pt guard renders blurred, not bare).
-- **Still open, deliberately:** (1) the shadow/inner-shadow blur clamp
+- **Historical code-reading observations, not open release work:** (1) the shadow/inner-shadow blur clamp
   `min(blur × scale, 200)` is still applied in DEVICE space, so canvas
   (scale = zoom) and export (scale = 1) agree only at 100% zoom. Moving the clamp
   to model space — `min(blur, 200) × scale` — unbounds the device sigma at high
   zoom, which is the exact "Surface too large"/render-thread hang the clamp was
   added to prevent; it needs the bounded offscreen shadow renderer (the same
-  bitmap pattern the BUG-053 knockout fix introduced) and must respect the
-  BUG-034 Stage 2 resource gates before touching the live canvas path.
+  bitmap pattern the BUG-053 knockout fix introduced) before touching the live
+  canvas path.
   (2) canvas `drawLayerBlur` still multiplies sigma by backing scale but not by
   zoom while its bounds/pad are view-space, so canvas layer blur is
-  model-consistent only at 100% zoom; export is model-consistent. Same constraint
-  class — fix under the BUG-034 gates, not casually.
+  model-consistent only at 100% zoom; export is model-consistent. The owner
+  verified the real shipped behavior and closed BUG-054 on 2026-09-01, so these
+  observations carry no planned implementation date.
 
 ### BUG-055 — SVG export drops inner-shadow spread on every shape
 
@@ -354,13 +428,14 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   selection and does not start a move. Double-click rename and panel text fields can
   still reclaim key focus when deliberately invoked.
 
-### BUG-056 — Gradients with transparent stops export OPAQUE through the PDF intermediate
+### BUG-056 — Transparent gradients diverge through the PDF intermediate
 - Type: bug (fidelity/divergence — same family as BUG-053)
-- Priority: P1
+- Priority: P2 (v2.5 follow-up)
 - Area: export · color · gradients
-- Status: **fix built 2026-08-28 (implementation notes below); owner re-export of
-  the modified FX-A-2 test file is the acceptance gate. Automated probe passes —
-  export now matches a direct canvas-truth bitmap within ±3/255 across the falloff.**
+- Status: **deferred from v2.4 by owner decision 2026-08-31. The original
+  opaque/stepped falloff and layered opacity/texture defects are repaired; the
+  remaining colored-ring case is accepted as an edge case for this release.
+  Resume in v2.5 by adding the focused failing fixture before changing code.**
 - Repro/Detail: Owner extended the BUG-053 test file (FX-A-2: three panels of
   overlapping radial-gradient glows with noise effects and blend modes) and found
   the PNG export nothing like the canvas: gradients that fade to transparent
@@ -396,12 +471,32 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   distributions match a direct canvas-truth bitmap at 2× and 3× (max run 4 vs
   truth's 3 at 2×; quantization itself produces runs of 1–4).
 - Regression gate: the `gradientAlphaThroughPDF` probe in
-  `scripts/verify_effect_export_coverage.sh` (now **7/7**) renders a radial
+  `scripts/verify_effect_export_coverage.sh` (added as its seventh check; the
+  suite now contains eight checks) renders a radial
   white 0.9→0 gradient, exports PNG, and compares five radii against a
   direct-bitmap render of the same gradient within ±3/255, plus asserts real
   falloff so the flat-opaque regression fails loudly, plus asserts at 2× and 3×
   that no run of ≥6 identical pixels appears in the falloff (the stepping
   signature the supersample fixes).
+- **Remaining edge case found 2026-08-31:** the owner's WPS banner now exports
+  accurately when a single effect/texture is present, and the previous thick
+  outline plus background opacity/texture errors are gone. With many layers,
+  however, the radial glows around the WPS mark gain vivid magenta/green/cyan
+  rings that are absent on canvas. Read-only inspection of the live artboard found
+  the repeated production pattern: an opaque saturated center, a saturated but
+  alpha-zero stop near 0.32/0.33, then transparent black near 0.584, on nodes at
+  0.2–0.93 opacity using Color Dodge, Overlay, Hue, Color, and Screen. The current
+  PDF-safe path builds an opaque color shading from the stops and applies alpha as
+  a separate mask. That preserves saturated RGB into the nearly-transparent
+  falloff instead of reproducing the canvas bitmap's coupled/premultiplied RGBA
+  interpolation; the layer blend modes can amplify that low-alpha color into a
+  ring. The existing white 0.9→white 0 normal-blend fixture cannot expose this,
+  and the blended-noise fixture samples only its center, not the falloff boundary.
+  Treat this as the leading, code-backed hypothesis until a focused exporter
+  fixture reproduces it. Acceptance now also requires differently colored
+  alpha-zero stops, the 0.32→0.584 transition, stacked radial gradients, node
+  opacity, and the production blend modes to match direct canvas truth without a
+  colored annulus.
 - Not claimed: gradient strokes (the model's strokes are solid `RGBAColor` —
   nothing to fix); text fills (attributed strings, solid only). Owner gate:
   re-export FX-A-2 and the original light-leak file and compare against the
@@ -431,8 +526,7 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: bug
 - Priority: P2
 - Area: import · SVG · vector
-- Status: **needs-verify — the mapping is implemented 2026-08-25 and builds clean;
-  the import-report half of the acceptance is NOT built (see below)**
+- Status: **done — owner verified resolved 2026-09-02**
 - Repro/Detail: Owner found during FEAT-031 export verification that placing an
   SVG carrying `stroke-dasharray` does not reconstruct the dashed/dotted stroke
   correctly. The same exported SVG renders correctly in a browser, so this is the
@@ -458,23 +552,24 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   whitespace separators, `px` units, single-value arrays, all-zero arrays, `none`,
   and an unparseable value. All 14 match — importantly, EXP's own exports round-trip
   to the preset they were written from.
-- **NOT built, and it is part of the acceptance: the import report.** An array EXP
+- **Optional future enhancement, not part of this closed bug: the import report.** An array EXP
   cannot represent (a four-value rhythm, say) is approximated to the nearest preset
   rather than announced. `SVGImporter` deliberately imports only Foundation and
   CoreGraphics and has no report channel — `Context` is passed by value, so notes
   collected during a parse do not reach the caller. Adding one is its own small
   piece of work (a returned notes array threaded through the entry point, or a
   summary surface at the place-SVG action) and should be logged as such rather than
-  bolted on here. Until then the failure mode is "approximated silently," which is
-  strictly better than the "solid silently" this bug was filed for, but is not what
-  the acceptance asks for.
+  bolted on here. The owner accepted that bounded limitation 2026-09-02: authored
+  dashes work in EXP and exported SVG renders correctly in Preview and browsers;
+  Illustrator's differing behavior is downstream interoperability rather than an
+  EXP release failure.
 - Acceptance: placing SVGs with `stroke-dasharray` supplied as a presentation
   attribute, inline style, or matched stylesheet rule reconstructs EXP's Dash or
   Dot preset when the array matches one of those semantics. EXP's own dashed and
-  dotted SVG exports round-trip to the same editable `StrokePattern`. A custom
-  array that cannot fit EXP's preset model produces an explicit import-report
-  approximation instead of silently becoming solid. Stroke cap, markers, opacity,
-  transforms, and geometry remain unchanged.
+  dotted SVG exports round-trip to the same editable `StrokePattern`; exported SVG
+  renders correctly in Preview and browsers. Stroke cap, markers, opacity,
+  transforms, and geometry remain unchanged. Reporting approximation of arbitrary
+  custom arrays is a separate optional enhancement.
 
 ### BUG-047 — Artboard-bound snapping cannot catch a layer approaching from the wall
 - Type: bug (incomplete shipped behavior)
@@ -1050,14 +1145,17 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 
 ### BUG-034 — Spread is silently dropped on canvas but IS applied in SVG export (text, paths, lines, groups)
 - Type: bug (fidelity/divergence) + feature (implement spread for arbitrary silhouettes)
-- Priority: P1 — the divergence half. The implementation half is Wave C.
+- Priority: **lowest / unplanned**
 - Area: color · effects · export · canvas
-- Status: **Stage 1 DONE — owner verified 2026-08-19. Stage 2 OPEN — first
-  implementation attempt rolled back 2026-08-26 after repeated WindowServer
-  watchdog failures and a whole-Mac kernel panic.** The owner confirmed the note appears on a text node with a non-zero
+- Status: **closed as an accepted limitation — Stage 1 disclosure remains;
+  Stage 2 is removed from v2.4 and parked indefinitely by owner decision
+  2026-09-01. There is no target release or plan to retry the risky renderer
+  work.** The first implementation attempt was rolled back 2026-08-26 after
+  repeated WindowServer watchdog failures and a whole-Mac kernel panic. The owner
+  confirmed the note appears on a text node with a non-zero
   spread, and independently confirmed the other half of the divergence by finding
   `feMorphology radius` in the SVG export — which is exactly the gap Stage 1 exists
-  to disclose and Stage 2 exists to close.
+  to disclose and Stage 2 was originally proposed to close.
 - **STAGE 1 APPLIED 2026-08-19 — disclosure only; nothing stored changed and nothing
   in export was suppressed.** Three parts:
   1. `EffectsRender.previewsSpread(_:)` — one predicate, living next to
@@ -1142,10 +1240,10 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   spread produces a hard sticker/outline edge that cannot be reproduced by stacking
   at any count. More decisively, stacked shadows do nothing for IMPORTED content,
   which is where spread arrives regardless of authoring habits.
-  **Resolution:** consistency is achieved by making spread work on every node type,
-  not by deleting it — adding rather than removing. `Effect.spread` stays in the
-  model and keeps round-tripping. Stage 2 remains in Wave C, open after the unsafe
-  first implementation was rolled back.
+  **Historical resolution, superseded 2026-09-01:** keeping `Effect.spread` in the
+  model still avoids import data loss, but implementing arbitrary-silhouette canvas
+  spread is no longer planned. Stage 1's disclosure is the permanent honest
+  behavior unless the owner explicitly reprioritizes the limitation someday.
 - Repro/Detail: Owner report 2026-08-11: "shadow spread not working in effects."
   Clarified same day — **a drop shadow on TEXT**, i.e. a complex/content-based
   caster, not a rectangle or ellipse. So this is NOT a regression against Phase 10's
@@ -2622,7 +2720,8 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: feature
 - Priority: P2
 - Area: chrome · canvas
-- Status: open
+- Status: owner-verified 2026-08-27 (distribution signing/notarization remains a
+  release-packaging gate)
 - Repro/Detail: Sanaa gets a dedicated first-class dockable panel, available only
   while her master setting is enabled. Off means absent from Window menu, docks,
   and floating trays without destroying saved placement; on restores availability
@@ -2648,24 +2747,102 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: feature
 - Priority: P2
 - Area: chrome · canvas
-- Status: open
-- Repro/Detail: Right-click + Object menu "Ask Sanaa ▸ Complete this… / Draw
-  variations… / Do repetitive work…". Sheets collect the owner's placement
+- Status: **needs-owner-verify — base built 2026-08-31; facts-first amendment
+  built 2026-09-01; universal Debug/Release builds and expanded prompt contract probe pass**
+- Repro/Detail: Right-click + Object menu "Ask Sanaa ▸ Critique this… / Do
+  repetitive work… / Complete this… / Draw variations… / Design directions…".
+  Sheets collect the owner's placement
   decisions up front (complete: in-place vs duplicate-beside, default
   duplicate; variations: count + same page vs new page, default new page) and
-  compose an id-rich prompt into Sanaa's panel for editing, then copy it to the
-  external agent ("Copy prompt for my agent" — the seam stays explicit). Full
+  compose an id-rich prompt into Sanaa's panel for editing. The configured local
+  runtime sends it from that existing composer; "Copy for my agent" remains the
+  honest host-unavailable fallback. Full
   five-way command coverage; the sheet is the parameter surface. Depends on
   FEAT-048 and pairs with the FEAT-049 panel.
 - Acceptance: SANAA-PLAN §6/FEAT-050 — enablement matrix across selection
   shapes, pasted prompts drive correctly-placed `apply_edits` batches in a real
   agent, sheets pass keyboard/VoiceOver checks.
+- Implementation 2026-08-31: Object ▸ Ask Sanaa and the canvas selection context
+  menu route through three validated `CanvasNSView` responder actions. With Sanaa
+  off there is no menu trace; with no document selection the Object submenu is
+  disabled; node, multi-node, and artboard selections capture stable page/node/
+  parent-artboard ids before presenting the sheet. Complete defaults to a safe
+  duplicate, Variations defaults to three artboards on a new page, and Repetitive
+  work requires a non-empty instruction plus explicit in-place-consent language.
+  Add to composer reveals the real Sanaa panel, inserts an editable prompt, and
+  focuses the editor without auto-sending. Cancel/Return use native sheet keyboard
+  actions and every parameter control has a label/hint. A Debug-only contract
+  probe proves ids, placement kinds, variation count, consent wording, and composer
+  focus; a full unsigned Debug build passes. **Not yet verified:** owner selection
+  matrix; real Codex placement batches; host-missing Copy fallback; VoiceOver and
+  appearance.
+- Amendment implementation 2026-09-01: Critique and Design directions use the
+  same captured ids but need no parameter sheet or placement because each asks
+  only for a read-only response. They place editable drafts without auto-sending,
+  stop on a changed live selection, require `get_design_facts` before analysis,
+  load bounded task-specific guidance, and explicitly forbid `apply_edits`.
+  Critique preserves the five-group facts/observations/limitations contract;
+  directions asks for three genuinely axis-divergent options with rationale and
+  tradeoff. Both menu surfaces use the planned critique/cleanup/complete/
+  variations/directions order. The expanded in-app probe, facts/source-pack
+  checks, and fresh universal Debug/Release builds pass. **Owner-verified
+  2026-09-02 against the real critique mockup: every intentionally planted issue
+  was caught, including gradient contrast; the owner rated the critique/guidance
+  pass “perfect.”** The owner signed off FEAT-050 in full 2026-09-02 and chose
+  broad public testing over additional speculative pre-release edge-case work.
+
+### FEAT-061 — Sanaa: compact response cards and a full Markdown reader
+- Type: feature
+- Priority: P1 (v2.4, Wave D; owner-added 2026-09-01)
+- Area: chrome · conversation · accessibility
+- Status: **done — owner verified 2026-09-02; Debug/Release builds, deterministic
+  presentation probe, and source-level transient check pass**
+- Repro/Detail: Completed assistant replies currently render as an unlimited plain
+  `Text` block in the Sanaa tray. Markdown markers, raw URLs, and UUIDs remain
+  visible, while a full critique can consume several small-screen panel heights.
+  Every assistant reply needs a calm panel-sized preview and an explicit **Open full
+  response** action into a normal, resizable companion window. The reader renders
+  bounded Markdown (headings, lists, emphasis, code, and links); explicit `http`,
+  `https`, and `mailto` links open in the default app, never inside arbitrary HTML.
+- Interaction contract:
+  - During streaming, keep the compact preview live and clearly unfinished. The
+    reader may update live, but critique actions stay unavailable until completion.
+  - A completed panel card shows a rendered overview capped to a small number of
+    lines plus Open full response; the full source remains selectable/copyable in
+    the reader. Short replies may still be opened, so the behavior is predictable.
+  - Opening the same reply focuses its existing window rather than creating copies.
+    Report windows are ordinary app windows, not floating palettes; closing one does
+    not clear the session transcript. A cleared/disabled session closes stale readers.
+  - Markdown is presentation only: raw HTML/scripts and non-web custom URL schemes
+    are never executed. Descriptive link labels replace pasted citation URLs when
+    Sanaa follows the response contract; malformed Markdown falls back to readable
+    text without losing content.
+  - Response choice buttons are explicit structured suggestions, never inferred
+    from arbitrary prose. Activating one puts a plain-language choice into the
+    composer for review; it does not auto-send or bypass `apply_edits` consent.
+- Acceptance: long/short/malformed/streaming replies; Markdown headings/lists/code;
+  default-browser links and rejected unsafe schemes; one-window reuse; transcript
+  clear/disable; single-window and narrow multi-window layouts; selectable/copyable
+  content; keyboard-only/VoiceOver focus return; light/dark/increased-contrast/
+  reduced-transparency/Reduce Motion; no document write from opening or choosing.
+- Implementation 2026-09-01: assistant transcript rows render a Markdown-aware
+  Overview/fallback excerpt capped to seven lines and expose Open full response.
+  Each response owns at most one normal-level AppKit reader window; it live-updates
+  from the session entry, restores the originating window/focus on close, renders
+  native headings/paragraphs/lists/quotes/code/inline Markdown, intercepts links
+  through an `http`/`https`/`mailto` allowlist, and copies the untouched Markdown.
+  Disabling Sanaa closes all readers before clearing memory. Critique/directions
+  prompts now request a four-bullet human overview, stable finding labels, descriptive
+  Markdown citation links, and no generic trailing question. Structured suggestion
+  buttons remain part of the explicit-metadata acceptance above, not inferred from
+  prose. FEAT-056 owns the critique rail and element actions.
 
 ### FEAT-051 — Sanaa: guided setup assistant for non-technical designers
 - Type: feature
 - Priority: P2
 - Area: chrome · infra
-- Status: open
+- Status: **resolved for v2.4 — copy-first guided flow built and verified
+  2026-09-02; `.mcpb` packaging remains an optional future transport experiment**
 - Repro/Detail: Three-step guided flow (pick agent → one-click/copy setup →
   "say hello" verification using the existing connection state). Plain-language,
   honest privacy copy.
@@ -2726,7 +2903,8 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: feature
 - Priority: P3
 - Area: canvas · chrome
-- Status: open
+- Status: **deferred from v2.4 by owner decision 2026-09-01 — unplanned future
+  possibility with no target release.** Sanaa works fully without it.
 - Repro/Detail: Optional cute avatar (owner-designed assets via
   docs/DESIGN-ASSETS.md manifest) rendered in the canvas overlay near Sanaa's
   latest work; states idle/listening/drawing/done; separately toggleable
@@ -2741,7 +2919,8 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: feature
 - Priority: P3
 - Area: export · infra
-- Status: open
+- Status: **resolved 2026-09-02 — canonical bundled resource/tool plus packaged
+  runtime instruction and focused verification gate**
 - Repro/Detail: Canonical Sanaa usage guide as a new MCP resource
   (`exp://sanaa/guide`) + repo doc: ids as reference currency, ALWAYS ask for
   unspecified placement (plan §3 verbatim), small honest batches (summaries
@@ -2758,7 +2937,8 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: feature
 - Priority: P2 (v2.4, Wave D)
 - Area: export · infra
-- Status: open
+- Status: **resolved 2026-09-02 — direct, packaged Codex, and provider-neutral
+  MCP client transport plus owner behavior/appearance all verified**
 - Repro/Detail: Sanaa's advice quality depends on design knowledge the host
   agent does not reliably have. Ship versioned markdown modules as app-bundle
   resources served via MCP resources (`exp://sanaa/knowledge/<module>` +
@@ -2788,12 +2968,70 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   grow ≤ 3 pointer lines), `scripts/verify_sanaa_write_gate.sh` unchanged
   (no write path added), real-client pass through Codex + one non-Codex MCP
   client.
+- Implementation 2026-08-29/30: 21 flat-named markdown modules under
+  `EXP [design]/Resources/SanaaKnowledge/` (no pbxproj edit — the
+  filesystem-synchronized target auto-bundles them; bundle resources flatten,
+  hence the unique flat filenames, loaded Bundle.main-style per the
+  FontRegistration precedent). `AgentMCPRouter` now serves the pack:
+  `resources/list` returns the orientation entry plus 20 knowledge entries
+  from a static table; `resources/read` keeps the orientation branch
+  (document-gated) unchanged and adds a knowledge branch with NO
+  activeContext gate (works with no document open), unknown URIs → -32602,
+  missing bundle file → -32603. The deterministic live-socket gate now proves
+  21 resources list, all 20 served modules are byte-identical to source and
+  bundle, unknown URIs fail honestly, and the existing orientation resource
+  still reads. A packaged Codex thread read the resource once but timed out on
+  a focused repeat, so that transport is not reliable enough to ship alone.
+  The specified contingency is therefore built: `get_design_guidance` is in
+  both `AgentBridge.toolDefinitions` and the runtime `enabled_tools` allowlist,
+  needs no open document, returns the same bundled bytes, rejects unknown
+  modules honestly, and baseInstructions points to it in three compact rules.
+  `scripts/verify_sanaa_knowledge_pack.sh` covers both resource and tool paths;
+  the packaged harness adds `--knowledge-read[-only]`. The source pack is
+  63,084 bytes total and the index is 2,584 bytes, keeping on-demand loading
+  bounded. Relaunched-build verification 2026-08-31: the deterministic socket
+  gate passed every module byte-identically through both `resources/read` and
+  `get_design_guidance`, plus unknown-module and orientation regressions. The
+  focused packaged Codex gate then called `get_design_guidance` without an
+  approval boundary while retaining all 4/4 negative trust gates. The owner
+  rebuilt and accepted the tested guidance behavior/appearance on 2026-08-31.
+  The critique-cites-computed-facts behavior was owner-verified 2026-09-02 on a
+  purpose-built mockup, including a correctly caught gradient contrast case.
+  **What is NOT verified:** one non-Codex MCP client.
+- Guidance v2 integration 2026-08-31: the timed-out external delivery had not
+  reached the repository. Pack v2.0.0 now contains 25 files (24 served modules
+  plus the changelog), totaling 104,855 bytes; its 3,743-byte INDEX keeps every
+  module load on demand. `directions` is replaced with the nine-axis genome,
+  explicit from→to divergence, silent candidate enumeration, and sibling check;
+  `procedural-tasks`, `bulk-adjustments`, `a11y-applied`, and `style-profile`
+  are registered additively. The style module was adapted to current truth:
+  v2.4 can infer style from the document and current conversation, but has no
+  persistent Style Profile editor, preference log, or per-request injection.
+  The applied-a11y facts were re-verified 2026-08-31 against official W3C
+  sources and corrected where needed: SC 2.5.8's spacing exception uses
+  non-intersecting 24 CSS px diameter circles, SC 2.4.13 requires indicator area
+  equivalent to a 2 CSS px perimeter (not literally a 2px outline), and SC
+  2.4.11 permits partial visibility at AA. Sources:
+  https://www.w3.org/WAI/WCAG22/Understanding/target-size-minimum.html ·
+  https://www.w3.org/WAI/WCAG22/Understanding/focus-appearance.html ·
+  https://www.w3.org/WAI/WCAG22/Understanding/focus-not-obscured-minimum.html ·
+  https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html ·
+  https://www.w3.org/WAI/WCAG22/Understanding/non-text-contrast.html ·
+  https://www.w3.org/WAI/WCAG22/Understanding/name-role-value.html ·
+  https://www.w3.org/WAI/ARIA/apg/. The source gate, unsigned Debug build, and
+  byte-identical app-bundle resource check pass. The relaunched-app live socket
+  returned 24/24 modules byte-identically through both read routes, and the
+  packaged Codex read plus owner behavior/appearance pass are complete. One
+  non-Codex MCP-client pass remains; the facts-backed critique case is now
+  runnable because FEAT-055 is closed.
 
 ### FEAT-055 — Sanaa: computed design facts read tool (`get_design_facts`)
 - Type: feature
 - Priority: P2 (v2.4, Wave D)
 - Area: export · model
-- Status: open
+- Status: **done — owner verified 2026-09-01.** Deterministic saved-document,
+  source-registration, adjacent regression, Debug/Release, live/public, packaged-
+  Codex, and owner behavior gates pass.
 - Repro/Detail: New NON-mutating MCP read tool `get_design_facts` (artboardId
   or selection) built on the shipped `Color/ContrastMath.swift`: colorPairs
   (resolved vs alpha-flattened backing; flattened pairs labeled as estimates
@@ -2820,12 +3058,31 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   rotated text → notAssessed with reason, truncation flag on oversized
   boards); both-allowlist regression through the packaged Codex thread;
   no-write proof (document state untouched); FEAT-048 gate matrix unchanged.
+- Implementation 2026-09-01: new app-only `Export/SanaaFacts.swift` walks a
+  bounded artboard/selection scope without AppKit or mutation dependencies,
+  resolves instance children through the existing override/reflow path, and
+  emits the specified fact/heuristic/estimate/omission schema. AgentBridge
+  advertises and routes the optional `artboardId`; CodexAdapter includes it in
+  the exact EXP-only allowlist and tells Sanaa to respect `notAssessed`.
+  `scripts/verify_sanaa_facts.sh` saves/reopens a real `.design` model fixture
+  and passes known black/white and #767/white ratios, 4.5/3 thresholds,
+  regular/bold large-text boundaries, alpha, gradient, rotation, semantic-role,
+  component-root controls, target, spacing, font, resolved override, selection,
+  truncation/byte-cap, deterministic, and byte-for-byte no-write checks.
+  `verify_sanaa_facts_live.sh` adds public discovery/error/no-write coverage;
+  the packaged runtime harness adds `--facts-read[-only]`. Fresh unsigned Debug
+  and Release builds, canvas pages, semantic HTML contract, guidance source, and
+  backlog-id regressions pass. The live script, packaged facts call, and owner
+  inspection of artboard/selection scope were verified 2026-09-01. The existing
+  FEAT-048 live write matrix was not rerun because this
+  slice adds no write path and that matrix intentionally requires a scratch
+  document/settings choreography.
 
-### FEAT-056 — Sanaa: critique mode (v2.5 candidate)
+### FEAT-056 — Sanaa: structured critique report
 - Type: feature
-- Priority: P2 (v2.5 candidate)
+- Priority: P1 (v2.4, Wave D; promoted by owner 2026-09-01)
 - Area: chrome · canvas
-- Status: open
+- Status: **done — implemented and owner verified 2026-09-02**
 - Repro/Detail: "Ask Sanaa ▸ Critique this…" renders structured, severity-
   sorted findings in the panel — What works / Measured findings (citing
   `get_design_facts` values + criteria) / Design observations (judgment,
@@ -2836,14 +3093,21 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   receipt Select/Go action infrastructure (findings are a NEW transcript row
   kind, not applied-batch receipts — receipts are minted only by the apply
   path today). Fixes are opt-in follow-ups per finding only; critique alone
-  never writes. Never unprompted (SANAA-PLAN §7). The v2.4 minimal slice is
-  the FEAT-050 amendment (§6). Depends on FEAT-055 + FEAT-054. Spec: SANAA-PLAN
-  §10/FEAT-056.
+  never writes. Never unprompted (SANAA-PLAN §7). The FEAT-050 amendment proved
+  the facts-first content path; the owner's real critique run then promoted the
+  structured consuming UI into v2.4. Depends on FEAT-055 + FEAT-054 and reuses
+  FEAT-061's full-response reader. Spec: SANAA-PLAN §10/FEAT-056.
 - Acceptance: SANAA-PLAN §10/FEAT-056 — on golden documents every measured
   finding traces to a facts value; the Couldn't-assess group matches the
   facts tool's notAssessed list; tap-to-select hits exactly the referenced
   nodes; severity sort holds; zero writes from critique alone; voice pass
   against voice.md.
+- Implementation/verification 2026-09-02: `SanaaResponseWindow` consumes bounded
+  structured response metadata, renders the finding rail with deterministic human
+  aliases, provides per-element and Show-all canvas actions, and routes Explore to
+  the editable composer without auto-send. The owner tested the real critique
+  report and said it passed with flying colors; the one-click actions were easy and
+  Show on canvas worked correctly.
 
 ### FEAT-057 — Sanaa: design directions engine (v2.5 candidate)
 - Type: feature
@@ -3460,8 +3724,8 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   pressing a different object's body now selects and drags in one gesture, and the
   owner confirmed that is what they expect. The wider regression list below
   (Option-drag, snapping, groups, rotated/flipped ancestors, locked objects,
-  click-without-drag) was not separately walked through — recorded here so a later
-  session does not read this sign-off as broader than it was.
+  click-without-drag) was not part of that first pass. The owner reconfirmed the
+  feature working for the v2.4 release on 2026-09-01.
 - Repro/Detail: Owner request 2026-08-11. Because the point tool will not move a
   whole object when nothing is point-selected, a failed tool switch (BUG-028) leaves
   the app feeling broken rather than merely in the wrong mode. Owner's proposal:
@@ -3626,9 +3890,9 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: feature
 - Priority: P2
 - Area: type · canvas · export
-- Status: **partly done — owner verified the stroke itself 2026-08-25 ("text stroke
-  working well"). ONE acceptance line remains unbuilt: Convert to Outlines is not
-  known to preserve a stroked appearance, and was not part of what was verified.**
+- Status: **done — live-text stroke owner-verified working 2026-09-01.** Preserving
+  that stroke through Convert to Outlines remains unimplemented but is now an
+  unplanned optional follow-up, not part of FEAT-028's closed scope or v2.4.
 - Repro/Detail: Owner request 2026-08-11: "outline text (even just as type)" — i.e.
   a stroke applied to text that is still editable text, not converted to paths.
 - Hypothesis: the model already carries stroke on shapes and paths; this extends it
@@ -3729,22 +3993,22 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
     Outside/Center control appearing only once width > 0, plus a caption stating the
     browser limit and pointing at Convert to Outlines for exact control. The
     limitation is disclosed where the decision is made, not buried in a doc.
-- **What was verified:** `xcodebuild` Debug succeeds for both the `EXP [design]` and
+- **What was verified at the implementation checkpoint:** `xcodebuild` Debug succeeds for both the `EXP [design]` and
   `EXPThumbnail` schemes (`Document.swift` and `Typography.swift` are both shared, so
   both targets matter here), zero errors, no warnings in any touched file. **That is
-  the entire claim** — no stroked text has been drawn, exported, or opened in a
-  browser.
-- **Not done, and part of the acceptance:** "converting the text to outlines
+  the entire claim at that checkpoint** — the later owner verification that closes
+  the feature is recorded in the status above.
+- **Not done, and no longer part of the closed feature:** "converting the text to outlines
   afterward preserves the appearance" has NOT been implemented or checked. Convert to
   Outlines produces a path from the glyph fill; whether it carries the stroke across
   is unknown and is the most likely gap. Also untouched: the FEAT-005 contrast
   checker still compares fill against background and knows nothing about a stroke —
-  flagged in the research and still open.
+  retained as an unplanned optional follow-up rather than a release gate.
 - Acceptance: a text node can carry a stroke with color, width, and alignment while
   remaining editable text; canvas, PNG, PDF, and SVG all agree; the HTML/CSS handoff
   emits a documented, verified equivalent with its browser-support caveat stated
-  rather than implied. Converting the text to outlines afterward preserves the
-  appearance.
+  rather than implied. The owner accepted this live-text scope and verified it
+  working 2026-09-01.
 
 ### FEAT-029 — Pencil tool (freehand draw auto-fitted to bezier points)
 - Type: feature
@@ -3756,9 +4020,9 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   fast strokes lost their points to event coalescing plus per-sample publishing
   (fixed), and then the two performance fixes cancelled each other and made the
   stroke invisible (fixed). The owner confirmed each round. **Not separately walked
-  through:** save/reopen, SVG and PNG export of a pencil path, drawing inside a
-  group or a rotated ancestor, and the proximity-close behaviour — all listed in the
-  owner pass below and all still open.
+  through in that first pass:** save/reopen, SVG and PNG export of a pencil path,
+  drawing inside a group or a rotated ancestor, and the proximity-close behaviour.
+  The owner reconfirmed the feature working for the v2.4 release on 2026-09-01.
 - Repro/Detail: Owner request 2026-08-11: "add pencil, to just click/draw which turns
   into pen points automatically."
 - Hypothesis: the standard approach is capture the pointer polyline, then fit cubic
@@ -3964,10 +4228,10 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: feature
 - Priority: P3
 - Area: canvas · vector
-- Status: **done — owner verified 2026-08-26** ("feels much better and the option to
-  modify the behavior works great"). The explicit mode-setting commands in the
-  inspector, context menu, and menu bar remain unbuilt; dragging plus Option covers
-  converting in practice.
+- Status: **done — owner verified 2026-08-26 and reconfirmed resolved 2026-09-02.**
+  The current derived symmetric/smooth/corner behavior plus Option-break workflow
+  is the accepted interaction. Explicit inspector/context/menu conversion commands
+  remain unbuilt and were dropped as unnecessary v2.4 scope by the owner's sign-off.
 - Repro/Detail: Owner request 2026-08-11: "add 'balanced' curve handle option?
   unsure how."
 - Hypothesis: the owner's uncertainty is about naming, not concept. There are three
@@ -4013,18 +4277,18 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   the constraint applied to where the handle is now. Verified against seven cases
   (symmetric rotate, symmetric extend, smooth rotate, already-corner, Option-break,
   missing partner, zero-length drag) — all correct.
-- **NOT built:** the explicit "set this anchor to symmetric / smooth / corner"
+- **Not built; no longer a v2.4 requirement:** the explicit "set this anchor to symmetric / smooth / corner"
   commands in the inspector, context menu, and menu bar. Dragging and Option-drag
   cover converting in practice, but the acceptance asks for the commands and they are
   a separate piece of surface with a command-coverage obligation.
 - **What was verified:** Debug build clean, zero errors; the pairing maths checked
   against a seven-case table. No handle has been dragged in the app.
-- Acceptance: an anchor can be set to symmetric/balanced, smooth, or corner from the
-  inspector, a context menu, and the menu bar; dragging a handle on a balanced
-  anchor mirrors the opposite handle in both direction and length; converting
-  between modes is undoable and does not move the anchor. Round-trips through save
-  and SVG export (noting SVG stores only resulting coordinates — if the mode itself
-  cannot round-trip through export, say so rather than implying it does).
+- Acceptance: dragging a handle on a derived balanced/symmetric anchor mirrors the
+  opposite handle in direction and length; smooth handles stay collinear while
+  retaining independent length; corner handles remain independent; Option breaks
+  the pair. Edits are undoable without moving the anchor and resulting geometry
+  round-trips through save and SVG export. Explicit mode-setting commands were
+  considered and waived by the owner 2026-09-02.
 
 ### FEAT-031 — Line end options (square / arrow / round), settable per point
 - Type: feature
@@ -5530,15 +5794,66 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: perf
 - Priority: P3
 - Area: canvas · perf
-- Status: open (partial — halo size + settle delay are now user-tuned via
+- Status: owner-verified 2026-08-30 (partial — the repaired monotonic budget
+  valve removed the reported lag; halo size + settle delay are user-tuned via
   PERF-004; adaptive/directional halo and tiled snapshots still open)
 - Repro/Detail: 161j's 25% halo + containment recapture works, but long fast
   pans still hit periodic ~30–80ms recaptures, and the settle render redraws
-  everything. Ideas queue: adaptive halo (grow toward pan direction/velocity),
+  everything. Owner log 2026-08-30 exposed a regression in the old two-strike
+  valve: a fast viewport-only retry cleared the strike, so the next gesture tried
+  the expensive halo again; 0.4–6.4s captures could repeat indefinitely without
+  reaching the second-strike fallback. The repaired state is monotonic for the
+  canvas lifetime (halo → viewport-only → live rendering). Budget warnings are
+  diagnostic-file-only unless hidden Testing Mode is on, matching the 2026-07-19
+  console cleanup. Ideas queue: adaptive halo (grow toward pan direction/velocity),
   tile-based snapshot (recapture only newly exposed tiles), reuse the drag
   blit's below/above machinery for partial invalidation.
 - Acceptance: flick-panning a huge doc shows no blank edges AND no visible
   hitch; Testing Mode shows recapture cost amortized under one frame.
+
+### PERF-008 — Complex offscreen interaction snapshots can block simple gestures for seconds
+- Type: perf · bug
+- Priority: P1
+- Area: canvas · path · text · drag · pan/zoom · perf
+- Status: **owner-verified 2026-08-31** (the drag-snapshot safety removed the
+  reproduced beachball; owner reports the interaction is “much better” and the
+  lag bug appears resolved)
+- Repro/Detail: After installing and using several decorative/grunge fonts, the
+  owner saw pan/zoom `blit-capture` stalls from roughly 0.5s through 6.4s (and one
+  later diagnostic at 13.7s). A subsequent v2.4 run recorded a 17.7s halo capture
+  and an 11.6s viewport-only capture. The active regression document contains only
+  a few live-text layers, so text count is not the predictor. Its exact faces
+  provided one useful distinction: the sample system text has about 200 CoreText path
+  elements total / 50 at its most detailed glyph; `PrequelDemo-Regular` measures
+  4,350 / 1,161 and `ALoveofThunder` 3,892 / 1,180. Text layout was already cached,
+  but a fresh gesture bitmap still asks TextKit/Core Graphics to rasterize those
+  outlines synchronously on the main thread. The existing 400ms safety valve can
+  react only after that uninterruptible first capture has completed.
+  **Correction after the first patch:** fonts were only one trigger, not the whole
+  cause. The owner created a new page in `branding-brainstorm.design` and dragging a
+  group of plain color squares still beachballed. A live three-second `sample` caught
+  the app at 99.5% CPU: 1,580/2,024 main-thread samples were inside
+  `captureDragSnapshots`; 1,579 descended through `PathShape` stroke drawing into
+  Core Graphics' antialiased `CGContextDrawPath` coverage rasterizer. Process CPU
+  grew by about 30.7 seconds before that single capture returned. The simple dragged
+  squares were not expensive—the drag accelerator synchronously rasterized static
+  complex artwork into its below/above bitmaps before moving them.
+- Fix: Before starting a gesture snapshot, inspect custom-font glyphs with
+  `CTFontCreatePathForGlyph` and cache counts by PostScript face + glyph. A ≥600
+  element glyph or ≥2,000 elements across a text layer takes the live interaction
+  path. Apply the same structural rule to imported/outlined paths at ≥400 anchors.
+  Drag preflight scans static subtrees but excludes the dragged top-level subtrees,
+  which are painted live. Any over-budget pan capture now disables drag snapshots
+  for that canvas too, since both use the same offscreen renderer. Each below/above
+  drag layer also has its own 400ms post-return valve: if an unknown case evades the
+  preflight, EXP stops before the second layer and never retries that canvas. These
+  rules are structural rather than font/path-name lists. No document data, settled
+  rendering, export, typography, or accessibility surface changes.
+- Acceptance: In `branding-brainstorm.design`, repeatedly move the plain square
+  group on the new page with no beachball or multi-second pause, then pan/pinch over
+  the detailed font/path work with no capture stall. Moving artwork and the settled
+  frame remain visually exact. On a small plain document, ordinary snapshot-fast
+  pan/drag behavior remains available.
 
 ### PERF-004 — User-facing "Speed ↔ Detail" preference (Photoshop memory dial, humane edition)
 - Type: feature

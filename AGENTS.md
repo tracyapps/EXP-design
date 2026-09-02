@@ -53,31 +53,36 @@ Wave 7 vector/effect queue is explicitly deferred to v2.4.
 **v2.4 scope, set by the owner 2026-08-25:** ship BOTH the deferred vector/tool
 queue and Sanaa, with **Sanaa as the headline**. Waves and gates live in
 ROADMAP → v2.4 and `docs/RELEASE-CHECKLIST-v2.4.md` §A.
-Wave A (BUG-049, BUG-050, BUG-051, BUG-052, FEAT-047, FEAT-027) is committed at
-`a803df0` and awaiting the owner's Xcode verification pass.
-Wave B is Sanaa's core (FEAT-048 → 049 → 050; read `docs/SANAA-PLAN.md` first).
-Wave C is the vector queue (FEAT-025 leads, then 029, 028, 031, 030, BUG-048,
-BUG-034 Stage 2). Wave D is Sanaa's companion chunks (FEAT-051/052/053).
+Wave A (BUG-049, BUG-050, BUG-051, BUG-052, FEAT-047, FEAT-027) is complete and
+owner-verified.
+Wave B is complete and owner-verified (FEAT-048 → 049 → 050; read
+`docs/SANAA-PLAN.md` first).
+Wave C's FEAT-025/028/029/030, BUG-048, BUG-053/054, and BUG-057 are owner-verified;
+FEAT-030's proposed extra conversion commands were dropped as unnecessary by the
+owner's 2026-09-02 acceptance. BUG-034 Stage 2 is
+parked indefinitely at the owner's lowest priority with no planned retry.
+Wave D is complete: FEAT-051/053/054/055 and the FEAT-050 amendment are built
+and verified; FEAT-052 was explicitly deferred.
 **Sequencing rule:** never start a document-mutating slice while another one
 awaits owner verification.
 
-FEAT-048 is complete: its repaired **11/11** gate matrix, manual consent/undo,
-real-client save/reopen/export, appearance, and VoiceOver passes are owner-verified.
-Owner decision 2026-08-26: FEAT-049 includes a provider-neutral
-local Sanaa Runtime so the dedicated panel supports real Send/stream/Stop/resume,
-with Copy only as a host-missing fallback. The isolated Codex app-server transport
-probe and packaged helper IPC pass **7/7**, plus **4/4** negative trust gates. The
-dedicated panel, isolated EXP-only MCP route, success-backed batch receipts,
-Select/Go commands, semantic canvas highlight/Reduce Motion path, and VoiceOver
-announcement are built. The first owner canvas pass exposed an invisible Codex MCP
-read approval; switching the exact allowlist from `auto` to `approve` fixes it, and
-packaged plus signed-sandboxed `list_artboards → get_artboard` regressions pass with
-zero approval requests. Signed Debug and strict deep verification pass.
+FEAT-048 and FEAT-049 are owner-verified. FEAT-054 guidance v2.0.0 is integrated
+and verified through packaged Codex, the public provider-neutral MCP transport,
+and a 2026-09-02 real-mockup critique that caught every planted issue including
+gradient contrast. FEAT-055
+`get_design_facts` is built and owner-verified 2026-09-01 through its saved-file,
+live public-route, packaged Codex, and artboard/selection behavior gates.
 
-**Next:** owner-verify FEAT-049's real in-panel read → consented write → receipt/
-Select/Go/highlight/VoiceOver loop, plus remaining signed-out/reconnect/Stop and
-Reduce Motion states. Distribution archive/notarization and the independently
-gated Claude adapter remain before FEAT-049 closes.
+FEAT-052's optional in-canvas avatar is deferred from v2.4 with no target release.
+The owner's first real critique pass on 2026-09-01 added BUG-058, FEAT-061, and
+promoted FEAT-056 into v2.4. The FEAT-050 critique/guidance amendment is
+owner-verified 2026-09-02 with rave reviews. FEAT-056's structured report/actions,
+FEAT-061's reader experience, and BUG-058/059's overlap fixes are also owner-verified
+2026-09-02. All v2.4 feature and source-verification gates are complete;
+FEAT-050 is fully owner-signed-off, FEAT-051/053/054 are closed, the semantic
+manifest is re-reviewed/rebaselined, release notes exist, and the homepage has
+its Sanaa feature story. The signed archive, notarization, Sparkle metadata,
+GitHub release, deploy, and public update proof remain.
 Semantic component/state reconstruction is logged as a v2.4+ research candidate;
 older Angular/AngularJS and open-shadow-root evidence are non-gating follow-ups.
 Unrestricted URL import, repository build execution, full argTypes ingestion, and

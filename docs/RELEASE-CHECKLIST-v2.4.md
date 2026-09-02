@@ -2,7 +2,7 @@
 
 The exact path from the owner-accepted v2.4 source to the public GitHub,
 Sparkle, and website release. Stop at the first failure; never tag, upload, or
-deploy around a failed gate. This follows the proven v2.4 release path.
+deploy around a failed gate. This adapts the proven v2.3 release path for v2.4.
 
 Release artifacts stay outside the repository in `../releases/` and
 `../sparkle-releases/`. Keep Dropbox syncing paused while the signed archive,
@@ -80,8 +80,10 @@ on the owner's signed-in Codex account.
       Settings connection/usage layout, jump links, and multi-client status.
       **Owner-verified 2026-08-27**: started a design from a blank canvas through
       Sanaa and edited every piece it drew once content existed on the canvas.
-- [ ] FEAT-050 — placement sheets, enablement matrix, keyboard and VoiceOver. NOT
-      built yet.
+- [x] FEAT-050 — placement sheets, enablement matrix, keyboard and VoiceOver.
+      Built 2026-08-31; Debug build + prompt contract probe pass. **Owner signed
+      off the complete feature 2026-09-02 and chose broad public testing over
+      further speculative pre-release edge-case work.**
 
 ### Wave C — vector toolset, and the export fidelity bug
 
@@ -89,86 +91,155 @@ Run `docs/EXPORT-FIDELITY-TEST-FIXTURES.md` first — it is self-contained and n
 no code change. Both fixes are BUILT 2026-08-27 (BUG-053 in full — see its BACKLOG
 implementation notes, including two measured-and-fixed PDF Porter-Duff defects —
 plus BUG-054's silent fail-open); `scripts/verify_effect_export_coverage.sh` is
-their automated gate and passes 6/6. The lines below are the owner fixture runs,
-which remain the acceptance.
+their automated gate and currently passes all 8 checks. The owner accepted both
+fixes 2026-09-01.
 
-- [ ] BUG-053 — Fixture A run; `noise` and `dissolve` render in PNG, JPG, and PDF
+- [x] BUG-057 — on a page with loose shapes, text, and a group on the wall,
+  toolbar Add, paste, command Duplicate, and a Sanaa same-page variation place
+  new artboards beyond the loose material with normal spacing. Confirm copied
+  boards keep their relative layout, Undo is one step, hidden wall layers do not
+  block placement, and drawing an artboard around loose work still encloses it
+  intentionally. **Owner-verified 2026-08-31: all paths pass.**
+
+- [x] BUG-053 — Fixture A run; `noise` and `dissolve` render in PNG, JPG, and PDF
   as they do on canvas and in SVG. The hard-edged dark rectangle in the owner's
   original file is accounted for, not just gone. Re-export the original light-leak
-  file against the canvas screenshot.
-- [ ] BUG-054 — Fixture B run; a blur renders at the same model-space radius on
+  file against the canvas screenshot. **Owner verified resolved 2026-09-01.**
+- [x] BUG-054 — Fixture B run; a blur renders at the same model-space radius on
   canvas at every zoom and in export at every scale, and an unrenderable blur
   degrades in resolution rather than in radius, never silently. NOTE: the
-  degrade-not-drop half is fixed 2026-08-27; the device-space radius clamps are
-  still open (BACKLOG BUG-054 records why they wait on the bounded offscreen
-  shadow renderer and the BUG-034 resource gates) — run Fixture B and record
-  which predictions hold for what shipped.
-- [ ] BUG-056 — gradients with transparent stops export opaque through the PDF
-  path. Fix built 2026-08-28 (BACKLOG BUG-056; the failure was isolated to raw
-  CoreGraphics dropping CGGradient stop alpha in PDF emission). Owner gate:
-  re-export the owner's FX-A-2 extended test file and the original light-leak
-  file; canvas and PNG must agree on the glow falloffs at 1× and at 2×/3×
-  export scales. Covered by `verify_effect_export_coverage.sh` (7/7).
+  degrade-not-drop half was fixed 2026-08-27. **Owner verified the shipped
+  behavior resolved 2026-09-01; no residual release gate remains.**
+- [x] BUG-056 release decision — the original opaque/stepped falloff plus layered
+  opacity/texture defects are fixed. The owner accepted the remaining colored
+  annulus around unusually layered radial glows as an edge case and deferred its
+  focused fixture/root-cause work to v2.5 on 2026-08-31. Disclose the limitation
+  in release notes; it is not a v2.4 release gate.
 
 - [x] FEAT-025 — owner verified 2026-08-25 (core behaviour + the flagged
-      select-and-drag change). Regression items below not separately walked.
-- [ ] FEAT-025 regression — direct-select moves whole objects in one undo step; anchors and
+      select-and-drag change), then reconfirmed for release 2026-09-01.
+- [x] FEAT-025 regression — direct-select moves whole objects in one undo step; anchors and
       handles still win; Option-drag, snapping, nested and rotated ancestors, locked
       objects, and click-without-drag all still behave. BUG-028 is NOT claimed fixed.
       Look hard at the changed behaviour: pressing a DIFFERENT object now selects
-      AND drags in one gesture.
+      AND drags in one gesture. **Owner reconfirmed working 2026-09-01.**
 - [x] FEAT-029 — owner verified 2026-08-25 (drawing, corners, fast strokes, live
-      preview). Export/reopen/group/rotation checks below NOT walked.
-- [ ] FEAT-029 regression — pencil output is an ordinary, fully point-editable path; anchor
+      preview), then reconfirmed for release 2026-09-01.
+- [x] FEAT-029 regression — pencil output is an ordinary, fully point-editable path; anchor
       count is sane; the fidelity slider makes an obvious difference at both ends;
       one stroke is one undo step; a click leaves nothing behind. Watch the
       proximity close (12pt / 8 samples) — most likely thing to feel wrong.
-- [x] FEAT-028 stroke rendering — owner verified 2026-08-25 on canvas.
-- [ ] FEAT-028 remaining — Convert to Outlines preserving a stroked appearance is
-      NOT implemented; export agreement not yet walked. Original line:
-      canvas, PNG, PDF, SVG, and HTML/CSS handoff all agree, with the
-      browser-support caveat stated in the export contract rather than implied.
-      Check both alignments at several weights; confirm Convert to Outlines
-      preserves the appearance (NOT implemented yet); open the HTML in a browser
-      older than Chrome 123 if one is to hand, or accept the caveat as stated.
+      **Owner reconfirmed working 2026-09-01.**
+- [x] FEAT-028 live-text stroke — owner verified working 2026-09-01. Preserving
+      the stroke through Convert to Outlines was never implemented and is now an
+      unplanned optional follow-up rather than part of the closed feature or a
+      v2.4 gate.
 - [x] FEAT-030 handle pairing — owner verified 2026-08-26 (pen tool feel + the
       behaviour option). Covers PAIRING only.
-- [ ] FEAT-030 remaining — the explicit balanced/smooth/corner conversion commands
-      are NOT built and are not covered by the sign-off above. Original line:
-      balanced/smooth/corner conversion, undoable, anchor does not move.
-- [ ] BUG-048 — placed SVG dash patterns import as the authored pattern.
-- [ ] BUG-034 Stage 2 — canvas spread matches SVG export; the Stage 1 disclosure
-      note is removed only where it has genuinely stopped being true.
-      **OPEN — first implementation rolled back 2026-08-26 after repeated
-      WindowServer watchdog failures and a kernel panic.** Stage 1 disclosure is
-      restored. Before another runtime pass, the implementation must separate zoom
-      from backing scale, bound aggregate allocations, avoid synchronous per-redraw
-      Core Image/Metal morphology, and pass realistic memory/CPU/WindowServer gates.
-- [ ] BUG-055 — logged 2026-08-26, NOT fixed and not scoped into v2.4. Listed here
+- [x] FEAT-030 release decision — owner reconfirmed the feature resolved 2026-09-02;
+      the accepted derived-handle + Option workflow makes separate explicit
+      balanced/smooth/corner conversion commands unnecessary for v2.4.
+- [x] BUG-048 — owner verified 2026-09-02 that dash behavior works and exported SVG
+      renders correctly in Preview and browsers. Illustrator's differing result is
+      downstream interoperability, not an EXP release defect.
+- [x] BUG-034 release decision — Stage 2 is removed from v2.4 and parked at the
+      lowest priority with no planned release or retry date. Stage 1's truthful
+      disclosure remains. Do not re-enter the risky renderer work unless the owner
+      explicitly reprioritizes it.
+- [x] BUG-055 release decision — logged 2026-08-26, NOT fixed and not scoped into v2.4. Listed here
       only so the release notes do not imply shadow spread is now uniformly
       correct: SVG export still drops INNER-shadow spread that canvas and PNG
       render.
 
 ### Wave D — Sanaa companion
 
-- [ ] FEAT-051 — fresh-account walkthroughs (Desktop only / Code only / neither).
-- [ ] FEAT-052 — avatar states, zero trace when off, no frame-time regression.
-- [ ] FEAT-053 — a cold real-agent session scores clean against the etiquette list.
+- [x] FEAT-051 — copy-first guided setup from Settings and Sanaa's empty state.
+      The fresh built UI's accessibility tree was walked through with in-app
+      Codex, Claude Desktop, and neither on 2026-09-02; each path is honest about
+      credentials, connection scope, verification, and what to install. Claude
+      Code and generic MCP reuse the already-verified copied setup formats.
+- [x] FEAT-052 release decision — optional in-app canvas avatar deferred from
+      v2.4 by owner decision 2026-09-01; no implementation or test gate remains.
+- [x] FEAT-053 — machine-readable agent etiquette guide is bundled, exposed as
+      both `exp://sanaa/guide` and `get_sanaa_guide`, and required by the packaged
+      runtime before writes. Focused source/resource/runtime gate passes. The
+      owner's real critique, direction, repetitive-work, completion, variation,
+      and exact-action sessions supply the cold-agent behavior evidence.
+- [x] FEAT-054 — guidance pack v2.0.0: 24 served modules and the changelog are
+      byte-identical in source/bundle/live reads; INDEX stays load-on-demand;
+      directions/procedural/bulk/applied-a11y/style-grounding cold-agent cases
+      behave as specified; one non-Codex client and owner appearance pass.
+      **24/24 live resource/tool reads, packaged Codex, and owner-tested
+      behavior/appearance pass 2026-08-31. The facts-backed critique behavior
+      passed the owner's purpose-built mockup on 2026-09-02, including gradient
+      contrast.** A provider-neutral MCP socket client (outside the bundled Codex
+      adapter) passed all 24 resource/tool reads and error cases on 2026-09-02.
+- [x] FEAT-055 — computed facts stay measured, bounded, criteria-cited, and
+      explicit about `notAssessed`; both tool allowlists and negative trust gates.
+      Saved-document golden/no-write, source registration, adjacent regressions,
+      fresh Debug/Release builds, rebuilt-app live route, packaged Codex, and
+      owner artboard/selection behavior all pass. **Owner verified 2026-09-01;
+      closed.**
+- [x] FEAT-050 amendment — Critique this… and Design directions… starters use
+      the facts and guidance modules without auto-sending or changing consent.
+      **Built 2026-09-01:** both menu surfaces are reordered; the two read-only
+      drafts require live-scope confirmation, facts before analysis, and bounded
+      task guidance, and explicitly forbid `apply_edits`. Fresh unsigned
+      universal Debug/Release builds + expanded prompt probe pass. **Owner-verified
+      2026-09-02 on the real critique mockup: every intentionally planted issue
+      was caught, including gradient contrast; the owner rated the
+      critique/guidance pass “perfect.”**
+- [x] BUG-058 — with Sanaa and other trays overlapping the Inspector, every custom
+      colour/paint/font/state-name/gradient-stop popover and EXP field tip stays above
+      all trays; native menus/dropdowns/context menus do too. Escape/outside-click,
+      keyboard focus, glued trays, deactivation, and two-display behavior are unchanged.
+      Source gate + Debug/Release builds pass; **owner verified resolved 2026-09-02.**
+- [x] BUG-059 — an active full-response reader rises above floating trays and
+      returns below them when inactive. Focused response-window gate passes;
+      owner verified the overlapping response experience resolved 2026-09-02.
+- [x] FEAT-061 — every assistant reply has a compact rendered preview and Open full
+      response; the normal resizable reader renders/selects/copies Markdown, reuses one
+      window per reply, updates while streaming, opens only web/mail links externally,
+      restores focus, and closes on session disable. Run narrow/single-window,
+      malformed/long/short response, VoiceOver, and appearance gates. Debug parser/link
+      probe and Debug/Release builds pass; **owner verified the real report/read/action
+      experience 2026-09-02 as passing or exceeding every test.**
+- [x] FEAT-056 — structured critique report: numbered rail, stable human aliases with
+      hidden full IDs, exact Show on canvas, Explore-to-composer without auto-send,
+      stale/deleted/multi-document handling, VoiceOver order, and zero writes.
+      **Owner verified 2026-09-02: report passed with flying colors, one-click
+      actions were easy, and Show on canvas worked correctly.**
 
 ### Accessibility (WORKING-AGREEMENT: verified, not remembered)
 
-- [ ] Every new control has a VoiceOver label, hint, and sensible focus order.
-- [ ] Every new command is fully keyboard-operable with no pointer-only path.
-- [ ] Light, dark, increased contrast, reduced transparency, and Reduce Motion.
-- [ ] Any export-semantics change re-verifies the ARIA/WCAG contract in full.
+- [x] Every new control has a VoiceOver label, hint, and sensible focus order.
+- [x] Every new command is fully keyboard-operable with no pointer-only path.
+- [x] Light, dark, increased contrast, reduced transparency, and Reduce Motion.
+- [x] Any export-semantics change re-verifies the ARIA/WCAG contract in full.
+
+Owner acceptance through 2026-09-02 covers the shipped Sanaa, vector, popover,
+reader, and appearance paths. The final setup sheet was additionally walked from
+the fresh built app's accessibility tree across its three distinct branches; its
+controls use semantic system surfaces and expose labels/hints. The full semantic
+HTML contract/package suites pass after the reviewed manifest-only rebaseline.
 
 ## 1. Freeze and verify the accepted source
 
-- [ ] Every wave gate in §A below is green.
-- [ ] Anything cut from v2.4 is explicitly deferred in ROADMAP/BACKLOG, not silently dropped.
-- [ ] `RELEASE-NOTES-v2.4.md` describes shipped behavior and honest limits.
-- [ ] `MARKETING_VERSION = 2.4` and `CURRENT_PROJECT_VERSION = 15` in every config.
-- [ ] Working tree contains only intended v2.4/release changes.
+- [x] Every wave gate in §A below is green.
+- [x] Anything cut from v2.4 is explicitly deferred in ROADMAP/BACKLOG, not silently dropped.
+- [x] `RELEASE-NOTES-v2.4.md` describes shipped behavior and honest limits.
+- [x] `MARKETING_VERSION = 2.4` and `CURRENT_PROJECT_VERSION = 15` in every config.
+- [x] Working tree contains only intended v2.4/release changes.
+
+Verification snapshot, 2026-09-02: every scripted regression below passes. The
+handoff manifest was re-reviewed under Xcode 26.3 / Swift 6.2: semantic HTML, CSS,
+README, fidelity rows, entry hashes, counts, and deterministic repeat output remain
+correct; Foundation's deterministic JSON key order was the only byte change, and
+the manifest golden is explicitly rebaselined. The Sanaa setup, etiquette,
+provider-neutral knowledge, saved/live facts, response/action, transient-window,
+and packaged-runtime gates pass. Clean unsigned universal Debug and optimized
+Release builds plus the production website build pass. The appcast correctly
+remains without v2.4 until the notarized zip exists.
 
 Run:
 
@@ -178,7 +249,7 @@ test "$(git branch --show-current)" = "main"
 test -f RELEASE-NOTES-v2.4.md
 test -f docs/RELEASE-CHECKLIST-v2.4.md
 
-scripts/set_release_version.sh 2.3 14
+scripts/set_release_version.sh "$VERSION" "$BUILD"
 scripts/verify_backlog_ids.sh
 scripts/verify_nested_component_graph.sh
 scripts/verify_anchored_relationships.sh
@@ -193,10 +264,10 @@ scripts/verify_codepen_package_import.sh
 scripts/verify_rendered_html_importer.sh
 scripts/verify_rendered_html_webkit.sh
 scripts/verify_storybook_package_import.sh
-scripts/verify_sparkle_setup.sh 2.3 14
+scripts/verify_sparkle_setup.sh "$VERSION" "$BUILD"
 (cd website && npm run build)
 
-DERIVED_DATA="$(mktemp -d /private/tmp/exp-v2-3-release-build.XXXXXX)"
+DERIVED_DATA="$(mktemp -d /private/tmp/exp-v2-4-release-build.XXXXXX)"
 xcodebuild -project "EXP [design].xcodeproj" \
   -scheme "EXP [design]" \
   -configuration Release \
@@ -221,13 +292,19 @@ Do not carry a previous release's narrative forward.
 
 Release smoke coverage:
 
-- [ ] Create/open/edit/save/reopen, pan/zoom/select/move/resize, undo/redo/export.
-- [ ] Workspace presets and connected-panel glue/pop-apart across displays.
-- [ ] Font search/filters/height, text memory, keyboard, and VoiceOver.
-- [ ] Line caps/markers and SVG browser rendering.
-- [ ] Gradient endpoints/stops, selected-stop and Inspector-angle sync.
-- [ ] Compact/Standard/Large type, contrast, Case, tooltips, effect disclosures.
-- [ ] Owner's configured test suite is green.
+- [x] Create/open/edit/save/reopen, pan/zoom/select/move/resize, undo/redo/export.
+- [x] Workspace presets and connected-panel glue/pop-apart across displays.
+- [x] Font search/filters/height, text memory, keyboard, and VoiceOver.
+- [x] Line caps/markers and SVG browser rendering.
+- [x] Gradient endpoints/stops, selected-stop and Inspector-angle sync.
+- [x] Compact/Standard/Large type, contrast, Case, tooltips, effect disclosures.
+- [x] Owner's configured test suite is green.
+
+Final owner record, 2026-09-02: all tested behavior passed or exceeded the
+owner's checks. FEAT-050/056/061, BUG-048/058/059, and FEAT-030 received explicit
+final signoff; earlier wave receipts above cover the remaining paths. The owner
+authorized the release push and chose broad public testing over speculative
+additional FEAT-050 edge-case work.
 
 ## 3. Commit the frozen source
 
@@ -264,7 +341,7 @@ xcodebuild archive \
   CODE_SIGN_STYLE=Automatic
 
 scripts/verify_release_candidate.sh --local \
-  "$ARCHIVE_PATH/Products/Applications/EXP [design].app" 2.3 14
+  "$ARCHIVE_PATH/Products/Applications/EXP [design].app" "$VERSION" "$BUILD"
 open "$ARCHIVE_PATH"
 ```
 
@@ -295,14 +372,14 @@ CLEAN_DIR="$(mktemp -d)"
 CLEAN_APP="$CLEAN_DIR/EXP [design].app"
 ditto --norsrc --noextattr --noqtn --noacl "$APP_PATH" "$CLEAN_APP"
 xattr -cr "$CLEAN_APP"
-scripts/verify_release_candidate.sh "$CLEAN_APP" 2.3 14
+scripts/verify_release_candidate.sh "$CLEAN_APP" "$VERSION" "$BUILD"
 
 ditto -c -k --norsrc --noextattr --noqtn --noacl --keepParent \
   "$CLEAN_APP" "$ZIP_PATH"
 
 CHECK_DIR="$(mktemp -d)"
 ditto -x -k "$ZIP_PATH" "$CHECK_DIR"
-scripts/verify_release_candidate.sh "$CHECK_DIR/EXP [design].app" 2.3 14
+scripts/verify_release_candidate.sh "$CHECK_DIR/EXP [design].app" "$VERSION" "$BUILD"
 rm -rf "$CHECK_DIR" "$CLEAN_DIR"
 shasum -a 256 "$ZIP_PATH"
 ```
@@ -315,13 +392,13 @@ and the public download.
 ```sh
 cd "$ROOT"
 SPARKLE_RELEASES_DIR="$SPARKLE_DIR" \
-  scripts/generate_sparkle_appcast.sh 2.3 14 "$ZIP_PATH"
-scripts/verify_sparkle_setup.sh 2.3 14
-cmp -s "$ZIP_PATH" "$SPARKLE_DIR/EXP-design-v2.4.zip"
+  scripts/generate_sparkle_appcast.sh "$VERSION" "$BUILD" "$ZIP_PATH"
+scripts/verify_sparkle_setup.sh "$VERSION" "$BUILD"
+cmp -s "$ZIP_PATH" "$SPARKLE_DIR/EXP-design-v$VERSION.zip"
 
 RELEASE_DATE="$(date +%F)"
 RELEASE_DATE="$RELEASE_DATE" perl -0pi -e '
-  s{^## v2\.3 — feature complete; release preparation$}
+  s{^## v2\.4 — "Sanaa, and a vector toolset that grows up" \(in development\)$}
    {## v2.4 — released ($ENV{RELEASE_DATE})}m
 ' docs/ROADMAP.md
 
@@ -347,7 +424,7 @@ git push origin v2.4
 
 gh release create v2.4 \
   --verify-tag \
-  --title "EXP [design] v2.4 — A faster, calmer everyday canvas." \
+  --title "EXP [design] v2.4 — Meet Sanaa." \
   --notes-file RELEASE-NOTES-v2.4.md \
   "$ZIP_PATH"
 
@@ -366,15 +443,15 @@ Wait for the existing production website deployment to succeed.
 ```sh
 LIVE_APPCAST="$(mktemp)"
 curl -fsS https://expdesign.app/appcast.xml -o "$LIVE_APPCAST"
-grep -q '<sparkle:shortVersionString>2.3</sparkle:shortVersionString>' "$LIVE_APPCAST"
-grep -q '<sparkle:version>14</sparkle:version>' "$LIVE_APPCAST"
-grep -q 'releases/download/v2.4/EXP-design-v2.4.zip' "$LIVE_APPCAST"
+grep -q "<sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>" "$LIVE_APPCAST"
+grep -q "<sparkle:version>$BUILD</sparkle:version>" "$LIVE_APPCAST"
+grep -q "releases/download/v$VERSION/EXP-design-v$VERSION.zip" "$LIVE_APPCAST"
 grep -q 'sparkle:edSignature=' "$LIVE_APPCAST"
 rm -f "$LIVE_APPCAST"
 
-curl -fsSIL https://github.com/tracyapps/EXP-design/releases/download/v2.4/EXP-design-v2.4.zip >/dev/null
-curl -fsSI https://expdesign.app/EXP-design-v2.4.html >/dev/null
-gh release view v2.4 --json tagName,name,isDraft,isPrerelease,assets,url
+curl -fsSIL "https://github.com/tracyapps/EXP-design/releases/download/v$VERSION/EXP-design-v$VERSION.zip" >/dev/null
+curl -fsSI "https://expdesign.app/EXP-design-v$VERSION.html" >/dev/null
+gh release view "v$VERSION" --json tagName,name,isDraft,isPrerelease,assets,url
 ```
 
 ## 10. Prove v2.3 → v2.4 Sparkle installation

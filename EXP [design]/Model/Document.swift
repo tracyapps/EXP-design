@@ -496,6 +496,54 @@ struct Document: Codable, Sendable {
         return boards.dropFirst().reduce(first.frame) { $0.union($1.frame) }
     }
 
+    /// Return the first horizontal automatic-placement slot that clears both
+    /// existing artboards and visible top-level artwork still living on the wall.
+    ///
+    /// This is deliberately narrower than `contentBounds`: fitting the canvas is
+    /// still artboard-centric, while automatic creation/paste/duplication must not
+    /// silently cover loose brainstorm material. Explicit coordinates and the
+    /// Artboard drawing tool do not call this method, so designers can still draw a
+    /// board around wall work intentionally.
+    func availableArtboardFrame(preferred: CGRect,
+                                on requestedPageID: UUID?,
+                                spacing requestedSpacing: CGFloat) -> CGRect {
+        guard preferred.width > 0, preferred.height > 0,
+              preferred.minX.isFinite, preferred.minY.isFinite,
+              preferred.width.isFinite, preferred.height.isFinite,
+              let pageIndex = pageIndex(for: requestedPageID) else { return preferred }
+        let page = pages[pageIndex]
+        let spacing = requestedSpacing.isFinite ? max(0, requestedSpacing) : 0
+        func usableObstacle(_ frame: CGRect) -> Bool {
+            !frame.isNull && frame.minX.isFinite && frame.minY.isFinite
+                && frame.width.isFinite && frame.height.isFinite
+                && frame.width > 0 && frame.height > 0
+        }
+        let boardObstacles = page.artboards.map(\.frame).filter(usableObstacle)
+        let wallObstacles = page.nodes.compactMap { node -> CGRect? in
+            guard node.isVisible, node.opacity > 0,
+                  owningArtboard(of: node, on: page.id) == nil else { return nil }
+            let bounds = artboardOwnershipBounds(of: node)
+            guard usableObstacle(bounds) else { return nil }
+            return bounds
+        }
+        let obstacles = boardObstacles + wallObstacles
+        guard !obstacles.isEmpty else { return preferred }
+
+        var candidate = preferred
+        // A rightward search preserves EXP's existing placement direction. Each
+        // collision moves past the furthest conflicting obstacle; at most one new
+        // obstacle can become relevant per iteration, so this bound is sufficient
+        // while still defending against malformed/infinite geometry above.
+        for _ in 0...obstacles.count {
+            let conflicts = obstacles.filter { obstacle in
+                candidate.intersects(obstacle.insetBy(dx: -spacing, dy: -spacing))
+            }
+            guard !conflicts.isEmpty else { return candidate }
+            candidate.origin.x = (conflicts.map(\.maxX).max() ?? candidate.maxX) + spacing
+        }
+        return candidate
+    }
+
     /// Bounding box enclosing every artboard, in document coordinates. Used to
     /// center / fit the view.
     var contentBounds: CGRect {

@@ -26,6 +26,15 @@ SOCK="$HOME/Library/Containers/tapps.EXP--design-/Data/Library/Application Suppo
 PHASE_ARG=""
 [ "${1:-}" = "--phase" ] && PHASE_ARG="${2:-}"
 
+# The all-phases path changes switches between phases and phase 3 intentionally
+# creates one scratch artboard. Never interpret an absent stdin/EOF as the
+# designer confirming those preconditions.
+if [ -z "$PHASE_ARG" ] && [ ! -t 0 ]; then
+  echo "verify_sanaa_write_gate: all phases require an interactive terminal" >&2
+  echo "Run this script in Terminal with a scratch document, or pass --phase N after setting that phase's switches." >&2
+  exit 2
+fi
+
 pass=0; fail=0
 ok()   { printf '  ok    %s\n' "$1"; pass=$((pass+1)); }
 bad()  { printf '  FAIL  %s\n' "$1"; printf '        got: %s\n' "${2:-<empty>}"; fail=$((fail+1)); }
@@ -86,7 +95,10 @@ phase_wanted() { [ -z "$PHASE_ARG" ] || [ "$PHASE_ARG" = "$1" ]; }
 pause_for() {
   [ -n "$PHASE_ARG" ] && return 0
   printf '\n>> %s\n   Press Return when the switches are set. ' "$1"
-  read -r _
+  if ! read -r _; then
+    printf '\nverify_sanaa_write_gate: confirmation input closed; aborting before the phase\n' >&2
+    exit 2
+  fi
 }
 
 # ---------------------------------------------------------------- phase 1

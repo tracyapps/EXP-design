@@ -23,6 +23,7 @@ import SwiftUI
 import AppKit
 import UniformTypeIdentifiers
 import CoreImage
+import CoreText
 import ImageIO   // downsampled image cache (CGImageSource thumbnails)
 
 // MARK: - SwiftUI bridge
@@ -346,6 +347,7 @@ final class CanvasNSView: NSView {
         var pageID: UUID?
         var artboardIDs: Set<UUID>
         var nodeIDs: Set<UUID>
+        var documentRects: [CGRect]
         var beganAt: TimeInterval
         var duration: TimeInterval
         var pulses: Bool
@@ -452,6 +454,7 @@ final class CanvasNSView: NSView {
             pageID: request.pageID,
             artboardIDs: request.artboardIDs,
             nodeIDs: request.nodeIDs,
+            documentRects: request.documentRects,
             beganAt: ProcessInfo.processInfo.systemUptime,
             duration: reduceMotion ? 2 : 1,
             pulses: !reduceMotion
@@ -3427,7 +3430,8 @@ final class CanvasNSView: NSView {
         let popover = NSPopover()
         popover.behavior = .transient
         popover.contentViewController = NSHostingController(
-            rootView: GradientStopEditor(color: color, positionPercent: position))
+            rootView: GradientStopEditor(color: color, positionPercent: position)
+                .expTransientWindowLevel())
         popover.show(relativeTo: CGRect(x: knob.x - 6, y: knob.y - 6, width: 12, height: 12),
                      of: self, preferredEdge: .maxY)
         gradientStopPopover = popover
@@ -4339,17 +4343,18 @@ final class CanvasNSView: NSView {
     private var blitHaloFraction: CGFloat { app?.performanceMode.panHaloFraction ?? 0.25 }
     private var panZoomBlitActive = false
     private var panZoomSettleTimer: Timer?
-    /// Safety valve: if a capture ever blows the budget (below), stop trying for
-    /// the rest of the run — a laggy-but-live gesture beats a beach ball.
+    /// Safety valve: progressively reduce capture work when it blows the budget
+    /// (below), then stop trying if even the reduced capture is still too slow —
+    /// a laggy-but-live gesture beats a beach ball.
     private var panZoomBlitDisabled = false
     // 0.4s: the halo makes captures ~2.25× a plain frame, and first-appearance
     // image mip decodes can spike one capture; the valve is for pathology only.
     private static let blitCaptureBudget: CFAbsoluteTime = 0.4   // seconds
-    /// Two-strike valve: ONE slow capture is usually cold caches (measured:
-    /// 500ms at launch, ~40ms warm on the same doc) and shouldn't bench the
-    /// blit for the whole run. A capture under budget clears the strike; two
-    /// consecutive slow ones mean the document really can't afford captures.
-    private var panZoomCaptureStrikes = 0
+    /// A slow halo capture permanently moves this canvas to viewport-only
+    /// captures. Do not automatically retry the halo after a fast viewport
+    /// capture: doing so caused an endless slow-halo / fast-viewport cycle in
+    /// large documents, with a multi-second hitch returning every gesture.
+    private var panZoomUsesHalo = true
     /// PERF-TODO T1: the pan/zoom sensitivity check can walk the whole visible
     /// scene and resolve component instances. Cache only the "no sensitive
     /// content exists anywhere in this scope" result; when sensitive content does
@@ -4357,14 +4362,39 @@ final class CanvasNSView: NSView {
     /// stay identical as the camera pans.
     private var panZoomAllClearCache: (generation: Int, isAllClear: Bool)?
 
+    /// Some decorative fonts contain hundreds or thousands of outline commands
+    /// per glyph. TextKit's normal screen path handles those acceptably once the
+    /// window server has warmed its glyph cache, but drawing the same text into a
+    /// fresh bitmap can block the main thread for seconds. Classify the ACTUAL
+    /// glyphs used by the document before starting that uninterruptible capture.
+    ///
+    /// The cache is face + glyph rather than text-node based: outline complexity
+    /// does not change with point size, and repeated labels/fonts become free to
+    /// classify. In the regression document, ordinary system text measured about
+    /// 50 elements for its most detailed glyph / 200 across the sample; the two
+    /// problem display faces measured 1,161–1,180 / 3,892–4,350 respectively.
+    private struct FontGlyphKey: Hashable {
+        let fontName: String
+        let glyph: CGGlyph
+    }
+    private var fontGlyphOutlineElementCache: [FontGlyphKey: Int] = [:]
+    private static let expensiveGlyphOutlineElementLimit = 600
+    private static let expensiveTextOutlineElementLimit = 2_000
+    /// Complex imported/outlined artwork can drive Core Graphics' antialiased
+    /// stroke rasterizer for seconds in a fresh bitmap even when the warm window
+    /// render is tolerable. This is intentionally conservative: crossing it only
+    /// chooses live interaction; settled rendering and export remain unchanged.
+    private static let expensivePathAnchorLimit = 400
+
     /// Call at every pan/zoom tick, BEFORE mutating `app.zoom`/`app.panOffset`,
     /// so a first-tick capture renders exactly what's already on screen.
     private func beginPanZoomInteraction() {
         guard let app, !panZoomBlitDisabled else { return }
         if panZoomSensitivityCached() {
             // Gradients and shadows currently shift when flattened into the
-            // temporary gesture bitmap, even though their live vector render is
-            // stable. Favor fidelity for those documents and render live per tick.
+            // temporary gesture bitmap. Highly detailed font outlines can make
+            // that same capture path block for seconds. Favor fidelity/responsiveness
+            // for those documents and render live per tick.
             panZoomBlitActive = false
             panZoomSnapshot = nil
             panZoomSettleTimer?.invalidate()
@@ -4434,6 +4464,83 @@ final class CanvasNSView: NSView {
         return currentNodes.contains { $0.isVisible && nodeHasBitmapSensitiveContent($0, model: model) }
     }
 
+    /// True when the text uses enough vector-outline detail that a fresh
+    /// offscreen pan/zoom bitmap is unsafe to build synchronously. This is based
+    /// on outline structure, never a font-name allow/deny list, so newly installed
+    /// grunge/display fonts receive the same protection automatically.
+    private func textHasExpensiveGlyphOutlines(_ text: TextContent) -> Bool {
+        var seen: Set<FontGlyphKey> = []
+        var totalElements = 0
+
+        for run in text.runs where !run.fontName.isEmpty && !run.string.isEmpty {
+            guard let font = NSFont(name: run.fontName, size: max(1, run.fontSize)) else { continue }
+            let rendered = text.textCase.apply(run.string)
+            let characters = Array(rendered.utf16)
+            guard !characters.isEmpty else { continue }
+
+            var glyphs = Array(repeating: CGGlyph(), count: characters.count)
+            CTFontGetGlyphsForCharacters(font as CTFont,
+                                         characters, &glyphs, characters.count)
+            for glyph in glyphs where glyph != 0 {
+                let key = FontGlyphKey(fontName: font.fontName, glyph: glyph)
+                guard seen.insert(key).inserted else { continue }
+
+                let elementCount: Int
+                if let cached = fontGlyphOutlineElementCache[key] {
+                    elementCount = cached
+                } else {
+                    var measured = 0
+                    CTFontCreatePathForGlyph(font as CTFont, glyph, nil)?.applyWithBlock { _ in
+                        measured += 1
+                    }
+                    fontGlyphOutlineElementCache[key] = measured
+                    elementCount = measured
+                }
+
+                if elementCount >= Self.expensiveGlyphOutlineElementLimit {
+                    return true
+                }
+                totalElements += elementCount
+                if totalElements >= Self.expensiveTextOutlineElementLimit {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    private func pathHasExpensiveOutlines(_ path: PathShape) -> Bool {
+        var anchors = 0
+        for contour in path.renderContours {
+            anchors += contour.count
+            if anchors >= Self.expensivePathAnchorLimit { return true }
+        }
+        return false
+    }
+
+    /// Content whose fresh offscreen raster is structurally risky. Kept separate
+    /// from gradient/shadow bitmap sensitivity: drag snapshots are transform-pinned
+    /// and can safely flatten those effects, but they still must avoid pathological
+    /// text/path rasterization.
+    private func nodeHasExpensiveOffscreenContent(_ node: Node, model: Document) -> Bool {
+        switch node.content {
+        case .path(let path):
+            return pathHasExpensiveOutlines(path)
+        case .text(let text):
+            return textHasExpensiveGlyphOutlines(text)
+        case .group(let children):
+            return children.contains {
+                $0.isVisible && nodeHasExpensiveOffscreenContent($0, model: model)
+            }
+        case .instance(let instance):
+            return model.resolvedChildren(of: instance).contains {
+                $0.isVisible && nodeHasExpensiveOffscreenContent($0, model: model)
+            }
+        case .rectangle, .ellipse, .polygon, .line, .image:
+            return false
+        }
+    }
+
     // Capture instrumentation (Testing Mode): the capture render has repeatedly
     // been ~60× slower than the identical on-screen render, and two root-cause
     // theories (pixel format, unclipped shadow layers) each explained only part
@@ -4456,11 +4563,14 @@ final class CanvasNSView: NSView {
     private func capturePanZoomSnapshot() {
         // Capture the viewport plus a halo on every side (see blitHaloFraction),
         // so slow pans reveal pre-rendered content, not blank background.
-        // AFTER A STRIKE, retry WITHOUT the halo: slow captures are usually the
+        // AFTER A SLOW HALO, retry WITHOUT the halo: slow captures are usually the
         // halo reaching into never-yet-rendered territory (cold text layouts +
         // image decodes for content that's never been on screen) — a
-        // viewport-only capture costs ≈ one frame and keeps the blit alive.
-        let fraction = panZoomCaptureStrikes == 0 ? blitHaloFraction : 0
+        // viewport-only capture costs ≈ one frame and keeps the blit alive. Once
+        // reduced, stay reduced for this canvas instead of reintroducing the
+        // expensive halo on every later gesture.
+        let captureIncludedHalo = panZoomUsesHalo
+        let fraction = captureIncludedHalo ? blitHaloFraction : 0
         let halo = CGSize(width: bounds.width * fraction,
                           height: bounds.height * fraction)
         let region = bounds.insetBy(dx: -halo.width, dy: -halo.height)
@@ -4505,22 +4615,28 @@ final class CanvasNSView: NSView {
             perf.record("blit-layers", ms: capLayerMs)   // opacity/blend transparency layers
         }
         if elapsed > Self.blitCaptureBudget {
-            panZoomCaptureStrikes += 1
-            if panZoomCaptureStrikes >= 2 {
-                // Two consecutive slow captures — the document genuinely can't
-                // afford them. Use this snapshot for the current gesture, then
-                // fall back to live rendering for the rest of the run.
-                panZoomBlitDisabled = true
-                NSLog("⏱ [EXP perf] blit-capture took %.0fms (> %.0fms budget, 2nd strike) — pan/zoom blit disabled for this run",
-                      elapsed * 1000, Self.blitCaptureBudget * 1000)
-                DiagnosticLog.shared.log(String(format: "blit-capture %.0fms > %.0fms budget (2nd strike) — pan/zoom blit disabled for this run", elapsed * 1000, Self.blitCaptureBudget * 1000))
+            // Drag snapshots use the same full-viewport offscreen renderer. One
+            // over-budget pan capture is enough evidence to keep later unrelated
+            // drags from entering that synchronous path.
+            dragSnapshotBlitDisabled = true
+            if captureIncludedHalo {
+                // Keep the current snapshot for this gesture, but never pay for
+                // its expensive halo again on this canvas. A later slow
+                // viewport-only capture will disable the blit entirely.
+                panZoomUsesHalo = false
+                let message = String(format: "blit-capture took %.0fms (> %.0fms budget) — halo disabled for this canvas; future captures are viewport-only",
+                                     elapsed * 1000, Self.blitCaptureBudget * 1000)
+                if app.testingMode { NSLog("⏱ [EXP perf] %@", message) }
+                DiagnosticLog.shared.log(message)
             } else {
-                NSLog("⏱ [EXP perf] blit-capture took %.0fms (> %.0fms budget) — likely cold caches, will retry next gesture",
-                      elapsed * 1000, Self.blitCaptureBudget * 1000)
-                DiagnosticLog.shared.log(String(format: "blit-capture %.0fms > %.0fms budget — likely cold caches, will retry next gesture", elapsed * 1000, Self.blitCaptureBudget * 1000))
+                // The reduced capture is also too slow. Use this snapshot for
+                // the current gesture, then fall back to live rendering.
+                panZoomBlitDisabled = true
+                let message = String(format: "viewport-only blit-capture took %.0fms (> %.0fms budget) — pan/zoom blit disabled for this canvas",
+                                     elapsed * 1000, Self.blitCaptureBudget * 1000)
+                if app.testingMode { NSLog("⏱ [EXP perf] %@", message) }
+                DiagnosticLog.shared.log(message)
             }
-        } else {
-            panZoomCaptureStrikes = 0
         }
     }
 
@@ -4574,6 +4690,11 @@ final class CanvasNSView: NSView {
     private var dragBlitSize: CGSize = .zero
     private var dragBlitSkipIDs: Set<UUID> = []   // TOP-LEVEL ancestors of the dragged ids
     private var dragBlitUnsupported = false       // set when capture can't represent this gesture
+    /// A pan/zoom or drag capture already proved that this canvas's offscreen
+    /// renderer is pathological. Unlike `dragBlitUnsupported` (one gesture), this
+    /// is monotonic for the canvas lifetime so unrelated later drags cannot pay
+    /// the same multi-second capture again.
+    private var dragSnapshotBlitDisabled = false
     // PERF-002 conditional fidelity (see drawDragBlit): decided once per gesture.
     private var dragFidelityChecked = false
     private var dragWantsTrueComposite = false
@@ -4646,6 +4767,7 @@ final class CanvasNSView: NSView {
     /// gesture can't be represented (no top-level ancestor, source scope, …).
     private func captureDragSnapshots() -> Bool {
         guard let app, let document, !isSourceScope,
+              !dragSnapshotBlitDisabled,
               let ids = activeDragNodeIDs(), !ids.isEmpty,
               // documentSRGB: same fidelity rule as the pan/zoom snapshot -- EXP
               // fills/gradients are authored in sRGB, so the static layers render
@@ -4659,6 +4781,14 @@ final class CanvasNSView: NSView {
         }
         let nodes = currentNodes
         guard let split = nodes.firstIndex(where: { skip.contains($0.id) }) else { return false }
+        // A fresh bitmap raster of very detailed paths/text can be orders of
+        // magnitude slower than the already-warm window render. The operation is
+        // synchronous and Core Graphics offers no cancellation point, so reject
+        // the accelerator BEFORE entering it. Dragged subtrees are excluded: they
+        // are painted live rather than into either static snapshot.
+        for node in nodes where node.isVisible && node.id != editingNodeID && !skip.contains(node.id) {
+            if nodeHasExpensiveOffscreenContent(node, model: document.model) { return false }
+        }
         let t0 = CFAbsoluteTimeGetCurrent()
         let scale = backingScale
         let visible = bounds
@@ -4679,7 +4809,21 @@ final class CanvasNSView: NSView {
             return cg.makeImage()
         }
 
+        func layerExceededBudget(_ layer: String, startedAt: CFAbsoluteTime) -> Bool {
+            let elapsed = CFAbsoluteTimeGetCurrent() - startedAt
+            guard elapsed > Self.blitCaptureBudget else { return false }
+            dragSnapshotBlitDisabled = true
+            dragBlitBelow = nil; dragBlitAbove = nil; dragBlitSkipIDs = []
+            let message = String(
+                format: "drag-%@ snapshot took %.0fms (> %.0fms budget) — drag snapshot blit disabled for this canvas",
+                layer, elapsed * 1000, Self.blitCaptureBudget * 1000)
+            if app.testingMode { NSLog("⏱ [EXP perf] %@", message) }
+            DiagnosticLog.shared.log(message)
+            return true
+        }
+
         // BELOW: opaque base — background, boards, nodes under the dragged ones.
+        let belowStarted = CFAbsoluteTimeGetCurrent()
         dragBlitBelow = renderLayer { ctx in
             NSColor.underPageBackgroundColor.setFill()
             bounds.fill()
@@ -4693,8 +4837,10 @@ final class CanvasNSView: NSView {
                 drawCulledTopLevelNode(node, visible: visible, in: ctx)
             }
         }
+        if layerExceededBudget("below", startedAt: belowStarted) { return false }
         // ABOVE: transparent overlay — nodes over the dragged ones, then grids
         // and static guides (they draw over content in the normal path too).
+        let aboveStarted = CFAbsoluteTimeGetCurrent()
         dragBlitAbove = renderLayer { ctx in
             ctx.clear(bounds)
             for node in nodes[split...]
@@ -4705,6 +4851,7 @@ final class CanvasNSView: NSView {
             if app.showGrid { drawUniformGrid(in: ctx) }
             if app.showGuides { drawGuides(in: ctx) }
         }
+        if layerExceededBudget("above", startedAt: aboveStarted) { return false }
         guard dragBlitBelow != nil, dragBlitAbove != nil else {
             dragBlitBelow = nil; dragBlitAbove = nil
             return false
@@ -5044,7 +5191,7 @@ final class CanvasNSView: NSView {
         // within its frame plus a margin for stroke / effects / rotation, so
         // a node whose expanded frame is fully off-screen can't contribute a
         // pixel — and we skip the owningArtboard scan for it entirely. Groups
-        // and instances can hold children outside their own frame, so they
+        // and instances can hold children outside their frame, so they
         // fall through to the artboard-clip cull below (which stays exact).
         if isLeafContent(node.content) {
             let m = nodeCullMargin(node)
@@ -5168,6 +5315,9 @@ final class CanvasNSView: NSView {
             let offset = nodeOffset(id)
             let frame = node.frame.offsetBy(dx: offset.x, dy: offset.y)
             ctx.stroke(docToView(frame).insetBy(dx: -4, dy: -4))
+        }
+        for rect in highlight.documentRects {
+            ctx.stroke(docToView(rect).insetBy(dx: -4, dy: -4))
         }
         ctx.restoreGState()
     }
@@ -5914,13 +6064,15 @@ final class CanvasNSView: NSView {
         case .polygon(let s):
             return sensitivePaint(s.fill)
         case .path(let s):
-            return sensitivePaint(s.fill)
+            return sensitivePaint(s.fill) || pathHasExpensiveOutlines(s)
         case .group(let children):
             if sensitivePaint(node.autoPadding?.fill) { return true }
             return children.contains { $0.isVisible && nodeHasBitmapSensitiveContent($0, model: model) }
         case .instance(let inst):
             return model.resolvedChildren(of: inst).contains { $0.isVisible && nodeHasBitmapSensitiveContent($0, model: model) }
-        case .line, .text, .image:
+        case .text(let text):
+            return textHasExpensiveGlyphOutlines(text)
+        case .line, .image:
             return false
         }
     }
@@ -10761,7 +10913,17 @@ final class CanvasNSView: NSView {
         guard let app, let document else { return }
         var model = document.model
         guard let pageIndex = model.pageIndex(for: activePageID) else { return }
-        let offset = CGPoint(x: 40, y: 40)
+        guard let firstBoard = clip.artboards.first else { return }
+        let sourceBounds = clip.artboards.dropFirst().reduce(firstBoard.frame) {
+            $0.union($1.frame)
+        }
+        let preferredBounds = sourceBounds.offsetBy(dx: 40, dy: 40)
+        let availableBounds = model.availableArtboardFrame(
+            preferred: preferredBounds,
+            on: model.pages[pageIndex].id,
+            spacing: AppPreferences.artboardSpacingValue)
+        let offset = CGPoint(x: availableBounds.minX - sourceBounds.minX,
+                             y: availableBounds.minY - sourceBounds.minY)
         var newBoardIDs: [UUID] = []
         for board in clip.artboards {
             var nb = board
@@ -10887,7 +11049,21 @@ final class CanvasNSView: NSView {
     @objc func duplicateArtboardsAction(_ sender: Any?) {
         guard let app, let document, !app.selectedArtboardIDs.isEmpty else { return }
         let baseline = document.model
-        let dup = duplicateArtboards(Array(app.selectedArtboardIDs), offset: CGPoint(x: 20, y: 20))
+        let selected = (document.model.page(for: activePageID)?.artboards ?? []).filter {
+            app.selectedArtboardIDs.contains($0.id)
+        }
+        guard let firstBoard = selected.first else { return }
+        let sourceBounds = selected.dropFirst().reduce(firstBoard.frame) {
+            $0.union($1.frame)
+        }
+        let preferredBounds = sourceBounds.offsetBy(dx: 20, dy: 20)
+        let availableBounds = document.model.availableArtboardFrame(
+            preferred: preferredBounds,
+            on: activePageID,
+            spacing: AppPreferences.artboardSpacingValue)
+        let offset = CGPoint(x: availableBounds.minX - sourceBounds.minX,
+                             y: availableBounds.minY - sourceBounds.minY)
+        let dup = duplicateArtboards(selected.map(\.id), offset: offset)
         document.registerUndo(restoring: baseline, undoManager: undoManager, actionName: "Duplicate Artboard")
         app.selectedArtboardIDs = Set(dup.boardOrigins.keys)
         app.selectedNodeIDs = []
@@ -11195,6 +11371,62 @@ final class CanvasNSView: NSView {
     }
     @objc func goToLatestSanaaChangesAction(_ sender: Any?) {
         SanaaActivityController.shared.goToLatestChanges()
+    }
+
+    // MARK: Ask Sanaa prompt starters (FEAT-050)
+
+    @objc func askSanaaCritiqueAction(_ sender: Any?) {
+        presentSanaaPromptStarter(.critique)
+    }
+
+    @objc func askSanaaCompleteAction(_ sender: Any?) {
+        presentSanaaPromptStarter(.complete)
+    }
+
+    @objc func askSanaaVariationsAction(_ sender: Any?) {
+        presentSanaaPromptStarter(.variations)
+    }
+
+    @objc func askSanaaRepetitiveAction(_ sender: Any?) {
+        presentSanaaPromptStarter(.repetitive)
+    }
+
+    @objc func askSanaaDirectionsAction(_ sender: Any?) {
+        presentSanaaPromptStarter(.directions)
+    }
+
+    private var canAskSanaaFromSelection: Bool {
+        guard !isSourceScope, SanaaPreferences.isEnabled, let app else { return false }
+        return !app.selectedNodeIDs.isEmpty || !app.selectedArtboardIDs.isEmpty
+    }
+
+    private func presentSanaaPromptStarter(_ starter: SanaaPromptStarter) {
+        guard canAskSanaaFromSelection, let app, let document,
+              let pageID = document.model.pageID(resolving: activePageID),
+              let page = document.model.page(for: pageID) else { return }
+
+        let nodes = app.selectedNodeIDs.compactMap { node($0) }
+            .sorted { $0.id.uuidString < $1.id.uuidString }
+        let selectedBoards = page.artboards.filter { app.selectedArtboardIDs.contains($0.id) }
+        let parentIDs = Set(nodes.compactMap { owningArtboard(of: $0)?.id })
+        let parentBoards = page.artboards.filter { parentIDs.contains($0.id) }
+        let context = SanaaPromptContext(
+            pageID: pageID,
+            pageName: page.name,
+            nodes: nodes.map { .init(id: $0.id, name: $0.name) },
+            selectedArtboards: selectedBoards.map { .init(id: $0.id, name: $0.name) },
+            parentArtboards: parentBoards.map { .init(id: $0.id, name: $0.name) })
+        guard context.hasSelection else { return }
+        switch starter {
+        case .critique:
+            app.revealPanel(.sanaa)
+            SanaaActivityController.shared.prepareDraft(SanaaPromptComposer.critique(context))
+        case .directions:
+            app.revealPanel(.sanaa)
+            SanaaActivityController.shared.prepareDraft(SanaaPromptComposer.directions(context))
+        case .complete, .variations, .repetitive:
+            app.sanaaPromptRequest = SanaaPromptRequest(starter: starter, context: context)
+        }
     }
     @objc func zoomInAction(_ sender: Any?) {
         app?.viewportSize = bounds.size
@@ -12605,6 +12837,7 @@ final class CanvasNSView: NSView {
             if let copy = pageTransferMenuItem(title: "Duplicate to Page", duplicate: true) { menu.addItem(copy) }
             add(menu, "Delete", #selector(delete(_:)))
             add(menu, "Reveal in Layers", #selector(revealSelectionInLayersAction(_:)))
+            if let askSanaa = sanaaPromptMenuItem() { menu.addItem(askSanaa) }
             menu.addItem(.separator())
             // Copy / Paste Style (effects + blend mode + opacity). Both always
             // appear; validateMenuItem greys out Paste Style until a style is copied.
@@ -12763,6 +12996,10 @@ final class CanvasNSView: NSView {
             if let move = pageTransferMenuItem(title: "Move to Page", duplicate: false) { menu.addItem(move) }
             if let copy = pageTransferMenuItem(title: "Duplicate to Page", duplicate: true) { menu.addItem(copy) }
             add(menu, "Delete", #selector(delete(_:)))
+            if let askSanaa = sanaaPromptMenuItem() {
+                menu.addItem(.separator())
+                menu.addItem(askSanaa)
+            }
             if let placeItem = componentPlacementMenuItem(at: p) {
                 menu.addItem(.separator())
                 menu.addItem(placeItem)
@@ -12797,6 +13034,19 @@ final class CanvasNSView: NSView {
                 artboardIDs: app?.selectedArtboardIDs ?? [])
             submenu.addItem(item)
         }
+        parent.submenu = submenu
+        return parent
+    }
+
+    private func sanaaPromptMenuItem() -> NSMenuItem? {
+        guard SanaaPreferences.isEnabled else { return nil }
+        let parent = NSMenuItem(title: "Ask Sanaa", action: nil, keyEquivalent: "")
+        let submenu = NSMenu()
+        add(submenu, "Critique this…", #selector(askSanaaCritiqueAction(_:)))
+        add(submenu, "Do repetitive work…", #selector(askSanaaRepetitiveAction(_:)))
+        add(submenu, "Complete this…", #selector(askSanaaCompleteAction(_:)))
+        add(submenu, "Draw variations…", #selector(askSanaaVariationsAction(_:)))
+        add(submenu, "Design directions…", #selector(askSanaaDirectionsAction(_:)))
         parent.submenu = submenu
         return parent
     }
@@ -13012,6 +13262,12 @@ extension CanvasNSView: NSMenuItemValidation {
         case #selector(selectLatestSanaaChangesAction(_:)),
              #selector(goToLatestSanaaChangesAction(_:)):
             return !isSourceScope && SanaaActivityController.shared.canActOnLatestReceipt
+        case #selector(askSanaaCritiqueAction(_:)),
+             #selector(askSanaaCompleteAction(_:)),
+             #selector(askSanaaVariationsAction(_:)),
+             #selector(askSanaaRepetitiveAction(_:)),
+             #selector(askSanaaDirectionsAction(_:)):
+            return canAskSanaaFromSelection
         case #selector(selectAll(_:)):
             return !currentNodes.isEmpty || (!isSourceScope && !currentArtboards.isEmpty)
         case #selector(deselectAllAction(_:)):

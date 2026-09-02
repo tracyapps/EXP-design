@@ -70,15 +70,31 @@ final class SanaaCanvasHighlightRequest: NSObject {
     let pageID: UUID?
     let artboardIDs: Set<UUID>
     let nodeIDs: Set<UUID>
+    let documentRects: [CGRect]
 
     init(document: ExpDocument,
          pageID: UUID?,
          artboardIDs: Set<UUID>,
-         nodeIDs: Set<UUID>) {
+         nodeIDs: Set<UUID>,
+         documentRects: [CGRect] = []) {
         self.document = document
         self.pageID = pageID
         self.artboardIDs = artboardIDs
         self.nodeIDs = nodeIDs
+        self.documentRects = documentRects
+    }
+}
+
+@MainActor
+private final class SanaaResponseOrigin {
+    weak var document: ExpDocument?
+    let documentID: ObjectIdentifier
+    let pageID: UUID?
+
+    init(document: ExpDocument, pageID: UUID?) {
+        self.document = document
+        documentID = ObjectIdentifier(document)
+        self.pageID = pageID
     }
 }
 
@@ -136,6 +152,7 @@ final class SanaaActivityController {
     private(set) var account: SanaaRuntimeAccount?
     private(set) var rateLimits: [SanaaRuntimeRateLimit] = []
     private(set) var usageSummary: SanaaRuntimeUsageSummary?
+    private(set) var draftFocusRevision = 0
     var draft = ""
     var selectedAgentID = "codex"
 
@@ -155,6 +172,8 @@ final class SanaaActivityController {
     @ObservationIgnored private let runtime = SanaaRuntimeClient()
     @ObservationIgnored private var pendingMessage: (requestID: String, text: String)?
     @ObservationIgnored private var assistantEntryByRequest: [String: UUID] = [:]
+    @ObservationIgnored private var responseOriginByRequest: [String: SanaaResponseOrigin] = [:]
+    @ObservationIgnored private var responseOriginByEntry: [UUID: SanaaResponseOrigin] = [:]
     @ObservationIgnored private var terminationObserver: NSObjectProtocol?
 
     private init() {
@@ -185,6 +204,72 @@ final class SanaaActivityController {
     }
 
     var canActOnLatestReceipt: Bool { latestActionableReceipt != nil }
+
+    func transcriptEntry(id: UUID) -> SanaaTranscriptEntry? {
+        transcript.first { $0.id == id }
+    }
+
+    func canShowResponseElements(_ elements: [SanaaStructuredResponse.Element],
+                                 entryID: UUID) -> Bool {
+        guard let origin = responseOriginByEntry[entryID],
+              let document = origin.document,
+              let active = PanelHub.shared.activeDocument else { return false }
+        guard ObjectIdentifier(active) == origin.documentID else { return false }
+        return elements.contains { !locatedElements($0, in: document.model).isEmpty }
+    }
+
+    func responseElementName(_ element: SanaaStructuredResponse.Element,
+                             entryID: UUID) -> String {
+        guard let origin = responseOriginByEntry[entryID], let document = origin.document,
+              let match = locatedElements(element, in: document.model).first else {
+            return responseElementFallbackName(element)
+        }
+        let resolved = match.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return resolved.isEmpty ? responseElementFallbackName(element) : resolved
+    }
+
+    func showResponseElements(_ elements: [SanaaStructuredResponse.Element],
+                              entryID: UUID, center: Bool = false) {
+        guard let origin = responseOriginByEntry[entryID],
+              let document = origin.document,
+              let activeDocument = PanelHub.shared.activeDocument,
+              let app = PanelHub.shared.activeApp,
+              ObjectIdentifier(activeDocument) == origin.documentID else {
+            NSSound.beep()
+            return
+        }
+        let matches = elements.flatMap { locatedElements($0, in: document.model) }
+        guard let pageID = matches.first?.pageID else {
+            NSSound.beep()
+            return
+        }
+        let onPage = matches.filter { $0.pageID == pageID }
+        let selectable = Set(onPage.map(\.selectableNodeID))
+        app.activeCanvasPageID = pageID
+        app.selectedNodeIDs = selectable
+        app.selectedArtboardIDs = []
+        app.selectionAnchorID = selectable.first
+        NotificationCenter.default.post(
+            name: .sanaaCanvasHighlight,
+            object: SanaaCanvasHighlightRequest(
+                document: document, pageID: pageID,
+                artboardIDs: [], nodeIDs: [],
+                documentRects: onPage.map(\.documentRect)))
+        if center { sendCanvasAction("centerSelectionAction:") }
+        announce("Highlighted \(onPage.count) \(onPage.count == 1 ? "layer" : "layers") from the Sanaa response.")
+    }
+
+    /// Structured reply buttons always stage editable text. They never auto-send.
+    func useResponseSuggestion(_ prompt: String) {
+        guard let app = PanelHub.shared.activeApp else { return }
+        app.revealPanel(.sanaa)
+        prepareDraft(prompt)
+        if app.workspaceMode == .multiWindow {
+            PanelWindowManager.shared.focusPanel(.sanaa)
+        } else {
+            NSApp.mainWindow?.makeKeyAndOrderFront(nil)
+        }
+    }
 
     func canAct(on receipt: SanaaAppliedBatchReceipt) -> Bool {
         guard let document = PanelHub.shared.activeDocument,
@@ -315,9 +400,23 @@ final class SanaaActivityController {
         do {
             let requestID = try runtime.sendMessage(text)
             pendingMessage = (requestID, text)
+            if let document = PanelHub.shared.activeDocument {
+                let pageID = document.model.pageID(
+                    resolving: PanelHub.shared.activeApp?.activeCanvasPageID)
+                responseOriginByRequest[requestID] = SanaaResponseOrigin(
+                    document: document, pageID: pageID)
+            }
         } catch {
             fail(code: .hostDisconnected, message: error.localizedDescription)
         }
+    }
+
+    /// FEAT-050 prompt starters enter the same editable composer as ordinary
+    /// typing. They never auto-send: the designer reviews and may revise first.
+    func prepareDraft(_ text: String) {
+        draft = text
+        copiedDraft = false
+        draftFocusRevision += 1
     }
 
     func stopReply() {
@@ -348,12 +447,15 @@ final class SanaaActivityController {
     /// and is deliberately untouched.
     func disable() {
         shutdownRuntime(deletingConversation: true)
+        SanaaResponseWindowManager.shared.closeAll()
         transcript.removeAll()
         transcriptRevision += 1
         draft = ""
         conversationID = nil
         pendingMessage = nil
         assistantEntryByRequest.removeAll()
+        responseOriginByRequest.removeAll()
+        responseOriginByEntry.removeAll()
         failureCode = nil
         failureMessage = nil
         copiedDraft = false
@@ -473,12 +575,16 @@ final class SanaaActivityController {
                                              text: delta,
                                              isStreaming: true)
             assistantEntryByRequest[key] = entry.id
+            if let origin = responseOriginByRequest[key] {
+                responseOriginByEntry[entry.id] = origin
+            }
             append(entry)
         }
         phase = .replying
     }
 
     private func finishAssistant(for requestID: String?) {
+        if let requestID { responseOriginByRequest[requestID] = nil }
         if let requestID,
            let id = assistantEntryByRequest.removeValue(forKey: requestID),
            let index = transcript.firstIndex(where: { $0.id == id }) {
@@ -496,6 +602,7 @@ final class SanaaActivityController {
             changed = true
         }
         assistantEntryByRequest.removeAll()
+        responseOriginByRequest.removeAll()
         if changed { transcriptRevision += 1 }
     }
 
@@ -556,6 +663,59 @@ final class SanaaActivityController {
         }
     }
 
+    private struct LocatedResponseElement {
+        var pageID: UUID
+        var documentRect: CGRect
+        var selectableNodeID: UUID
+        var name: String
+    }
+
+    private func responseElementFallbackName(_ element: SanaaStructuredResponse.Element) -> String {
+        let supplied = element.name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return supplied.isEmpty ? "Layer" : supplied
+    }
+
+    private func locatedElements(_ reference: SanaaStructuredResponse.Element,
+                                 in model: Document) -> [LocatedResponseElement] {
+        guard let targetID = reference.uuid else { return [] }
+        let wantedPath = reference.instanceUUIDs
+        var result: [LocatedResponseElement] = []
+
+        func walk(_ nodes: [Node], pageID: UUID, offset: CGPoint,
+                  instancePath: [UUID], outerInstanceID: UUID?) {
+            for node in nodes where node.isVisible {
+                let absolute = node.frame.offsetBy(dx: offset.x, dy: offset.y)
+                if node.id == targetID && (wantedPath.isEmpty || wantedPath == instancePath) {
+                    result.append(LocatedResponseElement(
+                        pageID: pageID, documentRect: absolute,
+                        selectableNodeID: outerInstanceID ?? node.id,
+                        name: node.name))
+                }
+                let childOffset = CGPoint(x: offset.x + node.frame.minX,
+                                          y: offset.y + node.frame.minY)
+                switch node.content {
+                case .group(let children):
+                    walk(children, pageID: pageID, offset: childOffset,
+                         instancePath: instancePath,
+                         outerInstanceID: outerInstanceID)
+                case .instance(let instance):
+                    let path = instancePath + [node.id]
+                    walk(model.resolvedChildren(of: instance), pageID: pageID,
+                         offset: childOffset, instancePath: path,
+                         outerInstanceID: outerInstanceID ?? node.id)
+                default:
+                    break
+                }
+            }
+        }
+
+        for page in model.pages {
+            walk(page.nodes, pageID: page.id, offset: .zero,
+                 instancePath: [], outerInstanceID: nil)
+        }
+        return result
+    }
+
     /// Apple requires both `.announcement` and `.priority` in the user-info
     /// payload for an announcement request. Medium is informative without
     /// interrupting a higher-priority VoiceOver event.
@@ -580,6 +740,18 @@ final class SanaaActivityController {
                 .priority: NSAccessibilityPriorityLevel.medium.rawValue
             ]
         )
+    }
+
+    private func announce(_ message: String) {
+        guard let application = NSApp else { return }
+        let element: Any = application.mainWindow ?? application
+        NSAccessibility.post(
+            element: element,
+            notification: .announcementRequested,
+            userInfo: [
+                .announcement: message,
+                .priority: NSAccessibilityPriorityLevel.medium.rawValue
+            ])
     }
 
     private func fail(code: SanaaRuntimeErrorCode,

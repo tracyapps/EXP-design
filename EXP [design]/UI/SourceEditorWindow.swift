@@ -623,6 +623,7 @@ struct ComponentStatesBar: View {
                     .keyboardShortcut(.defaultAction)
             }
             .padding(10)
+            .expTransientWindowLevel()
         }
     }
 

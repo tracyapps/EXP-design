@@ -16,6 +16,7 @@ const issuesUrl = "https://github.com/tracyapps/EXP-design/issues/new";
 // /download and /learn.
 const featureLinks = [
   { label: "features", href: "/#features" },
+  { label: "Sanaa", href: "/#sanaa" },
   { label: "components", href: "/#component-system" },
   { label: "accessibility", href: "/#accessibility" },
   { label: "design language", href: "/#design-language" },
@@ -362,6 +363,54 @@ function FeatureStory() {
           </button>
         ))}
       </div>
+    </section>
+  );
+}
+
+function SanaaCallout() {
+  return (
+    <section id="sanaa" className="sanaa-section" aria-labelledby="sanaa-title">
+      <div className="sanaa-copy section-copy">
+        <p className="section-label">meet Sanaa</p>
+        <h2 id="sanaa-title">a design companion who can actually see the work.</h2>
+        <p>
+          Ask for a critique, another direction, or help with the repetitive bits.
+          Sanaa reads the live canvas, grounds feedback in measured design facts,
+          and keeps every suggestion connected to the layers it came from.
+        </p>
+        <ul className="feature-points" aria-label="Sanaa design companion benefits">
+          <li>
+            <strong>critique with receipts</strong>
+            <span>Measured contrast, type, spacing, and target-size evidence sit beside thoughtful design observations—not vague AI vibes.</span>
+          </li>
+          <li>
+            <strong>one click back to the canvas</strong>
+            <span>Jump from a finding to the exact layer, or bring an idea into the composer to explore it further.</span>
+          </li>
+          <li>
+            <strong>you stay the designer</strong>
+            <span>Sanaa asks before changing existing work, uses small honest batches, and leaves each batch as one ordinary Undo step.</span>
+          </li>
+        </ul>
+        <p className="sanaa-boundary">
+          Uses your signed-in Codex account. EXP ships no model or API key, and Sanaa stays completely off until you enable her.
+        </p>
+      </div>
+      <figure className="sanaa-gallery" aria-label="Sanaa critique report and Ask Sanaa menu inside EXP design">
+        <div className="sanaa-shot report">
+          <img
+            src="/assets/sanaa-critique-report.png"
+            alt="Sanaa's full critique report with numbered findings, measured gradient contrast, design observations, and buttons that locate exact canvas layers"
+          />
+        </div>
+        <div className="sanaa-shot menu">
+          <img
+            src="/assets/sanaa-ask-menu.png"
+            alt="EXP's Ask Sanaa menu offering critique, repetitive work, completion, variations, and design directions"
+          />
+        </div>
+        <figcaption>ask from the canvas. inspect the evidence. decide what happens next.</figcaption>
+      </figure>
     </section>
   );
 }
@@ -1411,6 +1460,7 @@ export default function App() {
       <main>
         <Hero />
         <FeatureStory />
+        <SanaaCallout />
         <ComponentCallout />
         <WorkspaceCallout />
         <AccessibilityCallout />

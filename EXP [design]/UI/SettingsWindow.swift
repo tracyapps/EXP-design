@@ -455,12 +455,24 @@ private struct SanaaSettingsPane: View {
     @State private var activity = SanaaActivityController.shared
     @State private var setupKind = AgentSetupKind.claudeCode
     @State private var copiedSetup = false
+    @State private var showingSetupAssistant = false
+    @State private var assistantHost = SetupAssistantHost.codex
+    @State private var copiedAssistantSetup = false
 
     private enum AgentSetupKind: String, CaseIterable, Identifiable {
         case claudeCode = "Claude Code"
         case claudeDesktop = "Claude Desktop"
         case stdioJSON = "Other MCP app (JSON)"
         case helperPath = "Helper path"
+        var id: Self { self }
+    }
+
+    private enum SetupAssistantHost: String, CaseIterable, Identifiable {
+        case codex = "Sanaa in EXP (Codex)"
+        case claudeCode = "Claude Code"
+        case claudeDesktop = "Claude Desktop"
+        case other = "Another MCP app"
+        case none = "I don't have one yet"
         var id: Self { self }
     }
 
@@ -545,6 +557,10 @@ private struct SanaaSettingsPane: View {
                     .buttonStyle(.exp(.secondary))
                     .disabled(!enabled || activity.phase == .connecting)
                     .accessibilityHint("Refreshes connection, account, and available usage information")
+
+                    Button("Set up Sanaa…") { showingSetupAssistant = true }
+                        .buttonStyle(.exp(.secondary))
+                        .accessibilityHint("Opens a guided connection walkthrough")
                 }
             }
 
@@ -653,6 +669,7 @@ private struct SanaaSettingsPane: View {
         .onChange(of: writeEnabled) { _, isOn in
             if !isOn { SanaaConsent.shared.forgetEverything() }
         }
+        .sheet(isPresented: $showingSetupAssistant) { setupAssistant }
     }
 
     private var statusLine: String {
@@ -691,7 +708,11 @@ private struct SanaaSettingsPane: View {
     }
 
     private var setupText: String {
-        switch setupKind {
+        setupText(for: setupKind)
+    }
+
+    private func setupText(for kind: AgentSetupKind) -> String {
+        switch kind {
         case .claudeCode:
             let escaped = helperPath.replacingOccurrences(of: "'", with: "'\\''")
             return "claude mcp add --scope user exp-design -- '\(escaped)'"
@@ -705,6 +726,153 @@ private struct SanaaSettingsPane: View {
             return String(data: data, encoding: .utf8) ?? helperPath
         case .helperPath:
             return helperPath
+        }
+    }
+
+    private var setupAssistant: some View {
+        VStack(alignment: .leading, spacing: EXPMetric.lg) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: EXPMetric.xs) {
+                    Text("Set up Sanaa")
+                        .font(.title2.weight(.semibold))
+                    Text("Connect the assistant you already use. EXP never asks for or stores its password, subscription, or API key.")
+                        .font(.callout)
+                        .foregroundStyle(EXPColor.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: EXPMetric.lg)
+                Button("Done") { showingSetupAssistant = false }
+                    .keyboardShortcut(.cancelAction)
+            }
+
+            VStack(alignment: .leading, spacing: EXPMetric.md) {
+                Label("1. Choose what you use", systemImage: "1.circle.fill")
+                    .font(.headline)
+                Picker("Assistant", selection: $assistantHost) {
+                    ForEach(SetupAssistantHost.allCases) { host in
+                        Text(host.rawValue).tag(host)
+                    }
+                }
+                .pickerStyle(.menu)
+                .accessibilityHint("Chooses the local assistant to connect with EXP")
+
+                Divider()
+
+                Label("2. Connect without sharing credentials", systemImage: "2.circle.fill")
+                    .font(.headline)
+                Text(assistantInstructions)
+                    .font(.callout)
+                    .foregroundStyle(EXPColor.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if let command = assistantSetupText {
+                    Text(command)
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(EXPColor.textSecondary)
+                        .textSelection(.enabled)
+                        .padding(EXPMetric.sm)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(EXPColor.surfaceField,
+                                    in: RoundedRectangle(cornerRadius: EXPMetric.radiusField))
+                        .accessibilityLabel("Setup command")
+
+                    Button(copiedAssistantSetup ? "Copied" : "Copy setup") {
+                        copyAssistantSetup(command)
+                    }
+                    .buttonStyle(.exp(.secondary))
+                    .accessibilityHint("Copies this setup for the selected assistant")
+                }
+
+                if assistantHost == .codex {
+                    Button(enabled ? "Reconnect Sanaa" : "Enable and connect Sanaa") {
+                        enabled = true
+                        activity.activate()
+                    }
+                    .buttonStyle(.exp(.primary))
+                    .disabled(activity.phase == .connecting)
+                    .accessibilityHint("Uses the signed-in local Codex app; EXP receives no account password or API key")
+                } else if assistantHost != .none {
+                    Button(bridge.isEnabled ? "Canvas bridge is on" : "Turn on canvas bridge") {
+                        bridge.setEnabled(true)
+                    }
+                    .buttonStyle(.exp(.primary))
+                    .disabled(bridge.isEnabled)
+                    .accessibilityHint("Allows local assistants running as your macOS user to connect to this canvas")
+                }
+
+                Divider()
+
+                Label("3. Verify the connection", systemImage: "3.circle.fill")
+                    .font(.headline)
+                statusRow(title: assistantHost == .codex ? "Conversation" : "Canvas bridge",
+                          detail: assistantVerificationStatus,
+                          symbol: assistantVerificationSymbol)
+
+                if assistantHost == .codex {
+                    Button("Send a hello") {
+                        activity.draft = "Introduce yourself in one short sentence and confirm whether you can see the frontmost EXP canvas. Do not change it."
+                        activity.sendDraft()
+                    }
+                    .buttonStyle(.exp(.secondary))
+                    .disabled(!activity.canSend)
+                    .accessibilityHint("Sends a read-only greeting through the selected local conversation runtime")
+                }
+            }
+            .padding(EXPMetric.lg)
+            .background(EXPColor.surfacePanelSolid,
+                        in: RoundedRectangle(cornerRadius: EXPMetric.radiusCard,
+                                             style: .continuous))
+        }
+        .padding(EXPMetric.xl)
+        .frame(width: 600)
+        .background(EXPColor.surfaceWindow)
+        .onChange(of: assistantHost) { _, _ in copiedAssistantSetup = false }
+    }
+
+    private var assistantSetupText: String? {
+        switch assistantHost {
+        case .codex, .none: return nil
+        case .claudeCode: return setupText(for: .claudeCode)
+        case .claudeDesktop: return setupText(for: .claudeDesktop)
+        case .other: return setupText(for: .stdioJSON)
+        }
+    }
+
+    private var assistantInstructions: String {
+        switch assistantHost {
+        case .codex:
+            return "Sanaa's in-app conversation uses your existing Codex sign-in through EXP's bundled local runtime. Turn it on below, then send a read-only hello."
+        case .claudeCode:
+            return "Copy the command into Claude Code once. Then turn on EXP's canvas bridge. Claude Code can inspect the canvas and use consented drawing tools, but it does not power the in-app Sanaa conversation."
+        case .claudeDesktop:
+            return "Claude Desktop currently needs its local MCP server configuration. Copy the JSON into its developer configuration, restart Claude Desktop, then turn on EXP's canvas bridge. This is canvas access, not in-app Sanaa chat."
+        case .other:
+            return "Use the JSON in an MCP app that supports a local stdio server, then turn on EXP's canvas bridge. Unsupported apps may expose different setup screens; EXP will show the connection only after the app starts the helper."
+        case .none:
+            return "Install or sign in to Codex for the in-app Sanaa conversation, or use an MCP-capable local assistant for canvas access. EXP does not include an AI subscription and will remain fully usable with Sanaa off."
+        }
+    }
+
+    private var assistantVerificationStatus: String {
+        if assistantHost == .none { return "Nothing to verify — Sanaa can stay off" }
+        return assistantHost == .codex ? conversationStatus : canvasStatus
+    }
+
+    private var assistantVerificationSymbol: String {
+        if assistantHost == .none { return "checkmark.shield" }
+        if assistantHost == .codex {
+            return activity.phase == .ready ? "checkmark.circle.fill" : "message.and.waveform"
+        }
+        return bridge.connectionCount > 0 ? "checkmark.circle.fill" : "point.3.connected.trianglepath.dotted"
+    }
+
+    private func copyAssistantSetup(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        copiedAssistantSetup = true
+        Task {
+            try? await Task.sleep(for: .seconds(1.5))
+            copiedAssistantSetup = false
         }
     }
 

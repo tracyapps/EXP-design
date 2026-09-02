@@ -207,6 +207,7 @@ struct FontFamilyPicker: View {
         .accessibilityHint("Opens a searchable font list with optional filters.")
         .popover(isPresented: $open, arrowEdge: .bottom) {
             pickerPopover
+                .expTransientWindowLevel()
         }
         .onChange(of: open) { _, isOpen in
             if !isOpen { FontPickerKeyboardSession.isActive = false }

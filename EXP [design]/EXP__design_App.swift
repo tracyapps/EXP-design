@@ -20,6 +20,8 @@ struct EXP__design_App: App {
         // compiled out of Release. See SanaaRuntimeAppProbe.swift.
         if SanaaRuntimeAppProbe.startIfRequested() { return }
         if SanaaActivityAppProbe.startIfRequested() { return }
+        if SanaaPromptAppProbe.startIfRequested() { return }
+        if SanaaResponseAppProbe.startIfRequested() { return }
         #endif
         AgentBridgeController.shared.startIfEnabled()
         // Single-letter tool shortcuts, centrally (BUG-028). Installed before any
@@ -272,6 +274,7 @@ private struct EditCommandItems: View {
 
 private struct ObjectCommandItems: View {
     @FocusedValue(\.editorMenu) private var menu
+    @AppStorage(SanaaPreferences.enabled) private var sanaaEnabled = false
 
     var body: some View {
         Button("Group") { sendEditorAction("groupSelection:") }
@@ -382,6 +385,17 @@ private struct ObjectCommandItems: View {
         .disabled(menu?.canPathfinder != true)
         Button("Round to Pixel") { sendEditorAction("roundToPixelAction:") }
             .disabled(menu?.canRoundToPixel != true)
+        if sanaaEnabled {
+            Divider()
+            Menu("Ask Sanaa") {
+                Button("Critique this…") { sendEditorAction("askSanaaCritiqueAction:") }
+                Button("Do repetitive work…") { sendEditorAction("askSanaaRepetitiveAction:") }
+                Button("Complete this…") { sendEditorAction("askSanaaCompleteAction:") }
+                Button("Draw variations…") { sendEditorAction("askSanaaVariationsAction:") }
+                Button("Design directions…") { sendEditorAction("askSanaaDirectionsAction:") }
+            }
+            .disabled(menu?.canAskSanaa != true)
+        }
         Divider()
         Button("Eyedropper (Pick Fill) — i") { sendEditorAction("eyedropperAction:") }
             .disabled(menu?.canEyedropper != true)

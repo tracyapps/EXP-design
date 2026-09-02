@@ -39,6 +39,7 @@ struct PaintWell: View {
                             selectedGradientStopID: selectedGradientStopID)
                     .frame(width: 250)
                     .padding(12)
+                    .expTransientWindowLevel()
             }
         }
     }

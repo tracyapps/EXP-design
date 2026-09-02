@@ -17,12 +17,20 @@ private struct CheckOptions {
     var codexPath: String
     var timeout: TimeInterval = 90
     var canvasRead = false
+    var knowledgeRead = false
+    var knowledgeReadOnly = false
+    var factsRead = false
+    var factsReadOnly = false
 
     static func parse(_ arguments: [String]) throws -> CheckOptions {
         var runtimePath: String?
         var codexPath: String?
         var timeout: TimeInterval = 90
         var canvasRead = false
+        var knowledgeRead = false
+        var knowledgeReadOnly = false
+        var factsRead = false
+        var factsReadOnly = false
         var index = 0
         while index < arguments.count {
             switch arguments[index] {
@@ -43,16 +51,29 @@ private struct CheckOptions {
                 timeout = value
             case "--canvas-read":
                 canvasRead = true
+            case "--knowledge-read":
+                knowledgeRead = true
+            case "--knowledge-read-only":
+                knowledgeRead = true
+                knowledgeReadOnly = true
+            case "--facts-read":
+                factsRead = true
+            case "--facts-read-only":
+                factsRead = true
+                factsReadOnly = true
             default:
                 throw CheckError.usage("Unknown argument: \(arguments[index])")
             }
             index += 1
         }
         guard let runtimePath, let codexPath else {
-            throw CheckError.usage("Usage: packaged-check --runtime PATH --codex PATH [--timeout SEC] [--canvas-read]")
+            throw CheckError.usage("Usage: packaged-check --runtime PATH --codex PATH [--timeout SEC] [--canvas-read] [--knowledge-read|--knowledge-read-only] [--facts-read|--facts-read-only]")
         }
         return CheckOptions(runtimePath: runtimePath, codexPath: codexPath,
-                            timeout: timeout, canvasRead: canvasRead)
+                            timeout: timeout, canvasRead: canvasRead,
+                            knowledgeRead: knowledgeRead,
+                            knowledgeReadOnly: knowledgeReadOnly,
+                            factsRead: factsRead, factsReadOnly: factsReadOnly)
     }
 }
 
@@ -320,6 +341,67 @@ private enum SanaaRuntimePackagedCheck {
                 )
             }
             print("PASS  canvas read: list_artboards → get_artboard ran with no invisible approval boundary")
+        }
+
+        if options.knowledgeRead {
+            let read = try harness.send(
+                .sendMessage,
+                conversationID: startedID,
+                text: "Call exp-design get_design_guidance with module index. Find the knowledge-pack version stated in its opening paragraph. Reply with exactly KNOWLEDGE_READ_OK followed by a colon and the digits-only semantic version (omit any leading v). Do not infer or guess the version if the tool is unavailable."
+            )
+            let readUser = try harness.waitFor(kind: .userMessage,
+                                               requestID: read,
+                                               timeout: options.timeout)
+            guard let readTurnID = readUser.turnID else {
+                throw CheckError.failed("Knowledge resource-read turn has no id")
+            }
+            _ = try harness.waitFor(kind: .completed, requestID: read, timeout: options.timeout)
+            let answer = harness.streamedText(turnID: readTurnID)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let requestStatuses = harness.toolStatuses(kind: .toolRequest, turnID: readTurnID)
+            guard requestStatuses.contains("get_design_guidance"),
+                  harness.eventCount(kind: .toolResult, turnID: readTurnID) >= 1,
+                  harness.eventCount(kind: .approvalRequired, turnID: readTurnID) == 0,
+                  answer == "KNOWLEDGE_READ_OK:2.0.0" else {
+                throw CheckError.failed("Packaged Codex thread could not read the knowledge index (requests=\(requestStatuses), approvals=\(harness.eventCount(kind: .approvalRequired, turnID: readTurnID)), answer=\(answer))")
+            }
+            print("PASS  knowledge read: packaged Codex thread called get_design_guidance with no approval boundary")
+            if options.knowledgeReadOnly {
+                print("\nRESULT  FEAT-054 packaged knowledge-resource gate passed.")
+                return
+            }
+        }
+
+        if options.factsRead {
+            let read = try harness.send(
+                .sendMessage,
+                conversationID: startedID,
+                text: "Call exp-design list_artboards. Then call exp-design get_design_facts with artboardId set to the first returned artboard id. If and only if the facts result has schemaVersion 1 and interpretation exactly measured facts, not verdicts, reply with exactly FACTS_READ_OK:1. Do not infer or guess if either tool is unavailable."
+            )
+            let readUser = try harness.waitFor(kind: .userMessage,
+                                               requestID: read,
+                                               timeout: options.timeout)
+            guard let readTurnID = readUser.turnID else {
+                throw CheckError.failed("Facts read turn has no id")
+            }
+            _ = try harness.waitFor(kind: .completed, requestID: read,
+                                    timeout: options.timeout)
+            let answer = harness.streamedText(turnID: readTurnID)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let requestStatuses = harness.toolStatuses(kind: .toolRequest,
+                                                       turnID: readTurnID)
+            guard requestStatuses.contains("list_artboards"),
+                  requestStatuses.contains("get_design_facts"),
+                  harness.eventCount(kind: .toolResult, turnID: readTurnID) >= 2,
+                  harness.eventCount(kind: .approvalRequired, turnID: readTurnID) == 0,
+                  answer == "FACTS_READ_OK:1" else {
+                throw CheckError.failed("Packaged Codex thread could not read measured design facts (requests=\(requestStatuses), approvals=\(harness.eventCount(kind: .approvalRequired, turnID: readTurnID)), answer=\(answer))")
+            }
+            print("PASS  facts read: list_artboards → get_design_facts ran with no approval boundary")
+            if options.factsReadOnly {
+                print("\nRESULT  FEAT-055 packaged computed-facts gate passed.")
+                return
+            }
         }
 
         let stream = try harness.send(

@@ -3,18 +3,24 @@
 # through the helper copied into Contents/Helpers. The runtime advertises only
 # EXP's canvas MCP server; these generic probe prompts intentionally call no tools.
 # Pass `--canvas-read` while EXP is running with Agent access enabled to add the
-# read-only list_artboards → get_artboard approval regression.
+# read-only list_artboards → get_artboard approval regression. Pass
+# `--knowledge-read` to prove the packaged thread can call the bounded
+# get_design_guidance fallback and add that proof to the full runtime suite, or
+# `--knowledge-read-only` for FEAT-054's focused packaged resource gate.
+# Pass `--facts-read` to add FEAT-055's packaged computed-facts receipt, or
+# `--facts-read-only` for its focused gate. Both require a rebuilt, running EXP
+# with Agent access enabled and at least one artboard in the front document.
 set -euo pipefail
 
 PROJECT_ROOT="${0:A:h:h}"
 CHECK_TMP="$(mktemp -d "${TMPDIR:-/tmp}/exp-sanaa-runtime.XXXXXX")"
 trap 'rm -rf "$CHECK_TMP"' EXIT
 
-CANVAS_READ_ARGS=()
-if [[ "${1:-}" == "--canvas-read" ]]; then
-  CANVAS_READ_ARGS=(--canvas-read)
+OPTIONAL_CHECK_ARGS=()
+while [[ "${1:-}" == "--canvas-read" || "${1:-}" == "--knowledge-read" || "${1:-}" == "--knowledge-read-only" || "${1:-}" == "--facts-read" || "${1:-}" == "--facts-read-only" ]]; do
+  OPTIONAL_CHECK_ARGS+=("$1")
   shift
-fi
+done
 
 CODEX_EXECUTABLE="${1:-$(command -v codex || true)}"
 if [[ -z "$CODEX_EXECUTABLE" || ! -x "$CODEX_EXECUTABLE" ]]; then
@@ -63,4 +69,4 @@ xcrun swiftc \
 "$CHECK_TMP/sanaa-runtime-packaged-check" \
   --runtime "$RUNTIME" \
   --codex "$CODEX_EXECUTABLE" \
-  "${CANVAS_READ_ARGS[@]}"
+  "${OPTIONAL_CHECK_ARGS[@]}"

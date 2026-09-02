@@ -24,6 +24,8 @@ See `DEPLOYMENT.md` for the Vercel setup.
 
 - `src/design-system.css` and `src/tokens/` are copied from the EXP design system.
 - `public/assets/exp-canvas-workbench.png` is the current product screenshot.
+- `public/assets/sanaa-critique-report.png` and `sanaa-ask-menu.png` show the
+  v2.4 Sanaa critique and canvas entry points.
 - `docs/exp-website-concept.png` is the generated visual concept used as the
   first implementation reference.
 - `docs/FEATURE-ASSET-BRIEFS.md` describes the component, import/handoff, and

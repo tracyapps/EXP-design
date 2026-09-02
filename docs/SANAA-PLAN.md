@@ -71,16 +71,18 @@ Answering the owner's two criteria for where the "brain" lives:
    chat is *harder* for non-technical users (create a developer account, manage
    billing, paste secret keys) and reverses a recorded architecture decision.
    The reach-in model's real friction is one-time agent hookup — which FEAT-051
-   attacks directly (detect installed agents, one-click setup, packaged
-   Claude Desktop extension). pen.dev made the same call.
+   attacks directly with a guided, copy-first setup flow that never handles
+   provider credentials or pretends external canvas access is in-app chat.
+   Automatic detection and a packaged Claude Desktop extension remain unshipped
+   transport experiments. pen.dev made the same architectural call.
 2. **Physically draws on the canvas like pen.dev:** the drawing IS write-back.
    Edits arrive as tool calls; EXP applies them through the normal undo funnel
    and animates them (FEAT-049). Identical mechanism to pen.dev's desktop app.
 
-**The current seam, and the approved replacement:** today's code still requires
-the designer to copy a prompt into their agent's UI. That is an interim truth,
-not the intended v2.4 experience. On 2026-08-26 the owner chose the heavier path:
-the dedicated Sanaa panel will send prompts and stream the reply in place. MCP
+**The current seam, and the approved replacement:** the dedicated Sanaa panel now
+sends prompts and streams replies in place through the signed-in local Codex
+runtime; copy remains an honest fallback when that runtime is unavailable. On
+2026-08-26 the owner chose this heavier path over clipboard-only chat. MCP
 sampling is not the foundation: the 2026-07-28 MCP specification deprecates it,
 and Codex does not expose it as a supported client contract. A provider-neutral
 local Sanaa Runtime will use each supported host's explicit conversation API.
@@ -452,12 +454,87 @@ chosen placement; separately test Copy fallback and the Claude adapter when that
 gate exists; VoiceOver labels/hints on the sheets; Escape/Return behavior;
 keyboard-only run-through.
 
+**Implementation 2026-08-31/09-01.** The three base starters, conditional Object
+and canvas-context menus, selection-id capture, native placement sheets, editable
+composer handoff/focus, and Debug prompt-contract probe are built. After FEAT-055
+closed, the amendment added Critique this… and Design directions… in the required
+critique/cleanup/complete/variations/directions order. Both new starters place a
+read-only draft directly in the editable composer without auto-sending, require
+live-scope confirmation, `get_design_facts` before analysis, and task-specific
+guidance modules, and explicitly forbid `apply_edits`. The expanded prompt probe
+and fresh universal Debug/Release builds pass. **The amendment's facts/guidance
+behavior was owner-verified 2026-09-02 against the real critique mockup: Sanaa
+caught every intentionally planted issue, including gradient contrast, and the
+owner rated the pass “perfect.”** The owner signed off FEAT-050 in full on
+2026-09-02, choosing evidence from broad public testing over further speculative
+pre-release edge-case work. FEAT-050 is closed.
+
+---
+
+### FEAT-061 — Compact response cards + full Markdown reader
+
+*~1–2 sessions. NON-mutating. v2.4 Wave D addition (owner, 2026-09-01).
+Build before FEAT-056 so every assistant reply—not only critiques—gets the same
+small-screen reading contract.*
+
+**Goal.** The Sanaa tray stays conversational and scannable; a long answer becomes
+a deliberate reading surface instead of turning the panel into a document viewer.
+
+**Panel contract.** Every assistant reply renders Markdown rather than exposing its
+markers. While streaming, show a bounded live preview and unfinished state. When
+complete, cap the rendered overview to a small, stable height and provide **Open full
+response**. Do not make a second summarization model call: critique/directions prompts
+must ask Sanaa for a concise Overview first, and ordinary responses fall back to the
+first meaningful rendered lines. Keep the original response available to copy.
+
+**Reader contract.** Open a normal resizable companion window, not a floating palette.
+One reply has at most one reader window; opening it again focuses that window. Closing
+the reader does not clear the transcript. The reader may update during streaming, but
+structured actions are disabled until the reply completes. Session clear/disable
+closes or invalidates its readers rather than leaving content that appears current.
+Render headings, paragraphs, lists, emphasis, code, and links without executing raw
+HTML. Explicit `http`, `https`, and `mailto` links use the system default handler;
+reject custom/file schemes. Malformed Markdown falls back to readable selectable text.
+
+**Choice contract.** An option button is structured provider-neutral metadata, not a
+guess based on prose such as “Would you like…”. Choosing **Create beside this artboard**
+or **Create on a new page** places the complete consequence-bearing sentence in the
+composer and returns focus there; it does not auto-send and can never invoke
+`apply_edits` directly. No structured metadata means no invented buttons.
+
+**Accessibility/lifecycle.** Opening moves focus to the response title/first heading;
+Command-W closes and focus returns to the originating message action. Reader and rail
+have one logical keyboard order; VoiceOver gets concise row labels instead of the full
+report as one element. Support app type-size, increased contrast, Reduce Transparency,
+Reduce Motion, light/dark, copy/select, and narrow/single-window use.
+
+**Testing.** Long, short, malformed, and streaming responses; repeated open; clear and
+disable; safe/unsafe links; keyboard-only/VoiceOver focus round-trip; all appearances;
+ordinary versus floating windows; no document mutation from open/copy/choice.
+
+**Implementation 2026-09-01.** The reusable vertical slice is built: capped Markdown
+overview cards, one normal/resizable live reader per assistant reply, native block and
+inline rendering, selectable/copyable source, safe default-browser links, origin-focus
+return, and session-disable cleanup. The Debug build and deterministic in-app parser/
+link probe pass. FEAT-056's numbered finding rail and node actions now supply the
+structured metadata/buttons on top of this reader.
+
+**Owner verification 2026-09-02.** The real report/read/action experience passed or
+exceeded every owner test. FEAT-056 now supplies the explicit structured action
+metadata and buttons; FEAT-061 is closed.
+
 ---
 
 ### FEAT-051 — Setup assistant: Sanaa for non-technical designers
 
 *~1–2 sessions + research spike. Independent of 049/050; needs 048 only to be
 worth advertising.*
+
+**Built and verified 2026-09-02.** The shipped route is the honest copy-first
+fallback: a three-step accessible sheet for Codex, Claude Code, Claude Desktop,
+generic MCP clients, and no assistant yet. The real built accessibility tree was
+walked through for the three distinct experience branches. `.mcpb` remains a
+future transport experiment rather than a v2.4 setup claim.
 
 **Goal.** The owner's criterion #1: someone who has never touched a terminal
 can connect an agent.
@@ -499,6 +576,11 @@ Owner reviews all copy for honesty (no capability inflation).
 **Goal.** The cute, Clippy-adjacent face — strictly presentation on top of the
 activity layer, and strictly optional (§4.5).
 
+**Scope clarification 2026-09-01:** this is an in-app canvas character, not a
+website-only mascot and not a starter/help-document section. Sanaa works fully
+without it. **Owner decision 2026-09-01:** defer it from v2.4 with no target
+release; retain the concept only as an unplanned future possibility.
+
 **Behavior.**
 
 - Small avatar rendered in the canvas overlay near Sanaa's latest work (or
@@ -525,8 +607,19 @@ light/dark/increased-contrast rendering.
 
 *~1 session. Depends on 048; refine after 050 exists.*
 
+**Built and verified 2026-09-02.** `exp://sanaa/guide` and
+`get_sanaa_guide` serve the same bundled guide without requiring an open
+document; the packaged Codex adapter reads it before writes. Focused source,
+resource, runtime-allowlist, and build gates pass, and the owner's real starter
+sessions cover the behavioral scenarios.
+
 **Goal.** Any agent, cold, behaves like a good studio assistant. This slots
 into the already-roadmapped (deferred) "agent capability packs" item.
+
+**Scope clarification 2026-09-01:** this is machine-readable guidance supplied
+to connected agents through MCP. It is not a visible inspector/help area like
+the ARIA-role guidance; such a user-facing Sanaa Help section would be separate
+scope.
 
 **Content.**
 
@@ -623,11 +716,12 @@ placement instead of guessing.
 | FEAT-054 | Part II: design knowledge pack (v2.4 Wave D) | 2–3 |
 | FEAT-055 | Part II: computed design facts read tool (v2.4 Wave D) | 2 |
 | FEAT-050 amdt. | Part II: critique + directions starters (v2.4) | ~½–1 |
-| **Total (v2.4)** | | **12–18** |
+| FEAT-061 | compact responses + full Markdown reader (v2.4) | 1–2 |
+| FEAT-056 | structured critique report (v2.4) | 2 |
+| **Total (v2.4)** | | **15–22** |
 
 v2.5 candidates (NOT in the total; all await owner gates):
 
-| FEAT-056 | Part II (v2.5 candidate): critique mode | 2 |
 | FEAT-057 | Part II (v2.5 candidate): design directions engine | 1–2 |
 | FEAT-058 | Part II (v2.5 candidate): cleanup ops / apply_edits v2 | 2–3 |
 | FEAT-059 | Part II (v2.5 candidate): a11y guided fixes | 2 |
@@ -635,7 +729,7 @@ v2.5 candidates (NOT in the total; all await owner gates):
 
 A minimal lovable Sanaa (048 + 049 + 050) is roughly **5–7 sessions**; 051–053
 turn it from a feature into a companion. Part II's v2.4 additions (054 + 055 + the 050
-amendment) are ≈ **4–6 sessions** on top of Part I's 8–12; the v2.5
+amendment + 061 + 056) are ≈ **7–10 sessions** on top of Part I's 8–12; the v2.5
 candidates (≈ 9–11 sessions if all are pursued) are scoped in §10 and stay
 open in BACKLOG.
 
@@ -691,20 +785,23 @@ over MCP as resources `exp://sanaa/knowledge/<module>` plus
 `exp://sanaa/knowledge/index`, enumerated in `resources/list` (extend the
 existing single-resource seam; no document needs to be open for them).
 
-**RESEARCH GATE (decide before building).** Verify a packaged Codex-adapter
-thread can actually call `resources/list` + `resources/read` through exp-mcp.
-The bridge already advertises `"resources"` capability and the adapter passes
-capabilities through, but whether the Codex app-server client exercises
-resources is untested. **If it cannot:** serve the same modules through a
+**RESEARCH GATE (resolved 2026-08-30).** A packaged Codex-adapter thread read
+the knowledge resource once, then a focused repeat timed out. The raw MCP
+resource route remains for provider-neutral clients, but it is not reliable
+enough to be the dedicated runtime's only route. Serve the same modules through a
 read tool instead — `get_design_guidance` with call shape
 `{ "module": "<name>" }` returning the module body (or the module list when
 called with no argument) — added to BOTH the `AgentBridge.toolDefinitions`
 list AND the hard-coded `enabled_tools` allowlist in
 `sanaa-runtime/CodexAdapter.swift` — the adapter kills the host for any tool
-call outside that string. The gate probe extends the existing packaged-
-runtime probe harness (`scripts/verify_sanaa_runtime_packaged.sh` pattern),
-not a new mechanism. Both paths are specified; the gate decides which ships
-first.
+call outside that string. The gate probe extends the existing packaged-runtime
+harness (`scripts/verify_sanaa_runtime_packaged.sh` pattern), not a new
+mechanism. Implemented and verified 2026-08-31 against the relaunched Debug
+app: after the v2 guidance integration, the live socket returned all 24 modules
+byte-identically through both the resource and fallback routes, and the packaged
+Codex thread called the fallback without an approval boundary while all four
+negative trust gates remained green. The owner also accepted the tested guidance
+behavior/appearance. One non-Codex MCP-client pass remains.
 
 **Modules (launch set).** Every module: frontmatter (`name` / `version` /
 `updated`) + TL;DR-first body, imperative "if-then" rules over prose, and a
@@ -750,8 +847,18 @@ unprompted.
   Measured findings / Design observations / Open questions), a severity
   scale with anchors, and the hard rule that critique rides FEAT-055 facts
   first.
-- `directions.md` — how to compose genuinely distinct directions along named
-  axes with rationale + tradeoff (the FEAT-057 contract).
+- `directions.md` — v2.0's nine-axis style genome, explicit from→to divergence,
+  silent candidate enumeration, and sibling check, with rationale + tradeoff
+  (the FEAT-057 contract).
+- `procedural-tasks.md` — deterministic measure→derive→replicate work for rows,
+  repeated structures, and coherent subject-grounded placeholder data.
+- `bulk-adjustments.md` — compact/spacious variants derived from observed
+  spacing, with hierarchy, target-size, type, and content floors preserved.
+- `a11y-applied.md` — measured contrast, target-size, semantic-role, and focus
+  workflows; a companion to the standards map rather than a verdict engine.
+- `style-profile.md` — current document/session style grounding and honest
+  no-memory behavior. Its persistent designer-owned profile/editor/log contract
+  remains explicitly future work and is not claimed by v2.4.
 - `a11y-foundations.md` — the standards map (below), the design-stage vs
   implementation-stage split, the judgment-required category (alt-text
   quality SC 1.1.1, reading-order meaningfulness SC 1.3.2/2.4.3, 2.5.8
@@ -872,9 +979,10 @@ stay app-target-only; verify EXPThumbnail target-membership is not touched
 - Knowledge must work for ANY host agent — no host names, no Codex-only
   assumptions in module text.
 
-**NOT verified:** whether the Codex app-server thread can call resources/read
-(the research gate above); any Codex-side instruction-length limit (none
-visible in EXP's code); exact token counts (measured at implementation).
+**NOT verified:** cold-agent behavior, one non-Codex client, owner appearance
+review, any Codex-side instruction-length limit (none visible in EXP's code),
+or exact tokenizer counts. Guidance v2.0's measured byte budget is 104,855 bytes
+for all 25 files (24 served modules plus changelog) and 3,743 bytes for INDEX.
 
 ---
 
@@ -989,15 +1097,30 @@ file), `sanaa-runtime/CodexAdapter.swift`
 nesting (test at implementation); tool-schema size limits Codex-side (none
 observed for existing tools).
 
+**Implementation 2026-09-01.** `Export/SanaaFacts.swift` is a bounded,
+app-target-only calculation layer with no AppKit, consent, undo, or mutation
+surface. `AgentBridge` advertises/routes it and `CodexAdapter` includes it in the
+exact packaged allowlist. The saved-document golden gate covers component
+override/reflow, component roles and root control relationships, measurement and
+honesty cases, artboard/selection scope, depth/node/response caps, deterministic
+encoding, and byte-for-byte no write. Adjacent canvas/semantic/guidance gates and
+fresh unsigned Debug/Release builds pass. The earlier pathological-nesting item
+is covered by the explicit depth cap. Codex-side schema/response behavior passes
+`verify_sanaa_runtime_packaged.sh --facts-read-only`; the direct public-route/
+no-write gate is `scripts/verify_sanaa_facts_live.sh`.
+
+**Owner verification 2026-09-01:** the rebuilt-app live/public route, packaged
+Codex facts call, and artboard/selection behavior pass. FEAT-055 is closed.
+
 ---
 
-### FEAT-056 — Critique mode (v2.5 candidate)
+### FEAT-056 — Structured critique report (v2.4)
 
-*~2 sessions. NON-mutating. v2.5 candidate — NOT in v2.4. The v2.4 minimal
-slice is the FEAT-050 amendment (§6): a "Critique this…" starter composing a
-facts-first prompt. Depends on FEAT-055 + FEAT-054 (critique-framework.md
-owns the severity scale and the findings shape). Golden documents come from
-the FEAT-060 lite seed authored with FEAT-054/055 acceptance.*
+*~2 sessions. NON-mutating. Promoted into v2.4 by the owner 2026-09-01 after
+the FEAT-050 amendment's first real critique proved the content but exposed the
+plain-text panel's reading cost. Depends on FEAT-055 + FEAT-054 and consumes the
+reusable FEAT-061 reader. Golden documents come from the FEAT-060 lite seed
+authored with FEAT-054/055 acceptance.*
 
 **Goal.** "Ask Sanaa ▸ Critique this…" produces structured findings the
 designer can act on node-by-node — critique as a reviewable artifact, not
@@ -1019,8 +1142,18 @@ reusing the existing Select/Go action infrastructure from FEAT-049.
   implementation-stage criteria (keyboard behavior, focus order/visibility,
   ARIA semantics) — they point at the Handoff export and
   `docs/SEMANTIC-HTML-CONTRACT.md`.
-- Each finding references node ids → tap-to-select via the receipt Select/Go
-  paths.
+- Each finding gets a stable report-local number in a narrow rail. Primary identity
+  is a human label (`3 · Rectangle`, or a meaningful layer name when one exists);
+  the full UUID stays hidden but copyable in Details. Aliases are deterministic by
+  first occurrence and never used to resolve selection.
+- Each finding references full node ids → **Show on canvas** selects/highlights via
+  the receipt Select/Go infrastructure without closing the reader. Keyboard focus
+  stays in the report and VoiceOver announces the highlighted layer. If the source
+  document/page changed or a node was deleted, disable the action and say that the
+  original element is unavailable—never fall back to a same-named layer.
+- **Explore** puts a scoped follow-up naming the finding and full ids in the composer
+  for review; it does not auto-send. A session-only reviewed/bookmarked state may
+  mark a finding without implying the canvas issue is fixed.
 - Severity scale per critique-framework.md so findings sort and filter.
 - Fixes are only ever an opt-in follow-up per finding ("propose fixes?" →
   FEAT-059-style consented batch). Never auto-applied, never bundled with the
@@ -1037,9 +1170,13 @@ matches voice.md.
 unprompted (§7). Judgment findings must carry rationale; measured findings
 must not smuggle in verdicts.
 
-**NOT verified:** the findings-list interaction design (specified at
-implementation under the §8 AX rules); VoiceOver treatment of grouped
-findings.
+**Implementation and owner verification 2026-09-02.** The response reader now
+consumes bounded structured metadata and renders the numbered finding rail with
+deterministic human aliases, per-element and Show-all canvas actions, and
+Explore-to-composer without auto-send. The owner tested the real critique report
+and reported that it passed with flying colors: the one-click actions were easy,
+Show on canvas worked correctly, and the report caught every intentionally planted
+issue. FEAT-056 is closed.
 
 ---
 

@@ -176,6 +176,38 @@ final class AgentBridgeController {
 private enum AgentMCPRouter {
     private static let protocolVersion = "2025-06-18"
     private static let orientationURI = "exp://orientation"
+    private static let sanaaGuideURI = "exp://sanaa/guide"
+    private static let sanaaGuideFile = "sanaa-guide"
+
+    /// The Sanaa design knowledge pack: bundled markdown modules served as MCP
+    /// resources. Filenames are flat and unique because the synchronized build
+    /// flattens bundle resources (same lookup discipline as FontRegistration).
+    private static let knowledgeResources: [(uri: String, file: String, name: String, description: String)] = [
+        ("exp://sanaa/knowledge/index", "sanaa-knowledge-index", "Sanaa knowledge — index", "Module map and when-to-load guidance for EXP's bundled design knowledge pack."),
+        ("exp://sanaa/knowledge/design-principles", "sanaa-knowledge-design-principles", "Sanaa knowledge — design principles", "Hierarchy, alignment, proximity, whitespace, and Gestalt as canvas-checkable observations."),
+        ("exp://sanaa/knowledge/color", "sanaa-knowledge-color", "Sanaa knowledge — color", "Palette construction on the document's own tokens: semantic roles, harmony starting points, dark-mode adaptation."),
+        ("exp://sanaa/knowledge/typography", "sanaa-knowledge-typography", "Sanaa knowledge — typography", "Type scales, measure, leading, tracking, and hierarchy through text-run facts."),
+        ("exp://sanaa/knowledge/spacing-layout", "sanaa-knowledge-spacing-layout", "Sanaa knowledge — spacing & layout", "4/8pt spacing systems, grids, and density as descriptive observation (the document has no spacing tokens)."),
+        ("exp://sanaa/knowledge/components-states", "sanaa-knowledge-components-states", "Sanaa knowledge — components & states", "State completeness (hover/focus/active/disabled/error/empty/loading) and form patterns."),
+        ("exp://sanaa/knowledge/copy-microcopy", "sanaa-knowledge-copy-microcopy", "Sanaa knowledge — copy & microcopy", "Copy as design material: user-side vocabulary, active voice, error and empty-state patterns."),
+        ("exp://sanaa/knowledge/anti-generic", "sanaa-knowledge-anti-generic", "Sanaa knowledge — anti-generic", "Steering rules against generic AI output: documented model-default clusters and the self-revision check."),
+        ("exp://sanaa/knowledge/critique-framework", "sanaa-knowledge-critique-framework", "Sanaa knowledge — critique framework", "The structured critique contract: facts first, five finding groups, severity anchors, opt-in fixes."),
+        ("exp://sanaa/knowledge/directions", "sanaa-knowledge-directions", "Sanaa knowledge — directions", "Composing 2–4 genuinely distinct directions with explicit style-genome diffs, rationale, and tradeoffs."),
+        ("exp://sanaa/knowledge/procedural-tasks", "sanaa-knowledge-procedural-tasks", "Sanaa knowledge — procedural tasks", "Deterministic builds: repeated rows, placeholder data, and pattern replication from measured exemplars."),
+        ("exp://sanaa/knowledge/bulk-adjustments", "sanaa-knowledge-bulk-adjustments", "Sanaa knowledge — bulk adjustments", "Compact and spacious variants plus batch edits that preserve layout structure and content floors."),
+        ("exp://sanaa/knowledge/a11y-applied", "sanaa-knowledge-a11y-applied", "Sanaa knowledge — applied accessibility", "Canvas workflows for measured contrast, target sizes, semantic roles, focus treatment, and honest limits."),
+        ("exp://sanaa/knowledge/style-profile", "sanaa-knowledge-style-profile", "Sanaa knowledge — style grounding", "Document and session style inference, honest memory boundaries, and the clearly labeled future profile contract."),
+        ("exp://sanaa/knowledge/voice", "sanaa-knowledge-voice", "Sanaa knowledge — voice", "Sanaa's language rules: draft/suggest framing, banned and allowed claim patterns, exact DO/DON'T strings."),
+        ("exp://sanaa/knowledge/a11y-foundations", "sanaa-knowledge-a11y-foundations", "Sanaa knowledge — a11y foundations", "Accessibility standards map (508 / ADA Title II / WCAG / EN 301 549 / EAA), design-stage vs implementation-stage, computable vs judgment checks; facts verified 2026-08-29."),
+        ("exp://sanaa/knowledge/styles/swiss-international", "sanaa-knowledge-style-swiss-international", "Sanaa knowledge — style: swiss international", "Style vocabulary: International Typographic Style — grid-ruled, type-led, flat."),
+        ("exp://sanaa/knowledge/styles/minimal", "sanaa-knowledge-style-minimal", "Sanaa knowledge — style: minimal", "Style vocabulary: minimal — few elements, generous space, one accent."),
+        ("exp://sanaa/knowledge/styles/editorial", "sanaa-knowledge-style-editorial", "Sanaa knowledge — style: editorial", "Style vocabulary: editorial — serif-led, column-based, magazine logic."),
+        ("exp://sanaa/knowledge/styles/neo-brutalist", "sanaa-knowledge-style-neo-brutalist", "Sanaa knowledge — style: neo-brutalist", "Style vocabulary: neo-brutalist — heavy borders, hard offset shadows, flat saturated blocks."),
+        ("exp://sanaa/knowledge/styles/glassmorphic", "sanaa-knowledge-style-glassmorphic", "Sanaa knowledge — style: glassmorphic", "Style vocabulary: glassmorphic — frosted translucent layers over rich backings."),
+        ("exp://sanaa/knowledge/styles/claymorphic", "sanaa-knowledge-style-claymorphic", "Sanaa knowledge — style: claymorphic", "Style vocabulary: claymorphic — soft tactile pastel depth."),
+        ("exp://sanaa/knowledge/styles/corporate-safe", "sanaa-knowledge-style-corporate-safe", "Sanaa knowledge — style: corporate safe", "Style vocabulary: corporate safe — the credible neutral default with one brand accent."),
+        ("exp://sanaa/knowledge/styles/playful", "sanaa-knowledge-style-playful", "Sanaa knowledge — style: playful", "Style vocabulary: playful — bright, rounded, expressive consumer energy.")
+    ]
 
     static func handle(_ data: Data, client: String) async -> Data? {
         guard let request = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -209,24 +241,63 @@ private enum AgentMCPRouter {
             return response(id: id!, result: await callTool(name, arguments: arguments,
                                                              client: client))
         case "resources/list":
+            let knowledge = knowledgeResources.map { entry in
+                ["uri": entry.uri,
+                 "name": entry.name,
+                 "description": entry.description,
+                 "mimeType": "text/markdown"]
+            }
             return response(id: id!, result: ["resources": [[
                 "uri": orientationURI,
                 "name": "EXP Handoff Orientation",
                 "description": "How to read the frontmost EXP document and its stable ids.",
                 "mimeType": "text/markdown"
-            ]]])
+            ], [
+                "uri": sanaaGuideURI,
+                "name": "Sanaa agent etiquette",
+                "description": "Placement, ids, reviewable batches, Design Language, deletion, consent, and honest failure rules for agents working with an EXP designer.",
+                "mimeType": "text/markdown"
+            ]] + knowledge])
         case "resources/read":
             guard let params = request["params"] as? [String: Any],
-                  params["uri"] as? String == orientationURI else {
+                  let uri = params["uri"] as? String else {
                 return response(id: id!, errorCode: -32602, message: "Unknown EXP resource URI")
             }
-            guard let context = activeContext() else {
-                return response(id: id!, errorCode: -32002, message: "No EXP document is currently open")
+            if uri == orientationURI {
+                guard let context = activeContext() else {
+                    return response(id: id!, errorCode: -32002, message: "No EXP document is currently open")
+                }
+                return response(id: id!, result: ["contents": [[
+                    "uri": orientationURI,
+                    "mimeType": "text/markdown",
+                    "text": orientation(document: context.document, sourceURL: context.sourceURL)
+                ]]])
+            }
+            if uri == sanaaGuideURI {
+                guard let text = bundledMarkdown(named: sanaaGuideFile) else {
+                    return response(id: id!, errorCode: -32603,
+                                    message: "Sanaa etiquette guide missing from the app bundle")
+                }
+                return response(id: id!, result: ["contents": [[
+                    "uri": sanaaGuideURI,
+                    "mimeType": "text/markdown",
+                    "text": text
+                ]]])
+            }
+            guard let entry = knowledgeResources.first(where: { $0.uri == uri }) else {
+                return response(id: id!, errorCode: -32602, message: "Unknown EXP resource URI")
+            }
+            // The knowledge pack is static reference material: unlike the
+            // orientation branch it needs no open document.
+            guard let url = Bundle.main.url(forResource: entry.file, withExtension: "md"),
+                  let text = try? String(contentsOf: url, encoding: .utf8) else {
+                return response(id: id!, errorCode: -32603,
+                                message: "Sanaa knowledge module missing from the app bundle: \(entry.file).md")
             }
             return response(id: id!, result: ["contents": [[
-                "uri": orientationURI,
+                "uri": entry.uri,
                 "mimeType": "text/markdown",
-                "text": orientation(document: context.document, sourceURL: context.sourceURL)
+                "text": text
             ]]])
         default:
             return response(id: id!, errorCode: -32601, message: "Method not found: \(method)")
@@ -236,7 +307,7 @@ private enum AgentMCPRouter {
     /// What this connection can actually do, stated at connect time rather than
     /// left for the agent to discover by being refused.
     private static var instructions: String {
-        let base = "Read access to the frontmost EXP [design] document. Use node and artboard ids as the only reference currency."
+        let base = "Read access to the frontmost EXP [design] document. Use node and artboard ids as the only reference currency. Read exp://sanaa/guide (or call get_sanaa_guide) before changing a canvas."
         guard SanaaPreferences.isEnabled else { return base }
         guard SanaaPreferences.isWriteEnabled else {
             return base + " Sanaa is enabled but not allowed to draw, so apply_edits will refuse until the designer turns on \"Allow Sanaa to draw\"."
@@ -253,6 +324,21 @@ private enum AgentMCPRouter {
     }
 
     private static var readTools: [[String: Any]] {[
+        tool("get_sanaa_guide",
+             "Returns EXP's bundled agent-etiquette guide: placement questions, stable-id discipline, small honest undo batches, token reuse, deletion boundaries, consent, and graceful failure. Read it before changing a canvas.",
+             properties: [:], required: []),
+        tool("get_design_guidance",
+             "Returns one bundled Sanaa design-knowledge markdown module. Read module \"index\" first, then request only modules relevant to the task. This is static reference material and works without an open document.",
+             properties: ["module": [
+                "type": "string",
+                "description": "Knowledge module path from the index, without the exp://sanaa/knowledge/ prefix.",
+                "enum": knowledgeResources.map { String($0.uri.dropFirst("exp://sanaa/knowledge/".count)) }
+             ]],
+             required: ["module"]),
+        tool("get_design_facts",
+             "Returns bounded, read-only measured facts for one artboard or the current selection: text/non-text contrast pairs with WCAG citations, text and heuristic target sizes, descriptive spacing, fonts, explicit estimates, notAssessed reasons, and truncation. The response contains facts, not compliance verdicts. Pass artboardId, or omit it to use the current selection.",
+             properties: ["artboardId": stringProperty("Optional stable artboard UUID. Omit to inspect the current selection.")],
+             required: []),
         tool("get_orientation",
              "Returns README.llm.md orientation text for the frontmost EXP document. Example call: {\"name\":\"get_orientation\",\"arguments\":{}}. Example response text begins: # EXP Handoff Package.",
              properties: [:], required: []),
@@ -328,12 +414,43 @@ private enum AgentMCPRouter {
     private static func callTool(_ name: String,
                                  arguments: [String: Any],
                                  client: String) async -> [String: Any] {
+        // Static bundled guidance deliberately needs no active document. Keep it
+        // ahead of the live-context gate used by every canvas read/write tool.
+        if name == "get_sanaa_guide" {
+            guard arguments.isEmpty else { return toolError("get_sanaa_guide accepts no arguments") }
+            guard let text = bundledMarkdown(named: sanaaGuideFile) else {
+                return toolError("Sanaa etiquette guide is missing from the app bundle")
+            }
+            return toolText(text)
+        }
+        if name == "get_design_guidance" {
+            return designGuidance(arguments)
+        }
         guard let context = activeContext() else { return toolError("No EXP document is currently open") }
         do {
             switch name {
             case "get_orientation":
                 guard arguments.isEmpty else { return toolError("get_orientation accepts no arguments") }
                 return toolText(orientation(document: context.document, sourceURL: context.sourceURL))
+            case "get_design_facts":
+                guard arguments.keys.allSatisfy({ $0 == "artboardId" }),
+                      arguments.count <= 1 else {
+                    return toolError("get_design_facts accepts only optional artboardId; omit it to use the current selection")
+                }
+                let artboardID: UUID?
+                if let raw = arguments["artboardId"] {
+                    guard let string = raw as? String, let parsed = UUID(uuidString: string) else {
+                        return toolError("get_design_facts artboardId must be one valid UUID string")
+                    }
+                    artboardID = parsed
+                } else {
+                    artboardID = nil
+                }
+                let facts = try SanaaFacts.report(
+                    document: context.document, artboardID: artboardID,
+                    selectedNodeIDs: context.app.selectedNodeIDs,
+                    selectedArtboardIDs: context.app.selectedArtboardIDs)
+                return toolJSON(try jsonObject(facts))
             case "list_artboards":
                 guard arguments.isEmpty else { return toolError("list_artboards accepts no arguments") }
                 let summaries = context.document.allArtboards.map {
@@ -374,9 +491,34 @@ private enum AgentMCPRouter {
             default:
                 return toolError("Unknown EXP tool: \(name)")
             }
+        } catch let error as SanaaFacts.FactsError {
+            return toolError(error.localizedDescription)
         } catch {
             return toolError("EXP could not serialize this response: \(error.localizedDescription)")
         }
+    }
+
+    private static func designGuidance(_ arguments: [String: Any]) -> [String: Any] {
+        guard arguments.count == 1,
+              let module = arguments["module"] as? String else {
+            return toolError("get_design_guidance requires one string named module; use \"index\" first")
+        }
+        let uri = "exp://sanaa/knowledge/\(module)"
+        guard let entry = knowledgeResources.first(where: { $0.uri == uri }) else {
+            return toolError("Unknown Sanaa knowledge module: \(module). Use get_design_guidance with module \"index\" for the module map.")
+        }
+        guard let url = Bundle.main.url(forResource: entry.file, withExtension: "md"),
+              let text = try? String(contentsOf: url, encoding: .utf8) else {
+            return toolError("Sanaa knowledge module is missing from the app bundle: \(entry.file).md")
+        }
+        return toolText(text)
+    }
+
+    private static func bundledMarkdown(named file: String) -> String? {
+        guard let url = Bundle.main.url(forResource: file, withExtension: "md") else {
+            return nil
+        }
+        return try? String(contentsOf: url, encoding: .utf8)
     }
 
     /// The one write path. Every gate lives in `SanaaEdits`; this only supplies

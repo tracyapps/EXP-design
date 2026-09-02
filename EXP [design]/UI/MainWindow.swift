@@ -112,6 +112,10 @@ struct MainWindow: View {
                           isPresented: Binding(get: { app.showingFeedback },
                                                set: { app.showingFeedback = $0 }))
         }
+        .sheet(item: Binding(get: { app.sanaaPromptRequest },
+                             set: { app.sanaaPromptRequest = $0 })) { request in
+            SanaaPromptStarterSheet(request: request, app: app)
+        }
     }
 
     /// Custom heading bar — full width, behind-window liquid glass + top gradient,
@@ -399,9 +403,14 @@ struct MainWindow: View {
         let originX = page.artboards.isEmpty
             ? 0
             : model.contentBounds(on: page.id).maxX + AppPreferences.artboardSpacingValue
+        let preferredFrame = CGRect(x: originX, y: 0, width: width, height: height)
+        let availableFrame = model.availableArtboardFrame(
+            preferred: preferredFrame,
+            on: page.id,
+            spacing: AppPreferences.artboardSpacingValue)
         let artboard = Artboard(
             name: "\(name) \(page.artboards.count + 1)",
-            frame: CGRect(x: originX, y: 0, width: width, height: height)
+            frame: availableFrame
         )
         model.pages[pageIndex].artboards.append(artboard)
         document.setModel(model, undoManager: undoManager, actionName: "New Artboard")
@@ -786,6 +795,7 @@ struct EditorMenuModel {
     var canPathfinder: Bool
     var canRoundToPixel: Bool
     var canEyedropper: Bool
+    var canAskSanaa: Bool
 
     var canTypeActions: Bool
     var canConvertTextToOutlines: Bool
@@ -986,6 +996,7 @@ func makeEditorMenuModel(document: ExpDocument, app: AppState, scope: CanvasScop
         canPathfinder: canPathfinder,
         canRoundToPixel: hasNodes || hasArtboards,
         canEyedropper: hasNodes,
+        canAskSanaa: scope == .document && (hasNodes || hasArtboards),
         canTypeActions: isSingleText,
         canConvertTextToOutlines: hasTextToOutline,
         canAlign: canAlign,

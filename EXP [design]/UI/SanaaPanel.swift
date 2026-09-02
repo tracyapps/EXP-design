@@ -18,6 +18,7 @@ struct SanaaPanel: View {
     @State private var isAtBottom = true
     @State private var hasNewUpdate = false
     @State private var showDelayedWork = false
+    @FocusState private var composerFocused: Bool
 
     private let bottomID = "sanaa-transcript-bottom"
 
@@ -45,6 +46,9 @@ struct SanaaPanel: View {
             }
             guard !Task.isCancelled, activity.workActivity != nil else { return }
             showDelayedWork = true
+        }
+        .onChange(of: activity.draftFocusRevision) { _, _ in
+            composerFocused = true
         }
     }
 
@@ -156,6 +160,12 @@ struct SanaaPanel: View {
                 .font(.system(size: EXPType.mini))
                 .foregroundStyle(EXPColor.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
+            Button("Set up Sanaa…") {
+                UserDefaults.standard.set("sanaa", forKey: AppPreferences.requestedSettingsPane)
+                openSettings()
+            }
+            .buttonStyle(.borderless)
+            .accessibilityHint("Opens the guided local-assistant connection walkthrough")
         }
         .padding(EXPMetric.md)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -182,19 +192,37 @@ struct SanaaPanel: View {
                             .accessibilityLabel("Sanaa is still replying")
                     }
                 }
-                Text(entry.text)
-                    .font(.system(size: EXPType.small))
-                    .foregroundStyle(entry.kind == .status
-                                     ? EXPColor.textSecondary : EXPColor.textPrimary)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
+                if entry.kind == .assistant {
+                    let response = SanaaStructuredResponse.parse(entry.text)
+                    SanaaResponsePreview(source: entry.text, isStreaming: entry.isStreaming)
+                    if !entry.isStreaming {
+                        SanaaResponseChoices(choices: Array(response.choices.prefix(4)))
+                    }
+                    Button {
+                        SanaaResponseWindowManager.shared.open(entryID: entry.id)
+                    } label: {
+                        Label("Open full response", systemImage: "rectangle.on.rectangle")
+                    }
+                    .buttonStyle(.borderless)
+                    .font(.system(size: EXPType.mini, weight: .medium))
+                    .accessibilityHint("Opens this response in a resizable Markdown reader window")
+                } else {
+                    Text(entry.text)
+                        .font(.system(size: EXPType.small))
+                        .foregroundStyle(entry.kind == .status
+                                         ? EXPColor.textSecondary : EXPColor.textPrimary)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             .padding(EXPMetric.md)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(background(for: entry.kind),
                         in: RoundedRectangle(cornerRadius: EXPMetric.radiusCard, style: .continuous))
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel("\(author(for: entry.kind)): \(entry.text)")
+            .accessibilityElement(children: entry.kind == .assistant ? .contain : .combine)
+            .accessibilityLabel(entry.kind == .assistant
+                                ? "Sanaa response"
+                                : "\(author(for: entry.kind)): \(entry.text)")
         }
     }
 
@@ -275,6 +303,7 @@ struct SanaaPanel: View {
             }
             ZStack(alignment: .topLeading) {
                 TextEditor(text: $activity.draft)
+                    .focused($composerFocused)
                     .font(.system(size: EXPType.small))
                     .scrollContentBackground(.hidden)
                     .padding(EXPMetric.xs)

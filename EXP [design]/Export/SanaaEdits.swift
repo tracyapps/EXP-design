@@ -614,8 +614,14 @@ extension SanaaEdits {
                     y: 0)
             }
 
-            let artboard = Artboard(id: id, name: name,
-                                    frame: CGRect(origin: placedOrigin, size: size))
+            let preferredFrame = CGRect(origin: placedOrigin, size: size)
+            let placedFrame = explicitOrigin
+                ? preferredFrame
+                : model.availableArtboardFrame(
+                    preferred: preferredFrame,
+                    on: pageID,
+                    spacing: AppPreferences.artboardSpacingValue)
+            let artboard = Artboard(id: id, name: name, frame: placedFrame)
             model.pages[pageIndex].artboards.append(artboard)
             artboardsByOpIndex[index] = id
             lastCreatedArtboard = id
@@ -656,16 +662,28 @@ extension SanaaEdits {
                 throw SanaaEditError.malformed("the target page for this duplicate no longer exists.")
             }
 
-            let newOrigin: CGPoint
+            let preferredOrigin: CGPoint
             if targetPageID == sourcePageID {
-                newOrigin = CGPoint(x: original.frame.maxX + AppPreferences.artboardSpacingValue,
-                                    y: original.frame.minY)
+                preferredOrigin = CGPoint(x: original.frame.maxX + AppPreferences.artboardSpacingValue,
+                                          y: original.frame.minY)
             } else if model.pages[targetPageIndex].artboards.isEmpty {
-                newOrigin = .zero
+                preferredOrigin = .zero
             } else {
-                newOrigin = CGPoint(
+                preferredOrigin = CGPoint(
                     x: model.contentBounds(on: targetPageID).maxX + AppPreferences.artboardSpacingValue,
                     y: 0)
+            }
+            let preferredFrame = CGRect(origin: preferredOrigin, size: original.frame.size)
+            let newOrigin: CGPoint
+            if case .exact = placement {
+                // Preserve the existing explicit-placement behavior. Collision
+                // avoidance applies only when EXP chooses the slot automatically.
+                newOrigin = preferredOrigin
+            } else {
+                newOrigin = model.availableArtboardFrame(
+                    preferred: preferredFrame,
+                    on: targetPageID,
+                    spacing: AppPreferences.artboardSpacingValue).origin
             }
             let delta = CGPoint(x: newOrigin.x - original.frame.minX,
                                 y: newOrigin.y - original.frame.minY)

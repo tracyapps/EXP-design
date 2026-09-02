@@ -196,4 +196,160 @@ enum SanaaActivityAppProbe {
         Darwin.exit(success ? EXIT_SUCCESS : EXIT_FAILURE)
     }
 }
+
+/// Pure FEAT-050 contract receipt. It runs inside the Debug app so it exercises
+/// the exact prompt composer and activity-controller types shipped in the target,
+/// without opening a document or contacting an agent host.
+@MainActor
+enum SanaaPromptAppProbe {
+    static func startIfRequested() -> Bool {
+        guard ProcessInfo.processInfo.environment["EXP_SANAA_PROMPT_PROBE"] == "1" else {
+            return false
+        }
+        DispatchQueue.main.async { run() }
+        return true
+    }
+
+    private static func run() {
+        let pageID = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+        let nodeID = UUID(uuidString: "00000000-0000-0000-0000-000000000002")!
+        let boardID = UUID(uuidString: "00000000-0000-0000-0000-000000000003")!
+        let context = SanaaPromptContext(
+            pageID: pageID,
+            pageName: "Pricing",
+            nodes: [.init(id: nodeID, name: "Price")],
+            selectedArtboards: [],
+            parentArtboards: [.init(id: boardID, name: "Pricing card")])
+
+        let duplicate = SanaaPromptComposer.complete(context, duplicate: true)
+        let direct = SanaaPromptComposer.complete(context, duplicate: false)
+        let variations = SanaaPromptComposer.variations(context, count: 4, newPage: true)
+        let repetitive = SanaaPromptComposer.repetitive(context, task: "Rename every price layer")
+        let critique = SanaaPromptComposer.critique(context)
+        let directions = SanaaPromptComposer.directions(context)
+        let required = [pageID, nodeID, boardID].map(\.uuidString)
+        guard required.allSatisfy({ duplicate.contains($0) }),
+              required.allSatisfy({ critique.contains($0) && directions.contains($0) }),
+              duplicate.contains("besideOriginal"),
+              direct.contains("in-place consent"),
+              variations.contains("4 genuinely different variations"),
+              variations.contains("newPage"),
+              repetitive.contains("Rename every price layer"),
+              repetitive.contains("requires the designer's consent"),
+              critique.contains("get_design_facts with no arguments before writing or reasoning"),
+              critique.contains("critique-framework"),
+              critique.contains("Couldn't assess"),
+              critique.contains("Overview of no more than four short bullets"),
+              critique.contains("descriptive Markdown links"),
+              critique.contains("short Next steps section"),
+              critique.contains("Do not call apply_edits or change the canvas"),
+              directions.contains("get_design_facts with no arguments before analyzing or proposing"),
+              directions.contains("directions, anti-generic"),
+              directions.contains("Overview of no more than four short bullets"),
+              directions.contains("descriptive Markdown links"),
+              directions.contains("at least three named design axes"),
+              directions.contains("Do not call apply_edits or change the canvas") else {
+            finish("FAIL  FEAT-050 prompt composition lost ids, placement, consent, facts, or guidance language",
+                   success: false)
+            return
+        }
+
+        let activity = SanaaActivityController.shared
+        let revision = activity.draftFocusRevision
+        activity.prepareDraft(duplicate)
+        guard activity.draft == duplicate,
+              activity.draftFocusRevision == revision + 1 else {
+            finish("FAIL  FEAT-050 did not place and focus the editable Sanaa draft",
+                   success: false)
+            return
+        }
+        activity.disable()
+        finish("RESULT  FEAT-050 base + facts-first amendment prompt contracts passed",
+               success: true)
+    }
+
+    private static func finish(_ message: String, success: Bool) {
+        FileHandle.standardOutput.write(Data("\(message)\n".utf8))
+        fflush(stdout)
+        Darwin.exit(success ? EXIT_SUCCESS : EXIT_FAILURE)
+    }
+}
+
+/// Pure FEAT-061 presentation receipt. This stays inside the app target so the
+/// check exercises the exact parser used by both the compact card and reader.
+@MainActor
+enum SanaaResponseAppProbe {
+    static func startIfRequested() -> Bool {
+        guard ProcessInfo.processInfo.environment["EXP_SANAA_RESPONSE_PROBE"] == "1" else {
+            return false
+        }
+        DispatchQueue.main.async { run() }
+        return true
+    }
+
+    private static func run() {
+        let markdown = """
+        # Checkout critique
+
+        ## Overview
+        - The hierarchy is clear.
+        - Two contrast decisions need review.
+
+        ## Measured findings
+        1. **S1 — Logo contrast:** node DEADBEEF-DEAD-BEEF-DEAD-BEEFDEADBEEF. See [WCAG contrast](https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html).
+
+        > Keyboard behavior could not be assessed.
+
+        ```swift
+        let safe = true
+        ```
+
+        ```exp-response
+        {"version":1,"findings":[{"label":"S1","title":"Logo contrast","elements":[{"nodeID":"DEADBEEF-DEAD-BEEF-DEAD-BEEFDEADBEEF","name":"Logo","instancePath":[]}],"followUp":"Explore S1 without changing the canvas."}],"choices":[{"label":"Explore contrast","prompt":"Explore S1 without changing the canvas."}]}
+        ```
+        """
+        let preview = SanaaMarkdownPresentation.previewSource(markdown)
+        let blocks = SanaaMarkdownPresentation.blocks(markdown)
+        let structured = SanaaStructuredResponse.parse(markdown)
+        let malformed = SanaaStructuredResponse.parse("""
+        # Kept visible
+        ```exp-response
+        {"version":1,"findings":[{"label":"S1","title":"Broken","elements":[{"nodeID":"not-a-uuid"}]}]}
+        ```
+        """)
+        guard SanaaMarkdownPresentation.title(markdown) == "Checkout critique",
+              preview.contains("hierarchy is clear"),
+              !preview.contains("DEADBEEF"),
+              blocks.contains(where: { $0.kind == .heading(2) && $0.text == "Overview" }),
+              blocks.contains(where: {
+                  if case .orderedItem("1.") = $0.kind { return $0.text.contains("S1") }
+                  return false
+              }),
+              blocks.contains(where: { $0.kind == .quote }),
+              blocks.contains(where: { $0.kind == .code && $0.text.contains("safe") }),
+              structured.findings.count == 1,
+              structured.findings[0].elements[0].uuid?.uuidString == "DEADBEEF-DEAD-BEEF-DEAD-BEEFDEADBEEF",
+              structured.choices.map(\.label) == ["Explore contrast"],
+              !structured.markdown.contains("exp-response"),
+              !blocks.contains(where: { $0.kind == .code && $0.text.contains("nodeID") }),
+              malformed.findings.isEmpty && malformed.choices.isEmpty,
+              malformed.markdown.contains("not-a-uuid"),
+              SanaaMarkdownPresentation.isSafeExternalLink(URL(string: "https://www.w3.org")!),
+              SanaaMarkdownPresentation.isSafeExternalLink(URL(string: "mailto:hello@example.com")!),
+              !SanaaMarkdownPresentation.isSafeExternalLink(URL(fileURLWithPath: "/tmp/private")),
+              !SanaaMarkdownPresentation.isSafeExternalLink(URL(string: "exp://apply-edits")!) else {
+            finish("FAIL  FEAT-061 Markdown, structured-action, or safe-link contract regressed",
+                   success: false)
+            return
+        }
+        finish("RESULT  FEAT-061 compact preview, Markdown blocks, safe links, and validated structured actions passed",
+               success: true)
+    }
+
+    private static func finish(_ message: String, success: Bool) {
+        FileHandle.standardOutput.write(Data("\(message)\n".utf8))
+        fflush(stdout)
+        Darwin.exit(success ? EXIT_SUCCESS : EXIT_FAILURE)
+    }
+}
 #endif

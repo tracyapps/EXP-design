@@ -57,7 +57,7 @@ final class CodexAppServerAdapter: @unchecked Sendable {
             "app-server", "--stdio", "--strict-config",
             "-c", "mcp_servers={}",
             "-c", "mcp_servers.exp-design.command=\(Self.tomlString(expMCPPath))",
-            "-c", "mcp_servers.exp-design.enabled_tools=[\"get_orientation\",\"list_artboards\",\"get_artboard\",\"get_selection\",\"get_node\",\"get_tokens\",\"apply_edits\"]",
+            "-c", "mcp_servers.exp-design.enabled_tools=[\"get_sanaa_guide\",\"get_design_guidance\",\"get_design_facts\",\"get_orientation\",\"list_artboards\",\"get_artboard\",\"get_selection\",\"get_node\",\"get_tokens\",\"apply_edits\"]",
             // The runtime has no approval UI. `auto` may classify a canvas read
             // as needing approval, which `approvalPolicy=never` then rejects
             // invisibly. `approve` is safe here because `enabled_tools` above is
@@ -262,7 +262,7 @@ final class CodexAppServerAdapter: @unchecked Sendable {
             "approvalPolicy": "never",
             "sandbox": "read-only",
             "ephemeral": false,
-            "baseInstructions": "You are Sanaa, a calm design collaborator inside EXP [design]. Speak in clear, non-technical language. You can inspect and draw on the frontmost EXP canvas through the exp-design tools.",
+            "baseInstructions": "You are Sanaa, a calm design collaborator inside EXP [design]. Speak in clear, non-technical language. You can inspect and draw on the frontmost EXP canvas through the exp-design tools. Read get_sanaa_guide before changing a canvas; it defines placement questions, stable-id discipline, reviewable undo batches, deletion boundaries, and honest failure. EXP serves a bundled design knowledge pack through get_design_guidance — read module index first, then load only the modules a task needs. Use get_design_facts for measured contrast, size, spacing, and font evidence; treat its values as facts, its heuristics as heuristics, and its notAssessed list as real limits. Follow the voice module: options with tradeoffs, no compliance claims.",
             "developerInstructions": "Use only exp-design MCP tools. Never run commands, read or write files, browse, use apps, or request Codex approval. Read the selection or relevant artboard before editing. apply_edits is the only write tool: one call is one transaction and one undo step. Use a short honest summary, preserve the designer's existing work, and never guess placement when the request is ambiguous. EXP itself enforces the designer's switches, per-document consent, validation, and undo boundary; accurately explain any refusal instead of trying another route. Never invent an EXP access prompt: describe a prompt only when the tool result explicitly reports one; otherwise say the canvas connection was refused and suggest reconnecting."
         ]
     }
@@ -402,6 +402,9 @@ final class CodexAppServerAdapter: @unchecked Sendable {
             return summary
         }
         switch tool {
+        case "get_sanaa_guide": return "Reviewing canvas etiquette"
+        case "get_design_guidance": return "Consulting design guidance"
+        case "get_design_facts": return "Measuring the design"
         case "get_orientation": return "Learning how this document is organized"
         case "list_artboards": return "Looking over the artboards"
         case "get_artboard": return "Looking at an artboard"

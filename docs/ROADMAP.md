@@ -1353,64 +1353,81 @@ rules, runtime gates, switches, and per-chunk instructions: **`docs/SANAA-PLAN.m
   able to edit every piece it drew once content existed on the canvas. Distribution
   signing/notarization and the separate Claude gate are release-packaging steps,
   tracked in Wave E, not open functional work.
-- [ ] FEAT-050 — "Ask Sanaa" prompt starters feeding the panel composer, with
+- [x] FEAT-050 — "Ask Sanaa" prompt starters feeding the panel composer, with
   placement dialogs and Send through the configured runtime; Copy remains the
-  honest fallback when no supported host is available. ~1–2 sessions.
+  honest fallback when no supported host is available. Built 2026-08-31; full
+  Debug build + prompt contract probe pass. **Owner signed off the complete
+  feature 2026-09-02 after the real-world critique/report passes, explicitly
+  choosing broad public testing over further pre-release edge-case expansion.**
 
 Intended order is 048 → 049 → 050. 048 is the only chunk in this wave that mutates
 documents; 049 and 050 sit on top of it.
 
 ### Wave C — the vector toolset grows up, and one fidelity bug that outranks it
 
-- [ ] **BUG-053 (P1) — raster export silently drops the `noise` and `dissolve`
+- [x] **BUG-057 (P1) — automatic artboard placement can cover loose wall
+  artwork.** Fixed 2026-08-31 at a shared document-policy seam: toolbar Add,
+  paste, command Duplicate, and Sanaa automatic create/duplicate now clear visible
+  wall material while preserving artboard spacing. Explicit placement, the
+  Artboard drawing tool, and Option-drag stay intentional/direct. Focused model
+  regression plus full Debug and optimized Release builds pass; owner verified
+  the complete interaction gate 2026-08-31.
+
+- [x] **BUG-053 (P1) — raster export silently drops the `noise` and `dissolve`
   effects.** Found in the owner's production use 2026-08-25. **Fix built
   2026-08-27** (BACKLOG has the implementation notes, including two measured and
   fixed PDF Porter-Duff defects); automated gate
-  `scripts/verify_effect_export_coverage.sh` passes 6/6. Awaiting the owner's
-  Fixture A run and a re-export of the original light-leak file.
-- [ ] **BUG-054 (P2) — effect blur radii live in three different spaces across the
+  `scripts/verify_effect_export_coverage.sh` passes all 8 checks. **Owner verified resolved
+  2026-09-01.**
+- [x] **BUG-054 (P2) — effect blur radii live in three different spaces across the
   two render paths**, including a performance clamp applied in device space that
   makes an export depend on the zoom the document happened to be at. Found while
-  tracing BUG-053. **Half fixed 2026-08-27** — oversized layer blurs degrade in
-  resolution instead of silently dropping; the device-space radius clamps remain
-  open behind the BUG-034 resource gates. Awaiting the owner's Fixture B run.
+  tracing BUG-053. Oversized layer blurs degrade in resolution instead of silently
+  dropping. **Owner verified the shipped behavior resolved 2026-09-01; no residual
+  release gate remains.**
+- [x] **BUG-056 remaining colored radial-gradient ring — explicitly deferred to
+  v2.5 by the owner 2026-08-31.** The original opaque/stepped gradient falloff
+  and layered opacity/texture failures remain fixed. The production-only
+  saturated transparent-stop + blend-mode edge case is documented in BACKLOG
+  and will restart from a failing fixture; it is not a v2.4 release gate.
 
 
 The queue the owner explicitly deferred from v2.3 on 2026-08-21, plus the one
 import bug logged alongside it. FEAT-025 leads because it is the P1 and because it
 removes a daily "the app feels broken" moment.
 
-- [ ] FEAT-025 (P1) — direct-select moves whole objects when no points are selected.
-  NOT a fix for BUG-028; that stays its own entry.
-- [ ] FEAT-029 — pencil tool (freehand fitted to bezier points; expose the fidelity
-  control — Schneider curve fitting, `Graphics Gems` 1990).
-- [ ] FEAT-028 — outline (stroke) on live, still-editable text. **Research gate
+- [x] FEAT-025 (P1) — direct-select moves whole objects when no points are selected.
+  Owner-verified working 2026-09-01. NOT a fix for BUG-028; that stays its own entry.
+- [x] FEAT-029 — pencil tool (freehand fitted to bezier points; expose the fidelity
+  control — Schneider curve fitting, `Graphics Gems` 1990). Owner-verified working
+  2026-09-01.
+- [x] FEAT-028 — outline (stroke) on live, still-editable text. **Research gate
   CLOSED 2026-08-25:** the two mechanisms are not alternatives, they compose —
   HTML/CSS emits `-webkit-text-stroke-*` at 2× width plus `paint-order: stroke fill`,
   SVG emits `stroke`/`stroke-width`/`paint-order="stroke"` on the live `<text>`.
   Support, alignment, and the ~6%-of-traffic caveat are recorded in BACKLOG.
+  Owner-verified working 2026-09-01. Preserving a stroke when converting text to
+  outlines is outside the closed live-text feature and is an unplanned optional
+  follow-up, not a v2.4 gate.
 - ~~FEAT-031 — line end options.~~ **Already shipped and owner-verified 2026-08-21;
   it was carried into this list in error when the v2.4 scope was written on
   2026-08-25 and is struck out rather than deleted so the correction is visible.**
 - [x] FEAT-030 (P3) — symmetric curve handles. **Owner verified 2026-08-26** —
   "that pen tool feels much better and the option to modify the behavior works
-  great." The sign-off covers the PAIRING behaviour only; the explicit
-  balanced/smooth/corner mode-setting commands are still not built and are NOT
-  covered by it. Owner chose symmetric 2026-08-26.
+  great." **Owner reconfirmed FEAT-030 resolved 2026-09-02.** The current derived
+  symmetric/smooth/corner behavior plus Option-break workflow is the accepted
+  feature; the previously proposed explicit mode-setting commands are not built
+  and are no longer a v2.4 requirement.
   Handle pairing is implemented and derived from geometry rather than stored (so it
-  round-trips through SVG); the explicit mode-setting commands are not built.
-- [ ] BUG-048 — placed SVG `stroke-dasharray` imports as the wrong stroke pattern.
-- [ ] BUG-034 Stage 2 — implement spread for arbitrary silhouettes so canvas stops
-  diverging from SVG export. Stage 1 (disclosure) is already owner-verified.
-  **First implementation rolled back 2026-08-26 after repeated WindowServer
-  watchdog failures and a kernel panic.** Stage 1 is restored. A replacement must
-  meet the resource/zoom/WindowServer gates recorded in BACKLOG before runtime
-  verification. The investigation also surfaced BUG-055, a separate SVG
-  inner-shadow divergence.
-- [ ] BUG-055 (P2) — SVG export drops inner-shadow spread on every shape. Found
-  2026-08-26 while reviewing the first BUG-034 Stage 2 attempt. Not scoped into this
-  wave; logged so it
-  is not rediscovered as a surprise.
+  round-trips through SVG).
+- [x] BUG-048 — placed SVG `stroke-dasharray` mapping is owner-verified resolved
+  2026-09-02. Dash behavior works in EXP and exported SVG renders correctly in
+  Preview and browsers. The observed Illustrator discrepancy is a downstream
+  consumer issue, not an EXP release defect; a richer arbitrary-dash import report
+  is optional future scope, not part of this closed bug.
+- [x] BUG-055 release decision — SVG export still drops inner-shadow spread on
+  every shape. Found 2026-08-26 while reviewing the first BUG-034 Stage 2 attempt;
+  explicitly not scoped into v2.4 and retained as an honest release-note limitation.
 
 ### Wave D — Sanaa becomes a companion
 
@@ -1422,34 +1439,97 @@ FEAT-050 (Wave B base) ships before 054/055, its starters ship with plain
 prompt composition and gain the facts-first composition when the amendment
 lands. 054 and 055 are otherwise independent of each other.
 
-- [ ] FEAT-051 — guided setup assistant for non-technical designers. **Research gate
-  CLOSED 2026-08-25:** DXT is now `.mcpb` (CLI `@anthropic-ai/mcpb`); Claude Desktop
-  ships Node, so `exp-mcp` should be ported from Swift for the bundle — a bare Mach-O
-  cannot be notarization-stapled. **Blocked on one untested question:** whether a
-  helper launched by Claude Desktop can reach EXP's socket inside its sandbox
-  container at all, given macOS TCC protection on other apps' data. A five-minute
-  probe bundle answers it; if the answer is no, this chunk becomes "make the
-  copy-paste setup excellent" instead. Details in BACKLOG.
-- [ ] FEAT-052 (P3) — the Sanaa avatar/character (owner-designed assets).
-- [ ] FEAT-053 (P3) — capability pack / agent etiquette guide (`exp://sanaa/guide`).
-- [ ] FEAT-050 amendment (2026-08-29, SANAA-PLAN §6) — the Ask Sanaa starters
+- [x] FEAT-051 — guided setup assistant for non-technical designers. Shipped as
+  the honest copy-first route anticipated by the research gate: Settings and the
+  Sanaa empty state open one three-step flow for in-app Codex, Claude Code,
+  Claude Desktop, another MCP app, or no assistant yet. It never scans for apps,
+  handles credentials, or claims external canvas access is in-app chat. A fresh
+  unsigned build passed the real accessibility-tree walkthrough for Codex,
+  Claude Desktop, and the kind no-assistant fallback on 2026-09-02. `.mcpb`
+  packaging stays a future transport experiment, not a v2.4 promise.
+- [x] FEAT-052 release decision — the optional in-canvas Sanaa avatar/character
+  is deferred from v2.4 by owner decision 2026-09-01. Sanaa works fully without
+  it; the feature remains an unplanned future possibility, not a release gate.
+- [x] FEAT-053 (P3) — capability pack / agent etiquette guide (`exp://sanaa/guide`).
+  This is machine-readable starter/help guidance delivered to connected agents,
+  not an ARIA-style user-facing inspector section. A visible Sanaa Help section
+  would be separate scope. The bundled canonical guide and read tool cover stable
+  ids, explicit placement, token reuse, small honest undo batches, deletion
+  boundaries, consent, and graceful failure; the packaged Codex adapter reads it
+  before canvas changes. Source/resource/runtime gate and fresh build pass
+  2026-09-02.
+- [x] FEAT-050 amendment (2026-08-29, SANAA-PLAN §6) — the Ask Sanaa starters
   gain **"Critique this…"** and **"Design directions…"**, composing
   facts-first prompts per the Part II critique-framework/directions modules;
   starters reordered so critique and cleanup lead. Non-mutating; composes
   against Wave B's FEAT-050 surface (see that checklist item and BACKLOG
-  FEAT-050).
-- [ ] FEAT-054 (P2) — Sanaa design knowledge pack: versioned markdown modules
+  FEAT-050). **Built 2026-09-01:** both Object and canvas-context menus use the
+  required order; the two new read-only starters go straight to the editable
+  composer without auto-sending, require live-selection confirmation,
+  `get_design_facts` before analysis, and task-specific guidance modules, and
+  explicitly forbid `apply_edits`. Fresh unsigned universal Debug and Release
+  builds plus the expanded in-app prompt contract probe pass. **Owner-verified
+  2026-09-02 with the real critique mockup: Sanaa caught every intentionally
+  planted issue, including the gradient contrast case. The owner called the
+  critique/guidance pass “perfect”; the facts-first cold-agent behavior gate is
+  closed with unusually strong real-design evidence.**
+- [x] FEAT-054 (P2) — Sanaa design knowledge pack: versioned markdown modules
   (design principles, color/dark mode, typography, spacing, states, copy,
   styles, anti-generic, critique framework, directions, a11y foundations,
   voice) served as MCP resources (`exp://sanaa/knowledge/<module>` + index).
-  **Research gate first:** whether the Codex thread can call resources/read —
-  else serve via a `get_design_guidance` read tool added to BOTH allowlist
-  locations. Non-mutating. SANAA-PLAN §10/FEAT-054.
-- [ ] FEAT-055 (P2) — `get_design_facts`: computed design facts read tool
+  **Guidance v2.0.0 integrated 2026-08-31:** 24 served modules plus changelog,
+  including the nine-axis directions rewrite and new procedural, bulk-adjustment,
+  applied-a11y, and honest document/session style-grounding modules. The app does
+  not claim the delivery's future persistent Style Profile/editor/log surface.
+  **Research gate resolved 2026-08-30:** raw resource reads passed once but
+  timed out on repeat, so the bounded `get_design_guidance` fallback is built
+  in BOTH allowlist locations while resources remain for provider-neutral
+  clients. Both direct-socket and packaged-Codex fallback transport pass as of
+  2026-08-31. **Owner behavior/appearance pass 2026-08-31:** the rebuilt app and
+  integrated guidance produced the expected tested variations. The remaining
+  FEAT-054 gate closed 2026-09-02: a provider-neutral MCP client used the public
+  socket directly (not the bundled Codex adapter) and read all 24 resources and
+  fallback-tool results byte-identically, including honest failure cases.
+  Non-mutating. SANAA-PLAN §10/FEAT-054.
+- [x] FEAT-055 (P2) — `get_design_facts`: computed design facts read tool
   over ContrastMath (contrast pairs with resolved/flattened backing, text and
   target sizes, spacing inventory, fonts) — measured values + criterion
   citations + an explicit notAssessed list, never verdicts. Non-mutating.
-  SANAA-PLAN §10/FEAT-055.
+  **Built 2026-09-01:** the app-only calculation engine, public MCP definition/
+  route, and packaged runtime allowlist are in place. A saved `.design` golden
+  fixture passes known contrast, large/bold text, alpha estimate, gradient/
+  rotation omission, target, spacing, font, component role/control relationship,
+  instance override/reflow, selection, truncation, byte-cap, deterministic, and
+  byte-for-byte no-write checks. Canvas-page and semantic-contract regressions
+  plus fresh unsigned Debug and Release builds pass. The rebuilt-app live socket,
+  packaged Codex `--facts-read-only`, and owner artboard/selection behavior gates
+  pass. **Owner verified 2026-09-01; closed.** SANAA-PLAN §10/FEAT-055.
+- [x] **BUG-058 (P1) — floating trays can cover app-authored popovers.** Fix built
+  2026-09-01 without changing BUG-051's owner-verified palette behavior: both
+  colour/paint wells, the font picker, custom component-state name popover, canvas
+  gradient-stop editor, and custom field tips now use the system transient level
+  above `.floating` trays. Focused source gate and Debug/Release builds pass;
+  **owner verified the overlap defect resolved 2026-09-02.**
+- [x] **BUG-059 (P1) — active response reader could stay beneath floating trays.**
+  The key reader now rises above trays and yields when inactive; the focused
+  response-window gate passes and the owner verified the overlapping response
+  experience resolved 2026-09-02.
+- [x] **FEAT-061 (P1) — compact Sanaa response cards + full Markdown reader.**
+  Owner-added 2026-09-01. Built vertical slice: every assistant response has a capped
+  rendered preview and Open full response; one normal/resizable live reader per reply
+  renders/selects/copies Markdown and opens allowlisted web/mail links in the default
+  app. Session disable closes readers. Critique/directions now lead with a four-bullet
+  human overview and descriptive Markdown citations. Debug/Release + deterministic
+  parser/link probe pass. **Owner verified the real report/read/action experience
+  2026-09-02 and reported it passed or exceeded every test.** Structured actions
+  are supplied by FEAT-056 metadata, never inferred from prose.
+- [x] **FEAT-056 (P1) — structured critique report.** Promoted from the v2.5 candidate
+  list into v2.4 by the owner 2026-09-01 after the first real FEAT-050 critique exposed
+  the plain transcript's reading cost. Builds on FEAT-061 with a numbered finding rail,
+  deterministic human element aliases, Show on canvas, Explore-to-composer, stale-node/
+  document handling, and no write path. Implemented in the reusable response reader;
+  **owner-verified 2026-09-02 on the real critique report. The report passed with
+  flying colors, including easy one-click actions and exact Show on canvas.**
 
 ### Wave E — release
 
@@ -1459,11 +1539,17 @@ lands. 054 and 055 are otherwise independent of each other.
 research item behind its unanswered SVG/import round-trip questions; FEAT-034's
 remaining Design Language surfaces, FEAT-009, FEAT-019, and the PERF queue ride
 along only if a wave finishes early. Semantic component/state reconstruction
-remains a v2.4+ research candidate, not a commitment. The Part II v2.5 candidates — FEAT-056 (critique mode), 057
+remains a v2.4+ research candidate, not a commitment. The remaining Part II v2.5 candidates — FEAT-057
 (design directions engine), 058 (cleanup & repetitive ops / `apply_edits`
 v2, mutating — sequencing rule applies), 059 (a11y guided fixes, mutating),
 060 (design-quality evaluation harness) — are scoped in SANAA-PLAN Part II
 (§10) and stay open in BACKLOG, not in this release.
+
+**BUG-034 Stage 2 is also explicitly out of v2.4 and has no planned return
+release.** Its unsafe attempt remains documented in BACKLOG for history, but the
+owner considers the underlying spread limitation unimportant and lowest priority.
+Stage 1's truthful disclosure remains; do not schedule or re-enter the risky
+renderer work unless the owner explicitly reprioritizes it in the future.
 
 ---
 
@@ -3061,6 +3147,371 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-09-02 (v2.4 feature-complete; full source suite green; Sanaa homepage
+  story added).** Closed the final Wave D work. FEAT-051 now ships an honest
+  three-step, copy-first setup assistant for Codex, Claude Code/Desktop, generic
+  MCP, and no-host-yet paths; the fresh built accessibility tree passed the real
+  Codex/Desktop/neither walkthrough. FEAT-053 adds the bundled
+  `exp://sanaa/guide` / `get_sanaa_guide` etiquette contract and requires the
+  packaged runtime to read it before canvas changes. FEAT-054's last gate is
+  closed by a provider-neutral direct MCP client reading all 24 guidance modules
+  and fallback-tool results byte-identically. Repaired the live facts verifier's
+  stale schema-v1 expectation so it now asserts v2 gradient facts; the full live
+  deterministic/no-write/error matrix passes. Re-reviewed and rebaselined the
+  semantic manifest's Xcode 26.3-only key-order byte change while HTML, CSS,
+  README, fidelity, entries, and hashes remained correct. Every import/export,
+  component, page, Sanaa, Sparkle, website, Debug, and optimized universal Release
+  gate is green. Added the owner-supplied critique and Ask Sanaa screenshots to a
+  new homepage feature section, with Sanaa presented as v2.4's headline. Release
+  notes are written with honest limitations. **NEXT:** freeze the source commit,
+  create the signed archive, notarize/export, build the immutable zip, generate
+  Sparkle metadata, tag, publish, deploy, and prove the v2.3 → v2.4 update.
+
+- **2026-09-02 (FEAT-050 fully owner-signed-off; release push authorized).** The
+  owner accepted the complete Ask Sanaa starter feature after the real-world
+  critique/report passes and explicitly chose not to chase speculative edge cases
+  before broader public use. Any additional refinements now require evidence from
+  many testers. The remaining v2.4 work is FEAT-051 setup, FEAT-053 etiquette,
+  FEAT-054's provider-neutral client gate, the final accessibility/release suite,
+  notes, signing, notarization, and publication.
+
+- **2026-09-02 (owner acceptance sweep — FEAT-056, FEAT-061, BUG-058/059,
+  FEAT-030, and BUG-048 closed).** The roadmap had fallen behind the implementation:
+  FEAT-056's structured finding rail, deterministic aliases, element/Show-all canvas
+  actions, and Explore-to-composer were already built in the response reader. The
+  owner tested the real report and said it passed “with flying colors,” including
+  easy one-click actions and Show on canvas; together with the existing parser/link
+  probes, this also closes FEAT-061's report/reader acceptance. The owner verified
+  the floating-tray popover/reader overlap fixed, closing BUG-058/059, and reconfirmed FEAT-030
+  resolved; its current derived-handle + Option workflow is accepted and the proposed
+  explicit conversion commands are dropped as unnecessary release scope. BUG-048 is
+  also closed: dashes work in EXP and SVG export is correct in Preview and browsers;
+  the remaining Illustrator behavior is downstream interoperability, not an EXP
+  defect. The optional arbitrary-dash import-report enhancement is not part of this
+  bug. No code changed in this acceptance-only session. **NEXT:** audit only the
+  remaining external-client/setup gates and release-engineering checklist; the owner
+  has no broad product retest left beyond any specifically named final smoke case.
+
+- **2026-09-02 (FEAT-050 critique/guidance amendment owner-verified — rave
+  review).** The owner ran Sanaa against a purpose-built critique mockup and
+  reported that the pass was “perfect”: it caught everything intentionally
+  included for detection, including the gradient contrast case. This is the
+  strongest useful acceptance evidence for the amendment's actual job—not just
+  prompt shape or transport—so the FEAT-050 facts-first critique/guidance
+  amendment is signed off. FEAT-054's facts-backed critique behavior is likewise
+  proven; its sole remaining gate is provider-neutral transport through one
+  non-Codex MCP client. No broader gates were silently inferred from this pass:
+  base FEAT-050 placement/keyboard/VoiceOver, BUG-058's overlap matrix,
+  FEAT-061's reader interaction/VoiceOver and structured option metadata, and
+  FEAT-056's structured finding rail/actions remain open. **NEXT:** implement
+  FEAT-056 on the existing reader foundation, then close the remaining owner and
+  cross-client gates before the Wave C leftovers and release freeze.
+
+- **2026-09-01 (BUG-058 + FEAT-061 built; structured critique promoted into v2.4).**
+  The owner's first facts-backed critique was substantively useful but exposed two
+  release-level interaction failures: long assistant Markdown rendered as raw,
+  unlimited transcript text, and a floating Sanaa tray could cover the Inspector's
+  colour picker. Logged/fixed BUG-058 at one transient-window seam: both colour/paint
+  wells, font picker, component-state name popover, canvas gradient-stop editor, and
+  EXP field tips now order at the system pop-up-menu level while owner-verified trays
+  stay `.floating`. Added FEAT-061's reusable response vertical slice: every assistant
+  reply has a capped Markdown-aware Overview/fallback card and Open full response;
+  each reply owns at most one normal/resizable live reader with headings, lists,
+  quotes, code, selectable/copyable source, safe default-browser `http`/`https`/
+  `mailto` links, origin-focus restoration, and session-disable cleanup. Updated the
+  critique/directions prompt contract to request a four-bullet human overview,
+  descriptive Markdown citations, stable finding labels, and no generic final
+  question. Promoted FEAT-056 from v2.5 into v2.4 for the numbered finding rail,
+  human element aliases, exact Show on canvas, Explore-to-composer, and stale-node/
+  multi-document behavior; explicit response-choice buttons require structured
+  metadata and are never guessed from prose. Debug and optimized Release builds,
+  FEAT-050 prompt probe, FEAT-061 Markdown/safe-link probe, BUG-058 transient source
+  gate, backlog-id gate, and `git diff --check` all pass. Manual visual/VoiceOver
+  behavior remains owner work per the working agreement. **NEXT:** owner rebuilds and
+  tests compact/full responses plus overlapping popovers; after that, implement
+  FEAT-056's structured rail/actions on the verified reader foundation.
+
+- **2026-09-01 (FEAT-050 amendment built — facts-first critique and directions;
+  owner gate next).** Added **Critique this…** and **Design directions…** to the
+  conditional Object and canvas-context Ask Sanaa menus, reordered as planned:
+  critique / repetitive work / complete / variations / directions. Both new
+  commands capture the same stable selection/page/artboard context as the base
+  starters and place a read-only draft directly in Sanaa's editable composer;
+  neither auto-sends. The critique draft requires `get_design_facts` before any
+  finding, loads critique/accessibility/principles/voice guidance, preserves the
+  five-group couldn't-assess contract, and forbids `apply_edits`. Directions does
+  the same facts-first grounding, loads directions/anti-generic/style/voice
+  guidance, and asks for three axis-divergent options with rationales and
+  tradeoffs without drawing. The expanded in-app probe passes the base and
+  amendment prompt contracts; Sanaa facts and 24-module source-pack checks pass;
+  fresh unsigned universal Debug and Release builds succeed. The interactive
+  write-gate matrix was not rerun because it requires the owner to set switches
+  against a live scratch document and this slice adds no bridge/write path. **NEXT:** owner
+  rebuilds and runs the combined FEAT-050 interaction/real-agent pass across all
+  five starters, including VoiceOver/keyboard/appearance and Copy fallback. Then
+  audit FEAT-051/053/054 and the remaining Wave C/release items.
+
+- **2026-09-01 (session close — optional Sanaa avatar deferred).** The owner
+  confirmed FEAT-052's decorative in-canvas character does not belong in v2.4.
+  It remains an unplanned future possibility with no effect on Sanaa's functional
+  assistant experience. The next session resumes the remaining release audit:
+  FEAT-050/051/053/054 and the FEAT-050 amendment, FEAT-030's extra commands,
+  BUG-048, the semantic-manifest rebaseline, release notes, and signed packaging.
+
+- **2026-09-01 (owner release triage — FEAT-055 and Wave C fixes closed;
+  BUG-034 parked indefinitely).** The owner verified FEAT-055's rebuilt-app facts
+  path and closed it. BUG-053 noise/dissolve export and BUG-054 blur behavior are
+  also verified resolved. FEAT-025 direct-select movement, FEAT-029 pencil, and
+  FEAT-028 live-text stroke are owner-verified working for v2.4; preserving a text
+  stroke through Convert to Outlines is an unplanned optional follow-up, not part
+  of FEAT-028's closed release scope. BUG-034 Stage 2 is removed from v2.4 and
+  parked at the lowest priority with no planned release or retry date after its
+  unsafe attempt; Stage 1's truthful limitation disclosure remains. Clarified that
+  FEAT-052 is an optional decorative character inside EXP's canvas, while FEAT-053
+  is machine-readable etiquette/help for connected agents — neither is a website-
+  only mascot or an ARIA-style user help section. The owner subsequently deferred
+  the avatar. **NEXT:** continue the remaining release-scope audit around
+  FEAT-050/051/053/054, FEAT-030's extra commands, BUG-048, and packaging.
+
+- **2026-09-01 (FEAT-055 built — computed design facts; live owner gate next).**
+  Added the non-mutating `get_design_facts` read tool for artboard or current-
+  selection scope. Its bounded app-only engine reports sRGB text/non-text
+  contrast measurements with official WCAG 2.2 SC 1.4.3/1.4.11 citations,
+  labeled large/bold and interactive-role heuristics, text/target sizes, spacing
+  geometry, fonts, resolved component-instance overrides, explicit estimates,
+  `notAssessed` reasons, and truncation — never a compliance verdict. The tool is
+  registered in AgentBridge and the packaged Codex allowlist. Official SC 1.4.3,
+  1.4.11, and 2.5.8 facts were rechecked against W3C on 2026-08-31. The focused
+  saved-document gate proves known ratios, component roles and component-root
+  control relationships, selection scope, pathological depth/count bounds,
+  deterministic output, and byte-for-byte no write; canvas pages, semantic HTML,
+  guidance source, backlog ids, and fresh unsigned Debug/Release builds pass.
+  New direct-socket and packaged-Codex facts receipts are ready. **NEXT:** owner
+  rebuilds/relaunches EXP with an artboard open and Agent access on; run
+  `scripts/verify_sanaa_facts_live.sh`, then
+  `scripts/verify_sanaa_runtime_packaged.sh --facts-read-only`. Manually ask Sanaa
+  to assess one artboard and one selection, confirming she cites measurements,
+  distinguishes observations from facts, and repeats `notAssessed` limitations.
+  Then close FEAT-055 and choose the remaining v2.4 cut documented in Wave C/D.
+
+- **2026-08-31 (guidance owner pass + v2.4 regression audit).** The owner rebuilt,
+  exercised the integrated guidance, and accepted its behavior/appearance. The
+  relaunched-app gate returned all **24/24** guidance modules byte-identically
+  through both MCP resources and `get_design_guidance`; unknown-module errors and
+  tool discovery pass. The packaged Codex read passes with all **4/4** negative
+  trust/protocol gates. The legacy document-backed `exp://orientation` tail check
+  timed out against the unusually large frontmost asset-library document even
+  though `list_artboards` still responds; guidance reads are document-independent,
+  so this is an existing whole-document scalability limitation, not a guidance-v2
+  failure. The release regression battery passes backlog ids, nested components,
+  anchored relationships, canvas pages, 11-package XD import (644 artboards / 84,208
+  layers), Figma import, semantic contract, SVG/token/blur, all eight effect-export
+  checks, CodePen, rendered HTML (model + real WKWebView), and Storybook. One release
+  test remains red: `verify_semantic_html_package.sh` reports only a reviewed
+  manifest-golden mismatch. It reproduces from committed `HEAD` under the current
+  Xcode/Swift toolchain; generated HTML/CSS/README still match their reviewed
+  goldens and the manifest's file hashes are internally correct, so review and
+  explicitly re-baseline it before release rather than attributing it to this work.
+  A clean unsigned universal Release build and the production website build pass.
+  Sparkle configuration passes except for the expected missing
+  `RELEASE-NOTES-v2.4.md`; the v2.4 appcast entry correctly waits for the notarized
+  zip. **NEXT:** decide the honest v2.4 cut among the still-open Wave C/D scope,
+  complete the chosen acceptance gates, review the semantic manifest golden, write
+  release notes, then run the signed archive/notarization checklist.
+
+- **2026-08-31 (Sanaa guidance v2 integrated; BUG-056 edge case deferred).** The
+  external editor delivery was found under the auto-designer workspace; its
+  earlier timeout had left EXP on the original 21-file pack. Integrated pack
+  v2.0.0 as 24 served modules plus changelog: directions now uses a nine-axis
+  style genome, explicit from→to divergence, candidate enumeration, and a sibling
+  check; procedural-tasks, bulk-adjustments, applied accessibility, and honest
+  document/session style grounding are additive modules. The delivered Style
+  Profile/editor/preferences-log design remains clearly labeled future behavior
+  because v2.4 has no such persistence or Settings surface. Re-verified the
+  applied accessibility facts against official WCAG 2.2/APG sources and corrected
+  the target-spacing and focus criteria during integration. The source/byte gate
+  passes at 104,855 bytes (3,743-byte INDEX), a fresh unsigned Debug build passes,
+  and all 24 registered files are byte-identical in the built app bundle. The
+  packaged harness compiles with the v2.0.0 read expectation. **NEXT:** relaunch
+  the new build, run live resource/tool reads plus a focused packaged read, then
+  run the editor's cold-agent variations/table/density tests and owner appearance
+  pass. Separately, the owner accepted BUG-056's remaining layered radial-ring
+  artifact as a v2.5 edge case; it no longer blocks v2.4.
+
+- **2026-08-31 (BUG-056 narrowed — layered radial glows still export with colored
+  rings).** The owner's latest WPS-banner comparison shows that the earlier thick
+  outline, background opacity, and texture problems are repaired, and a single
+  effect/texture exports accurately. The remaining divergence is a vivid annulus
+  around layered circular glows. Read-only inspection of the live artboard found
+  saturated colors retained at alpha-zero stops near 0.32/0.33, followed by
+  transparent black near 0.584, across 0.2–0.93-opacity nodes using Color Dodge,
+  Overlay, Hue, Color, and Screen. The leading code-backed cause is the PDF-safe
+  renderer separating these into an opaque color shading plus an alpha mask,
+  which does not preserve the canvas bitmap's coupled/premultiplied interpolation
+  and lets blend modes amplify low-alpha saturated color. The existing eight
+  export checks all pass because the gradient fixture uses same-color stops under
+  normal blending and the blended fixture does not sample its falloff boundary.
+  At this checkpoint BUG-056 remained open; the owner later deferred the edge
+  case to v2.5. Resume there by adding a failing fixture from the exact stop/blend
+  pattern before repairing the PDF-safe color/alpha representation.
+
+- **2026-08-31 (BUG-057 owner-verified).** The owner completed the automatic
+  artboard-placement pass and reports that every path passes: toolbar Add, paste,
+  command Duplicate, and Sanaa variations avoid loose wall artwork while the
+  intentional placement paths remain available. BUG-057 is closed. With the
+  design-guidance editors still compiling their update, the next work is the
+  remaining non-Sanaa v2.4 release audit rather than another Sanaa change.
+
+- **2026-08-31 (BUG-057 built — automatic artboards now respect loose wall
+  artwork; owner feel gate next).** The owner found that Sanaa variations could
+  draw an artboard over brainstorm material left directly on the wall, then
+  identified the same behavior in toolbar Add and pasted artboards. The shared
+  cause was broader than Sanaa: automatic placement either consulted artboard-only
+  bounds or applied a fixed offset. Added one document-level collision policy
+  that scans existing boards plus visible, top-level wall nodes with no owning
+  artboard, using full group/mask ownership geometry and the configured artboard
+  spacing. Toolbar Add, paste, command Duplicate, and Sanaa automatic create /
+  duplicate all use it; multi-board copies keep their relative arrangement.
+  Hidden wall layers and artboard-owned children do not reserve duplicate space.
+  Explicit Sanaa placement, the Artboard drawing tool, and Option-drag remain
+  direct so intentional enclosure/pointer placement still works. The focused
+  canvas-pages regression passes and a full unsigned Debug build across all
+  targets succeeds. **NEXT:** owner tries all four automatic paths around loose
+  shapes, text, and groups, checks one-step Undo, then confirms drawing an
+  artboard around loose work still intentionally adopts it.
+
+- **2026-08-31 (FEAT-050 built — Ask Sanaa now turns a selection into an
+  editable, placement-safe prompt; owner gate next).** Added the conditional
+  Object ▸ Ask Sanaa submenu and matching canvas context menu for Complete this,
+  Draw variations, and Do repetitive work. Three native document sheets capture
+  the safe/direct choice, a 1–8 variation count plus page placement, or a required
+  repetitive-work instruction. The prompt records the live page, node, selected
+  artboard, and parent-artboard ids; directs the agent through `get_selection`,
+  `get_artboard`, and `get_tokens`; names the exact `apply_edits` placement; and
+  preserves EXP's consent and one-step Undo contract. Add to composer reveals the
+  real Sanaa panel and focuses its editable draft without auto-sending, so the
+  existing Send/stream and host-missing Copy fallback remain authoritative. Sanaa
+  off leaves no menu trace; zero selection disables the Object command. Full
+  unsigned Debug build succeeds, and an in-app Debug probe passes ids, placement,
+  count, consent language, and composer handoff. **NEXT:** owner walks the three
+  starters with layer/multi-layer/artboard selections, Escape/Return, Send/Copy,
+  appearance, and VoiceOver before FEAT-050 is checked complete.
+
+- **2026-08-31 (FEAT-054 fallback transport gate closed on the relaunched app).**
+  The direct deterministic gate returned all 20 bundled knowledge modules
+  byte-identically through both the provider-neutral resource route and
+  `get_design_guidance`; unknown module/resource failures and the existing
+  document orientation resource also passed. The focused packaged-runtime gate
+  then proved an isolated signed-in Codex thread can call `get_design_guidance`
+  without an approval request, while the four negative protocol/trust checks
+  remained green. FEAT-054 still needs cold-agent behavior after FEAT-055, one
+  non-Codex client, and owner appearance review; its previously blocked transport
+  is no longer open. **NEXT:** FEAT-050, the first still-unbuilt Sanaa core slice.
+
+- **2026-08-31 (PERF-008 owner-verified — simple-group drag beachball removed).**
+  After rebuilding with the static-subtree text/path preflight and shared
+  offscreen-capture safety valve, the owner retested the previously lagging
+  `branding-brainstorm.design` workflow and reports that it is “much better” and
+  appears fixed. PERF-008 is closed as owner-verified. Continue watching for any
+  separate interaction stall, but do not treat complex fonts or the plain-square
+  drag case as an open release blocker without a new reproduction. The v2.4
+  document-mutation sequencing gate remains unchanged.
+
+- **2026-08-31 (PERF-008 corrected with a decisive live beachball sample — drag
+  snapshot path guarded; owner retest next).** The earlier font-only diagnosis was
+  incomplete. After that patch, the owner reproduced the stall on a new page in
+  `branding-brainstorm.design` while moving a group of plain color squares. During
+  the beachball the Debug app was at 99.5% CPU; a three-second `sample` put
+  1,580/2,024 main-thread samples in `captureDragSnapshots`, with 1,579 continuing
+  through a static `PathShape` stroke into Core Graphics' antialiased
+  `CGContextDrawPath` coverage rasterizer. CPU time grew by about 30.7 seconds before
+  that one snapshot returned. The dragged squares were not the expensive content:
+  the drag accelerator was synchronously building full-viewport below/above bitmaps
+  of other complex artwork. The same run's diagnostics independently recorded
+  17.7s halo and 11.6s viewport-only pan captures. Fixed at the choice point before
+  capture: ≥400-anchor paths join the existing detailed-glyph preflight and take
+  live interaction; drag preflight scans static subtrees but excludes dragged
+  top-level subtrees; any slow pan capture now disables drag snapshots for the same
+  canvas; and each drag layer has a 400ms post-return valve that skips the second
+  layer and prevents all repeats if an unknown case escapes preflight. No document,
+  settled-render, export, typography, or accessibility behavior changed. A fresh
+  unsigned Debug build across all five targets succeeds and `git diff --check`
+  passes. **NEXT:** owner repeatedly drags the plain square group, then pans/pinches
+  across the detailed artwork; confirm no beachball and unchanged settled pixels.
+  This view-only work does not change the v2.4 document-mutation gate.
+
+- **2026-08-31 (PERF-008 — complex-font pan/zoom stall guarded before capture;
+  owner feel gate next).** Read-only inspection of the active regression document
+  found only a few live-text layers, using `JunigardenSwashPERSONALUSE-Regular`,
+  `PrequelDemo-Regular`, and `ALoveofThunder`; this is outline complexity, not a
+  broad “too much text” problem. CoreText measurement on the actual strings put
+  system text at about 200 outline elements total / 50 in its most detailed glyph,
+  while Prequel and A Love of Thunder reached 4,350 / 1,161 and 3,892 / 1,180.
+  The existing TextKit layout cache avoids re-layout, but every new gesture bitmap
+  still rasterized those outlines synchronously, and the 400ms valve could only
+  react after the first multi-second block. `CanvasNSView` now preflights the
+  actual visible custom-font glyphs, caches outline counts by face + glyph, and
+  routes pathologically detailed text to the existing live-render pan/zoom path
+  before capture. The rule is structural (≥600 for one glyph or ≥2,000 across a
+  layer), never a font-name list; ordinary/system text keeps bitmap acceleration.
+  No document mutation, saved-schema, typography, export, or accessibility behavior
+  changed. Standalone measurements classify the two regression faces and spare the
+  swash/system samples; `git diff --check`, backlog-id validation, and a fresh
+  unsigned Debug build across all five targets pass. **NEXT:** owner pans and
+  pinch-zooms the affected Prequel/Thunder artboards and confirms no multi-second
+  pause/new blit-budget warning, then checks one ordinary-font document for unchanged
+  fast-path feel. This view-only slice does not change the v2.4 mutation gate.
+
+- **2026-08-30 (FEAT-054 research gate resolved; bounded knowledge tool built,
+  no canvas mutation).** The live-socket resource gate lists orientation + all
+  20 served knowledge modules, reads every module byte-identically from source
+  and bundle, rejects an unknown URI, and preserves document-backed orientation.
+  A packaged Codex thread read the knowledge index once, but a focused repeat
+  timed out; that is not reliable enough for the dedicated panel. Implemented
+  the planned `get_design_guidance(module:)` fallback ahead of the document
+  context gate, added it to the runtime's hard allowlist, pointed Sanaa's three
+  compact knowledge rules at it, and extended both deterministic and packaged
+  verification scripts. Resources remain available to provider-neutral clients.
+  The 21-file pack is 63,084 bytes total; its index is 2,584 bytes and modules
+  remain on demand. The interactive write-gate harness now refuses non-TTY
+  all-phase runs and aborts on prompt EOF, preventing an absent input stream from
+  being mistaken for owner confirmation. `git diff --check`, script syntax
+  checks, packaged-harness typecheck, backlog-id validation, and a fresh unsigned
+  Debug build pass. The running Debug process predates this build, so direct tool,
+  packaged fallback, cold-agent, non-Codex, Appearance, and owner gates remain;
+  FEAT-055 does not start until this read-only slice is verified.
+
+- **2026-08-30 (pan/zoom multi-second hitch safety valve repaired; owner
+  verified: “feels much better”).** The owner's log showed repeated 0.4–6.4s
+  `blit-capture` warnings. Root cause was the safety state itself: after a slow
+  halo capture, one fast viewport-only retry reset the strike, so the following
+  gesture paid for the expensive halo again forever and never reached the
+  live-render fallback. `CanvasNSView` now degrades monotonically per canvas:
+  halo → viewport-only after the first over-budget capture → blit disabled if
+  the reduced capture also exceeds 400ms. A successful reduced capture no longer
+  re-enables the halo. The warnings still enter the rotating diagnostic file but
+  only mirror to Xcode when hidden Testing Mode is actually on, restoring the
+  documented July console-cleanup contract. Historical toggle found: View ▸
+  Testing Mode was Control-Command-T, but both menu item and shortcut were removed
+  from the public UI 2026-07-19; `testingMode` is session-only/off by default, so
+  the pasted warnings did not mean it had been enabled. This view-layer-only perf
+  fix does not mutate documents or disturb the v2.4 sequencing gate. The owner
+  rebuilt and reported the interaction “feels much better”; keep watching for a
+  repeating hitch, while the adaptive/directional halo and tiled-snapshot part of
+  PERF-003 stays open. Fresh unsigned Debug build succeeds across all five
+  targets; the existing Swift warnings are unchanged.
+
+- **2026-08-29 (FEAT-054 implemented — the knowledge pack ships as MCP resources; no
+  canvas mutations).** All 21 modules (index, 11 knowledge modules, 8 style
+  vocabularies, changelog) are authored and bundled under
+  `EXP [design]/Resources/SanaaKnowledge/`; `AgentMCPRouter` serves them as
+  `exp://sanaa/knowledge/…` resources with the orientation branch unchanged
+  and no document-open requirement on the knowledge branch;
+  baseInstructions carries the 3-line pointer. Debug build passes with the
+  pack bundled. Open gates at that checkpoint were the FEAT-054 research gate,
+  cold-agent behavior tests, live socket probe, and the owner Xcode pass. Nothing document-mutating happened;
+  the sequencing rule is untouched.
 
 - **2026-08-29 (Sanaa Part II — knowledge pack + design facts: roadmap
 drafted, no code).** The owner asked for Sanaa to be genuinely GOOD at design —

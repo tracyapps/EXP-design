@@ -30,9 +30,32 @@ run-loop mode) restores full vector rendering. Rulers are excluded from the
 snapshot and drawn live on top. Snapshot recaptures if mid-gesture zoom drifts
 past 1.75×/0.6×. Hooks: `scrollWheel`, `zoom(by:anchor:)`, hand-drag — each
 calls `beginPanZoomInteraction()` BEFORE mutating `app.zoom`/`app.panOffset`.
-**Safety valve:** a capture over 250ms (`blitCaptureBudget`) sets
-`panZoomBlitDisabled` for the rest of the run and logs it — the beach ball can
-never return; worst case is the old live-render behavior.
+**Safety valve (updated 2026-08-30):** the current budget is 400ms. A slow halo
+capture permanently reduces that canvas to viewport-only captures; if one of
+those also exceeds the budget, `panZoomBlitDisabled` restores the old live-render
+behavior. The reduced mode deliberately does not retry the halo after a fast
+viewport capture — that retry loop caused multi-second hitches to return on later
+gestures. Budget warnings stay in the diagnostic file and mirror to Xcode only
+when hidden Testing Mode is enabled.
+
+**Complex offscreen preflight + drag safety (built 2026-08-31; owner gate open):** the safety valve
+cannot interrupt a bitmap render already underway, so it still permits one huge
+first hitch when a live-text face has unusually detailed glyph outlines. Before
+capture, `textHasExpensiveGlyphOutlines` now measures the actual used glyphs with
+CoreText and caches counts by PostScript face + glyph. A ≥600-element glyph or
+≥2,000 elements across a text layer selects the existing live-render gesture path
+up front. These thresholds separate the measured regression faces (`Prequel Demo`
+and `A Love of Thunder`: about 3,900–4,350 sample elements, ≥1,161 in one glyph)
+from system text (about 200 / 50) without hard-coding font names.
+
+The font-only diagnosis was incomplete. A live beachball while moving plain squares
+sampled at 99.5% CPU inside `captureDragSnapshots`; virtually the whole stack was a
+static complex `PathShape` stroke in Core Graphics' antialias coverage rasterizer,
+and the capture consumed about 30.7 CPU seconds before returning. Paths at ≥400
+anchors now receive the same live-interaction treatment. Drag snapshots preflight
+their static subtrees (excluding dragged top-level subtrees), inherit any prior slow
+pan-capture verdict, and time below/above layers separately. One layer over 400ms
+prevents the second capture and disables drag snapshots for that canvas. See PERF-008.
 
 **Downsampled image cache.** `cgImage(for:targetPx:)` serves power-of-two
 "mip" variants via ImageIO thumbnails (`kCGImageSourceShouldCacheImmediately`,
@@ -60,6 +83,12 @@ the first gesture of a run: `blit-capture` (total), `blit-render`,
 (leaf drawNodeContent; groups/instances excluded so recursion doesn't
 double-count), `blit-boards`. Keep these — they are how every root cause
 below was found, and how the next one will be.
+
+That Control-Command-T shortcut is historical: the View-menu item and shortcut
+were removed from the public UI on 2026-07-19. `AppState.testingMode` is
+session-only, defaults off, and is not persisted. Seeing a blit-budget warning
+in an older build therefore does not prove Testing Mode was enabled; those
+warnings were unconditional until the 2026-08-30 safety-valve repair.
 
 ## 3. THE key finding — the transparency-layer rule
 
@@ -104,9 +133,12 @@ image/zoom-bucket, self-healing, under budget.
 - **Colorspace** (sRGB backing vs window's Display P3): no change. Kept
   (backing now uses `window.colorSpace`, rebuilds on change via VALUE
   equality — identity comparison would rebuild every call).
-- **Content drawing being slow offscreen**: disproved by buckets — shadows
+- **Ordinary content drawing being slow offscreen**: disproved by the original
+  buckets — shadows
   1.1 + images 6.8 + text 0.9 + shapes 11.4 + boards 1.1 + makeImage 0.1
-  ≈ 21ms of a 745ms render. The cost was always layer allocation.
+  ≈ 21ms of a 745ms render. The cost there was layer allocation. Do not generalize
+  that result to newly installed decorative fonts: PERF-008 measured a real
+  glyph-outline exception and now preflights it before offscreen capture.
 
 ## 5. Pixel snap + honest inspector (done, verified working)
 

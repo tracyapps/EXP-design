@@ -714,6 +714,11 @@ final class AppState {
     /// shift-click multi-selection. Empty = nothing selected.
     var selectedNodeIDs: Set<UUID> = []
 
+    /// FEAT-050 — a document-window-owned prompt-starter sheet request. Like
+    /// selection and panel placement, this is temporary UI state and never enters
+    /// the saved design document.
+    var sanaaPromptRequest: SanaaPromptRequest?
+
     /// FEAT-045 — the gradient stop the on-canvas handles are editing. Kept HERE,
     /// not inside the picker, because the canvas, Inspector and eyedropper all
     /// agree on which stop "the" stop is.

@@ -232,6 +232,20 @@ extension View {
     func expPanelGlass()   -> some View { expGlass(.medium, cornerRadius: EXPMetric.radiusPanel) }
     func expPopoverGlass() -> some View { expGlass(.medium, cornerRadius: EXPMetric.radiusPanel) }
     func expModalGlass()   -> some View { expGlass(.thick,  cornerRadius: EXPMetric.radiusPanel) }
+
+    /// Keep an app-authored transient surface above EXP's floating inspector
+    /// trays. BUG-058: SwiftUI popovers inherit an ordinary window level on
+    /// some presentations, while multi-window trays intentionally live at
+    /// `.floating`; that lets a tray cover a colour picker or dropdown. Native
+    /// menus already use the system pop-up-menu level. Custom popover content
+    /// opts into the same ordering contract without changing the tray level.
+    func expTransientWindowLevel() -> some View {
+        background(EXPWindowReader { window in
+            guard let window,
+                  window.level.rawValue < NSWindow.Level.popUpMenu.rawValue else { return }
+            window.level = .popUpMenu
+        })
+    }
 }
 
 // MARK: - Proof preview (DEBUG) ============================================
@@ -512,6 +526,9 @@ private final class EXPFieldTipWindow {
         panel.acceptsMouseMovedEvents = true
         panel.isReleasedWhenClosed = false
         panel.contentView = host
+        // Field tips are transient chrome too. A sibling floating tray must not
+        // cover the explanation while the pointer moves between nearby panels.
+        panel.level = .popUpMenu
 
         // Preferred position (screen coords, y-up): above the field, aligned
         // to its leading or trailing edge, floated 6pt clear of it.

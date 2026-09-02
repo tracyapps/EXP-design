@@ -105,11 +105,11 @@ private enum SemanticHTMLPackageCheck {
                 "semantic stylesheet no longer matches the reviewed golden")
         require(sha256(Data(html.utf8)) == "bdbe933a027de5c815fa23bbe36b2b0ffc8cebc5dd2d0638d9ba36765a5a07ad",
                 "semantic HTML page no longer matches the reviewed golden")
-        // Schema 5 adds the v2.3 open-stroke cap/marker fields. For this fixture,
-        // only design.json's schemaVersion and its manifest digest change. The
-        // reviewed semantic CSS, HTML, README, fidelity rows, and entry set remain
-        // byte-for-byte unchanged.
-        require(sha256(manifestData) == "f73827afab3be0d7f1bf779f28b33c491ec1e0ff1bae23f82c7118fbda64b153",
+        // Re-reviewed for Xcode 26.3 / Swift 6.2 before v2.4. Foundation's
+        // deterministic JSON key ordering changed the manifest bytes while all
+        // entry digests, HTML, CSS, README, fidelity rows, and counts stayed
+        // byte-for-byte correct.
+        require(sha256(manifestData) == "4b12ebb821feb891093a6c169bafc0e83190443319d612096b04c725136e391a",
                 "handoff manifest no longer matches the reviewed golden")
         require(sha256(Data(readme.utf8)) == "0aca4002dc6c9c9e57c4b9b5bf9f922c3ed8c79b3b20331698a967cdcff8637f",
                 "handoff README no longer matches the reviewed golden")
