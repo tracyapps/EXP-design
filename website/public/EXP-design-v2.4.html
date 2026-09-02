@@ -1,0 +1,109 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>EXP [design] v2.4</title></head>
+<body><pre style="white-space: pre-wrap; font: -apple-system-body;">
+# EXP [design] v2.4
+
+## Meet Sanaa—and a vector toolset that grew up.
+
+EXP [design] 2.4 introduces Sanaa, an optional design companion that works from
+the live canvas while leaving the designer in control. It also completes the
+deferred vector-tool queue, closes several export-fidelity gaps, and smooths out
+daily canvas, Layers, and multi-window work.
+
+### Meet Sanaa
+
+- Ask Sanaa for a critique, design directions, variations, repetitive work, or
+  help completing a design directly from the canvas context menu.
+- Sanaa can inspect the frontmost document and draw editable pages, artboards,
+  and layers. New work remains ordinary EXP content that can be selected,
+  changed, saved, reopened, and exported normally.
+- Existing work is protected by explicit permission. Sanaa asks before changing
+  it, applies small transactional batches, and leaves each batch as one clearly
+  named Undo step.
+- A dedicated panel streams the conversation and activity, identifies connected
+  agents, highlights affected canvas objects, and provides Select and Go actions.
+  The full response reader renders selectable Markdown in a normal resizable
+  window.
+- Structured critique reports organize findings in a numbered rail. Show on
+  canvas jumps to the exact layer; Explore places the finding back into the
+  composer for review without sending or changing anything automatically.
+- Critiques can use measured document facts for contrast—including bounded
+  sampling over gradients—text size, target size, spacing, fonts, component
+  roles, relationships, and instance overrides. Sanaa distinguishes measured
+  facts, estimates, and items EXP cannot assess rather than claiming blanket
+  compliance.
+- A bundled, versioned design-knowledge pack grounds critiques and directions in
+  the document's own visual language. A separate etiquette guide teaches any
+  connected agent to use stable IDs, ask about placement, reuse Design Language
+  tokens, avoid unrequested deletion, and fail honestly.
+- A guided setup flow covers in-app Codex, Claude Code, Claude Desktop, generic
+  MCP clients, and the choice to use no assistant at all.
+
+Sanaa is off by default. EXP ships no language model, subscription, or API key.
+The in-app conversation uses the signed-in local Codex runtime; external MCP
+clients can use EXP's local canvas bridge under their own provider and privacy
+settings. Conversation access and permission to change a canvas remain separate.
+
+### Better paths and drawing tools
+
+- The Pencil tool turns freehand strokes into ordinary editable Bézier paths,
+  with a fidelity control that meaningfully changes the fit.
+- Direct Select moves the whole object when no anchors are selected, while
+  anchors and handles still take priority.
+- Pen handles keep smooth symmetric pairing by default and can be broken with
+  Option for corner work.
+- Live editable text can carry a real outline in the canvas, semantic HTML, and
+  SVG.
+- Convert to Outlines, Convert to Path, Outline Stroke, Fill, and Stroke work
+  recursively through groups and mixed selections while preserving hierarchy and
+  committing one undo step.
+- Placed SVG dash arrays reconstruct EXP's editable Dash and Dot patterns, and
+  those patterns round-trip through SVG.
+
+### Canvas and workspace fixes
+
+- Moving path points refits their object bounds so hit testing, selection,
+  shadows, and paint bounds follow the visible geometry.
+- Layers selection immediately receives arrow-key nudges, and the persistent
+  Auto-select control supports moving a selected object beneath overlapping
+  artwork.
+- Reveal in Layers and Expand or Collapse All now target the live Layers surface
+  after docking, floating, collapse, and document changes.
+- Floating trays return above document windows on every display but no longer
+  cover EXP popovers, menus, field tips, or an active Sanaa response reader.
+- Automatic artboard creation, paste, Duplicate, and Sanaa placement avoid loose
+  visible artwork on the wall while preserving intentional explicit placement.
+
+### Export fidelity
+
+- Noise and dissolve effects now render through PNG, JPEG, and PDF export instead
+  of disappearing.
+- Oversized layer blurs degrade in resolution instead of silently dropping the
+  effect.
+- Transparent gradient falloff retains smooth alpha through raster export, and
+  the repaired effect path closes two PDF compositing errors found while testing
+  layered production artwork.
+- Existing SVG, semantic HTML, design-token, CodePen, Handoff Package, import,
+  component, and canvas-page workflows remain covered by the release regression
+  suite.
+
+### Honest limits
+
+- Sanaa needs a supported signed-in local agent host. Claude Desktop and other
+  external MCP clients use copyable setup rather than a bundled one-click
+  extension in this release.
+- A rare stack of saturated transparent radial gradients, opacity, and certain
+  blend modes can still produce a colored ring in raster export. The common
+  opaque/stepped gradient failure is fixed; the remaining production edge case
+  is tracked for a fixture-led follow-up.
+- SVG export still cannot represent inner-shadow spread on every arbitrary
+  silhouette. EXP keeps the value in the document and reports the limitation.
+- Browser rendering is the SVG conformance target. Preview and browsers render
+  EXP's dashed SVG correctly; some Illustrator versions may interpret the same
+  file differently.
+- A live text outline is not preserved by Convert to Outlines; that conversion
+  remains separate from the editable live-text stroke feature.
+
+EXP [design] 2.4 is build 15 and requires macOS 26.2 or later.
+
+</pre></body></html>

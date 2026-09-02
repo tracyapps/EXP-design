@@ -1286,7 +1286,7 @@ promote them into release gates.
 
 ---
 
-## v2.4 — "Sanaa, and a vector toolset that grows up" (in development)
+## v2.4 — released (2026-09-02)
 
 Active development identity: **2.4 / build 15** across the main app and thumbnail
 extension, in both Debug and Release configurations. This is not a public-release
@@ -3147,6 +3147,17 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-09-02 (v2.4 notarized; immutable shipping artifact verified).** Apple
+  accepted the universal Developer ID archive for notarization and Xcode exported
+  the stapled app. Both the clean exported app and a fresh unzip passed the full
+  production release-candidate gate: versions, architectures, entitlements,
+  strict deep signatures, Gatekeeper, and staple validation. The immutable
+  `EXP-design-v2.4.zip` SHA-256 is
+  `9174ea9686ff20ab81a3c39ed7175cff0df3d0ed4a3c3fc36b1a08b44fe6b389`.
+  Sparkle metadata and release notes were generated from those exact bytes.
+  **NEXT:** publish the tag and GitHub asset, deploy `main`, verify the public
+  appcast/site/download, then perform the preserved v2.3 → v2.4 Sparkle update.
 
 - **2026-09-02 (v2.4 feature-complete; full source suite green; Sanaa homepage
   story added).** Closed the final Wave D work. FEAT-051 now ships an honest

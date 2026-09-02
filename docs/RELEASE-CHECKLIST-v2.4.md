@@ -477,9 +477,10 @@ documentation-only commit before announcing the release.
 
 ## Completion receipt
 
-- [ ] Notarized/stapled universal app exported from Organizer.
-- [ ] Shipping ZIP passed direct and unzip-roundtrip release-candidate checks.
-- [ ] ZIP SHA-256 recorded here at release time (do not copy a previous release's hash).
+- [x] Notarized/stapled universal app exported from Organizer.
+- [x] Shipping ZIP passed direct and unzip-roundtrip release-candidate checks.
+- [x] ZIP SHA-256:
+      `9174ea9686ff20ab81a3c39ed7175cff0df3d0ed4a3c3fc36b1a08b44fe6b389`.
 - [ ] Annotated tag `v2.4` points at the release-metadata commit.
 - [ ] GitHub release is public and its downloaded asset matches the local ZIP.
 - [ ] Production appcast and v2.4 HTML notes are live.
