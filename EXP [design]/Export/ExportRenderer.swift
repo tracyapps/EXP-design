@@ -566,6 +566,13 @@ struct ExportRenderer {
 
         var attrs = " width=\"\(num(source.tileSize.width))\" height=\"\(num(source.tileSize.height))\""
         attrs += " patternUnits=\"\(source.units.rawValue)\""
+        // FEAT-064. `x`/`y` survive on the source only for objectBoundingBox
+        // (user-space offsets are baked into the children at import), so they are
+        // re-emitted only there — and always, so a declared offset round-trips
+        // rather than silently re-anchoring the tile at the bounds corner.
+        if source.units == .objectBoundingBox, let o = source.tileOrigin {
+            attrs += " x=\"\(num(o.x))\" y=\"\(num(o.y))\""
+        }
         let t = source.transform.cg
         if t != .identity {
             attrs += " patternTransform=\"matrix(\(num(t.a)) \(num(t.b)) \(num(t.c))"
@@ -822,7 +829,7 @@ struct ExportRenderer {
 /// staleness structurally impossible for exports (a fresh store per export) and
 /// leaves the canvas one cheap generation check.
 final class PatternTileStore {
-    private struct Key: Hashable { let id: UUID; let pixelWidth: Int }
+    private struct Key: Hashable { let id: UUID; let pixelWidth: Int; let pixelHeight: Int }
     private var tiles: [Key: CGImage] = [:]
     private var order: [Key] = []
     /// Tiles are at most ~16 MB each and a document uses a handful; this is a
@@ -843,29 +850,60 @@ final class PatternTileStore {
 
     /// A resolver bound to `document`, for handing to `PaintRender`.
     func resolver(document: Document) -> PatternResolver {
-        PatternResolver { [weak self] ref, scale in
-            self?.resolve(ref, scale: scale, document: document)
+        PatternResolver { [weak self] ref, bounds, scale in
+            self?.resolve(ref, bounds: bounds, scale: scale, document: document)
         }
     }
 
-    private func resolve(_ ref: PatternRef, scale: CGFloat,
+    private func resolve(_ ref: PatternRef, bounds: CGRect, scale: CGFloat,
                          document: Document) -> ResolvedPattern? {
         guard let source = document.patterns.first(where: { $0.id == ref.patternID })
         else { return nil }
-        // objectBoundingBox tiles size themselves against the filled shape, so one
-        // cached image cannot serve every user of the pattern. Import does not
-        // produce them yet; when it does, this needs the fill bounds threaded in.
-        guard source.units == .userSpaceOnUse else { return nil }
-        guard let image = tile(source, scale: scale, document: document) else { return nil }
-        return ResolvedPattern(image: image, tileSize: source.tileSize,
-                               transform: source.transform.cg)
+        switch source.units {
+        case .userSpaceOnUse:
+            guard let image = tile(source, scale: scale, document: document) else { return nil }
+            return ResolvedPattern(image: image, tileSize: source.tileSize,
+                                   transform: source.transform.cg)
+        case .objectBoundingBox:
+            // FEAT-064. The tile is a FRACTION of the filled shape's bounds: size
+            // the rasterisation and the lattice interval by this shape, and anchor
+            // at its origin (plus any fractional x/y the file declared). The tile
+            // image is rasterised through a source COPY carrying the effective
+            // size — `patternTile` scales viewBox content to fit the tile rect,
+            // which is exactly the semantics objectBoundingBox asks for, while
+            // `patternContentUnits`'s default (userSpaceOnUse) keeps content
+            // coordinates unscaled — also exactly right.
+            //
+            // SVG disables objectBoundingBox painting on a zero-area bounding box;
+            // declining here paints the ref's fallback, which is the honest
+            // degraded result rather than an invented lattice.
+            guard bounds.width > 0.01, bounds.height > 0.01,
+                  bounds.width.isFinite, bounds.height.isFinite else { return nil }
+            var effective = source
+            effective.tileSize = CGSize(width: source.tileSize.width * bounds.width,
+                                        height: source.tileSize.height * bounds.height)
+            guard effective.tileSize.width > 0.01, effective.tileSize.height > 0.01,
+                  effective.tileSize.width.isFinite, effective.tileSize.height.isFinite
+            else { return nil }
+            guard let image = tile(effective, scale: scale, document: document) else { return nil }
+            var origin = bounds.origin
+            if let o = source.tileOrigin {
+                origin.x += o.x * bounds.width
+                origin.y += o.y * bounds.height
+            }
+            return ResolvedPattern(image: image, tileSize: effective.tileSize,
+                                   transform: source.transform.cg, origin: origin)
+        }
     }
 
+    /// `source.tileSize` is the size to rasterise AT — the caller passes an
+    /// effective-size copy for `objectBoundingBox` patterns, so the cache key
+    /// (id + pixel size) already encodes "this tile as this shape sees it".
     private func tile(_ source: PatternSource, scale: CGFloat,
                       document: Document) -> CGImage? {
-        let pixelWidth = ExportRenderView.patternTilePixelWidth(source, scale: scale)
-        guard pixelWidth > 0 else { return nil }
-        let key = Key(id: source.id, pixelWidth: pixelWidth)
+        let pixels = ExportRenderView.patternTilePixelSize(source, scale: scale)
+        guard pixels.width > 0, pixels.height > 0 else { return nil }
+        let key = Key(id: source.id, pixelWidth: pixels.width, pixelHeight: pixels.height)
         if let hit = tiles[key] {
             if order.last != key { order.removeAll { $0 == key }; order.append(key) }
             return hit
@@ -1477,13 +1515,20 @@ final class ExportRenderView: NSView {
     /// TurbulenceNoise's per-tile ceiling.
     private static let maxPatternTilePixels = 4_194_304
 
-    /// The tile's rasterised width in pixels for a given destination scale, and
+    /// The tile's rasterised size in pixels for a given destination scale, and
     /// the cache key that goes with it. Split out so the store can compute a key
-    /// without building the image.
-    static func patternTilePixelWidth(_ source: PatternSource, scale: CGFloat) -> Int {
+    /// without building the image. BOTH dimensions are in the key (FEAT-064):
+    /// an `objectBoundingBox` tile's aspect follows the filled shape, so one
+    /// pattern at two different aspect ratios is two different tiles.
+    static func patternTilePixelSize(_ source: PatternSource, scale: CGFloat) -> (width: Int, height: Int) {
         let w = source.tileSize.width, h = source.tileSize.height
-        guard w > 0.01, h > 0.01 else { return 0 }
-        return max(1, Int((w * patternTileScale(source, scale: scale)).rounded()))
+        guard w > 0.01, h > 0.01 else { return (0, 0) }
+        let s = patternTileScale(source, scale: scale)
+        return (max(1, Int((w * s).rounded())), max(1, Int((h * s).rounded())))
+    }
+
+    static func patternTilePixelWidth(_ source: PatternSource, scale: CGFloat) -> Int {
+        patternTilePixelSize(source, scale: scale).width
     }
 
     private static func patternTileScale(_ source: PatternSource, scale: CGFloat) -> CGFloat {

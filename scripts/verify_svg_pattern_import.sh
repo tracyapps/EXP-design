@@ -33,4 +33,9 @@ xcrun swiftc \
   "$root/scripts/SVGPatternImportCheck.swift" \
   -o "$scratch/svg-pattern-import-check"
 
-"$scratch/svg-pattern-import-check" "$fixtures" "${2:-}"
+# ${2:+"$2"} passes the dump directory ONLY when it is set and non-empty. The
+# naive "${2:-}" always passed a third (empty-string) argument, which made the
+# harness's `arguments.count > 2` dump check true with an empty path — and it
+# wrote the rendered fixtures into the repo root on EVERY run. That is what
+# kept "resurrecting" the scratch files (it was never Dropbox).
+"$scratch/svg-pattern-import-check" "$fixtures" ${2:+"$2"}

@@ -448,11 +448,45 @@ struct PatternEditorView: View {
     private var tileDescription: String {
         guard let pattern else { return "" }
         let w = pattern.tileSize.width, h = pattern.tileSize.height
+        // FEAT-064: bounds-relative tiles are fractions, and a fraction reads as
+        // what it is ("25% of the shape") rather than as bogus points.
+        if pattern.units == .objectBoundingBox {
+            return "\(Int((w * 100).rounded()))% × \(Int((h * 100).rounded()))% of shape"
+        }
         func trim(_ v: CGFloat) -> String {
             let r = (v * 100).rounded() / 100
             return r == r.rounded() ? String(Int(r)) : String(Double(r))
         }
         return "\(trim(w)) × \(trim(h))"
+    }
+
+    /// FEAT-064. Anchoring beside the tile size — the pattern's own header is
+    /// where its shared properties live. Routes through the canvas action with
+    /// this pattern in `representedObject`; in this window the responder
+    /// chain's canvas resolves the pattern from its scope, so the inspector,
+    /// this header and the context menu run ONE implementation.
+    private var anchoringPicker: some View {
+        Picker("Anchoring", selection: anchoringBinding) {
+            Text("Document").tag(PatternUnits.userSpaceOnUse)
+            Text("Shape").tag(PatternUnits.objectBoundingBox)
+        }
+        .pickerStyle(.menu)
+        .labelsHidden()
+        .fixedSize()
+        .accessibilityLabel("Pattern anchoring")
+        .accessibilityHint("Anchoring applies to every layer using this pattern")
+    }
+
+    private var anchoringBinding: Binding<PatternUnits> {
+        Binding(
+            get: { pattern?.units ?? .userSpaceOnUse },
+            set: { units in
+                let selector = Selector((units == .objectBoundingBox
+                    ? "setPatternUnitsShapeAction:" : "setPatternUnitsDocumentAction:"))
+                let item = NSMenuItem(title: "", action: selector, keyEquivalent: "")
+                item.representedObject = patternID
+                NSApp.sendAction(selector, to: nil, from: item)
+            })
     }
 
     var body: some View {
@@ -485,7 +519,8 @@ struct PatternEditorView: View {
                 Text("Tile \(tileDescription)")
                     .font(.system(size: EXPType.mini, weight: .medium))
                     .foregroundStyle(EXPColor.textSecondary)
-                    .accessibilityLabel("Tile size \(tileDescription) points")
+                    .accessibilityLabel("Tile size \(tileDescription)")
+                anchoringPicker
                 Text("Edits apply everywhere this pattern is used")
                     .font(.system(size: EXPType.mini))
                     .foregroundStyle(EXPColor.textTertiary)

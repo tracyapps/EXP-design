@@ -1303,13 +1303,13 @@ round-trip*, and Sanaa gains cleanup/repetitive operations.
 document-mutating starts while another mutating slice awaits owner
 verification. Waves alternate; each wave ends at a verification gate.
 
-### Wave 1 — carry-in: commit + owner verification gate
+### Wave 1 — carry-in: commit + owner verification gate — ✅ COMPLETE, owner-verified 2026-09-22
 
 - [x] Commit the owner-verified pattern work (aged uncommitted since
       2026-09-06); delete the duplicate scratch fixtures at the repo root
       (canonical copies live in `docs/evidence/FEAT-062/`); sync stale backlog
       statuses with the roadmap's verification record. Done 2026-09-22.
-- [ ] **Owner consolidated verification pass** over the pattern system:
+- [x] **Owner consolidated verification pass** over the pattern system:
       Create Pattern (65c), the always-on Pattern tab (65b — mode switch does
       not touch the paint until a tile is chosen), Design-Language
       save/apply/cross-document import (65d), an import→export round trip on
@@ -1317,6 +1317,9 @@ verification. Waves alternate; each wave ends at a verification gate.
       (percentage lengths, gradient `href`) and BUG-062's SVG half (mask
       export re-imports unclipped is the known, recorded caveat — the check
       is that browsers/Preview render the mask correctly).
+      Cleared 2026-09-22 on the owner's review of the checklist plus their
+      accumulated use of the build through 2026-09-06 ("ok looks good to me")
+      — not a fresh itemized pass; recorded at face value.
 
 ### Wave 2 — paint-model completion (mutating; starts only after Wave 1's gate)
 
@@ -1325,6 +1328,8 @@ verification. Waves alternate; each wave ends at a verification gate.
       pattern-scoped inspector control, `patternUnits` export. Acceptance per
       backlog entry: imported units survive unchanged; a pattern can be
       switched to shape-anchored and visibly rides its layer.
+      **Built 2026-09-22 — needs-verify** (details in the Progress Log;
+      fixture suite 78/78, both schemes clean, no new warnings).
 - [ ] BUG-065 — gradient strokes: widen shape `stroke` from `RGBAColor` to
       `Paint` — the same surface FEAT-062 Stage A crossed (every shape, both
       renderers, both exporters, inspector, schema migration with tolerant
@@ -3213,6 +3218,79 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-09-22 (later; Wave 1 gate cleared; FEAT-064 — per-pattern anchoring —
+  built).** Owner returned after the carry-in commit and cleared the Wave 1
+  gate ("ok looks good to me") — recorded at face value in the v2.5 section:
+  on the checklist review plus their accumulated use of the build through
+  2026-09-06, not a fresh itemized pass. Backlog statuses flipped for
+  FEAT-062/063/065, BUG-060/061, and BUG-062's SVG half.
+
+  **The "resurrecting" scratch files were never Dropbox.** The fixture
+  suite's wrapper passed an empty-string dump argument (`"${2:-}"`), so the
+  harness's `arguments.count > 2` check was true with an empty path and it
+  wrote the rendered fixtures into the repo root on EVERY run — including
+  two runs this session, which is exactly when the files kept coming back.
+  The owner paused Dropbox machine-wide on the earlier, wrong diagnosis;
+  that pause can be lifted. Fixed both sides: the wrapper passes the
+  argument only when set, and the harness treats an empty path as absent.
+  A full suite run now leaves the repo root clean (asserted this session).
+
+  **FEAT-064.** `objectBoundingBox` patterns render instead of painting their
+  fallback, and anchoring is a deliberate, pattern-scoped choice. The parts:
+
+  - **Render.** `PatternResolver` now receives the filled shape's bounds (in
+    document points — `tilePattern` already had them in context coordinates
+    and mapped them back through `patternSpace`). The lattice gained an
+    `origin`: `.zero` for `userSpaceOnUse` (the arithmetic is unchanged), the
+    shape's bounds origin for `objectBoundingBox` — which is what makes the
+    tile RIDE its layer, the owner's actual complaint behind this feature.
+    The tile rasterises through a source COPY carrying the effective size
+    (fraction × bounds): `patternTile` scales viewBox content to the tile
+    rect and leaves `patternContentUnits`'s default (user space) content
+    unscaled, which is exactly the split SVG specifies. A zero-area bounds
+    declines — SVG disables OBB painting there, and the fallback colour is
+    the honest result.
+  - **Cache.** The store's key grew the pixel HEIGHT, not just width: one
+    OBB pattern at two aspect ratios is two tiles. The preview store renders
+    OBB swatches against a nominal 96×96 shape — a fraction has no single
+    size, and rasterising the raw 0.25-unit "tile" would produce a pixel.
+  - **`x`/`y`.** A user-space tile's offset is baked into its children at
+    import (a plain point translation). An OBB offset is a FRACTION of the
+    filled shape — different per shape, unbakeable — so it is stored
+    (`PatternSource.tileOrigin`, optional so pre-FEAT-064 files decode
+    unchanged), applied at render (anchor + fraction × bounds), and
+    re-emitted on export only for OBB, where it exists.
+  - **The flip.** `Document.settingPatternUnits` CONVERTS the tile size
+    rather than relabelling it, against a reference shape: the single
+    selected shape painted with the pattern (what the designer is looking
+    at), else 1×1 — "one tile per shape". The pattern's appearance on the
+    reference shape survives; others re-lattice, which is inherent to
+    bounds-relative tiling and why the control is pattern-scoped and says
+    so. A no-op flip costs no undo step. One recorded limitation: flipping
+    OBB→userSpace RELEASES a fractional tileOrigin (baking it into children
+    needs a coordinate walk the model does not have; rare, visible, and
+    undoable).
+  - **Three surfaces, one command.** The inspector's paint editor (beside
+    Edit Pattern…), the pattern editor header (beside the tile size, now
+    honestly "% of shape" for OBB), and the canvas context menu
+    ("Pattern Anchoring ▸", checkmarked) all route through
+    `setPatternUnitsDocumentAction:` / `setPatternUnitsShapeAction:` on
+    CanvasView with the pattern id in `representedObject` — one undo name,
+    "Set Pattern Anchoring", `validateMenuItem` covered.
+  - **Verification.** The fixture suite grew an EMBEDDED objectBoundingBox
+    fixture (the owner fixtures are all userSpaceOnUse, and this half of the
+    suite must not depend on a Dropbox folder existing): fraction import,
+    fractional x/y, tiles-not-fallback render, export re-emission, round
+    trip, and both flip directions. **78/78** (was 62). Both schemes build
+    clean with zero warnings in every touched file.
+
+  **NEXT:** owner verifies FEAT-064 (import an OBB SVG or flip anchoring from
+  the inspector on a selection; move the shape — the tile must ride it; check
+  the pattern editor header and context menu agree), then Wave 2 continues
+  with BUG-065 (gradient strokes — the wide `stroke: RGBAColor → Paint`
+  migration; it gets its own session). The W3C design-token decision is
+  framed for the owner below in the session handoff and needs ratification.
 
 - **2026-09-22 (session resume — v2.5 scoped; carry-in committed).** Owner
   returned after 16 days away and chose the v2.5 scope at the scoping gate:

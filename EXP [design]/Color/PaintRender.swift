@@ -22,23 +22,32 @@ struct ResolvedPattern {
     /// rasterises at whatever resolution the destination needs.
     var image: CGImage
     /// The repeat interval in DOCUMENT POINTS — SVG's `width`/`height` on
-    /// `<pattern>`.
+    /// `<pattern>`. For `objectBoundingBox` this is the EFFECTIVE interval for
+    /// the one shape being filled (fraction × bounds), never the raw fraction.
     var tileSize: CGSize
     /// SVG `patternTransform`, applied to the whole lattice rather than to each
     /// tile's content. Keeping it here (instead of baking it into the tile
     /// image) is what lets the exporter write it back out as one attribute.
     var transform: CGAffineTransform
+    /// FEAT-064. Where the lattice anchors in document space, BEFORE
+    /// `transform` — `.zero` for `userSpaceOnUse` (the format's own anchor),
+    /// or the filled shape's bounds origin (plus any fractional `x`/`y`) for
+    /// `objectBoundingBox`, which is what makes the tile RIDE its layer.
+    var origin: CGPoint = .zero
 }
 
 /// Resolves a fill's pattern reference to a drawable tile (FEAT-062 Stage B).
 struct PatternResolver {
-    /// `scale` is the destination's points-to-pixels ratio, so a tile can be
-    /// rasterised at the resolution it will actually be drawn at rather than
-    /// always at 1× (blurry when zoomed in) or always at 4× (wasteful).
-    /// Returning nil means "cannot draw this" — the caller then paints the
-    /// ref's own fallback rather than leaving a hole.
-    var resolve: (PatternRef, CGFloat) -> ResolvedPattern?
-    init(_ resolve: @escaping (PatternRef, CGFloat) -> ResolvedPattern?) {
+    /// `bounds` is the filled shape's frame in DOCUMENT points —
+    /// `objectBoundingBox` tiles are sized and anchored as fractions of it
+    /// (FEAT-064), while `userSpaceOnUse` ignores it. `scale` is the
+    /// destination's points-to-pixels ratio, so a tile can be rasterised at the
+    /// resolution it will actually be drawn at rather than always at 1× (blurry
+    /// when zoomed in) or always at 4× (wasteful). Returning nil means "cannot
+    /// draw this" — the caller then paints the ref's own fallback rather than
+    /// leaving a hole.
+    var resolve: (PatternRef, CGRect, CGFloat) -> ResolvedPattern?
+    init(_ resolve: @escaping (PatternRef, CGRect, CGFloat) -> ResolvedPattern?) {
         self.resolve = resolve
     }
 }
@@ -233,6 +242,11 @@ enum PaintRender {
         let spaceDeterminant = space.a * space.d - space.b * space.c
         guard abs(spaceDeterminant) > 1e-9 else { return false }
 
+        // The shape's frame in DOCUMENT points. Computed before resolving:
+        // `objectBoundingBox` tiles size and anchor themselves as fractions of
+        // exactly this rect (FEAT-064); `userSpaceOnUse` resolvers ignore it.
+        let documentBounds = bounds.applying(space.inverted())
+
         // Rasterise at the resolution the tile will actually be drawn at. That is
         // the CONTEXT scale composed with `space`, because on the canvas the zoom
         // lives in `space`, not in the CTM — reading the CTM alone would pin every
@@ -240,7 +254,7 @@ enum PaintRender {
         let effective = space.concatenating(ctx.ctm)
         let effectiveScale = abs(effective.a * effective.d - effective.b * effective.c).squareRoot()
         let scale = min(4, max(1, effectiveScale.isFinite ? effectiveScale : 1))
-        guard let pattern = resolver.resolve(ref, scale) else { return false }
+        guard let pattern = resolver.resolve(ref, documentBounds, scale) else { return false }
 
         let tw = pattern.tileSize.width, th = pattern.tileSize.height
         guard tw > 0.01, th > 0.01 else { return false }
@@ -253,12 +267,17 @@ enum PaintRender {
         let determinant = t.a * t.d - t.b * t.c
         guard abs(determinant) > 1e-9 else { return false }
 
-        let documentBounds = bounds.applying(space.inverted())
         let region = documentBounds.applying(t.inverted())
         guard region.width.isFinite, region.height.isFinite else { return false }
 
-        let i0 = Int(floor(region.minX / tw)), i1 = Int(ceil(region.maxX / tw))
-        let j0 = Int(floor(region.minY / th)), j1 = Int(ceil(region.maxY / th))
+        // Indices count from the lattice's ORIGIN, not from zero:
+        // `userSpaceOnUse` anchors at the document origin (origin is .zero, so
+        // this is the arithmetic the lattice has always used), while
+        // `objectBoundingBox` anchors at the shape's bounds — the tile rides
+        // its layer because the anchor moves when the shape does.
+        let ox = pattern.origin.x, oy = pattern.origin.y
+        let i0 = Int(floor((region.minX - ox) / tw)), i1 = Int(ceil((region.maxX - ox) / tw))
+        let j0 = Int(floor((region.minY - oy) / th)), j1 = Int(ceil((region.maxY - oy) / th))
         guard i1 >= i0, j1 >= j0 else { return false }
         let columns = i1 - i0 + 1, rows = j1 - j0 + 1
         guard columns > 0, rows > 0,
@@ -275,7 +294,7 @@ enum PaintRender {
                 ctx.saveGState()
                 // Model space is y-down and a CGImage draws y-up, so each tile is
                 // flipped in place — the same idiom the placed-image path uses.
-                ctx.translateBy(x: CGFloat(i) * tw, y: CGFloat(j) * th + th)
+                ctx.translateBy(x: ox + CGFloat(i) * tw, y: oy + CGFloat(j) * th + th)
                 ctx.scaleBy(x: 1, y: -1)
                 ctx.draw(pattern.image, in: CGRect(x: 0, y: 0, width: tw, height: th))
                 ctx.restoreGState()

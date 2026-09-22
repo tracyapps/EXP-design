@@ -13016,6 +13016,81 @@ final class CanvasNSView: NSView {
         openPatternEditor(id)
     }
 
+    // MARK: Pattern anchoring (FEAT-064)
+
+    /// Flip a pattern between document-anchored (`userSpaceOnUse`) and
+    /// shape-anchored (`objectBoundingBox`) tiling. One implementation behind
+    /// three surfaces — the inspector's paint editor, the pattern editor header,
+    /// and the canvas context menu — routed here through the responder chain
+    /// with the pattern id in `representedObject`, exactly like Duplicate and
+    /// Delete, so every surface runs one undoable command.
+    @objc func setPatternUnitsDocumentAction(_ sender: Any?) {
+        setPatternUnits(sender, to: .userSpaceOnUse)
+    }
+
+    @objc func setPatternUnitsShapeAction(_ sender: Any?) {
+        setPatternUnits(sender, to: .objectBoundingBox)
+    }
+
+    private func setPatternUnits(_ sender: Any?, to units: PatternUnits) {
+        guard let document, let id = patternTarget(for: sender),
+              let pattern = document.model.pattern(for: id),
+              pattern.units != units else { return }
+        // The conversion reference is the shape the designer is looking at: a
+        // single selected shape painted with this pattern is the unambiguous
+        // answer, and flipping from its inspector keeps the pattern's appearance
+        // on THAT shape. Anything broader (multi-selection, an artboard
+        // background, the pattern editor) has no one right shape, so the flip
+        // falls back to "one tile per shape" (1.0 fractions) — visible,
+        // predictable, and one undo away.
+        document.setModel(
+            document.model.settingPatternUnits(id, to: units,
+                                               reference: selectedFillSize(of: id)),
+            undoManager: undoManager, actionName: "Set Pattern Anchoring")
+        needsDisplay = true
+    }
+
+    /// The frame size of a single selected shape painted with `id`, or `.zero`
+    /// when the selection is not exactly that (`settingPatternUnits` treats a
+    /// degenerate reference as 1×1).
+    private func selectedFillSize(of patternID: UUID) -> CGSize {
+        guard let app, app.selectedNodeIDs.count == 1,
+              let id = app.selectedNodeIDs.first, let node = node(id) else { return .zero }
+        let fill: Paint?
+        switch node.content {
+        case .rectangle(let shape): fill = shape.fill
+        case .ellipse(let shape):   fill = shape.fill
+        case .polygon(let shape):   fill = shape.fill
+        case .path(let shape):      fill = shape.fill
+        default:                    fill = nil
+        }
+        guard fill?.patternValue?.patternID == patternID else { return .zero }
+        return node.frame.size
+    }
+
+    /// "Pattern Anchoring ▸" for the context menu. The tile is shared, so
+    /// anchoring is a property of the PATTERN, not the layer — the current mode
+    /// is checkmarked to make that scope visible at the point of change.
+    private func anchoringMenuItem(for patternID: UUID?) -> NSMenuItem {
+        let item = NSMenuItem(title: "Pattern Anchoring", action: nil, keyEquivalent: "")
+        let submenu = NSMenu()
+        let current = patternID.flatMap { document?.model.pattern(for: $0) }?.units
+        let modes: [(String, PatternUnits, Selector)] = [
+            ("Document — tile locks to the artboard", .userSpaceOnUse,
+             #selector(setPatternUnitsDocumentAction(_:))),
+            ("Shape — tile rides each layer", .objectBoundingBox,
+             #selector(setPatternUnitsShapeAction(_:)))
+        ]
+        for (title, units, selector) in modes {
+            let entry = NSMenuItem(title: title, action: selector, keyEquivalent: "")
+            entry.representedObject = patternID
+            entry.state = (current == units) ? .on : .off
+            submenu.addItem(entry)
+        }
+        item.submenu = submenu
+        return item
+    }
+
     // MARK: Context menu
 
     override func menu(for event: NSEvent) -> NSMenu? {
@@ -13153,6 +13228,7 @@ final class CanvasNSView: NSView {
                 add(menu, "Edit Pattern…", #selector(editPatternAction(_:)))
                 add(menu, "Duplicate Pattern", #selector(duplicatePatternAction(_:)))
                 add(menu, "Delete Pattern", #selector(deletePatternAction(_:)))
+                menu.addItem(anchoringMenuItem(for: selectedPatternID))
             }
             if selectionConvertibleToPath {
                 add(menu, "Convert to Path", #selector(convertToPathAction(_:)))
@@ -13463,6 +13539,12 @@ extension CanvasNSView: NSMenuItemValidation {
             return selectionHasInstance
         case #selector(editPatternAction(_:)):
             return selectedPatternID != nil
+        case #selector(setPatternUnitsDocumentAction(_:)),
+             #selector(setPatternUnitsShapeAction(_:)):
+            // The action no-ops when the pattern is already in the requested
+            // mode, so enabling both entries is fine — the checkmark in the
+            // context menu is what communicates the current state.
+            return patternTarget(for: item) != nil
         case #selector(createPatternAction(_:)):
             return hasNodes
         case #selector(duplicatePatternAction(_:)):

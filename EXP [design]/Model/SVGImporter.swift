@@ -686,9 +686,24 @@ enum SVGImporter {
 
             // Tile-local coordinates: content is authored in user space starting at
             // the pattern's (x, y), and the tile's own origin is (0, 0).
-            let originShift = CGAffineTransform(
-                translationX: -length(el, "x", .horizontal, ctx),
-                y: -length(el, "y", .vertical, ctx))
+            //
+            // FEAT-064: for `objectBoundingBox` that (x, y) is a FRACTION of the
+            // filled shape's bounds — different for every shape that references
+            // the tile, so it cannot be baked into the children the way the
+            // user-space offset is. It rides on the source and multiplies the
+            // bounds at render time.
+            let originShift: CGAffineTransform
+            var tileOrigin: CGPoint? = nil
+            if units == .objectBoundingBox {
+                originShift = .identity
+                let ox = length(el, "x", .horizontal, ctx)
+                let oy = length(el, "y", .vertical, ctx)
+                if abs(ox) > 0.0001 || abs(oy) > 0.0001 { tileOrigin = CGPoint(x: ox, y: oy) }
+            } else {
+                originShift = CGAffineTransform(
+                    translationX: -length(el, "x", .horizontal, ctx),
+                    y: -length(el, "y", .vertical, ctx))
+            }
 
             var children: [Node] = []
             for child in el.children?.compactMap({ $0 as? XMLElement }) ?? [] {
@@ -710,7 +725,8 @@ enum SVGImporter {
                 tileSize: CGSize(width: width, height: height),
                 units: units,
                 transform: AffineValue(transform(el, attribute: "patternTransform")),
-                viewBox: box)
+                viewBox: box,
+                tileOrigin: tileOrigin)
         }
     }
 

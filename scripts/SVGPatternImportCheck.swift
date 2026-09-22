@@ -88,6 +88,127 @@ static func distinctColors(inPNG data: Data) -> Int {
     return seen.count
 }
 
+/// FEAT-064. One objectBoundingBox pattern over an 800×600 board: tile =
+/// 0.25 × 0.5 fractions (200 × 300 user units), fractional x/y of 0.1/0.1,
+/// magenta tile content with a white circle. The carrier rect covers the whole
+/// board, so if the renderer declines the OBB tile the ENTIRE render collapses
+/// to the fallback magenta — a fallback that passes a "not flat" check on the
+/// strength of one colour is exactly the failure this fixture exists to catch.
+static func runOBBAnchoringFixture() {
+    print("obb-anchor (embedded):")
+    let obbSVG = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="800" height="600" viewBox="0 0 800 600">
+          <defs>
+            <pattern id="obb" patternUnits="objectBoundingBox" x="0.1" y="0.1" width="0.25" height="0.5">
+              <rect width="200" height="300" fill="#ff00ff"/>
+              <circle cx="100" cy="150" r="60" fill="#ffffff"/>
+            </pattern>
+          </defs>
+          <rect width="800" height="600" fill="#336633"/>
+          <rect width="100%" height="100%" fill="url(#obb)"/>
+        </svg>
+        """
+
+    guard let result = SVGImporter.importDocument(from: Data(obbSVG.utf8)) else {
+        check("obb fixture parses", false, "importDocument returned nil")
+        print("")
+        return
+    }
+    guard let pattern = result.patterns.first else {
+        check("obb pattern imported", false, "no patterns in the import")
+        print("")
+        return
+    }
+
+    check("obb pattern imported", result.patterns.count == 1)
+    check("units are objectBoundingBox", pattern.units == .objectBoundingBox)
+    check("tile size is the fractions from the file",
+          abs(pattern.tileSize.width - 0.25) < 0.001 && abs(pattern.tileSize.height - 0.5) < 0.001,
+          "got \(pattern.tileSize)")
+    check("fractional x/y survived as tileOrigin",
+          abs((pattern.tileOrigin?.x ?? -1) - 0.1) < 0.001
+          && abs((pattern.tileOrigin?.y ?? -1) - 0.1) < 0.001,
+          "got \(String(describing: pattern.tileOrigin))")
+
+    // Render: the OBB tile must actually TILE — one tile per 200×300 user units,
+    // anchored 80/60 in from the board corner by the fractional x/y.
+    let size = result.group.frame.size
+    var board = Artboard(name: "obb", frame: CGRect(origin: .zero, size: size))
+    board.background = .solid(RGBAColor(r: 0.2, g: 0.4, b: 0.2, a: 1))
+    var placed = result.group
+    placed.frame = CGRect(origin: .zero, size: size)
+    var renderDoc = Document(artboards: [board], nodes: [placed])
+    renderDoc.patterns = result.patterns
+    let renderer = ExportRenderer(document: renderDoc)
+    if let png = renderer.data(for: board, format: .png, scale: 1) {
+        let variety = nonDominantFraction(inPNG: png)
+        check("obb render tiles rather than painting the fallback", variety >= 0.10,
+              String(format: "only %.1f%% of sampled pixels differ from the dominant "
+                     + "colour — the fallback would be flat magenta", variety * 100))
+        check("obb render keeps the white circle (fraction-sized tile drew real content)",
+              distinctColors(inPNG: png) >= 3,
+              "expected background + magenta + white, got \(distinctColors(inPNG: png)) colours")
+    } else {
+        check("obb render produced a PNG", false)
+    }
+
+    // Export: the units, the fractions, and the x/y must all survive to the file.
+    let exported = renderer.svgString(for: board)
+    check("export keeps patternUnits=\"objectBoundingBox\"",
+          exported.contains("patternUnits=\"objectBoundingBox\""))
+    check("export keeps the fractional tile size",
+          exported.contains("width=\"0.25") && exported.contains("height=\"0.5"),
+          "fractions must not be written as absolute user units")
+    check("export re-emits the fractional x/y",
+          exported.contains("x=\"0.1") && exported.contains("y=\"0.1"),
+          "a dropped x/y silently re-anchors the tile at the bounds corner")
+
+    // Round trip: units, fractions, origin, and a live render.
+    if let tripped = SVGImporter.importDocument(from: Data(exported.utf8)),
+       let trippedPattern = tripped.patterns.first {
+        check("obb round trip keeps objectBoundingBox",
+              trippedPattern.units == .objectBoundingBox)
+        check("obb round trip keeps the fractions",
+              abs(trippedPattern.tileSize.width - 0.25) < 0.001
+              && abs(trippedPattern.tileSize.height - 0.5) < 0.001,
+              "got \(trippedPattern.tileSize)")
+        check("obb round trip keeps the fractional x/y",
+              abs((trippedPattern.tileOrigin?.x ?? -1) - 0.1) < 0.001
+              && abs((trippedPattern.tileOrigin?.y ?? -1) - 0.1) < 0.001)
+        var tripDoc = Document(artboards: [board], nodes: [tripped.group])
+        tripDoc.patterns = tripped.patterns
+        if let tripPNG = ExportRenderer(document: tripDoc).data(for: board, format: .png, scale: 1) {
+            let tripVariety = nonDominantFraction(inPNG: tripPNG)
+            check("obb round-tripped render still tiles", tripVariety >= 0.10,
+                  String(format: "only %.1f%% differ from the dominant colour", tripVariety * 100))
+        }
+    } else {
+        check("obb export re-imports", false)
+    }
+
+    // The inspector's flip, both directions, through the model helper the
+    // canvas action calls. Reference = the fixture's own 800×600 board, so the
+    // tile's appearance on that shape is what must survive the round flip.
+    var flipDoc = Document(artboards: [], nodes: [])
+    flipDoc.patterns = result.patterns
+    let reference = CGSize(width: 800, height: 600)
+    let toUser = flipDoc.settingPatternUnits(pattern.id, to: .userSpaceOnUse, reference: reference)
+    check("flip to userSpace converts fractions to points",
+          toUser.pattern(for: pattern.id)?.units == .userSpaceOnUse
+          && abs((toUser.pattern(for: pattern.id)?.tileSize.width ?? 0) - 200) < 0.01
+          && abs((toUser.pattern(for: pattern.id)?.tileSize.height ?? 0) - 300) < 0.01,
+          "got \(String(describing: toUser.pattern(for: pattern.id)?.tileSize))")
+    let back = toUser.settingPatternUnits(pattern.id, to: .objectBoundingBox, reference: reference)
+    check("flip back to objectBoundingBox restores the fractions",
+          abs((back.pattern(for: pattern.id)?.tileSize.width ?? 0) - 0.25) < 0.001
+          && abs((back.pattern(for: pattern.id)?.tileSize.height ?? 0) - 0.5) < 0.001,
+          "got \(String(describing: back.pattern(for: pattern.id)?.tileSize))")
+    check("same-units flip is a no-op",
+          back.settingPatternUnits(pattern.id, to: .objectBoundingBox, reference: reference)
+              .patterns.first?.tileSize == back.patterns.first?.tileSize)
+    print("")
+}
+
 struct Expectation {
     let file: String
     let patternCount: Int
@@ -223,12 +344,17 @@ for expectation in expectations {
     var renderDoc = Document(artboards: [board], nodes: [placed])
     renderDoc.patterns = result.patterns
     let renderer = ExportRenderer(document: renderDoc)
+    // Optional second argument: a directory to drop the rendered PNG into, so
+    // the result can be LOOKED at. A colour count proves "not flat"; it does not
+    // prove the tiling landed in the right place at the right scale. An EMPTY
+    // string counts as absent — the wrapper used to pass "" through, which made
+    // this dump to the repo root on every run.
+    let dumpDirectory: String? = (CommandLine.arguments.count > 2 && !CommandLine.arguments[2].isEmpty)
+        ? CommandLine.arguments[2] : nil
+
     if let png = renderer.data(for: board, format: .png, scale: 1) {
-        // Optional second argument: a directory to drop the rendered PNG into, so
-        // the result can be LOOKED at. A colour count proves "not flat"; it does
-        // not prove the tiling landed in the right place at the right scale.
-        if CommandLine.arguments.count > 2 {
-            let out = URL(fileURLWithPath: CommandLine.arguments[2])
+        if let dumpDirectory {
+            let out = URL(fileURLWithPath: dumpDirectory)
                 .appendingPathComponent(expectation.file.replacingOccurrences(of: ".svg", with: ".png"))
             try? png.write(to: out)
         }
@@ -247,11 +373,11 @@ for expectation in expectations {
     // SVG and re-import THAT. This is the claim the whole document-level-source
     // architecture was chosen for, so it is asserted rather than assumed.
     let exported = renderer.svgString(for: board)
-    if CommandLine.arguments.count > 2 {
+    if let dumpDirectory {
         // Dump the export so it can be opened in an INDEPENDENT renderer. Our own
         // importer round-tripping it proves the two halves agree with each other,
         // not that the file is valid SVG anyone else will draw.
-        let out = URL(fileURLWithPath: CommandLine.arguments[2])
+        let out = URL(fileURLWithPath: dumpDirectory)
             .appendingPathComponent(expectation.file.replacingOccurrences(
                 of: ".svg", with: "-exported.svg"))
         try? Data(exported.utf8).write(to: out)
@@ -293,6 +419,15 @@ for expectation in expectations {
     }
     print("")
 }
+
+// ── FEAT-064: objectBoundingBox anchoring. The owner fixtures are all
+// userSpaceOnUse, so the bounds-relative mode gets its own EMBEDDED fixture —
+// this half of the suite must not depend on a folder that happens to exist in
+// someone's Dropbox. It exercises the fraction tile size, the fractional x/y
+// origin (which cannot be baked into children because it differs per shape),
+// the render path (which must tile rather than paint the fallback colour), the
+// export re-emission, the round trip, and the inspector's unit-flip conversion.
+runOBBAnchoringFixture()
 
 print("\(checks - failures.count)/\(checks) checks passed")
 if failures.isEmpty {

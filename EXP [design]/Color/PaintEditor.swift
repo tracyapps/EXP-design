@@ -71,11 +71,23 @@ final class PatternPreviewStore {
         let generation = document.resolveGeneration
         if let hit = images[ref.patternID], hit.generation == generation { return hit.image }
         guard let source = document.model.pattern(for: ref.patternID) else { return nil }
-        let longest = max(source.tileSize.width, source.tileSize.height)
+        // FEAT-064. An objectBoundingBox tile has no single size — it is a
+        // fraction of whatever shape fills with it. A swatch has no shape, so it
+        // renders against a NOMINAL one (square, preview-sized): the motif shows
+        // at a plausible scale instead of rasterising at the raw fraction (a
+        // 0.25-unit "tile" that would come out a single pixel). The store's key
+        // stays the pattern id because the nominal shape is constant.
+        var rasterSource = source
+        if source.units == .objectBoundingBox {
+            let nominal = CGSize(width: 96, height: 96)
+            rasterSource.tileSize = CGSize(width: max(1, source.tileSize.width * nominal.width),
+                                           height: max(1, source.tileSize.height * nominal.height))
+        }
+        let longest = max(rasterSource.tileSize.width, rasterSource.tileSize.height)
         guard longest > 0 else { return nil }
         // The SAME rasteriser the canvas and every export path uses, so a swatch
         // can never show something the artwork does not.
-        guard let image = ExportRenderView.patternTile(source, document: document.model,
+        guard let image = ExportRenderView.patternTile(rasterSource, document: document.model,
                                                        scale: max(0.02, previewPixels / longest))
         else { return nil }
         images[ref.patternID] = (generation, image)
@@ -359,6 +371,49 @@ struct PaintEditor: View {
 
     // MARK: Mode switching (converts the Paint)
 
+    // MARK: Pattern anchoring (FEAT-064)
+
+    /// Anchoring is deliberately NOT a paint property: the tile is shared by
+    /// every layer painted with it, so they all re-anchor together. The control
+    /// sits beside the pattern's own Edit button and says its scope, rather
+    /// than hiding a document-level change inside a per-layer fill picker. It
+    /// routes through the canvas action (the pattern id rides in
+    /// `representedObject`), so the inspector, the pattern editor header and
+    /// the context menu run ONE implementation with one undo name.
+    @ViewBuilder private var anchoringControl: some View {
+        if let id = paint.patternValue?.patternID,
+           patternLibrary.sources().contains(where: { $0.id == id }) {
+            HStack(spacing: 6) {
+                Text("Anchor").foregroundStyle(EXPColor.textSecondary).font(.callout)
+                Picker("Anchor", selection: anchoringBinding) {
+                    Text("Document").tag(PatternUnits.userSpaceOnUse)
+                    Text("Shape").tag(PatternUnits.objectBoundingBox)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .frame(maxWidth: 220)
+                .accessibilityLabel("Pattern anchoring")
+                .accessibilityHint("Anchoring applies to every layer using this pattern")
+            }
+        }
+    }
+
+    private var anchoringBinding: Binding<PatternUnits> {
+        Binding(
+            get: {
+                guard let id = paint.patternValue?.patternID else { return .userSpaceOnUse }
+                return patternLibrary.sources().first { $0.id == id }?.units ?? .userSpaceOnUse
+            },
+            set: { units in
+                guard let id = paint.patternValue?.patternID else { return }
+                let selector = Selector((units == .objectBoundingBox
+                    ? "setPatternUnitsShapeAction:" : "setPatternUnitsDocumentAction:"))
+                let item = NSMenuItem(title: "", action: selector, keyEquivalent: "")
+                item.representedObject = id
+                NSApp.sendAction(selector, to: nil, from: item)
+            })
+    }
+
     // MARK: Pattern (FEAT-065b)
 
     private let patternGrid = [GridItem(.adaptive(minimum: 46, maximum: 70), spacing: 6)]
@@ -400,7 +455,8 @@ struct PaintEditor: View {
                         NSApp.sendAction(Selector(("editPatternAction:")), to: nil, from: nil)
                     }
                     .accessibilityLabel("Edit this pattern's tile")
-                    Text("Edits apply everywhere this pattern is used.")
+                    anchoringControl
+                    Text("Edits and anchoring apply everywhere this pattern is used.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)

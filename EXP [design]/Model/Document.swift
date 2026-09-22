@@ -637,6 +637,44 @@ struct Document: Codable, Sendable {
         return model
     }
 
+    /// FEAT-064. Flip a pattern's anchoring between document points
+    /// (`userSpaceOnUse`) and fractions of the filled shape's bounds
+    /// (`objectBoundingBox`).
+    ///
+    /// `tileSize` has to be CONVERTED, not just re-labelled, because its meaning
+    /// changes with the units. The reference is the shape the designer was
+    /// looking at when they flipped — normally the selection — so the pattern's
+    /// appearance on THAT shape survives the flip; other shapes re-lattice, which
+    /// is inherent to bounds-relative tiling and exactly why the control is
+    /// pattern-scoped and says so. A degenerate reference falls back to 1×1,
+    /// making the new fraction 1.0 ("one tile per shape") rather than garbage.
+    ///
+    /// A `tileOrigin` fraction offset is RELEASED on the reverse flip (set to
+    /// nil): baking it into children would need a coordinate walk the model does
+    /// not have, the offset is rare, and undo covers the visible re-anchoring.
+    /// A no-op flip (same units) returns self unchanged so it costs no undo step.
+    func settingPatternUnits(_ id: UUID, to units: PatternUnits,
+                             reference: CGSize) -> Document {
+        guard let index = patterns.firstIndex(where: { $0.id == id }),
+              patterns[index].units != units else { return self }
+        let ref = (reference.width > 0.01 && reference.height > 0.01)
+            ? reference : CGSize(width: 1, height: 1)
+        var model = self
+        var source = patterns[index]
+        switch units {
+        case .objectBoundingBox:
+            source.tileSize = CGSize(width: min(32, max(0.01, source.tileSize.width / ref.width)),
+                                     height: min(32, max(0.01, source.tileSize.height / ref.height)))
+        case .userSpaceOnUse:
+            source.tileSize = CGSize(width: source.tileSize.width * ref.width,
+                                     height: source.tileSize.height * ref.height)
+            source.tileOrigin = nil
+        }
+        source.units = units
+        model.patterns[index] = source
+        return model
+    }
+
     static func uniquePatternName(base: String, existing: [String]) -> String {
         let trimmed = base.trimmingCharacters(in: .whitespacesAndNewlines)
         let root = trimmed.isEmpty ? "Pattern" : trimmed
@@ -3460,6 +3498,14 @@ struct PatternSource: Identifiable, Codable, Sendable {
     var transform: AffineValue = .identity
     /// A `viewBox` declared on the pattern, when it had one.
     var viewBox: CGRect?
+    /// FEAT-064. SVG `x`/`y` on `<pattern>` — where the tile sits inside its
+    /// repeat interval. For `userSpaceOnUse` the importer BAKES this into the
+    /// children's coordinates (it is a plain point offset), so it stays nil.
+    /// For `objectBoundingBox` it is a fraction of the filled shape's bounds
+    /// and cannot be baked — the same tile meets every shape at a different
+    /// offset — so it is stored and applied at render, fraction × bounds.
+    /// Optional (rather than defaulted) so pre-FEAT-064 files decode unchanged.
+    var tileOrigin: CGPoint? = nil
 
     /// A colour that stands in for this tile wherever it cannot be drawn — an
     /// older build, an export path that has not learned patterns, a resolver that
@@ -3491,10 +3537,11 @@ struct PatternSource: Identifiable, Codable, Sendable {
 
     init(id: UUID = UUID(), name: String, children: [Node], tileSize: CGSize,
          units: PatternUnits = .userSpaceOnUse, transform: AffineValue = .identity,
-         viewBox: CGRect? = nil) {
+         viewBox: CGRect? = nil, tileOrigin: CGPoint? = nil) {
         self.id = id; self.name = name; self.children = children
         self.tileSize = tileSize; self.units = units
         self.transform = transform; self.viewBox = viewBox
+        self.tileOrigin = tileOrigin
     }
 }
 

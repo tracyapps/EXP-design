@@ -231,7 +231,9 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: bug
 - Priority: P1
 - Area: import · SVG · vector
-- Status: **needs-verify (implemented 2026-09-03, with FEAT-062 Stage C)**
+- Status: **done — owner verified 2026-09-22** (Wave 1 gate cleared:
+  "ok looks good to me", on top of the 62/62 fixture suite and qlmanage
+  reference renders)
 - Repro/Detail: Owner 2026-09-03: four generated background SVGs
   (`quarter-orbs.svg`, `hexline-weave-neon.svg`, `gradient-diamonds.svg`,
   `spectrum-triangles.svg`, in
@@ -283,7 +285,8 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: bug
 - Priority: P2
 - Area: import · SVG · color
-- Status: **needs-verify (implemented 2026-09-03)**
+- Status: **done — owner verified 2026-09-22** (Wave 1 gate cleared; stops
+  and geometry were already qlmanage-verified per fixture)
 - Repro/Detail: The common two-gradient idiom — define stops once, then derive a
   reversed or transformed variant by reference — imports wrong. From
   `hexline-weave-neon.svg`:
@@ -327,7 +330,8 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: bug
 - Priority: P1
 - Area: export · SVG · handoff
-- Status: **needs-verify (SVG done 2026-09-03; semantic HTML still open)**
+- Status: **SVG half owner-verified 2026-09-22 (Wave 1 gate); semantic-HTML
+  half remains open — v2.5 Wave 2 work**
 - Repro/Detail: Owner 2026-09-03: "if i have a masked shape, the shape used to
   create the mask, if i don't turn the color's transparency down to 0, it shows
   up as an actual shape over the top." Owner confirms this in **SVG export and
@@ -2975,9 +2979,8 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: feature (umbrella — five owner requests that share one dependency)
 - Priority: P2
 - Area: paint · inspector · chrome · design language
-- Status: **needs-verify — 65a and 65e owner-confirmed 2026-09-03; 65b/65c/65d
-  (always-on Pattern tab, Create Pattern, design-language round trip) await
-  the owner's consolidated Wave 1 pass (ROADMAP → v2.5 → Wave 1)**
+- Status: **done — owner verified 2026-09-22** (Wave 1 gate cleared
+  together with the rest of the pattern system)
 - **Owner sequencing decision 2026-09-03: FEAT-062 Stage D (SVG export of
   `<pattern>`) lands FIRST, then this.** Recorded because it is the right call and
   not the obvious one — the round trip is the reason patterns were modelled as
@@ -3126,7 +3129,9 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: feature
 - Priority: P2
 - Area: paint · inspector · import · export
-- Status: open
+- Status: **needs-verify — implemented 2026-09-22** (fixture suite 78/78 with
+  an embedded objectBoundingBox fixture; both schemes clean; details in
+  ROADMAP's Progress Log)
 - **Owner decision 2026-09-03: per-pattern, not a global mode.**
 - Origin: fixing BUG-066 pinned pattern lattices to DOCUMENT space, which is
   correct SVG `patternUnits="userSpaceOnUse"` and is what round-trips. It also
@@ -3158,7 +3163,8 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: feature
 - Priority: P1
 - Area: import · SVG · paint · model
-- Status: **needs-verify — all stages (A–E) done 2026-09-03; round trip verified**
+- Status: **done — owner verified 2026-09-22** (Wave 1 gate cleared on top
+  of the round-trip assertions and independent qlmanage renders)
 - Origin: owner 2026-09-03, four background SVGs that import as a flat color.
   Already listed as an unchecked P0 in `docs/WEB-SVG-FIDELITY-INVENTORY.md`
   ("SVG Pattern Paint … preserve `<pattern>` as an editable reusable tile
@@ -3392,7 +3398,8 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: feature
 - Priority: P2
 - Area: export · chrome
-- Status: **needs-verify (implemented 2026-09-03)**
+- Status: **done — owner verified 2026-09-22** (Wave 1 gate cleared; the
+  owner exercised exports repeatedly through the pattern workstream)
 - Origin: owner 2026-09-03, two requests against the Export Artboards flow from
   the Handoff panel.
 - Detail, current state confirmed in `Export/ExportPanels.swift`:
