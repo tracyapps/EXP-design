@@ -122,7 +122,8 @@ enum VectorPathGeometry {
         case .path(let s) where s.strokeWidth > 0:
             return VectorStrokeGeometry(color: s.stroke, width: s.strokeWidth,
                                         alignment: s.effectiveStrokeAlignment,
-                                        join: .round, cap: s.strokeCap.cgLineCap)
+                                        join: s.strokeJoin.cgLineJoin,
+                                        cap: s.strokeCap.cgLineCap)
         default:
             return nil
         }

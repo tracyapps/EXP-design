@@ -26,6 +26,11 @@ enum ExportFormat: String, CaseIterable {
 
     var ext: String { rawValue }
 
+    /// PNG and JPG rasterise at a scale; PDF and SVG are resolution-independent.
+    /// FEAT-063 uses this to enable/disable the export panels' Size control and
+    /// to decide whether an `@Nx` filename suffix is meaningful.
+    var isRaster: Bool { self == .png || self == .jpg }
+
     var utType: UTType {
         switch self {
         case .png: return .png
@@ -263,13 +268,14 @@ struct ExportRenderer {
                                            stroke: ps.stroke, width: ps.strokeWidth,
                                            alignment: ps.effectiveStrokeAlignment,
                                            pattern: ps.strokePattern,
-                                           join: "round", defs: &defs)
+                                           join: ps.strokeJoin.rawValue,
+                                           miterLimit: ps.strokeMiterLimit, defs: &defs)
             } else {
                 // Nonzero is SVG's default fill-rule, matching font-glyph winding.
                 let markers = ps.closed || ps.isMultiContour ? "" :
                     svgMarkerAttrs(start: ps.startMarker, end: ps.endMarker,
                                    color: ps.stroke, nodeID: node.id, defs: &defs)
-                inner = "<path d=\"\(d)\"\(fill)\(strokeAttr(ps.stroke, ps.strokeWidth, ps.strokePattern, cap: ps.strokeCap))\(markers) stroke-linejoin=\"round\"/>\n"
+                inner = "<path d=\"\(d)\"\(fill)\(strokeAttr(ps.stroke, ps.strokeWidth, ps.strokePattern, cap: ps.strokeCap))\(markers)\(svgJoinAttrs(ps))/>\n"
             }
         case .text(let t):
             let baseline = f.minY + t.firstRun.fontSize * 0.8
@@ -318,8 +324,44 @@ struct ExportRenderer {
                     prefix += "<rect x=\"\(num(sx))\" y=\"\(num(sy))\" width=\"\(num(sw))\" height=\"\(num(sh))\"\(srx) fill=\"none\"\(strokeAttr(stroke, pad.strokeWidth, pad.strokePattern))/>\n"
                 }
             }
-            inner = prefix + children.filter { $0.isVisible }
-                .map { svgElement($0, offset: f.origin, defs: &defs) }.joined()
+            if node.isMask {
+                // BUG-062. A mask group emits a <clipPath> built from the SAME
+                // silhouette the raster export clips with, and the mask-shape
+                // children are NOT drawn. Previously this branch did not exist:
+                // every child was emitted as an ordinary <g>, so the mask shape
+                // appeared as a real filled shape on top AND nothing was clipped.
+                // The owner's workaround was setting the mask shape's alpha to 0,
+                // which hid the artefact without ever producing the clip.
+                let clip = CGMutablePath()
+                for child in children where child.isMaskShape && child.isVisible {
+                    ExportRenderView.appendExportSilhouette(of: child, offset: f.origin,
+                                                           base: .identity, into: clip)
+                }
+                // An empty clip means no clipping, matching drawExportNode's
+                // `if !clip.isEmpty` guard — a mask group whose only mask shape is
+                // hidden must not blank its content.
+                let body = children.filter { $0.isVisible && !$0.isMaskShape }
+                    .map { svgElement($0, offset: f.origin, defs: &defs) }.joined()
+                if clip.isEmpty {
+                    inner = prefix + body
+                } else {
+                    let id = "maskclip\(defs.count)"
+                    defs.append("  <clipPath id=\"\(id)\" clipPathUnits=\"userSpaceOnUse\">\n    <path d=\"\(svgPathData(clip))\"/>\n  </clipPath>\n")
+                    // The clip goes on an INNER <g>, not on the wrapper that
+                    // carries this node's filter. SVG applies filter first and
+                    // clip second, so putting both on one element would clip the
+                    // node's own drop shadow — while the raster exporter clips
+                    // INSIDE its effects (drawExportNodeContent runs within
+                    // drawExportNode's effect setup) and lets the shadow spread
+                    // past the mask. Nesting keeps the two exporters in agreement.
+                    // The inner <g> still inherits the wrapper's rotate/flip, so
+                    // the clip and the content transform together.
+                    inner = prefix + "<g clip-path=\"url(#\(id))\">\n\(body)</g>\n"
+                }
+            } else {
+                inner = prefix + children.filter { $0.isVisible }
+                    .map { svgElement($0, offset: f.origin, defs: &defs) }.joined()
+            }
         case .instance(let inst):
             var out = ""
             for child in document.resolvedChildren(of: inst) {
@@ -484,7 +526,59 @@ struct ExportRenderer {
             let id = "grad\(defs.count)"
             defs.append(svgGradientDef(g, id: id, rect: rect))
             return " fill=\"url(#\(id))\""
+        case .pattern(let ref):
+            guard let source = document.pattern(for: ref.patternID) else {
+                // A reference with no tile behind it — a document opened without
+                // its library, or a pattern deleted while a fill still points at
+                // it. The declared fallback is what the canvas and the raster
+                // exporter paint for the same case, so every surface agrees.
+                return fillAttr(ref.fallback)
+            }
+            return " fill=\"url(#\(patternDef(source, &defs)))\""
         }
+    }
+
+    // MARK: Pattern defs (FEAT-062 Stage D)
+
+    /// A stable `<pattern>` id for one source. Deterministic from the source's
+    /// UUID, which is what lets many fills share ONE def without carrying a map
+    /// alongside `defs` — the whole point of holding tiles at document level.
+    private func patternDefID(_ id: UUID) -> String {
+        "pat" + id.uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+    }
+
+    /// Emit `source` into `defs` if it is not already there, and return its id.
+    private func patternDef(_ source: PatternSource, _ defs: inout [String]) -> String {
+        let id = patternDefID(source.id)
+        let marker = "id=\"\(id)\""
+        if defs.contains(where: { $0.contains(marker) }) { return id }
+
+        // Reserve the slot BEFORE serialising the tile's own content. A tile may
+        // contain a shape painted with this very pattern — hand-authored SVG can
+        // express that, and so can the editor — and without the reservation that
+        // recurses until the stack runs out. The placeholder carries the id, so
+        // the nested lookup above sees it as already emitted and just references it.
+        let slot = defs.count
+        defs.append("  <!-- \(marker) -->\n")
+
+        let body = source.children.filter { $0.isVisible }
+            .map { svgElement($0, offset: .zero, defs: &defs) }.joined()
+
+        var attrs = " width=\"\(num(source.tileSize.width))\" height=\"\(num(source.tileSize.height))\""
+        attrs += " patternUnits=\"\(source.units.rawValue)\""
+        let t = source.transform.cg
+        if t != .identity {
+            attrs += " patternTransform=\"matrix(\(num(t.a)) \(num(t.b)) \(num(t.c))"
+                + " \(num(t.d)) \(num(t.tx)) \(num(t.ty)))\""
+        }
+        if let box = source.viewBox {
+            attrs += " viewBox=\"\(num(box.minX)) \(num(box.minY))"
+                + " \(num(box.width)) \(num(box.height))\""
+        }
+        // `patternContentUnits` is left at its default (userSpaceOnUse), which is
+        // already what the tile's children are expressed in.
+        defs[slot] = "  <pattern \(marker)\(attrs)>\n\(body)  </pattern>\n"
+        return id
     }
 
     private func svgGradientDef(_ g: GradientFill, id: String, rect: CGRect? = nil) -> String {
@@ -507,6 +601,42 @@ struct ExportRenderer {
         case .radial:
             return "  <radialGradient id=\"\(id)\" cx=\"0.5\" cy=\"0.5\" r=\"0.5\">\n\(stops)  </radialGradient>\n"
         }
+    }
+
+    /// Serialize a `CGPath` as SVG path data (BUG-062).
+    ///
+    /// Deliberately built on the CGPath the raster exporter already produces via
+    /// `appendExportSilhouette`, rather than re-deriving a silhouette per shape
+    /// kind for SVG. One silhouette definition means the SVG clip and the PNG
+    /// clip cannot drift — per-corner radii, nested groups, rotation and flip all
+    /// arrive already resolved. Winding matches too: CGContext.clip() and SVG's
+    /// default clip-rule are both nonzero.
+    private func svgPathData(_ path: CGPath) -> String {
+        // CGPath.applyWithBlock takes a @convention(block) closure; a reference
+        // box keeps the accumulation unambiguous under strict concurrency rather
+        // than relying on capture semantics for a local var.
+        final class Accumulator { var parts: [String] = [] }
+        let acc = Accumulator()
+        let f = { (v: CGFloat) -> String in self.num(v) }
+        path.applyWithBlock { elementPointer in
+            let element = elementPointer.pointee
+            let p = element.points
+            switch element.type {
+            case .moveToPoint:
+                acc.parts.append("M \(f(p[0].x)) \(f(p[0].y))")
+            case .addLineToPoint:
+                acc.parts.append("L \(f(p[0].x)) \(f(p[0].y))")
+            case .addQuadCurveToPoint:
+                acc.parts.append("Q \(f(p[0].x)) \(f(p[0].y)) \(f(p[1].x)) \(f(p[1].y))")
+            case .addCurveToPoint:
+                acc.parts.append("C \(f(p[0].x)) \(f(p[0].y)) \(f(p[1].x)) \(f(p[1].y)) \(f(p[2].x)) \(f(p[2].y))")
+            case .closeSubpath:
+                acc.parts.append("Z")
+            @unknown default:
+                break
+            }
+        }
+        return acc.parts.joined(separator: " ")
     }
 
     private func svgPathData(_ ps: PathShape, origin: CGPoint) -> String {
@@ -619,9 +749,12 @@ struct ExportRenderer {
     private func svgAlignedStrokeCopy(shape: String, closer: String, bounds: CGRect,
                                       stroke: RGBAColor, width: CGFloat,
                                       alignment: StrokeAlignment, pattern: StrokePattern,
-                                      join: String,
+                                      join: String, miterLimit: CGFloat = 4,
                                       defs: inout [String]) -> String {
-        let strokeAttrs = " fill=\"none\"\(strokeAttr(stroke, width * 2, pattern)) stroke-linejoin=\"\(join)\""
+        var strokeAttrs = " fill=\"none\"\(strokeAttr(stroke, width * 2, pattern)) stroke-linejoin=\"\(join)\""
+        if join == "miter", abs(miterLimit - 4) > 0.001 {
+            strokeAttrs += " stroke-miterlimit=\"\(num(miterLimit))\""
+        }
         switch alignment {
         case .center:
             return "\(shape)\(strokeAttrs)\(closer)\n"
@@ -659,6 +792,16 @@ struct ExportRenderer {
     /// A stable, readable CSS class. The `layer-` prefix keeps filenames that
     /// begin with digits valid without CSS escaping; punctuation/whitespace fold
     /// into one hyphen while Unicode letters and numbers remain meaningful.
+    /// BUG-064. `stroke-linejoin` / `stroke-miterlimit`, omitting the miter limit
+    /// when it is SVG's own default so ordinary output stays uncluttered.
+    private func svgJoinAttrs(_ ps: PathShape) -> String {
+        var out = " stroke-linejoin=\"\(ps.strokeJoin.rawValue)\""
+        if ps.strokeJoin == .miter, abs(ps.strokeMiterLimit - 4) > 0.001 {
+            out += " stroke-miterlimit=\"\(num(ps.strokeMiterLimit))\""
+        }
+        return out
+    }
+
     private func svgLayerClass(_ name: String) -> String {
         let parts = name.lowercased()
             .components(separatedBy: CharacterSet.alphanumerics.inverted)
@@ -670,9 +813,83 @@ struct ExportRenderer {
 
 // MARK: - Offscreen render view (flipped → matches our y-down model)
 
+/// Rasterised pattern tiles for one renderer (FEAT-062 Stage B).
+///
+/// Deliberately an INSTANCE, not a global cache. A global would need a
+/// document-wide invalidation signal that does not exist on both sides — the
+/// canvas has `ExpDocument.resolveGeneration`, a one-shot export has nothing —
+/// and a stale tile is a wrong picture. Scoping the cache to a renderer makes
+/// staleness structurally impossible for exports (a fresh store per export) and
+/// leaves the canvas one cheap generation check.
+final class PatternTileStore {
+    private struct Key: Hashable { let id: UUID; let pixelWidth: Int }
+    private var tiles: [Key: CGImage] = [:]
+    private var order: [Key] = []
+    /// Tiles are at most ~16 MB each and a document uses a handful; this is a
+    /// safety net against a pathological file, not a tuned budget.
+    private let maxTiles = 64
+    /// Pattern ids currently being rasterised. A tile whose own content is
+    /// painted with that same pattern would otherwise recurse until the stack
+    /// runs out — a hand-written SVG can express exactly that, so it is guarded
+    /// rather than assumed impossible.
+    private var inFlight: Set<UUID> = []
+
+    init() {}
+
+    func removeAll() {
+        tiles.removeAll(keepingCapacity: true)
+        order.removeAll(keepingCapacity: true)
+    }
+
+    /// A resolver bound to `document`, for handing to `PaintRender`.
+    func resolver(document: Document) -> PatternResolver {
+        PatternResolver { [weak self] ref, scale in
+            self?.resolve(ref, scale: scale, document: document)
+        }
+    }
+
+    private func resolve(_ ref: PatternRef, scale: CGFloat,
+                         document: Document) -> ResolvedPattern? {
+        guard let source = document.patterns.first(where: { $0.id == ref.patternID })
+        else { return nil }
+        // objectBoundingBox tiles size themselves against the filled shape, so one
+        // cached image cannot serve every user of the pattern. Import does not
+        // produce them yet; when it does, this needs the fill bounds threaded in.
+        guard source.units == .userSpaceOnUse else { return nil }
+        guard let image = tile(source, scale: scale, document: document) else { return nil }
+        return ResolvedPattern(image: image, tileSize: source.tileSize,
+                               transform: source.transform.cg)
+    }
+
+    private func tile(_ source: PatternSource, scale: CGFloat,
+                      document: Document) -> CGImage? {
+        let pixelWidth = ExportRenderView.patternTilePixelWidth(source, scale: scale)
+        guard pixelWidth > 0 else { return nil }
+        let key = Key(id: source.id, pixelWidth: pixelWidth)
+        if let hit = tiles[key] {
+            if order.last != key { order.removeAll { $0 == key }; order.append(key) }
+            return hit
+        }
+        guard !inFlight.contains(source.id) else { return nil }
+        inFlight.insert(source.id)
+        defer { inFlight.remove(source.id) }
+        guard let image = ExportRenderView.patternTile(source, document: document,
+                                                       scale: scale) else { return nil }
+        tiles[key] = image
+        order.append(key)
+        while order.count > maxTiles, order.count > 1 {
+            tiles.removeValue(forKey: order.removeFirst())
+        }
+        return image
+    }
+}
+
 final class ExportRenderView: NSView {
     let document: Document
-    let artboard: Artboard
+    /// nil for a view that rasterises loose nodes rather than an artboard — see
+    /// the pattern-tile initialiser below. `draw(_:)` is an artboard render and
+    /// does nothing without one.
+    let artboard: Artboard?
     let drawBackground: Bool
 
     override var isFlipped: Bool { true }
@@ -683,12 +900,40 @@ final class ExportRenderView: NSView {
         self.drawBackground = drawBackground
         super.init(frame: CGRect(origin: .zero, size: artboard.frame.size))
     }
+
+    /// Offscreen rasterisation of loose nodes in model points (FEAT-062 pattern
+    /// tiles). Such a view is never added to a window and `draw(_:)` is never
+    /// called on it — callers drive `drawExportNode` directly into their own
+    /// context.
+    fileprivate init(document: Document, tileSize: CGSize) {
+        self.document = document
+        self.artboard = nil
+        self.drawBackground = false
+        super.init(frame: CGRect(origin: .zero, size: tileSize))
+    }
     required init?(coder: NSCoder) { fatalError() }
 
+    /// FEAT-062. One store per render, so an export can never reuse a tile built
+    /// from an older version of the document.
+    private lazy var patternStore = PatternTileStore()
+    fileprivate var patterns: PatternResolver { patternStore.resolver(document: document) }
+
+    /// Document points → export coordinates. An artboard render is the document
+    /// shifted by the board's origin; a pattern-tile render is already tile-local,
+    /// so it is the identity. Pattern lattices anchor through this, which is what
+    /// keeps a tile registered to its shape rather than to the output's corner.
+    fileprivate var patternSpace: CGAffineTransform {
+        guard let artboard else { return .identity }
+        return CGAffineTransform(translationX: -artboard.frame.minX,
+                                 y: -artboard.frame.minY)
+    }
+
     override func draw(_ dirtyRect: NSRect) {
-        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
+        guard let ctx = NSGraphicsContext.current?.cgContext, let artboard else { return }
         if drawBackground {
-            PaintRender.fillRect(artboard.background, rect: bounds, in: ctx, pdfSafeAlpha: true)
+            PaintRender.fillRect(artboard.background, rect: bounds, in: ctx,
+                                 pdfSafeAlpha: true, patterns: patterns,
+                                 patternSpace: patternSpace)
         }
         ctx.clip(to: bounds)
         let off = CGPoint(x: -artboard.frame.minX, y: -artboard.frame.minY)
@@ -1087,7 +1332,7 @@ final class ExportRenderView: NSView {
         case .ellipse:          return Silhouette(rect: rect, shape: .oval)
         case .polygon(let s):   return Silhouette(rect: rect, shape: .custom(Self.polygonPath(s.vertices(in: rect)).cgPath))
         case .path(let ps) where ps.closed && ps.points.count >= 2:
-            return Silhouette(rect: rect, shape: .custom(nsPath(ps, origin: rect.origin).cgPath))
+            return Silhouette(rect: rect, shape: .custom(Self.nsPath(ps, origin: rect.origin).cgPath))
         case .image:            return Silhouette(rect: rect, shape: .roundRect(radius: 0))
         default: return nil
         }
@@ -1097,7 +1342,8 @@ final class ExportRenderView: NSView {
         switch node.content {
         case .rectangle(let s):
             let path = NSBezierPath(cgPath: s.effectiveRadii.path(in: rect))
-            PaintRender.fill(s.fill, path: path, bounds: rect, in: ctx, pdfSafeAlpha: true)
+            PaintRender.fill(s.fill, path: path, bounds: rect, in: ctx, pdfSafeAlpha: true,
+                             patterns: patterns, patternSpace: patternSpace)
             if s.strokeWidth > 0 {
                 PaintRender.strokeAligned(path, width: s.strokeWidth,
                                           alignment: s.strokeAlignment, color: s.stroke.ns,
@@ -1105,7 +1351,8 @@ final class ExportRenderView: NSView {
             }
         case .ellipse(let s):
             let path = NSBezierPath(ovalIn: rect)
-            PaintRender.fill(s.fill, path: path, bounds: rect, in: ctx, pdfSafeAlpha: true)
+            PaintRender.fill(s.fill, path: path, bounds: rect, in: ctx, pdfSafeAlpha: true,
+                             patterns: patterns, patternSpace: patternSpace)
             if s.strokeWidth > 0 {
                 PaintRender.strokeAligned(path, width: s.strokeWidth,
                                           alignment: s.strokeAlignment, color: s.stroke.ns,
@@ -1113,7 +1360,8 @@ final class ExportRenderView: NSView {
             }
         case .polygon(let s):
             let path = Self.polygonPath(s.vertices(in: rect))
-            PaintRender.fill(s.fill, path: path, bounds: rect, in: ctx, pdfSafeAlpha: true)
+            PaintRender.fill(s.fill, path: path, bounds: rect, in: ctx, pdfSafeAlpha: true,
+                             patterns: patterns, patternSpace: patternSpace)
             if s.strokeWidth > 0 {
                 PaintRender.strokeAligned(path, width: s.strokeWidth,
                                           alignment: s.strokeAlignment, color: s.stroke.ns,
@@ -1137,14 +1385,18 @@ final class ExportRenderView: NSView {
             PaintRender.drawMarker(ls.endMarker, endpoint: b, interior: a,
                                    strokeWidth: ls.strokeWidth, color: ls.stroke.ns, in: ctx)
         case .path(let ps):
-            let path = nsPath(ps, origin: rect.origin)
+            let path = Self.nsPath(ps, origin: rect.origin)
             if ps.isMultiContour || (ps.closed && ps.points.count >= 2) {
-                PaintRender.fill(ps.fill, path: path, bounds: path.bounds, in: ctx, pdfSafeAlpha: true)
+                PaintRender.fill(ps.fill, path: path, bounds: path.bounds, in: ctx,
+                                 pdfSafeAlpha: true, patterns: patterns,
+                                 patternSpace: patternSpace)
             }
             if ps.strokeWidth > 0 {
                 PaintRender.strokeAligned(path, width: ps.strokeWidth,
                                           alignment: ps.effectiveStrokeAlignment, color: ps.stroke.ns,
-                                          join: .round, cap: ps.strokeCap.cgLineCap,
+                                          join: ps.strokeJoin.cgLineJoin,
+                                          cap: ps.strokeCap.cgLineCap,
+                                          miterLimit: ps.strokeMiterLimit,
                                           pattern: ps.strokePattern, in: ctx)
             }
             if ps.strokeWidth > 0, let tangents = ps.endpointTangents {
@@ -1173,7 +1425,11 @@ final class ExportRenderView: NSView {
                                  width: max(0, rect.width - pad.marginW),
                                  height: max(0, rect.height - pad.marginH))
                 let path = NSBezierPath(roundedRect: box, xRadius: pad.cornerRadius, yRadius: pad.cornerRadius)
-                if let fill = pad.fill { PaintRender.fill(fill, path: path, bounds: box, in: ctx, pdfSafeAlpha: true) }
+                if let fill = pad.fill {
+                    PaintRender.fill(fill, path: path, bounds: box, in: ctx,
+                                     pdfSafeAlpha: true, patterns: patterns,
+                                     patternSpace: patternSpace)
+                }
                 if pad.strokeWidth > 0, let stroke = pad.stroke {
                     PaintRender.strokeAligned(path, width: pad.strokeWidth,
                                               alignment: pad.strokeAlignment,
@@ -1185,7 +1441,7 @@ final class ExportRenderView: NSView {
                 // Clip content children to the mask shape(s)' union (raster export).
                 let clip = CGMutablePath()
                 for child in children where child.isMaskShape && child.isVisible {
-                    appendExportSilhouette(of: child, offset: rect.origin, base: .identity, into: clip)
+                    Self.appendExportSilhouette(of: child, offset: rect.origin, base: .identity, into: clip)
                 }
                 ctx.saveGState()
                 if !clip.isEmpty { ctx.addPath(clip); ctx.clip() }
@@ -1215,8 +1471,79 @@ final class ExportRenderView: NSView {
     /// Mask clip silhouette in export (1:1) space — mirrors the canvas's
     /// `appendSilhouette`, including per-node rotation/flip about each node's center
     /// composed with ancestor transforms via `base`.
-    private func appendExportSilhouette(of node: Node, offset: CGPoint,
-                                        base: CGAffineTransform, into path: CGMutablePath) {
+    // MARK: Pattern tiles (FEAT-062 Stage B)
+
+    /// Worst-case tile memory: 2048×2048 RGBA ≈ 16 MB, the same order as
+    /// TurbulenceNoise's per-tile ceiling.
+    private static let maxPatternTilePixels = 4_194_304
+
+    /// The tile's rasterised width in pixels for a given destination scale, and
+    /// the cache key that goes with it. Split out so the store can compute a key
+    /// without building the image.
+    static func patternTilePixelWidth(_ source: PatternSource, scale: CGFloat) -> Int {
+        let w = source.tileSize.width, h = source.tileSize.height
+        guard w > 0.01, h > 0.01 else { return 0 }
+        return max(1, Int((w * patternTileScale(source, scale: scale)).rounded()))
+    }
+
+    private static func patternTileScale(_ source: PatternSource, scale: CGFloat) -> CGFloat {
+        let w = source.tileSize.width, h = source.tileSize.height
+        let budget = (CGFloat(maxPatternTilePixels) / (w * h)).squareRoot()
+        return max(0.05, min(scale, budget))
+    }
+
+    /// Rasterise ONE pattern tile in model points.
+    ///
+    /// Deliberately the only tile rasteriser — the canvas calls this too rather
+    /// than growing a parallel one on `CanvasNSView.drawNode`. Two reasons, and
+    /// the second is the real one: `drawNode` works in VIEW coordinates (it goes
+    /// through `docToView`, baking in pan and zoom) so it could not produce a
+    /// tile-local image anyway; and BUG-062 was made of exactly this — one
+    /// concept implemented twice, drifting apart until the exports disagreed.
+    static func patternTile(_ source: PatternSource, document: Document,
+                            scale: CGFloat) -> CGImage? {
+        let w = source.tileSize.width, h = source.tileSize.height
+        guard w > 0.01, h > 0.01 else { return nil }
+        let s = patternTileScale(source, scale: scale)
+        let pw = max(1, Int((w * s).rounded())), ph = max(1, Int((h * s).rounded()))
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let bitmap = CGContext(data: nil, width: pw, height: ph,
+                                     bitsPerComponent: 8, bytesPerRow: 0, space: space,
+                                     bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return nil }
+        // Model space is y-down; a bitmap context is y-up.
+        bitmap.translateBy(x: 0, y: CGFloat(ph))
+        bitmap.scaleBy(x: s, y: -s)
+        // SVG clips pattern content to the tile (`overflow` is hidden by default),
+        // and this must happen in TILE space — before any viewBox mapping, which
+        // changes what "the tile" means in the content's own coordinates.
+        bitmap.clip(to: CGRect(x: 0, y: 0, width: w, height: h))
+        if let box = source.viewBox, box.width > 0, box.height > 0 {
+            bitmap.scaleBy(x: w / box.width, y: h / box.height)
+            bitmap.translateBy(x: -box.minX, y: -box.minY)
+        }
+        // The node drawers are only PARTLY CGContext-based: `PaintRender`'s solid
+        // fills go through `NSBezierPath.fill()`, which draws into
+        // `NSGraphicsContext.current` and ignores the CGContext argument entirely.
+        // Without pushing one here, a tile's solid fills do not merely go missing —
+        // called mid-render they land on whatever context IS current, i.e. they
+        // paint the tile's artwork straight onto the artboard at tile coordinates.
+        // Measured on `quarter-orbs.svg` (all-solid tile): blank when built
+        // standalone, smeared onto the board when built during a render.
+        let previous = NSGraphicsContext.current
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: bitmap, flipped: false)
+        defer { NSGraphicsContext.current = previous }
+        let view = ExportRenderView(document: document, tileSize: source.tileSize)
+        for node in source.children where node.isVisible {
+            view.drawExportNode(node, offset: .zero, in: bitmap)
+        }
+        return bitmap.makeImage()
+    }
+
+    /// Pure geometry, deliberately `static`: BUG-062 made the SVG exporter share
+    /// this exact silhouette, so it must be reachable without a live render view.
+    static func appendExportSilhouette(of node: Node, offset: CGPoint,
+                                       base: CGAffineTransform, into path: CGMutablePath) {
         let r = node.frame.offsetBy(dx: offset.x, dy: offset.y)
         let c = CGPoint(x: r.midX, y: r.midY)
         var t = CGAffineTransform.identity.translatedBy(x: c.x, y: c.y)
@@ -1249,7 +1576,7 @@ final class ExportRenderView: NSView {
         return path
     }
 
-    private func nsPath(_ ps: PathShape, origin: CGPoint) -> NSBezierPath {
+    static func nsPath(_ ps: PathShape, origin: CGPoint) -> NSBezierPath {
         let path = NSBezierPath()
         func a(_ l: CGPoint) -> CGPoint { CGPoint(x: origin.x + l.x, y: origin.y + l.y) }
         func addContour(_ pts: [PathPoint], closed: Bool) {

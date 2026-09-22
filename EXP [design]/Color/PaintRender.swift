@@ -9,6 +9,40 @@
 
 import AppKit
 
+/// One pattern tile, already rasterised, plus the lattice it repeats on
+/// (FEAT-062 Stage B).
+///
+/// `PaintRender` deliberately receives an IMAGE rather than a `PatternSource`:
+/// drawing a tile's `[Node]` content is the renderers' job (CanvasNSView,
+/// ExportRenderView), and teaching this low-level paint utility about `Node`
+/// would invert the dependency — Color/ does not know about the model's node
+/// tree and should not start. Whoever holds the document builds one of these.
+struct ResolvedPattern {
+    /// A single tile. Its PIXEL size is independent of `tileSize`: the builder
+    /// rasterises at whatever resolution the destination needs.
+    var image: CGImage
+    /// The repeat interval in DOCUMENT POINTS — SVG's `width`/`height` on
+    /// `<pattern>`.
+    var tileSize: CGSize
+    /// SVG `patternTransform`, applied to the whole lattice rather than to each
+    /// tile's content. Keeping it here (instead of baking it into the tile
+    /// image) is what lets the exporter write it back out as one attribute.
+    var transform: CGAffineTransform
+}
+
+/// Resolves a fill's pattern reference to a drawable tile (FEAT-062 Stage B).
+struct PatternResolver {
+    /// `scale` is the destination's points-to-pixels ratio, so a tile can be
+    /// rasterised at the resolution it will actually be drawn at rather than
+    /// always at 1× (blurry when zoomed in) or always at 4× (wasteful).
+    /// Returning nil means "cannot draw this" — the caller then paints the
+    /// ref's own fallback rather than leaving a hole.
+    var resolve: (PatternRef, CGFloat) -> ResolvedPattern?
+    init(_ resolve: @escaping (PatternRef, CGFloat) -> ResolvedPattern?) {
+        self.resolve = resolve
+    }
+}
+
 enum PaintRender {
 
     /// Fill an `NSBezierPath` (already in the current context's coordinates) with
@@ -19,7 +53,8 @@ enum PaintRender {
     /// gradient-to-transparent fills OPAQUE there. The live canvas (bitmap
     /// context) keeps the direct path — it is correct there.
     static func fill(_ paint: Paint, path: NSBezierPath, bounds: CGRect, in ctx: CGContext,
-                     pdfSafeAlpha: Bool = false) {
+                     pdfSafeAlpha: Bool = false, patterns: PatternResolver? = nil,
+                     patternSpace: CGAffineTransform = .identity) {
         switch paint {
         case .solid(let c):
             nsColor(c).setFill()
@@ -29,6 +64,20 @@ enum PaintRender {
             path.addClip()
             drawGradient(g, in: bounds, ctx: ctx, pdfSafeAlpha: pdfSafeAlpha)
             ctx.restoreGState()
+        case .pattern(let ref):
+            ctx.saveGState()
+            path.addClip()
+            let drawn = tilePattern(ref, bounds: bounds, in: ctx, resolver: patterns,
+                                    space: patternSpace)
+            ctx.restoreGState()
+            // FEAT-062. An unresolvable pattern paints the ref's OWN declared
+            // fallback — never a colour invented here, and never nothing. Leaving
+            // a hole would read as a rendering bug; inventing a black is the exact
+            // lie this feature exists to remove.
+            if !drawn {
+                nsColor(ref.fallback).setFill()
+                path.fill()
+            }
         }
     }
 
@@ -42,6 +91,7 @@ enum PaintRender {
     static func strokeAligned(_ path: NSBezierPath, width: CGFloat,
                               alignment: StrokeAlignment, color: NSColor,
                               join: CGLineJoin = .miter, cap: CGLineCap = .butt,
+                              miterLimit: CGFloat = 4,
                               pattern: StrokePattern = .solid,
                               in ctx: CGContext) {
         guard width > 0 else { return }
@@ -49,6 +99,10 @@ enum PaintRender {
         ctx.saveGState()
         ctx.setStrokeColor(color.cgColor)
         ctx.setLineJoin(join)
+        // BUG-064. CoreGraphics defaults to 10, SVG to 4; a miter join that
+        // exceeds the limit falls back to bevel, so this changes the SHAPE of
+        // sharp corners, not just their extent.
+        ctx.setMiterLimit(miterLimit)
         configureStrokePattern(pattern, width: width, fallbackCap: cap, in: ctx)
         switch alignment {
         case .center:
@@ -125,7 +179,8 @@ enum PaintRender {
     }
 
     static func fillRect(_ paint: Paint, rect: CGRect, in ctx: CGContext,
-                         pdfSafeAlpha: Bool = false) {
+                         pdfSafeAlpha: Bool = false, patterns: PatternResolver? = nil,
+                         patternSpace: CGAffineTransform = .identity) {
         switch paint {
         case .solid(let c):
             nsColor(c).setFill()
@@ -135,7 +190,98 @@ enum PaintRender {
             ctx.clip(to: rect)
             drawGradient(g, in: rect, ctx: ctx, pdfSafeAlpha: pdfSafeAlpha)
             ctx.restoreGState()
+        case .pattern(let ref):
+            ctx.saveGState()
+            ctx.clip(to: rect)
+            let drawn = tilePattern(ref, bounds: rect, in: ctx, resolver: patterns,
+                                    space: patternSpace)
+            ctx.restoreGState()
+            if !drawn {
+                nsColor(ref.fallback).setFill()
+                ctx.fill(rect)
+            }
         }
+    }
+
+    // MARK: Pattern tiling (FEAT-062 Stage B)
+
+    /// Ceiling on tiles drawn for one fill. Real fixtures land in the tens (a
+    /// 520pt tile over a 2000×1500 board is 12), so this only ever catches a
+    /// pathological lattice — a near-zero `tileSize`, or a transform that
+    /// collapses the interval — which would otherwise stall the frame outright.
+    /// Exceeding it falls back to the flat colour rather than hanging.
+    private static let maxPatternTiles = 40_000
+
+    /// Repeat `ResolvedPattern`'s tile across `bounds`. The caller has already
+    /// clipped; this only lays down the lattice.
+    ///
+    /// `space` maps DOCUMENT points into the context's current coordinates, and
+    /// it is what pins the pattern to the artwork. The canvas pre-transforms its
+    /// geometry (`docToView` bakes zoom and pan into the rects it draws) rather
+    /// than setting a CTM, so a lattice anchored at the context origin slides
+    /// under the shape as you pan and refuses to scale as you zoom — a
+    /// `background-attachment: fixed` image, which is exactly what the owner saw.
+    /// Anchoring in document space makes the tile ride its container.
+    ///
+    /// Returns false when the pattern cannot be drawn — unresolvable reference,
+    /// degenerate tile, singular transform, or a tile count over the cap — so
+    /// the caller can paint the fallback instead.
+    private static func tilePattern(_ ref: PatternRef, bounds: CGRect, in ctx: CGContext,
+                                    resolver: PatternResolver?,
+                                    space: CGAffineTransform) -> Bool {
+        guard let resolver, bounds.width > 0, bounds.height > 0 else { return false }
+        let spaceDeterminant = space.a * space.d - space.b * space.c
+        guard abs(spaceDeterminant) > 1e-9 else { return false }
+
+        // Rasterise at the resolution the tile will actually be drawn at. That is
+        // the CONTEXT scale composed with `space`, because on the canvas the zoom
+        // lives in `space`, not in the CTM — reading the CTM alone would pin every
+        // tile at 1× and go soft the moment you zoom in.
+        let effective = space.concatenating(ctx.ctm)
+        let effectiveScale = abs(effective.a * effective.d - effective.b * effective.c).squareRoot()
+        let scale = min(4, max(1, effectiveScale.isFinite ? effectiveScale : 1))
+        guard let pattern = resolver.resolve(ref, scale) else { return false }
+
+        let tw = pattern.tileSize.width, th = pattern.tileSize.height
+        guard tw > 0.01, th > 0.01 else { return false }
+
+        // The lattice lives in `transform`'s space, itself anchored in document
+        // space. A singular transform has no inverse — CGAffineTransform.inverted()
+        // returns the input unchanged in that case, which would silently tile the
+        // wrong region — so check the determinant rather than trusting the result.
+        let t = pattern.transform
+        let determinant = t.a * t.d - t.b * t.c
+        guard abs(determinant) > 1e-9 else { return false }
+
+        let documentBounds = bounds.applying(space.inverted())
+        let region = documentBounds.applying(t.inverted())
+        guard region.width.isFinite, region.height.isFinite else { return false }
+
+        let i0 = Int(floor(region.minX / tw)), i1 = Int(ceil(region.maxX / tw))
+        let j0 = Int(floor(region.minY / th)), j1 = Int(ceil(region.maxY / th))
+        guard i1 >= i0, j1 >= j0 else { return false }
+        let columns = i1 - i0 + 1, rows = j1 - j0 + 1
+        guard columns > 0, rows > 0,
+              columns.multipliedReportingOverflow(by: rows).overflow == false,
+              columns * rows <= maxPatternTiles else { return false }
+
+        ctx.saveGState()
+        defer { ctx.restoreGState() }
+        ctx.concatenate(space)
+        ctx.concatenate(t)
+        ctx.interpolationQuality = .high
+        for j in j0...j1 {
+            for i in i0...i1 {
+                ctx.saveGState()
+                // Model space is y-down and a CGImage draws y-up, so each tile is
+                // flipped in place — the same idiom the placed-image path uses.
+                ctx.translateBy(x: CGFloat(i) * tw, y: CGFloat(j) * th + th)
+                ctx.scaleBy(x: 1, y: -1)
+                ctx.draw(pattern.image, in: CGRect(x: 0, y: 0, width: tw, height: th))
+                ctx.restoreGState()
+            }
+        }
+        return true
     }
 
     static func drawGradient(_ g: GradientFill, in rect: CGRect, ctx: CGContext,

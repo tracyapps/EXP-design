@@ -29,10 +29,18 @@ import ImageIO   // downsampled image cache (CGImageSource thumbnails)
 // MARK: - SwiftUI bridge
 
 /// What a canvas instance edits: the whole document (top-level nodes + artboards),
-/// or one component source's children (the source-editor window).
+/// one component source's children, or one pattern tile's children (both in the
+/// source-editor window).
+///
+/// FEAT-062 Stage E adds `.pattern`. It rides this enum deliberately rather than
+/// growing a separate editor: a pattern tile IS a small reusable canvas, exactly
+/// like a component source, so every scoped surface — canvas, layers, inspector,
+/// the editor menu — already knows how to edit one. A pattern is the simpler of
+/// the two: no states, no managed bounds, no relationship anchoring.
 enum CanvasScope: Equatable {
     case document
     case source(UUID)
+    case pattern(UUID)
 }
 
 final class CanvasPageTransferRequest: NSObject {
@@ -2934,6 +2942,8 @@ final class CanvasNSView: NSView {
                 return ComponentStateEditing.applied(children, state: state)
             }
             return children
+        case .pattern(let pid):
+            return document.model.pattern(for: pid)?.children ?? []
         }
     }
 
@@ -2956,6 +2966,9 @@ final class CanvasNSView: NSView {
                     ComponentStateEditing.applied(children, state: state))
             }
             return children
+        case .pattern(let pid):
+            // A tile has no states, so there is no preview-only variant to apply.
+            return document.model.pattern(for: pid)?.children ?? []
         }
     }
 
@@ -2969,11 +2982,29 @@ final class CanvasNSView: NSView {
         case .source:
             guard let si = sourceIndex else { return }
             body(&document.model.sources[si].children)
+        case .pattern(let pid):
+            guard let pi = document.model.patterns.firstIndex(where: { $0.id == pid })
+            else { return }
+            body(&document.model.patterns[pi].children)
         }
     }
 
     /// True when this canvas edits a component source rather than the document.
-    private var isSourceScope: Bool { if case .source = scope { return true }; return false }
+    /// True when this canvas edits a REUSABLE SOURCE's children — a component
+    /// source or a pattern tile — rather than the document canvas.
+    ///
+    /// Both `ComponentSource` and `PatternSource` are sources in the sense that
+    /// matters here: neither has artboards, guides, or pages, so every guard that
+    /// asks this question wants both. BUG-067: `.pattern` was missing when the
+    /// case was added, so the pattern editor drew the first page's artboards —
+    /// and it really was the FIRST page, because that window builds its own
+    /// `AppState` whose `activePageID` has not been set to anything.
+    private var isSourceScope: Bool {
+        switch scope {
+        case .document: return false
+        case .source, .pattern: return true
+        }
+    }
 
     private func flattenedNodes(_ nodes: [Node]) -> [Node] {
         nodes.flatMap { node -> [Node] in
@@ -3088,7 +3119,20 @@ final class CanvasNSView: NSView {
                 Document.removingAnchors(referencing: removedIDs,
                                          in: &model.sources[si].children)
             }
+        case .pattern(let pid):
+            guard let pi = model.patterns.firstIndex(where: { $0.id == pid }) else { return }
+            model.patterns[pi].children = reflowed
+            // A pattern tile has a FIXED size — its repeat interval — so unlike a
+            // component source it does not re-hug its content. Growing the tile
+            // because a shape moved would silently change the lattice everywhere
+            // the pattern is used. `rootAnchors` / `removedIDs` are dropped: a
+            // PatternSource stores no relationships, and inventing storage for
+            // them here would persist something nothing reads.
+            _ = rootAnchors
         }
+        // Editing a tile changes every layer painted with it. `setModel` bumps
+        // `resolveGeneration`, which is what the canvas's pattern tile cache keys
+        // on, so the rasterised tiles drop and rebuild on the next draw.
         document.setModel(model, undoManager: undoManager, actionName: actionName)
     }
 
@@ -6127,7 +6171,8 @@ final class CanvasNSView: NSView {
         ctx.clip(to: rect.insetBy(dx: -24, dy: -24))
         ctx.setShadow(offset: CGSize(width: 0, height: 1), blur: 8,
                       color: NSColor.black.withAlphaComponent(0.18).cgColor)
-        PaintRender.fillRect(artboard.background, rect: rect, in: ctx)
+        PaintRender.fillRect(artboard.background, rect: rect, in: ctx, patterns: patterns,
+                             patternSpace: patternSpace)
         ctx.restoreGState()
 
         ctx.saveGState()
@@ -6584,7 +6629,8 @@ final class CanvasNSView: NSView {
             // exactly as Convert to Path does.
             let path = NSBezierPath(
                 cgPath: shape.effectiveRadii.path(in: rect, scale: app.zoom))
-            PaintRender.fill(shape.fill, path: path, bounds: rect, in: ctx)
+            PaintRender.fill(shape.fill, path: path, bounds: rect, in: ctx, patterns: patterns,
+                             patternSpace: patternSpace)
             if shape.strokeWidth > 0 {
                 PaintRender.strokeAligned(path, width: shape.strokeWidth * app.zoom,
                                           alignment: shape.strokeAlignment,
@@ -6593,7 +6639,8 @@ final class CanvasNSView: NSView {
             }
         case .ellipse(let shape):
             let path = NSBezierPath(ovalIn: rect)
-            PaintRender.fill(shape.fill, path: path, bounds: rect, in: ctx)
+            PaintRender.fill(shape.fill, path: path, bounds: rect, in: ctx, patterns: patterns,
+                             patternSpace: patternSpace)
             if shape.strokeWidth > 0 {
                 PaintRender.strokeAligned(path, width: shape.strokeWidth * app.zoom,
                                           alignment: shape.strokeAlignment,
@@ -6602,7 +6649,8 @@ final class CanvasNSView: NSView {
             }
         case .polygon(let shape):
             let path = Self.polygonBezier(shape.vertices(in: rect))
-            PaintRender.fill(shape.fill, path: path, bounds: rect, in: ctx)
+            PaintRender.fill(shape.fill, path: path, bounds: rect, in: ctx, patterns: patterns,
+                             patternSpace: patternSpace)
             if shape.strokeWidth > 0 {
                 PaintRender.strokeAligned(path, width: shape.strokeWidth * app.zoom,
                                           alignment: shape.strokeAlignment,
@@ -6631,13 +6679,16 @@ final class CanvasNSView: NSView {
             guard !ps.renderContours.isEmpty else { break }
             let bez = bezierPath(for: ps, frameOrigin: frameDoc.origin)
             if ps.isMultiContour || (ps.closed && ps.points.count >= 2) {
-                PaintRender.fill(ps.fill, path: bez, bounds: bez.bounds, in: ctx)
+                PaintRender.fill(ps.fill, path: bez, bounds: bez.bounds, in: ctx, patterns: patterns,
+                                 patternSpace: patternSpace)
             }
             if ps.strokeWidth > 0 {
                 PaintRender.strokeAligned(bez, width: ps.strokeWidth * app.zoom,
                                           alignment: ps.effectiveStrokeAlignment,
                                           color: ps.stroke.nsColor,
-                                          join: .round, cap: ps.strokeCap.cgLineCap,
+                                          join: ps.strokeJoin.cgLineJoin,
+                                          cap: ps.strokeCap.cgLineCap,
+                                          miterLimit: ps.strokeMiterLimit,
                                           pattern: ps.strokePattern, in: ctx)
             }
             if ps.strokeWidth > 0, let tangents = ps.endpointTangents {
@@ -6683,7 +6734,10 @@ final class CanvasNSView: NSView {
                                  height: max(0, rect.height - pad.marginH * z))
                 let radius = pad.cornerRadius * z
                 let path = NSBezierPath(roundedRect: box, xRadius: radius, yRadius: radius)
-                if let fill = pad.fill { PaintRender.fill(fill, path: path, bounds: box, in: ctx) }
+                if let fill = pad.fill {
+                    PaintRender.fill(fill, path: path, bounds: box, in: ctx, patterns: patterns,
+                                     patternSpace: patternSpace)
+                }
                 if pad.strokeWidth > 0, let stroke = pad.stroke {
                     PaintRender.strokeAligned(path, width: pad.strokeWidth * z,
                                               alignment: pad.strokeAlignment,
@@ -6767,6 +6821,44 @@ final class CanvasNSView: NSView {
     private var instanceResolveCache: [UUID: [Node]] = [:]
     private var instanceResolveGen: Int = -1
     private var instanceTopLevelIDs: Set<UUID> = []
+
+    // MARK: Pattern tiles (FEAT-062 Stage B)
+
+    /// Rasterised pattern tiles for this canvas. Tiles are built by
+    /// `ExportRenderView.patternTile` — the SAME rasteriser the export paths use,
+    /// so canvas and export cannot disagree about what a tile looks like.
+    private let patternStore = PatternTileStore()
+    private var patternStoreGen: Int = -1
+
+    /// A resolver for `PaintRender`, with the tile cache cleared whenever the
+    /// model actually changed.
+    private var patterns: PatternResolver? {
+        guard let document else { return nil }
+        if document.resolveGeneration != patternStoreGen {
+            // Mid-gesture bumps are FRAME-ONLY mutations (move/resize/draw change
+            // node frames) and a pattern's tile content is not a frame, so the
+            // warm cache stays exact through a drag — the same reasoning, and the
+            // same measured motivation, as `resolvedChildrenCached` above.
+            if !(frameOnlyGestureActive && patternStoreGen != -1) {
+                patternStore.removeAll()
+            }
+            patternStoreGen = document.resolveGeneration
+        }
+        return patternStore.resolver(document: document.model)
+    }
+
+    /// Document points → the coordinates `drawNode` actually draws in.
+    ///
+    /// The canvas does not put zoom/pan in the CTM: `docToView` bakes them into
+    /// every rect it hands the drawing code. A pattern lattice therefore has no
+    /// way to find document space on its own, and without this it stays pinned to
+    /// the view — sliding under its own shape on pan and never scaling on zoom.
+    /// Mirrors `docToView` exactly; if that changes, this must change with it.
+    private var patternSpace: CGAffineTransform {
+        guard let app else { return .identity }
+        return CGAffineTransform(translationX: app.panOffset.x, y: app.panOffset.y)
+            .scaledBy(x: app.zoom, y: app.zoom)
+    }
 
     // Testing Mode instrumentation (see PerfMeter). All near-free when disabled.
     let perf = PerfMeter()
@@ -9987,6 +10079,13 @@ final class CanvasNSView: NSView {
             return true
         case .source(let parentSourceID):
             return document.model.canNestComponent(sourceID, in: parentSourceID)
+        case .pattern:
+            // A pattern tile is not a node in the component dependency graph, so
+            // it cannot create a cycle in it — a component motif inside a tile is
+            // a genuinely useful thing to build. A pattern → component → pattern
+            // loop IS expressible, and `PatternTileStore`'s in-flight guard is
+            // what terminates that one.
+            return true
         }
     }
 
@@ -10061,10 +10160,16 @@ final class CanvasNSView: NSView {
     private func placeSVGImports(_ imports: [NamedImport], at viewPoint: CGPoint?) -> Bool {
         guard let app else { return false }
         var imported: [Node] = []
+        // FEAT-062. Pattern tiles are document-level: a `Paint.pattern` carries
+        // only an id, so these must be filed into `Document.patterns` in the SAME
+        // commit as the artwork or the fills resolve to nothing.
+        var importedPatterns: [PatternSource] = []
         for item in imports {
-            if var group = SVGImporter.importGroup(from: item.data) {
+            if let result = SVGImporter.importDocument(from: item.data) {
+                var group = result.group
                 if let name = item.name { group.name = name }
                 imported.append(group)
+                importedPatterns.append(contentsOf: result.patterns)
             } else if let image = NSImage(data: item.data), image.size.width > 0, image.size.height > 0 {
                 imported.append(Node(name: item.name ?? "Image",
                                      frame: CGRect(origin: .zero, size: image.size),
@@ -10085,6 +10190,12 @@ final class CanvasNSView: NSView {
             nodes.append(node)
             newIDs.append(node.id)
             x += node.frame.width + gap
+        }
+        if !importedPatterns.isEmpty {
+            // Ids are freshly minted per import, so this only ever appends —
+            // re-importing the same file yields new tiles rather than mutating the
+            // ones existing layers already point at.
+            document?.model.patterns.append(contentsOf: importedPatterns)
         }
         commitNodes(nodes, actionName: imported.count > 1 ? "Import SVGs" : "Import SVG")
         app.selectedArtboardID = nil
@@ -11554,6 +11665,10 @@ final class CanvasNSView: NSView {
             guard let si = model.sources.firstIndex(where: { $0.id == sid }) else { return }
             walk(&model.sources[si].children)
             model.sources[si].children = model.reflowed(model.sources[si].children)
+        case .pattern(let pid):
+            guard let pi = model.patterns.firstIndex(where: { $0.id == pid }) else { return }
+            walk(&model.patterns[pi].children)
+            model.patterns[pi].children = model.reflowed(model.patterns[pi].children)
         }
         document.setModel(model, undoManager: undoManager, actionName: "Round to Pixel")
         needsDisplay = true
@@ -12417,6 +12532,75 @@ final class CanvasNSView: NSView {
 
     @objc func createComponentAction(_ sender: Any?) { createComponent() }
 
+    @objc func createPatternAction(_ sender: Any?) { createPattern() }
+
+    /// FEAT-065c. Turn the selection into a reusable pattern tile and replace it
+    /// with ONE rectangle filled by that pattern — the same shape as Create
+    /// Component, which is the point: they are the same idea, so they should feel
+    /// the same.
+    ///
+    /// Two decisions worth stating, because both are guesses the owner can undo
+    /// rather than settings buried somewhere:
+    ///
+    /// 1. **The selection's bounds become the tile size.** That is the only
+    ///    defensible default — but bounds-as-tile only repeats SEAMLESSLY if the
+    ///    artwork was drawn to tile. Anything else will show its seams, which is
+    ///    honest and immediately visible rather than subtly wrong.
+    /// 2. **The replacement rectangle is the selection's own bounds**, so the
+    ///    canvas does not jump. One tile fills it exactly, so the result looks
+    ///    like what was there until the shape is resized.
+    private func createPattern() {
+        guard let app, let document else { return }
+        let selected = currentNodes.filter { app.selectedNodeIDs.contains($0.id) }
+        guard !selected.isEmpty else { return }
+
+        let frames = selected.map(\.frame)
+        let union = frames.dropFirst().reduce(frames[0]) { $0.union($1) }
+        guard union.width > 0.01, union.height > 0.01 else { NSSound.beep(); return }
+
+        // Tile-local coordinates, exactly as `createComponent` does for a source.
+        let children = selected.map { node -> Node in
+            var c = node
+            c.frame = c.frame.offsetBy(dx: -union.minX, dy: -union.minY)
+            return c
+        }
+        let baseName: String = {
+            if selected.count == 1 {
+                let n = selected[0].name.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !n.isEmpty { return n }
+            }
+            return "Pattern \(document.model.patterns.count + 1)"
+        }()
+        let source = PatternSource(name: baseName, children: children, tileSize: union.size)
+
+        var shape = RectangleShape()
+        shape.fill = .pattern(source.reference)
+        shape.strokeWidth = 0
+        let filled = Node(name: baseName, frame: union, content: .rectangle(shape))
+
+        var model = document.model
+        model.patterns.append(source)
+        let selectedIDs = app.selectedNodeIDs
+        switch scope {
+        case .document:
+            guard let pageIndex = model.pageIndex(for: activePageID) else { return }
+            model.pages[pageIndex].nodes.removeAll { selectedIDs.contains($0.id) }
+            model.pages[pageIndex].nodes.append(filled)
+        case .source(let sid):
+            guard let si = model.sources.firstIndex(where: { $0.id == sid }) else { return }
+            model.sources[si].children.removeAll { selectedIDs.contains($0.id) }
+            model.sources[si].children.append(filled)
+        case .pattern(let pid):
+            guard let pi = model.patterns.firstIndex(where: { $0.id == pid }) else { return }
+            model.patterns[pi].children.removeAll { selectedIDs.contains($0.id) }
+            model.patterns[pi].children.append(filled)
+        }
+        document.setModel(model, undoManager: undoManager, actionName: "Create Pattern")
+        app.selectedNodeIDs = [filled.id]
+        app.selectedArtboardID = nil
+        needsDisplay = true
+    }
+
     /// Turn the selected nodes into a reusable component source, and replace the
     /// selection with a single instance referencing it. The source's children are
     /// stored source-local (relative to the selection's bounding box).
@@ -12461,6 +12645,11 @@ final class CanvasNSView: NSView {
             if let si = model.sources.firstIndex(where: { $0.id == sid }) {
                 model.sources[si].children.removeAll { selectedIDs.contains($0.id) }
                 model.sources[si].children.append(instance)
+            }
+        case .pattern(let pid):
+            if let pi = model.patterns.firstIndex(where: { $0.id == pid }) {
+                model.patterns[pi].children.removeAll { selectedIDs.contains($0.id) }
+                model.patterns[pi].children.append(instance)
             }
         }
         document.setModel(model, undoManager: undoManager, actionName: "Create Component")
@@ -12749,6 +12938,84 @@ final class CanvasNSView: NSView {
         SourceEditorWindowManager.shared.open(sourceID: sourceID, document: document, undoManager: undoManager)
     }
 
+    private func openPatternEditor(_ patternID: UUID) {
+        guard let document else { return }
+        SourceEditorWindowManager.shared.open(patternID: patternID, document: document,
+                                              undoManager: undoManager)
+    }
+
+    /// The pattern behind the current selection (FEAT-062 Stage E).
+    ///
+    /// Reads the FILL of the selected layer rather than the layer itself, because
+    /// a pattern is a paint, not a node — "edit this pattern" means "edit the tile
+    /// this shape is painted with". Only a single selection resolves: with two
+    /// shapes carrying different patterns there is no one right answer, and
+    /// silently picking the first is the kind of guess that loses work.
+    private var selectedPatternID: UUID? {
+        guard let app, app.selectedNodeIDs.count == 1,
+              let id = app.selectedNodeIDs.first, let node = node(id) else { return nil }
+        let paint: Paint?
+        switch node.content {
+        case .rectangle(let shape): paint = shape.fill
+        case .ellipse(let shape):   paint = shape.fill
+        case .polygon(let shape):   paint = shape.fill
+        case .path(let shape):      paint = shape.fill
+        default:                    paint = nil
+        }
+        guard let ref = paint?.patternValue,
+              document?.model.pattern(for: ref.patternID) != nil else { return nil }
+        return ref.patternID
+    }
+
+    /// The pattern a pattern-level command acts on: the id carried by a Patterns
+    /// panel menu item, the tile this window is editing, else the pattern behind
+    /// the selection's fill. Shared by the actions AND menu validation so an
+    /// enabled item always acts on what its title names — the same resolver shape
+    /// `componentSourceTarget` uses.
+    func patternTarget(for sender: Any?) -> UUID? {
+        if let item = sender as? NSMenuItem {
+            if let id = item.representedObject as? UUID,
+               document?.model.pattern(for: id) != nil { return id }
+            if let string = item.representedObject as? String, let id = UUID(uuidString: string),
+               document?.model.pattern(for: id) != nil { return id }
+        }
+        if case .pattern(let pid) = scope { return pid }
+        return selectedPatternID
+    }
+
+    @objc func duplicatePatternAction(_ sender: Any?) {
+        guard let document, let id = patternTarget(for: sender),
+              let copy = document.model.duplicatingPattern(id) else { return }
+        document.setModel(copy.document, undoManager: undoManager,
+                          actionName: "Duplicate Pattern")
+        openPatternEditor(copy.patternID)
+        needsDisplay = true
+    }
+
+    @objc func deletePatternAction(_ sender: Any?) {
+        guard let document, let id = patternTarget(for: sender),
+              document.model.pattern(for: id) != nil else { return }
+        document.setModel(document.model.deletingPattern(id), undoManager: undoManager,
+                          actionName: "Delete Pattern")
+        // A pattern editor open on the deleted tile would be editing something the
+        // document no longer has.
+        SourceEditorWindowManager.shared.close(sourceID: id)
+        needsDisplay = true
+    }
+
+    @objc func editPatternAction(_ sender: Any?) {
+        // A menu item may carry the id directly (the Patterns list); otherwise
+        // fall back to the selection's fill.
+        if let item = sender as? NSMenuItem,
+           let id = item.representedObject as? UUID,
+           document?.model.pattern(for: id) != nil {
+            openPatternEditor(id)
+            return
+        }
+        guard let id = selectedPatternID else { return }
+        openPatternEditor(id)
+    }
+
     // MARK: Context menu
 
     override func menu(for event: NSEvent) -> NSMenu? {
@@ -12867,6 +13134,7 @@ final class CanvasNSView: NSView {
                 add(menu, "Relationships…", #selector(showRelationshipsAction(_:)))
             }
             add(menu, "Create Component", #selector(createComponentAction(_:)))
+            add(menu, "Create Pattern", #selector(createPatternAction(_:)))
             if let placeItem = componentPlacementMenuItem(at: p) {
                 menu.addItem(placeItem)
             }
@@ -12878,6 +13146,13 @@ final class CanvasNSView: NSView {
                 menu.addItem(categoryMenuItem(for: inst.sourceID))
                 menu.addItem(instanceStateMenuItem(forNode: hit.id, sourceID: inst.sourceID,
                                                    current: inst.activeStateID))
+            }
+            // FEAT-062 Stage E. Contextual by nature: it only appears when the
+            // layer under the cursor is actually painted with a pattern.
+            if selectedPatternID != nil {
+                add(menu, "Edit Pattern…", #selector(editPatternAction(_:)))
+                add(menu, "Duplicate Pattern", #selector(duplicatePatternAction(_:)))
+                add(menu, "Delete Pattern", #selector(deletePatternAction(_:)))
             }
             if selectionConvertibleToPath {
                 add(menu, "Convert to Path", #selector(convertToPathAction(_:)))
@@ -13186,6 +13461,26 @@ extension CanvasNSView: NSMenuItemValidation {
             return selectedItemInAutoLayout
         case #selector(editComponentAction(_:)), #selector(detachComponentAction(_:)):
             return selectionHasInstance
+        case #selector(editPatternAction(_:)):
+            return selectedPatternID != nil
+        case #selector(createPatternAction(_:)):
+            return hasNodes
+        case #selector(duplicatePatternAction(_:)):
+            return patternTarget(for: item) != nil
+        case #selector(deletePatternAction(_:)):
+            // Name the pattern AND its reach in the title: deleting a tile leaves
+            // every layer using it painting a flat fallback, and that should not be
+            // something you discover by undoing.
+            guard let id = patternTarget(for: item),
+                  let pattern = document?.model.pattern(for: id) else {
+                item.title = "Delete Pattern"
+                return false
+            }
+            let uses = document?.model.patternUsageCount(id) ?? 0
+            item.title = uses == 0
+                ? "Delete Pattern \"\(pattern.name)\""
+                : "Delete Pattern \"\(pattern.name)\" (used by \(uses) layer\(uses == 1 ? "" : "s"))"
+            return true
         case #selector(duplicateComponentSourceAction(_:)):
             guard let sourceID = componentSourceTarget(for: item) else { return false }
             return document?.model.source(for: sourceID) != nil

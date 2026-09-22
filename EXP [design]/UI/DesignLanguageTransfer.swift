@@ -267,10 +267,16 @@ struct DesignLanguageTransferSheet: View {
         panel.canChooseDirectories = false
         panel.message = "Import an EXP design-language JSON file or W3C Design Tokens JSON."
         guard panel.runModal() == .OK, let url = panel.url,
-              let data = try? Data(contentsOf: url),
-              let parsed = DesignLanguageIO.parseDesignTokensJSON(data) ?? DesignLanguageIO.parseJSON(data),
-              !parsed.assets.isEmpty || !parsed.typeStyles.isEmpty else { return }
+              let data = try? Data(contentsOf: url) else { return }
         var model = document.model
+        // FEAT-065d. `parseJSONAdoptingPatterns` re-homes any tiles the file
+        // carried into THIS document with fresh ids and remaps the assets, so a
+        // pattern asset arrives painting its pattern rather than a flat fallback.
+        // W3C tokens are tried first and never carry patterns, so that path is
+        // unchanged.
+        guard let parsed = DesignLanguageIO.parseDesignTokensJSON(data)
+                ?? DesignLanguageIO.parseJSONAdoptingPatterns(data, into: &model),
+              !parsed.assets.isEmpty || !parsed.typeStyles.isEmpty else { return }
         model.designLanguage.merge(parsed.assets, categories: parsed.categories, mode: mergeMode)
         model.designLanguage.mergeTypeStyles(parsed.typeStyles, categories: parsed.categories, mode: mergeMode)
         document.setModel(model, undoManager: undoManager, actionName: "Import Design Language")
@@ -296,7 +302,7 @@ struct DesignLanguageTransferSheet: View {
             // The preview IS the export — exactly what Copy/Save produce.
             ScrollView {
                 Text(dl.isEmpty ? "(this document's design language is empty)"
-                                : exportFormat.previewText(for: dl))
+                                : exportFormat.previewText(for: dl, patterns: document.model.patterns))
                     .font(.system(.caption, design: .monospaced))
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -310,14 +316,15 @@ struct DesignLanguageTransferSheet: View {
     }
 
     private func copyExport() {
-        let text = exportFormat.previewText(for: dl)
+        let text = exportFormat.previewText(for: dl, patterns: document.model.patterns)
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
         copied = true
     }
 
     private func saveExportFile() {
-        guard let data = try? exportFormat.data(for: dl) else { return }
+        guard let data = try? exportFormat.data(for: dl, patterns: document.model.patterns)
+        else { return }
         let panel = NSSavePanel()
         panel.nameFieldStringValue = "design-language.\(exportFormat.fileExtension)"
         let ext = exportFormat.fileExtension.split(separator: ".").last.map(String.init) ?? "txt"

@@ -26,16 +26,27 @@ struct EXPDesignLanguageFile: Codable {
     var categories: [DLCategory]
     var assets: [DesignAsset]
     var typeStyles: [TypeStyle]
+    /// FEAT-065d. The tiles any pattern asset in `assets` points at.
+    ///
+    /// A `Paint.pattern` carries only a `PatternRef` — an id into ITS OWN
+    /// document's library — so a design language exported without the tiles
+    /// arrives somewhere else as a swatch painting a flat fallback colour. The
+    /// asset would look saved and be broken, which is the worst of both. Carrying
+    /// the sources makes a design language actually portable.
+    var patterns: [PatternSource]
 
     init(expDesignLanguage: Int, categories: [DLCategory], assets: [DesignAsset],
-         typeStyles: [TypeStyle] = []) {
+         typeStyles: [TypeStyle] = [], patterns: [PatternSource] = []) {
         self.expDesignLanguage = expDesignLanguage
         self.categories = categories
         self.assets = assets
         self.typeStyles = typeStyles
+        self.patterns = patterns
     }
 
-    enum CodingKeys: String, CodingKey { case expDesignLanguage, categories, assets, typeStyles }
+    enum CodingKeys: String, CodingKey {
+        case expDesignLanguage, categories, assets, typeStyles, patterns
+    }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         expDesignLanguage = try c.decodeIfPresent(Int.self, forKey: .expDesignLanguage) ?? 1
@@ -43,6 +54,9 @@ struct EXPDesignLanguageFile: Codable {
         // `assets` stays required-with-fallback: a type-styles-only file is valid.
         assets = try c.decodeIfPresent([DesignAsset].self, forKey: .assets) ?? []
         typeStyles = try c.decodeIfPresent([TypeStyle].self, forKey: .typeStyles) ?? []
+        // decodeIfPresent: every design language written before v2.5 has no
+        // patterns key, and must still import.
+        patterns = try c.decodeIfPresent([PatternSource].self, forKey: .patterns) ?? []
     }
 }
 
@@ -68,10 +82,15 @@ enum DesignLanguageIO {
 
     // MARK: Canonical EXP JSON
 
-    static func exportJSON(_ dl: DesignLanguage) throws -> Data {
+    /// `patterns` should be the document's full pattern library; only the tiles
+    /// actually referenced by a pattern asset are written.
+    static func exportJSON(_ dl: DesignLanguage,
+                           patterns: [PatternSource] = []) throws -> Data {
+        let referenced = Set(dl.assets.compactMap { $0.value.patternValue?.patternID })
         let file = EXPDesignLanguageFile(expDesignLanguage: schemaVersion,
                                         categories: dl.categories, assets: dl.assets,
-                                        typeStyles: dl.typeStyles)
+                                        typeStyles: dl.typeStyles,
+                                        patterns: patterns.filter { referenced.contains($0.id) })
         let enc = JSONEncoder()
         enc.outputFormatting = [.prettyPrinted, .sortedKeys]
         return try enc.encode(file)
@@ -89,6 +108,39 @@ enum DesignLanguageIO {
         if let a = try? dec.decode([DesignAsset].self, from: data) { return (a, [], []) }
         if let dl = try? dec.decode(DesignLanguage.self, from: data) { return (dl.assets, dl.categories, dl.typeStyles) }
         return nil
+    }
+
+    /// Parse, then RE-HOME any pattern tiles the file carried into `document`
+    /// (FEAT-065d).
+    ///
+    /// Tiles arrive with FRESH ids and the assets are remapped to them, so
+    /// importing the same design language twice, or into a document that already
+    /// has a pattern with that id, cannot collide or silently overwrite artwork
+    /// the target already had. An asset whose tile did NOT travel is left alone:
+    /// it still paints its fallback colour, which is visible and honest, rather
+    /// than being dropped without a word.
+    static func parseJSONAdoptingPatterns(
+        _ data: Data, into document: inout Document
+    ) -> (assets: [DesignAsset], categories: [DLCategory], typeStyles: [TypeStyle])? {
+        guard let parsed = parseJSON(data) else { return nil }
+        let dec = JSONDecoder()
+        guard let file = try? dec.decode(EXPDesignLanguageFile.self, from: data),
+              !file.patterns.isEmpty else { return parsed }
+
+        var remap: [UUID: UUID] = [:]
+        for source in file.patterns {
+            var copy = source
+            copy.id = UUID()
+            remap[source.id] = copy.id
+            document.patterns.append(copy)
+        }
+        var assets = parsed.assets
+        for i in assets.indices {
+            guard let ref = assets[i].value.patternValue,
+                  let newID = remap[ref.patternID] else { continue }
+            assets[i].value = .pattern(PatternRef(patternID: newID, fallback: ref.fallback))
+        }
+        return (assets, parsed.categories, parsed.typeStyles)
     }
 
     /// Tolerant import for W3C Design Tokens JSON (`$type` / `$value`). Accepts
@@ -215,6 +267,13 @@ enum DesignLanguageIO {
         switch paint {
         case .solid(let c):    return ColorMath.string(c, .hex)
         case .gradient(let g): return cssGradient(g)
+        case .pattern(let p):
+            // FEAT-062. A pattern tile has no CSS colour value. Its fallback hex
+            // is the honest stand-in for a custom property, and it is what the
+            // pattern itself paints when unresolved — so the token and the canvas
+            // agree. Emitting a real CSS `url()` would need an exported asset,
+            // which is Stage D's problem, not this function's.
+            return ColorMath.string(p.fallback, .hex)
         }
     }
 
@@ -575,6 +634,15 @@ enum DesignLanguageIO {
                     ["color": ColorMath.string($0.color, .hex), "position": Double($0.position)]
                 }
                 gradients[name] = ["$type": "gradient", "$value": stops]
+            case .pattern:
+                // FEAT-062. The W3C Design Tokens format has no pattern type, and
+                // writing one out as a flat `$type: color` would be a lie a
+                // downstream tool cannot detect. Deliberately omitted until Stage D
+                // decides between a custom `$type` and documented exclusion.
+                // Nothing can create a pattern design-language asset yet, so this
+                // is unreachable today — it exists so the choice is explicit
+                // rather than made by a compiler-silencing default.
+                continue
             }
         }
         var typography: [String: Any] = [:]
@@ -930,17 +998,21 @@ enum DLExportFormat: String, CaseIterable, Identifiable {
     }
 
     /// The generated document (text formats return UTF-8 text data).
-    func data(for dl: DesignLanguage) throws -> Data {
+    ///
+    /// `patterns` is the document's pattern library; only the EXP JSON format
+    /// carries tiles, and only the ones a pattern asset references (FEAT-065d).
+    func data(for dl: DesignLanguage, patterns: [PatternSource] = []) throws -> Data {
         switch self {
         case .cssVars:       return Data(DesignLanguageIO.exportCSS(dl).utf8)
         case .scssVars:      return Data(DesignLanguageIO.exportSCSS(dl).utf8)
-        case .expJSON:       return try DesignLanguageIO.exportJSON(dl)
+        case .expJSON:       return try DesignLanguageIO.exportJSON(dl, patterns: patterns)
         case .designTokens:  return try DesignLanguageIO.exportDesignTokensJSON(dl)
         case .sketchPalette: return try DesignLanguageIO.exportSketchPalette(dl)
         }
     }
     /// Preview text (all our formats are text-representable).
-    func previewText(for dl: DesignLanguage) -> String {
-        (try? data(for: dl)).flatMap { String(data: $0, encoding: .utf8) } ?? "(nothing to export)"
+    func previewText(for dl: DesignLanguage, patterns: [PatternSource] = []) -> String {
+        (try? data(for: dl, patterns: patterns))
+            .flatMap { String(data: $0, encoding: .utf8) } ?? "(nothing to export)"
     }
 }

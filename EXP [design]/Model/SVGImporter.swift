@@ -22,17 +22,39 @@ import CoreGraphics
 
 enum SVGImporter {
 
+    /// Everything one SVG contributes to a document (FEAT-062): the artwork, plus
+    /// any reusable pattern tiles its fills reference by id. Patterns cannot live
+    /// inside the returned Node — a `Paint.pattern` carries only an id — so the
+    /// caller must file `patterns` into `Document.patterns` for the fills to
+    /// resolve.
+    struct Import {
+        var group: Node
+        var patterns: [PatternSource]
+    }
+
     /// Parse SVG `data` into a single group Node (children in group-local coords),
     /// with frame origin at (0,0). nil if it isn't usable SVG / produced nothing.
+    ///
+    /// Convenience for callers that cannot accept patterns yet; a pattern fill
+    /// degrades to its fallback colour for them. Prefer `importDocument`.
     static func importGroup(from data: Data) -> Node? {
+        importDocument(from: data)?.group
+    }
+
+    static func importDocument(from data: Data) -> Import? {
         guard let doc = try? XMLDocument(data: data, options: [.documentTidyXML]),
               let root = doc.rootElement(), root.name == "svg" else { return nil }
 
         var ctx = Context()
         collectReferencedElements(in: root, into: &ctx)
         collectStylesheets(in: root, into: &ctx)
+        // Percentage lengths resolve against the viewport, and inside a viewBox
+        // the viewport IS the box — so this has to be known before any geometry
+        // (BUG-060) or any pattern tile is measured.
+        ctx.viewport = viewBox(root)?.size ?? canvasSize(root)
         collectGradients(in: root, into: &ctx)
         collectFilters(in: root, into: &ctx)
+        collectPatterns(in: root, into: &ctx)
 
         // viewBox → target size mapping (so 1 user unit ≈ 1 doc point at the
         // declared width/height).
@@ -54,7 +76,53 @@ enum SVGImporter {
         // Localize children into a group at (0,0,size).
         let group = Node(name: "SVG", frame: CGRect(origin: .zero, size: size),
                          content: .group(children: children))
-        return group
+        // Only the patterns actually referenced by a fill are worth carrying into
+        // the document; an unused <pattern> in <defs> is dead weight in the
+        // library and would show up in the exporter's <defs> for no reason.
+        let usedIDs = referencedPatternIDs(in: children, all: ctx.patterns)
+        let used = ctx.patterns.values
+            .filter { usedIDs.contains($0.id) }
+            .sorted { $0.name < $1.name }
+        return Import(group: group, patterns: used)
+    }
+
+    /// Pattern ids reached by any fill in the tree — transitively, so a pattern
+    /// used only from inside another referenced pattern's tile is kept too.
+    /// Dropping it would leave a live `PatternRef` pointing at nothing.
+    private static func referencedPatternIDs(in nodes: [Node],
+                                             all: [String: PatternSource]) -> Set<UUID> {
+        func directRefs(_ list: [Node]) -> Set<UUID> {
+            var found: Set<UUID> = []
+            for node in list {
+                switch node.content {
+                case .rectangle(let s): if let p = s.fill.patternValue { found.insert(p.patternID) }
+                case .ellipse(let s):   if let p = s.fill.patternValue { found.insert(p.patternID) }
+                case .polygon(let s):   if let p = s.fill.patternValue { found.insert(p.patternID) }
+                case .path(let s):      if let p = s.fill.patternValue { found.insert(p.patternID) }
+                case .group(let kids):  found.formUnion(directRefs(kids))
+                default: break
+                }
+            }
+            return found
+        }
+        let byID = Dictionary(uniqueKeysWithValues: all.values.map { ($0.id, $0) })
+        var found = directRefs(nodes)
+        // Fixpoint rather than recursion: patterns may reference each other, and a
+        // cycle must terminate. Each round can only add ids, and there are
+        // finitely many.
+        var frontier = found
+        while !frontier.isEmpty {
+            var next: Set<UUID> = []
+            for id in frontier {
+                guard let source = byID[id] else { continue }
+                for reached in directRefs(source.children) where !found.contains(reached) {
+                    found.insert(reached)
+                    next.insert(reached)
+                }
+            }
+            frontier = next
+        }
+        return found
     }
 
     // MARK: Parsing context
@@ -72,6 +140,14 @@ enum SVGImporter {
         /// the geometry; without this cascade those shapes silently use SVG's
         /// initial black fill.
         var cssRules: [CSSRule] = []
+        /// The viewport percentage lengths resolve against, in USER UNITS
+        /// (BUG-060). The viewBox when there is one — percentages are relative to
+        /// the viewport, and inside a viewBox the viewport IS the box.
+        var viewport: CGSize = CGSize(width: 100, height: 100)
+        /// `<pattern id>` → the tile we built for it (FEAT-062). Built in a
+        /// pre-pass, because `paint()` receives `Context` by value and cannot
+        /// append a new source on the way past.
+        var patterns: [String: PatternSource] = [:]
     }
 
     private struct CSSRule {
@@ -112,6 +188,11 @@ enum SVGImporter {
         var stroke: RGBAColor? = nil
         var strokeWidth: CGFloat = 1
         var strokeCap: StrokeLineCap = .butt
+        // BUG-064. SVG's own defaults, which are NOT EXP's: a path with no
+        // `stroke-linejoin` must import mitered, or a shape made entirely of its
+        // corners (a fat stroke on a tiny triangle) comes in as a disc.
+        var strokeJoin: StrokeLineJoin = .miter
+        var strokeMiterLimit: CGFloat = 4
         var strokePattern: StrokePattern = .solid
         var startMarker: StrokeMarker = .none
         var endMarker: StrokeMarker = .none
@@ -189,12 +270,15 @@ enum SVGImporter {
             return pathNode(subs, style: style, name: "Path", closed: closed)
 
         case "rect":
-            return rectNode(el, ctm: local, style: style)
+            return rectNode(el, ctm: local, style: style, ctx: ctx)
         case "circle", "ellipse":
-            return ellipseNode(el, ctm: local, style: style, isCircle: name == "circle")
+            return ellipseNode(el, ctm: local, style: style,
+                               isCircle: name == "circle", ctx: ctx)
         case "line":
-            let a = transformPoint(.init(point: pt(el, "x1", "y1")), local)
-            let b = transformPoint(.init(point: pt(el, "x2", "y2")), local)
+            let a = transformPoint(.init(point: CGPoint(x: length(el, "x1", .horizontal, ctx),
+                                                        y: length(el, "y1", .vertical, ctx))), local)
+            let b = transformPoint(.init(point: CGPoint(x: length(el, "x2", .horizontal, ctx),
+                                                        y: length(el, "y2", .vertical, ctx))), local)
             return lineNode(a.point, b.point, style: style)
         case "polyline", "polygon":
             let pts = numbers(el.attribute(forName: "points")?.stringValue ?? "")
@@ -208,7 +292,14 @@ enum SVGImporter {
             return textNode(el, ctm: local, style: style)
         default:
             // Recurse into unknown containers (e.g. <switch>) but skip <defs>.
-            if name == "defs" || name == "linearGradient" || name == "radialGradient" || name == "filter" { return [] }
+            // Never-rendered containers. `pattern`, `clipPath`, `mask` and `marker`
+            // join `defs` here because they define content for reference, not for
+            // drawing in place — and they are NOT always inside <defs>. Recursing
+            // into them (the old default) emitted their contents as real visible
+            // layers: phantom shapes on the canvas.
+            if name == "defs" || name == "linearGradient" || name == "radialGradient"
+                || name == "filter" || name == "pattern" || name == "clipPath"
+                || name == "mask" || name == "marker" { return [] }
             var kids: [Node] = []
             for c in el.children?.compactMap({ $0 as? XMLElement }) ?? [] {
                 kids.append(contentsOf: nodes(for: c, ctm: local, inherited: style,
@@ -253,6 +344,8 @@ enum SVGImporter {
                            strokeWidth: style.stroke == nil ? 0 : style.strokeWidth,
                            strokePattern: style.strokePattern,
                            strokeCap: style.strokeCap,
+                           strokeJoin: style.strokeJoin,
+                           strokeMiterLimit: style.strokeMiterLimit,
                            startMarker: closed ? .none : style.startMarker,
                            endMarker: closed ? .none : style.endMarker)
         if localized.count > 1 { ps.contours = localized }
@@ -261,8 +354,10 @@ enum SVGImporter {
         return [node]
     }
 
-    private static func rectNode(_ el: XMLElement, ctm: CGAffineTransform, style: Style) -> [Node] {
-        let x = num(el, "x"), y = num(el, "y"), w = num(el, "width"), h = num(el, "height")
+    private static func rectNode(_ el: XMLElement, ctm: CGAffineTransform, style: Style,
+                                 ctx: Context) -> [Node] {
+        let x = length(el, "x", .horizontal, ctx), y = length(el, "y", .vertical, ctx)
+        let w = length(el, "width", .horizontal, ctx), h = length(el, "height", .vertical, ctx)
         guard w > 0, h > 0 else { return [] }
         let rx = max(num(el, "rx"), num(el, "ry"))
         if isAxisAligned(ctm) {
@@ -281,10 +376,11 @@ enum SVGImporter {
         return pathNode([sub], style: style, name: "Rectangle", closed: true)
     }
 
-    private static func ellipseNode(_ el: XMLElement, ctm: CGAffineTransform, style: Style, isCircle: Bool) -> [Node] {
-        let cx = num(el, "cx"), cy = num(el, "cy")
-        let rx = isCircle ? num(el, "r") : num(el, "rx")
-        let ry = isCircle ? num(el, "r") : num(el, "ry")
+    private static func ellipseNode(_ el: XMLElement, ctm: CGAffineTransform, style: Style,
+                                    isCircle: Bool, ctx: Context) -> [Node] {
+        let cx = length(el, "cx", .horizontal, ctx), cy = length(el, "cy", .vertical, ctx)
+        let rx = isCircle ? length(el, "r", .diagonal, ctx) : length(el, "rx", .horizontal, ctx)
+        let ry = isCircle ? length(el, "r", .diagonal, ctx) : length(el, "ry", .vertical, ctx)
         guard rx > 0, ry > 0 else { return [] }
         let box = CGRect(x: cx - rx, y: cy - ry, width: rx * 2, height: ry * 2)
         if isAxisAligned(ctm) {
@@ -350,6 +446,14 @@ enum SVGImporter {
         if let v = props["stroke-linecap"], let cap = StrokeLineCap(rawValue: v.lowercased()) {
             s.strokeCap = cap
         }
+        if let v = props["stroke-linejoin"], let join = StrokeLineJoin(rawValue: v.lowercased()) {
+            s.strokeJoin = join
+        }
+        // SVG clamps `stroke-miterlimit` at 1; anything lower is invalid and the
+        // declaration is ignored rather than applied.
+        if let v = props["stroke-miterlimit"], let d = Double(v), d >= 1 {
+            s.strokeMiterLimit = CGFloat(d)
+        }
         if let v = props["stroke-dasharray"] {
             s.strokePattern = strokePattern(fromDashArray: v, cap: s.strokeCap)
         }
@@ -403,7 +507,8 @@ enum SVGImporter {
     private static let presentationAttributeKeys = [
         "fill", "stroke", "stroke-width", "opacity", "fill-opacity",
         "stroke-opacity", "font-size", "font-family", "font-weight", "font-style",
-        "stroke-linecap", "stroke-dasharray", "marker-start", "marker-end",
+        "stroke-linecap", "stroke-linejoin", "stroke-miterlimit",
+        "stroke-dasharray", "marker-start", "marker-end",
         "stop-color", "stop-opacity", "filter",
     ]
 
@@ -533,9 +638,16 @@ enum SVGImporter {
         let v = value.trimmingCharacters(in: .whitespacesAndNewlines)
         if v.lowercased() == "none" { return nil }
         if v.hasPrefix("url(") {
-            let id = v.dropFirst(4).drop(while: { $0 == "#" }).prefix(while: { $0 != ")" && $0 != "#" })
-            if let g = ctx.gradients[String(id)] { return .gradient(g) }
-            return .solid(.black)
+            let id = String(v.dropFirst(4).drop(while: { $0 == "#" })
+                .prefix(while: { $0 != ")" && $0 != "#" }))
+            if let g = ctx.gradients[id] { return .gradient(g) }
+            if let pattern = ctx.patterns[id] { return .pattern(pattern.reference) }
+            // FEAT-062. An unresolvable paint reference used to become SOLID BLACK
+            // — silently, with no report and no raster fallback, which is how four
+            // pattern-backed backgrounds imported as a flat black rectangle. Treat
+            // it as `none` instead: an unpainted shape is visibly missing and
+            // recoverable, where a confident black looks like the author's intent.
+            return nil
         }
         return color(v).map { .solid(applyAlpha($0, opacity)) }
     }
@@ -550,14 +662,88 @@ enum SVGImporter {
 
     // MARK: Gradients
 
+    // MARK: Patterns (FEAT-062)
+
+    /// Build a `PatternSource` for every `<pattern>` in the document.
+    ///
+    /// A pre-pass, not resolution-on-demand, because `paint()` takes `Context` by
+    /// value and so has no way to hand a newly built tile back to the caller —
+    /// the same constraint recorded in BUG-048. Patterns are built in document
+    /// order, so a pattern whose content references an EARLIER pattern resolves
+    /// and one referencing a later pattern falls back; that ordering dependency
+    /// is a known limit, not an accident.
+    private static func collectPatterns(in root: XMLElement, into ctx: inout Context) {
+        guard let all = try? root.nodes(forXPath: "//*[local-name()='pattern']") else { return }
+        for case let el as XMLElement in all {
+            guard let id = el.attribute(forName: "id")?.stringValue, !id.isEmpty else { continue }
+            let width = length(el, "width", .horizontal, ctx)
+            let height = length(el, "height", .vertical, ctx)
+            guard width > 0.01, height > 0.01 else { continue }
+
+            let units: PatternUnits =
+                (el.attribute(forName: "patternUnits")?.stringValue == "objectBoundingBox")
+                ? .objectBoundingBox : .userSpaceOnUse
+
+            // Tile-local coordinates: content is authored in user space starting at
+            // the pattern's (x, y), and the tile's own origin is (0, 0).
+            let originShift = CGAffineTransform(
+                translationX: -length(el, "x", .horizontal, ctx),
+                y: -length(el, "y", .vertical, ctx))
+
+            var children: [Node] = []
+            for child in el.children?.compactMap({ $0 as? XMLElement }) ?? [] {
+                children.append(contentsOf: nodes(for: child, ctm: originShift,
+                                                  inherited: Style(), ctx: ctx))
+            }
+            guard !children.isEmpty else { continue }
+
+            var box: CGRect?
+            let boxNumbers = numbers(el.attribute(forName: "viewBox")?.stringValue ?? "")
+            if boxNumbers.count == 4 {
+                box = CGRect(x: boxNumbers[0], y: boxNumbers[1],
+                             width: boxNumbers[2], height: boxNumbers[3])
+            }
+
+            ctx.patterns[id] = PatternSource(
+                name: "Pattern \(id)",
+                children: children,
+                tileSize: CGSize(width: width, height: height),
+                units: units,
+                transform: AffineValue(transform(el, attribute: "patternTransform")),
+                viewBox: box)
+        }
+    }
+
     private static func collectGradients(in root: XMLElement, into ctx: inout Context) {
         guard let all = try? root.nodes(forXPath: "//*[local-name()='linearGradient' or local-name()='radialGradient']") else { return }
+        // BUG-061. Index first, resolve second. A gradient may take its stops and
+        // its unspecified geometry attributes from another gradient by reference
+        // (SVG 1.1 §13.2.3 / SVG 2 template inheritance) — the common
+        // "define the ramp once, derive the reversed variant" idiom:
+        //     <linearGradient id='g'>…stops…</linearGradient>
+        //     <linearGradient id='h' xlink:href='#g' gradientTransform='rotate(180 .5 .5)'/>
+        // Reading each element in isolation registered `#h` with ZERO stops, so
+        // anything painted `url(#h)` silently got the default ramp instead.
+        var byID: [String: XMLElement] = [:]
+        var gradientElements: [XMLElement] = []
         for case let el as XMLElement in all {
+            gradientElements.append(el)
+            if let id = el.attribute(forName: "id")?.stringValue, !id.isEmpty { byID[id] = el }
+        }
+        for el in gradientElements {
             guard let id = el.attribute(forName: "id")?.stringValue else { continue }
+            let chain = gradientChain(from: el, byID: byID)
             var g = GradientFill()
+            // The REFERENCING element's own kind wins: a radialGradient may borrow
+            // a linearGradient's stops and is still radial.
             g.kind = el.name == "radialGradient" ? .radial : .linear
             var stops: [GradientStop] = []
-            for case let stop as XMLElement in (el.children ?? []) where stop.name == "stop" {
+            // Stops come from the nearest element in the chain that declares any —
+            // an element with its own stops never inherits.
+            let stopSource = chain.first { el in
+                (el.children ?? []).contains { ($0 as? XMLElement)?.name == "stop" }
+            } ?? el
+            for case let stop as XMLElement in (stopSource.children ?? []) where stop.name == "stop" {
                 var off = 0.0
                 if let o = stop.attribute(forName: "offset")?.stringValue {
                     off = o.hasSuffix("%") ? (Double(o.dropLast()) ?? 0) / 100 : (Double(o) ?? 0)
@@ -573,8 +759,8 @@ enum SVGImporter {
             if stops.count >= 1 { g.stops = stops.count == 1 ? [stops[0], stops[0]] : stops }
             // Linear direction → our angle (y-down). objectBoundingBox default.
             if g.kind == .linear {
-                let x1 = frac(el, "x1", 0), y1 = frac(el, "y1", 0)
-                let x2 = frac(el, "x2", 1), y2 = frac(el, "y2", 0)
+                let x1 = frac(chain, "x1", 0), y1 = frac(chain, "y1", 0)
+                let x2 = frac(chain, "x2", 1), y2 = frac(chain, "y2", 0)
                 g.angle = atan2(y2 - y1, x2 - x1) * 180 / .pi
                 // FEAT-032: keep the LINE, not just its direction. An angle cannot
                 // express where the ramp starts or how long it is, so importing
@@ -587,7 +773,7 @@ enum SVGImporter {
                 // coordinates are absolute and would be nonsense as unit values, so
                 // those keep the angle-only behaviour. NOT handled either way, and
                 // not newly broken by this: `gradientTransform`.
-                let units = el.attribute(forName: "gradientUnits")?.stringValue ?? "objectBoundingBox"
+                let units = gradientAttr(chain, "gradientUnits") ?? "objectBoundingBox"
                 if units == "objectBoundingBox" {
                     g.start = CGPoint(x: x1, y: y1)
                     g.end = CGPoint(x: x2, y: y2)
@@ -752,16 +938,45 @@ enum SVGImporter {
         }
     }
 
-    private static func frac(_ el: XMLElement, _ name: String, _ dflt: Double) -> Double {
-        guard let v = el.attribute(forName: name)?.stringValue else { return dflt }
+    /// A gradient and everything it inherits from, nearest first (BUG-061).
+    ///
+    /// Terminates on a cycle (`a` → `b` → `a`, which real exporters do emit by
+    /// accident) via the visited set, and is depth-bounded regardless.
+    private static func gradientChain(from el: XMLElement,
+                                      byID: [String: XMLElement]) -> [XMLElement] {
+        var chain: [XMLElement] = []
+        var seen = Set<ObjectIdentifier>()
+        var current: XMLElement? = el
+        while let node = current, !seen.contains(ObjectIdentifier(node)), chain.count < 16 {
+            seen.insert(ObjectIdentifier(node))
+            chain.append(node)
+            let href = node.attribute(forName: "href")?.stringValue
+                ?? node.attribute(forName: "xlink:href")?.stringValue
+            guard let href, href.hasPrefix("#") else { break }
+            current = byID[String(href.dropFirst())]
+        }
+        return chain
+    }
+
+    /// The nearest declared value of `name` along an inheritance chain.
+    private static func gradientAttr(_ chain: [XMLElement], _ name: String) -> String? {
+        for el in chain {
+            if let v = el.attribute(forName: name)?.stringValue { return v }
+        }
+        return nil
+    }
+
+    private static func frac(_ chain: [XMLElement], _ name: String, _ dflt: Double) -> Double {
+        guard let v = gradientAttr(chain, name) else { return dflt }
         if v.hasSuffix("%") { return (Double(v.dropLast()) ?? dflt*100) / 100 }
         return Double(v) ?? dflt
     }
 
     // MARK: Transforms
 
-    private static func transform(_ el: XMLElement) -> CGAffineTransform {
-        guard let scanner = el.attribute(forName: "transform")?.stringValue else { return .identity }
+    private static func transform(_ el: XMLElement,
+                                  attribute: String = "transform") -> CGAffineTransform {
+        guard let scanner = el.attribute(forName: attribute)?.stringValue else { return .identity }
         // funcName(args) funcName(args) …  — applied left to right (each later
         // transform is more local, so it's prepended into the running matrix).
         var result = CGAffineTransform.identity
@@ -816,6 +1031,40 @@ enum SVGImporter {
 
     private static func num(_ el: XMLElement, _ name: String) -> CGFloat {
         CGFloat(Double(el.attribute(forName: name)?.stringValue?.replacingOccurrences(of: "px", with: "") ?? "") ?? 0)
+    }
+
+    /// Which viewport dimension a percentage length is measured against
+    /// (SVG 1.1 §7.10).
+    private enum Axis { case horizontal, vertical, diagonal }
+
+    /// A geometry length, resolving `%` against the viewport (BUG-060).
+    ///
+    /// `num` strips only the literal `px`, so `Double("100%")` was nil and the
+    /// attribute silently became 0 — which `rectNode`'s `guard w > 0` then turned
+    /// into a DROPPED LAYER, before the fill was ever looked at. That is why a
+    /// generated background whose whole design hangs off
+    /// `<rect fill='url(#p)' width='100%' height='100%'/>` imported as nothing
+    /// but its opaque backing rectangle.
+    private static func length(_ el: XMLElement, _ name: String,
+                               _ axis: Axis, _ ctx: Context) -> CGFloat {
+        guard let raw = el.attribute(forName: name)?.stringValue?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else { return 0 }
+        if raw.hasSuffix("%") {
+            guard let percent = Double(raw.dropLast()) else { return 0 }
+            let basis: CGFloat
+            switch axis {
+            case .horizontal: basis = ctx.viewport.width
+            case .vertical:   basis = ctx.viewport.height
+            // SVG's "percentage of the normalised diagonal": sqrt(w² + h²) / √2.
+            case .diagonal:
+                basis = (ctx.viewport.width * ctx.viewport.width
+                         + ctx.viewport.height * ctx.viewport.height).squareRoot() / 2.0.squareRoot()
+            }
+            return CGFloat(percent / 100) * basis
+        }
+        // Absolute units other than px are not resolved here; `num`'s existing
+        // behaviour (strip px, parse, else 0) is unchanged for every other value.
+        return CGFloat(Double(raw.replacingOccurrences(of: "px", with: "")) ?? 0)
     }
     private static func pt(_ el: XMLElement, _ xn: String, _ yn: String) -> CGPoint { CGPoint(x: num(el, xn), y: num(el, yn)) }
 

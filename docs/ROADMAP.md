@@ -1292,12 +1292,63 @@ Development identity: **2.5 / build 16** across the main app, thumbnail
 extension, and bundled runtime configurations. Public v2.4/build 15 artifacts,
 appcast metadata, release notes, and tag remain immutable.
 
-This opens a clean development lane; it does not choose the release scope.
-FEAT-057–060, deferred research, and the remaining backlog are candidates only.
+**Owner scope decision, 2026-09-22:** v2.5 ships the finished paint model —
+carrying in the pattern system built 2026-09-03→06 (FEAT-062 Stages A–E,
+FEAT-063, FEAT-065a–e, and BUG-060/061/063/064/066/067/068, committed this
+session) — plus **Sanaa `apply_edits` v2 (FEAT-058)**. Release story: *any
+paint — solid, gradient, pattern — as fill or stroke, with faithful SVG
+round-trip*, and Sanaa gains cleanup/repetitive operations.
 
-- [ ] **Owner scoping gate.** Review current evidence and choose the smallest
-      coherent v2.5 outcome before any feature implementation begins. Record the
-      selected items, exclusions, ordering, and acceptance gates here.
+**Sequencing rule (unchanged, and it governs this release):** nothing
+document-mutating starts while another mutating slice awaits owner
+verification. Waves alternate; each wave ends at a verification gate.
+
+### Wave 1 — carry-in: commit + owner verification gate
+
+- [x] Commit the owner-verified pattern work (aged uncommitted since
+      2026-09-06); delete the duplicate scratch fixtures at the repo root
+      (canonical copies live in `docs/evidence/FEAT-062/`); sync stale backlog
+      statuses with the roadmap's verification record. Done 2026-09-22.
+- [ ] **Owner consolidated verification pass** over the pattern system:
+      Create Pattern (65c), the always-on Pattern tab (65b — mode switch does
+      not touch the paint until a tile is chosen), Design-Language
+      save/apply/cross-document import (65d), an import→export round trip on
+      an owner-chosen file, and interactive spot-checks for BUG-060/061
+      (percentage lengths, gradient `href`) and BUG-062's SVG half (mask
+      export re-imports unclipped is the known, recorded caveat — the check
+      is that browsers/Preview render the mask correctly).
+
+### Wave 2 — paint-model completion (mutating; starts only after Wave 1's gate)
+
+- [ ] FEAT-064 — per-pattern anchoring: `objectBoundingBox` rendering
+      (resolver cache keyed by resolved tile size, not pattern id alone), the
+      pattern-scoped inspector control, `patternUnits` export. Acceptance per
+      backlog entry: imported units survive unchanged; a pattern can be
+      switched to shape-anchored and visibly rides its layer.
+- [ ] BUG-065 — gradient strokes: widen shape `stroke` from `RGBAColor` to
+      `Paint` — the same surface FEAT-062 Stage A crossed (every shape, both
+      renderers, both exporters, inspector, schema migration with tolerant
+      decode). `hexline-weave-neon.svg` renders its lines; legacy solid
+      strokes decode and render unchanged.
+- [ ] BUG-062 (remainder) — mask groups in the semantic-HTML export.
+- [ ] W3C design-token decision for patterns (FEAT-062 Stage A's open
+      question: today tokens omit patterns rather than mislabel them; keep,
+      or extend the format). Owner decision; record it in the Progress Log.
+
+### Wave 3 — Sanaa `apply_edits` v2 (mutating; FEAT-058)
+
+- [ ] FEAT-058 per `docs/SANAA-PLAN.md` §10/FEAT-058: new op kinds
+      (`restyleNodes`, `applyToken`, `normalizeSpacing`, `renameNodes`) inside
+      the existing parse → dry-run → consent → rebuild pipeline; preview and
+      apply resolve predicates through the SAME code path; component-source
+      restyle warns; caps ≤200 ops, one consent, one undo step. Acceptance:
+      gate-matrix extension, predicate-safety cases (empty match, broad
+      match, preview-equals-apply proof), 201-op cap, undo label correct.
+
+**Excluded from v2.5 (v2.6+ candidates):** FEAT-057 (design directions),
+FEAT-059 (a11y guided fixes — depends on 058 anyway), FEAT-060 (evaluation
+harness), FEAT-033/009/019, BUG-017, and the rest of the open backlog, which
+stays queued by priority.
 
 ---
 
@@ -3162,6 +3213,442 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-09-22 (session resume — v2.5 scoped; carry-in committed).** Owner
+  returned after 16 days away and chose the v2.5 scope at the scoping gate:
+  finish the paint model AND add Sanaa FEAT-058 (decision and waves recorded
+  in the v2.5 section above). The 2026-09-03→06 pattern workstream — FEAT-062
+  Stages A–E, FEAT-065a–e, FEAT-063, BUG-060/061/063/064/066/067/068 — had
+  been left uncommitted when the last session ended mid-flight; it builds
+  clean today (Debug app scheme, `CODE_SIGNING_ALLOWED=NO`) and is committed
+  here unchanged. The repo-root copies of the four fixtures were scratch from
+  a later export run the same night — they differ from the filed evidence only
+  by the freshly-minted pattern UUID every import generates — so they are
+  deleted; `docs/evidence/FEAT-062/` holds the canonical set, and the two
+  verification scripts join the commit. Backlog statuses were synced with the
+  roadmap's verification record: BUG-064 (owner-confirmed on canvas
+  2026-09-03) and the v2.4 Wave A items (BUG-049–052, FEAT-027/047, and
+  FEAT-048 per Wave B) still read needs-verify despite the recorded
+  owner verifications. No product code changed this session.
+  **NEXT:** the owner's consolidated Wave 1 verification pass (checklist in
+  the v2.5 section); FEAT-064 starts only after that gate clears — nothing
+  document-mutating until it does.
+
+- **2026-09-06 (BUG-068 — owner-verified, closed).** Owner confirmed the
+  eyedropper/text-entry fix: "yep. all fixed now. much better :)" Marked done
+  in the backlog; the interactive verification gate below is satisfied.
+
+- **2026-09-06 (BUG-068 — preserve typed `i` in rename/text fields).**
+  Owner found the eyedropper stealing `i` during artboard renaming. Traced to
+  `ColorPopover`'s app-wide key monitor, which bypassed the shared typing guard
+  used by tool shortcuts. Added that guard so field editors and editable text
+  views keep their keystrokes, including color-code fields; the canvas shortcut
+  remains available outside text editing. Debug app scheme build passed via
+  `xcodebuild -project 'EXP [design].xcodeproj' -scheme 'EXP [design]'
+  -configuration Debug -destination 'platform=macOS' build CODE_SIGNING_ALLOWED=NO`.
+  **NEXT:** owner verifies `Sign in` / uppercase `I` in rename and text fields
+  (also with a picker visible), then `i` with canvas focus. Interactive behavior
+  is not yet verified. Existing pattern work preserved; no release scope change.
+
+- **2026-09-03 (FEAT-065b/c/d — patterns finish becoming a first-class paint).**
+  Owner confirmed 65a and 65e working and flagged the one that mattered most to
+  him: the Pattern tab must appear on EVERY fill, not only where a pattern is
+  already applied, "so it doesn't look like a mistake or add confusion." That is
+  the right test for a fill picker and it drove 65b.
+
+  **65b — Pattern is now always a fill mode.** The segment was conditional for a
+  real Stage A reason (with no way to CHOOSE a tile it could only mint an empty
+  ref or do nothing); a library to pick from expired that reason. The important
+  detail: **selecting the mode does not change the paint.** A `PatternRef` must
+  point at a real tile, so choosing Pattern shows a picker and the fill changes
+  only when a tile is chosen — switch to Pattern and back and the original fill is
+  untouched, and no dangling reference is ever created. `mode` is derived from the
+  paint except in that pending state, so the editor body now switches on `mode`
+  rather than `paint`. With an empty library the tab still appears and says why,
+  instead of presenting a dead control. `PatternPreviewResolver` grew into
+  `PatternLibrary` — the picker needs the list, not just the preview image.
+
+  **65c — Create Pattern**, mirroring Create Component step for step: same bounds
+  maths, same naming rule, same replace-the-selection shape, all three scopes,
+  full command coverage. Two guesses are stated in the code rather than buried:
+  the selection's bounds become the TILE SIZE (the only defensible default, though
+  it repeats seamlessly only if the artwork was drawn to tile — otherwise the seams
+  show, which is visible and honest rather than subtly wrong), and the replacement
+  rectangle takes the selection's own bounds so the canvas does not jump.
+
+  **65d — patterns in the Design Language.** Saving and applying already worked
+  the moment `Paint` gained the case, since `DesignLanguage.assets` holds `Paint` —
+  which is why the owner found it already working. The real work was the hole that
+  would have surfaced later: a design-language asset carries a `PatternRef` into
+  ITS OWN document's library, so exporting and importing elsewhere would have
+  produced a swatch that looked saved and painted a flat fallback — the worst of
+  both. `EXPDesignLanguageFile` now carries the referenced tiles, and
+  `parseJSONAdoptingPatterns` re-homes them with FRESH ids and remaps the assets,
+  so importing twice, or into a document that already has that id, cannot collide
+  or overwrite artwork the target already had. Pre-v2.5 files still import
+  (`decodeIfPresent`), and the W3C token path is untouched — tried first, never
+  carries patterns.
+
+  Also deduplicated: `PatternSource.representativeColor` / `.reference` now live on
+  the model, and the SVG importer uses them instead of its own private copy, so the
+  importer and the inspector cannot disagree about what a tile looks like as one
+  colour.
+
+  Both schemes build clean, no new warnings; pattern suite still 62/62.
+  **FEAT-062 and FEAT-065 are both complete.** **NEXT:** owner exercises Create
+  Pattern and the always-on Pattern tab. Still open in this area: FEAT-064
+  (per-pattern anchoring, incl. `objectBoundingBox` rendering), BUG-062's semantic
+  HTML half, BUG-065 (gradient strokes — the last thing standing between
+  `hexline-weave-neon.svg` and correct), and Stage A's W3C design-token question.
+
+- **2026-09-03 (FEAT-065a + 65e — pattern swatches and the Patterns panel).**
+  First half of the owner's five enhancements, taken in dependency order: the
+  preview resolver 65a needs comes first, because the panel needs it too.
+
+  **65a — swatches show the pattern.** `PatternPreviewResolver` rides the SwiftUI
+  environment (`expPatternPreviews(document)` at the main window, the floating
+  panel host, and both editor windows) rather than being threaded as a parameter
+  through eight `PaintSwatch` call sites, most of which sit in views that have no
+  business knowing about a document. The default resolves nothing, so a swatch
+  without a provider still paints its fallback instead of breaking.
+  `PatternPreviewStore` caches 96px tiles keyed by pattern id AND the
+  `resolveGeneration` they were built at; one shared instance is safe because
+  pattern ids are freshly minted UUIDs and every hit re-checks the generation. It
+  rasterises through `ExportRenderView.patternTile` — the same rasteriser the
+  canvas and every export path use — so a swatch cannot show something the artwork
+  does not. The swatch tiles at its own height, so a wide swatch shows the motif
+  REPEATING rather than one stretched, unreadable copy.
+
+  **65e — the Patterns panel**, built as the Components panel's sibling in shape
+  and behaviour, because patterns and components are the same idea and a tool
+  teaches itself faster when two things that behave alike look alike. Row is a
+  tiled preview, the name, and "1000×1000 · 3 layers" (or "· unused"). Click opens
+  the Edit Pattern window; double-click renames in place, committing once on
+  submit or focus loss rather than per keystroke.
+
+  **Hideability was answered by placement, not a preference.** Patterns rides as
+  a TAB beside Components in the default workspace instead of its own group: tabs
+  cost no extra vertical space, it sits next to its conceptual sibling, and the
+  dock already lets anyone who never makes a pattern drop the tab. A Sanaa-style
+  enablement flag was the alternative and was rejected — it hides the feature from
+  exactly the people most likely to discover it by seeing it.
+
+  **Duplicate and Delete got full command coverage rather than panel-only
+  buttons**, and the panel's context menu ROUTES THROUGH those actions with the id
+  in `representedObject` instead of mutating the model itself, so panel,
+  Object menu and right-click all run one implementation. Delete names its reach
+  in the title — "Delete Pattern "Orbs" (used by 3 layers)" — the way Delete
+  Component names its source. Fills pointing at a deleted tile are deliberately
+  left alone: they already carry a fallback colour and paint it, so the artwork
+  degrades visibly rather than silently rewriting layers the user never selected,
+  and undo restores the tile.
+
+  `Document.patternUsageCount` counts across every page, artboard background,
+  component source and OTHER pattern tile — excluding the pattern's own children,
+  because a tile painting with itself is recursion, not a use.
+
+  Both schemes build clean, no warnings in the touched files; pattern suite still
+  62/62. **NEXT:** 65b (Pattern as a selectable fill mode on any shape — now
+  unblocked, since there is finally a library to pick FROM), then 65c
+  (convert-selection-to-pattern) and 65d (patterns in the Design Language, where
+  the cross-document dangling-reference question has to be answered).
+
+- **2026-09-03 (BUG-067 fixed; FEAT-062 Stage D — the round trip closes).** Owner
+  used the pattern editor and reported one bug plus five enhancements. Bug fixed,
+  Stage D shipped per the owner's own sequencing, enhancements logged.
+
+  **BUG-067 — the pattern editor drew the document's artboards.** The owner's
+  detail that it was the FIRST page, not the page the object lives on, is what
+  pinned it: `isSourceScope` was `if case .source = scope`, so it answered false
+  for `.pattern`, and every guard using it to mean "no artboards, guides or pages
+  here" fell through to the document. The page resolved to the first one because
+  the editor window builds its own `AppState` whose `activePageID` was never set.
+  Now an exhaustive switch over both source kinds — `ComponentSource` and
+  `PatternSource` are both sources in the sense the name means.
+  **The lesson worth keeping:** Stage E's 14 scope switches were caught by the
+  compiler; this one was not, because `if case … = scope` is a pattern MATCH, not
+  an exhaustive switch. Adding an enum case is only self-checking where the code
+  switches. The remaining `if case .source` sites were audited by hand and
+  correctly exclude patterns (component category, ARIA role, relationship
+  anchoring, component states).
+
+  **Stage D — SVG export of `<pattern>`, and the round trip is now asserted, not
+  claimed.** One `<pattern>` per `PatternSource`, id derived deterministically
+  from its UUID so many fills share ONE def without an id map riding alongside the
+  defs array — the payoff of the document-level-source architecture chosen back in
+  Stage A. The def slot is RESERVED before the tile's content is serialised,
+  because a tile can contain a shape painted with its own pattern and that
+  otherwise recurses forever. `patternUnits`, `patternTransform` and `viewBox` all
+  survive.
+
+  The check now imports → exports → re-imports each fixture (62/62): the export
+  must carry a `<pattern>`, exactly one per source, a `url(#pat…)` reference, and
+  the re-import must recover the same patterns and tile sizes and still render.
+  **And it was verified in an independent renderer** — `quarter-orbs-exported.svg`
+  through `qlmanage` matches the original file's reference render. Our importer
+  round-tripping our exporter only proves the two halves agree with each other.
+
+  Still not done and recorded as such: semantic HTML still paints the fallback for
+  a pattern, and Stage A's W3C design-token question is still open.
+
+  **Owner's five enhancements logged as FEAT-065**, with his sequencing decision
+  recorded: Stage D first, then these. That ordering is the right call and not the
+  obvious one — finishing the round trip before widening the ways to CREATE a
+  pattern means everything made those ways exports correctly from day one instead
+  of accumulating art that silently flattens. The five: pattern-aware swatches (an
+  environment-injected resolver, not a document parameter threaded through eight
+  call sites); pattern as a selectable fill mode on any shape (blocked until
+  there is a library to pick FROM, which is why it is currently conditional);
+  convert-selection-to-pattern mirroring Create Component; patterns in the Design
+  Language (with the cross-document dangling-reference problem called out); and a
+  hideable Patterns panel (where tile size and anchoring belong, since they change
+  every layer using the tile). Also answered the owner's question directly: a
+  pattern-filled rectangle is an ORDINARY rectangle whose `fill` happens to be
+  `.pattern` — there is no special shape type, which is exactly why 65b is
+  reasonable.
+
+  Both schemes build clean. **NEXT:** owner confirms BUG-067 and tries an SVG
+  export with a pattern in it; then FEAT-065, starting with the Patterns panel
+  and the design-language plumbing that 65a/65b depend on.
+
+- **2026-09-03 (FEAT-062 Stage E — pattern editing, in the component editor).**
+  Owner confirmed BUG-066 and BUG-064 fixed on canvas ("pattern now being affixed
+  to the object is now fixed… the triangles are triangles again") and chose the
+  component-editor window for pattern editing. That is literally what shipped,
+  not a lookalike.
+
+  **The leverage was already in the tree.** `CanvasScope` had `.document` and
+  `.source(UUID)`, and the canvas, layers panel, inspector and editor menu were
+  all parameterised on it. Adding `.pattern(UUID)` meant a tile gets the REAL
+  editing stack — selection, tools, the pen, the inspector, the editor menu —
+  rather than a reduced imitation built beside it. The compiler enumerated all 14
+  scope switches, same technique as Stage A's nine `Paint` switches. A pattern is
+  the simpler scope: no states, no managed bounds, no relationship anchoring.
+
+  `ScopedEditorPanes` extracts the tools strip + three-pane split so
+  `PatternEditorView` is the component editor below the header. Only the header
+  differs: name, tile size, and "edits apply everywhere this pattern is used" —
+  no ARIA category (a pattern is decoration, not a semantic element), no states
+  bar.
+
+  **Two deliberate asymmetries with component sources, both about not surprising
+  the owner:** a tile does NOT re-hug its content on edit (its size is the repeat
+  interval — growing it because a shape moved would silently re-lattice every
+  layer using the pattern), and the tile size is SHOWN rather than editable in the
+  header for the same reason; changing it belongs behind FEAT-064's deliberate
+  control, not a field you can tab into while drawing. Relationship anchoring
+  returns nil in pattern scope, because `PatternSource` stores no relationships
+  and offering a link that is dropped on save is worse than not offering it.
+
+  **Command coverage, all five ways** per CLAUDE.md: the `@objc` action, an
+  Object-menu item (no shortcut — contextual and low-frequency, matching Edit
+  Component), a right-click item that appears only when the layer under the
+  cursor is pattern-filled, a `validateMenuItem` case, and the inspector's "Edit
+  Pattern…" button replacing Stage A's placeholder text. The inspector is
+  deliberately a doorway rather than a second editor — the tile is a shared
+  canvas, so it opens where canvases are edited. `selectedPatternID` reads the
+  selected layer's FILL, not the layer, and resolves only for a single selection:
+  two shapes with different patterns have no one right answer.
+
+  Cache invalidation came free — editing goes through `setModel`, which bumps
+  `resolveGeneration`, which is what the canvas tile cache already keys on.
+
+  Both schemes build clean, no new warnings (46 → 45 unique); fixture suite
+  38/38. **NEXT:** owner exercises the pattern editor; then Stage D (SVG export
+  emitting `<pattern>`), which is the last piece of the round trip and the reason
+  the tile was modelled as a document-level source in the first place.
+
+- **2026-09-03 (owner's first canvas look at patterns; BUG-066 and BUG-064
+  fixed).** Owner ran the FEAT-062 build and reported two things, both correct
+  and both now fixed.
+
+  **BUG-066 — patterns were pinned to the viewport, not the artwork.** Owner:
+  "like a background image placed in 'fixed' position, and zoom and panning moves
+  the pattern itself independent of the box." Root cause: the canvas does not put
+  zoom/pan in the CTM — `docToView` bakes them into every rect it hands the
+  drawing code — so a lattice anchored at the context origin is anchored to the
+  WINDOW. `PaintRender` now takes a `patternSpace` (document points → the
+  context's coordinates) and computes the lattice in document space, so the camera
+  cannot move artwork. Tile rasterisation resolution reads the context scale
+  COMPOSED with that transform; reading the CTM alone pinned every canvas tile at
+  1× and went soft on zoom. **Worth noting for its own sake:** the fixture suite
+  stayed green throughout, because it exercises the export path where that
+  transform is a plain translation. A passing check bounds what it covers and
+  nothing more — this defect was live and invisible to it.
+
+  **BUG-064 — triangles were rendering as circles.** `spectrum-triangles.svg`
+  strokes a 1.25×1 triangle at width 60, so the shape is ENTIRELY its joins, and
+  EXP drew every path corner round — hardcoded in three places — where SVG's
+  default is miter. `PathShape` gains `strokeJoin` and `strokeMiterLimit`, read by
+  the canvas, raster export and vector geometry; the importer reads
+  `stroke-linejoin` / `stroke-miterlimit`; both exporters stopped hardcoding the
+  join (semantic HTML was also overriding the cap); and the inspector gains a
+  Miter/Round/Bevel control, placed outside the open-path branch because corners
+  exist on closed paths too. The two defaults differ deliberately: `PathShape`
+  defaults to `.round` so existing documents keep their exact appearance, while
+  the importer's Style defaults to `.miter` so imported art gets what its file
+  asked for. Verified against the independent `qlmanage` reference render, not by
+  eye — `spectrum-triangles` now renders as triangles.
+
+  **Three of the four fixtures are now correct.** `hexline-weave-neon` remains
+  blocked on BUG-065 (gradient strokes are not representable at all).
+
+  **Owner decision recorded as FEAT-064:** pattern anchoring becomes a PER-PATTERN
+  setting rather than a global mode. `PatternSource.units` already carries it from
+  the file; what is missing is `objectBoundingBox` rendering (the resolver refuses
+  it today, and its cache key must grow the resolved tile size, since one pattern
+  on two shapes yields two tiles) and an inspector control scoped to the pattern
+  rather than the layer. Keeping it per-pattern is what lets authoring comfort and
+  round-trip fidelity coexist instead of trading off.
+
+  Both schemes build clean; fixture suite 38/38. **NEXT:** owner confirms the
+  pan/zoom fix on canvas (no harness covers it), then FEAT-062 Stage D (SVG export
+  of `<pattern>`) or Stage E (pattern editing via `SourceEditorWindow`).
+
+- **2026-09-03 (later still; FEAT-062 Stages B + C, BUG-060, and two defects the
+  verification found).** Pattern fills now render and import. All four owner
+  fixtures parse with their patterns intact; two of the four render correctly and
+  the other two are blocked on gaps outside this feature, both newly logged.
+
+  **Stage B (render).** `PaintRender` gained `ResolvedPattern` / `PatternResolver`
+  and lattice tiling. It takes an IMAGE, not a `PatternSource` — drawing `[Node]`
+  belongs to the renderers, and teaching Color/ about the node tree would invert
+  the dependency. `ExportRenderView.patternTile` is the single rasteriser, shared
+  with the canvas: `CanvasNSView.drawNode` could not serve it anyway (it works in
+  view coordinates, baking in pan and zoom), but the reason it is SHARED rather
+  than reimplemented is BUG-062's lesson. Tile caches are per-renderer, not
+  global, because a global would need an invalidation signal that does not exist
+  on both sides — the canvas has `resolveGeneration`, a one-shot export has
+  nothing — and a stale tile is a wrong picture.
+
+  **Stage C (import) + BUG-060.** `collectPatterns` builds a `PatternSource` per
+  `<pattern>` in a pre-pass (`paint()` takes `Context` by value and cannot hand a
+  tile back — the BUG-048 constraint again). `importGroup` became
+  `importDocument`, returning artwork AND patterns, since a `Paint.pattern`
+  carries only an id and the tiles must be filed into `Document.patterns` in the
+  same commit. Percentage lengths resolve against the viewport, so the carrier
+  rect that was silently dropped now survives. `paint()` no longer invents
+  `.solid(.black)` for an unresolvable reference — it returns `none`, because an
+  unpainted shape is visibly missing where a confident black looks intended.
+  `pattern`/`clipPath`/`mask`/`marker` joined the never-rendered list; outside
+  `<defs>` they had been recursed into and emitted as visible layers.
+
+  **Verification is the story of this session.** `scripts/verify_svg_pattern_import.sh`
+  compiles the model + renderers standalone and runs the real fixtures: 38/38.
+  Two things it caught that would otherwise have shipped:
+  - **BUG-063 (fixed).** `patternTile` built tiles into a bare `CGContext`.
+    `PaintRender`'s solid branch is `NSBezierPath.fill()`, which draws into
+    `NSGraphicsContext.current` and ignores the CGContext argument — so tiles
+    rasterised mid-render painted their artwork onto the ARTBOARD. Invisible for
+    gradient or stroked tiles (those are real CGContext calls), which is why only
+    the all-solid `quarter-orbs` exposed it. The standing lesson is recorded in
+    the entry: anything drawing nodes offscreen must push an NSGraphicsContext.
+  - **A bad check.** The first "is it flat" assertion counted DISTINCT COLOURS
+    and passed a 99%-flat render on a handful of faint shapes. Replaced with the
+    fraction of pixels differing from the dominant colour. Worth remembering that
+    the green check came first and was wrong.
+
+  **Two new gaps, found by comparing against independent `qlmanage` renders
+  rather than eyeballing EXP's own output** (both in `docs/evidence/FEAT-062/`):
+  **BUG-064** — path strokes use a hardcoded round join, so
+  `spectrum-triangles.svg` draws dots where a 60-wide stroke over a 1.25×1
+  triangle should draw triangles; this gives the inventory's open "explicit line
+  cap/join/miter" item a reproducing fixture. **BUG-065** — `PathShape.stroke` is
+  an `RGBAColor`, so the gradient strokes `hexline-weave-neon.svg` is built from
+  cannot be represented at all and its neon lines are dropped. Pattern support
+  cannot fix either one.
+
+  Both schemes build clean. **NEXT:** Stage D (SVG export emits one `<pattern>`
+  per source; decide the design-token question from Stage A), then Stage E (the
+  tile editor). BUG-064 and BUG-065 are separately scopeable and are what stand
+  between the last two fixtures and being right.
+
+- **2026-09-03 (later; BUG-061 fixed, FEAT-062 Stage A landed).** Continued from
+  the SVG triage session above.
+
+  **BUG-061 implemented.** `collectGradients()` is now two-pass — index every
+  gradient by id, then resolve each through `gradientChain(from:byID:)`, which
+  walks `href` / `xlink:href` nearest-first for stops AND for unspecified
+  geometry attributes. Cycles terminate on a visited set, depth bounded at 16.
+  The referencing element's own kind wins, so a `radialGradient` borrowing a
+  `linearGradient`'s stops stays radial. Stated in the entry and repeated here
+  because it would be easy to over-claim: `gradientTransform` is STILL
+  unsupported, so `hexline-weave-neon.svg` gets correct stops but not the
+  reversal — that file is not "working" on the strength of this fix.
+
+  **FEAT-062 — owner chose the real Pattern paint type over tile expansion.**
+  Architecture follows the model's own precedent rather than a new idea:
+  `Document.patterns: [PatternSource]` holds the artwork and
+  `Paint.pattern(PatternRef)` holds only an id plus a fallback colour, exactly as
+  `Document.sources` holds `ComponentSource` and an instance refers to one by id.
+  That choice is what lets one tile back many layers, lets SVG export emit ONE
+  `<pattern>` referenced by many fills (the round trip), and keeps `Paint` a
+  small Equatable value instead of recursive (Paint → Node → Paint).
+
+  **Stage A (model) done; B–E open.** Schema 5 → 6. Both the `Document` and
+  `Paint` decoders are hand-written and were extended with `decodeIfPresent` /
+  unknown-kind fallthrough, so an older build still OPENS a v2.5 document
+  (degraded, not bricked) and a document that never used a pattern still encodes
+  byte-identically to v2.4. The compiler located all nine exhaustive switches
+  over `Paint`; each was handled deliberately, and the rule applied throughout
+  was **paint the ref's own declared fallback, never a colour invented at the
+  call site**, so no two surfaces can disagree about a degraded pattern. Two
+  deliberate exceptions: `SanaaFacts` reports `.unresolved` for a pattern
+  artboard background (a contrast ratio for a surface that is not there is worse
+  than admitting there isn't one), and the W3C token export omits patterns rather
+  than mislabelling one as a flat colour.
+
+  Nothing can create a `.pattern` fill yet, so Stage A is invisible at runtime by
+  construction — a model landing, not a feature. Both `EXP [design]` and
+  `EXPThumbnail` build clean; 46 unique warnings, the pre-existing baseline, none
+  from the new types. **NEXT:** Stage B (give `PaintRender` a way to resolve a
+  `patternID` — it currently takes a `Paint` and no document — and draw the
+  tile), then Stage C, which lands BUG-060 alongside pattern import.
+
+- **2026-09-03 (SVG import triage; mask export fixed in SVG; export panel size
+  control).** Owner reported four generated background SVGs importing as a flat
+  color, and a mask shape appearing as a real shape over the top on export.
+  Traced both to source and logged five entries: **BUG-060** (percentage lengths
+  parse as 0), **BUG-061** (gradient `href` stop inheritance ignored),
+  **BUG-062** (mask groups export unmasked), **FEAT-062** (SVG `<pattern>` paint
+  import), **FEAT-063** (export panel format memory + size).
+
+  **Diagnosis of the flat-color import.** All four fixtures share one shape: an
+  opaque background `<rect>` with pixel dimensions, then
+  `<rect fill='url(#p)' width='100%' height='100%'/>` carrying the whole design
+  via a `<pattern>`. `SVGImporter.num()` strips only the literal `px`, so
+  `Double("100%")` is nil → `0`, and `rectNode`'s `guard w > 0, h > 0` discards
+  the carrier rect *before its fill is ever resolved*. Only the background
+  survives. Note the sequencing recorded in BUG-060: fixing it alone makes these
+  files look WORSE, because `paint()` falls through to `.solid(.black)` for any
+  unresolved `url(#…)` — a full-artboard black rect instead of a background.
+  BUG-060 and FEAT-062 land together, and FEAT-062's approach (tile expansion vs
+  a real Pattern paint type) is an owner decision recorded there, not assumed.
+
+  **BUG-062 implemented, SVG only.** `svgElement()`'s `.group` case never read
+  `node.isMask`, so mask-shape children were emitted as ordinary filled `<g>`s
+  AND no clip was applied — two defects from one omission. It now emits a
+  `<clipPath>` and wraps the non-mask children in `<g clip-path="url(#…)">`.
+  `appendExportSilhouette` / `nsPath` moved to `static` on `ExportRenderView` so
+  the SVG and raster exporters share ONE silhouette definition rather than
+  growing two that can drift. The clip is nested inside the wrapper rather than
+  set beside `filter`, because SVG orders filter → clip and would otherwise clip
+  the node's own drop shadow, where the raster path clips inside its effects.
+  **Round-trip caveat stated plainly:** the importer does not read `clip-path`
+  yet (open P0 in WEB-SVG-FIDELITY-INVENTORY.md), so an exported mask renders
+  correctly in browsers and Preview but re-imports unclipped. The semantic HTML
+  path is still approximate and BUG-062 stays open for it.
+
+  **FEAT-063 implemented.** Size is now its own popup (0.5×/1×/2×/4×) instead of
+  being welded into the format names, the hardcoded `pngScale = 2` is gone, and
+  format + scale persist as plain UserDefaults values — deliberately not Codable,
+  per the decoder gotcha that erased FEAT-022's saved tray layouts. Remembered on
+  a completed export only. `@Nx` suffix in the folder flow only, and only when
+  the scale is not 1× (owner decision).
+
+  Both `EXP [design]` and `EXPThumbnail` build clean. **NEXT:** owner runs the
+  mask-export and panel changes; then the BUG-060 + FEAT-062 pair once the
+  pattern approach is chosen.
 
 - **2026-09-02 (repository hygiene complete; v2.5 development opened).** Removed
   two accidentally tracked Blender Toolkit placeholder files and ignored that

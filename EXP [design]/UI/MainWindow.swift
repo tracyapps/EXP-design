@@ -80,6 +80,10 @@ struct MainWindow: View {
         .frame(minWidth: 900, minHeight: 600)
         .expInterfaceTypeSize()
         .environment(app)
+        // FEAT-065a. Pattern swatches resolve their tile through the environment,
+        // so every swatch below this point — design language panel, its settings,
+        // the paint editor — shows the real pattern instead of a flat fallback.
+        .expPatternPreviews(document)
         // Publish state for the Window menu (panels + dock visibility). Scene
         // value = active whenever this window is frontmost (no focused control
         // required), so the menu items enable correctly.
@@ -779,6 +783,12 @@ struct EditorMenuModel {
     var canCreateComponent: Bool
     var canNewEmptyComponent: Bool
     var canEditComponent: Bool
+    /// FEAT-062 Stage E — a single selected layer whose FILL is a pattern.
+    var canEditPattern: Bool
+    /// FEAT-065e — pattern-level commands target the panel's item, the tile being
+    /// edited, or the selection's fill, so they enable more broadly than editing.
+    var canActOnPattern: Bool
+    var deletePatternTitle: String
     var canDuplicateComponent: Bool
     var canDetachComponent: Bool
     var canDeleteComponent: Bool
@@ -829,6 +839,12 @@ func makeEditorMenuModel(document: ExpDocument, app: AppState, scope: CanvasScop
     case .source(let sid):
         source = model.source(for: sid)
         nodes = source?.children ?? []
+    case .pattern(let pid):
+        // `source` stays nil: it drives component-specific menu items (states,
+        // publish, containment advice) that a pattern tile has no equivalent of.
+        // The generic node commands all key off `nodes`, so they work unchanged.
+        source = nil
+        nodes = model.pattern(for: pid)?.children ?? []
     }
 
     func find(_ id: UUID, in nodes: [Node]) -> Node? {
@@ -865,6 +881,52 @@ func makeEditorMenuModel(document: ExpDocument, app: AppState, scope: CanvasScop
         return nil
     }
     let hasInstance = selectedNodes.contains { if case .instance = $0.content { return true }; return false }
+    /// FEAT-062 Stage E. Mirrors `CanvasNSView.selectedPatternID`: a pattern is a
+    /// PAINT, so this reads the selected layer's fill, and only a single
+    /// selection resolves — two shapes with different patterns have no one right
+    /// answer, and picking the first silently is the kind of guess that loses work.
+    let selectedPatternRef: PatternRef? = {
+        guard selectedNodes.count == 1, let node = selectedNodes.first else { return nil }
+        let paint: Paint?
+        switch node.content {
+        case .rectangle(let shape): paint = shape.fill
+        case .ellipse(let shape):   paint = shape.fill
+        case .polygon(let shape):   paint = shape.fill
+        case .path(let shape):      paint = shape.fill
+        default:                    paint = nil
+        }
+        return paint?.patternValue
+    }()
+    /// FEAT-065e. The tile a pattern command acts on — mirrors
+    /// `CanvasNSView.patternTarget`: the scope's own tile when a pattern editor is
+    /// frontmost, else the selection's fill.
+    let patternCommandTarget: UUID? = {
+        if case .pattern(let pid) = scope, model.pattern(for: pid) != nil { return pid }
+        guard let ref = selectedPatternRef, model.pattern(for: ref.patternID) != nil else { return nil }
+        return ref.patternID
+    }()
+    let deletePatternTitle: String = {
+        guard let id = patternCommandTarget, let pattern = model.pattern(for: id) else {
+            return "Delete Pattern"
+        }
+        let uses = model.patternUsageCount(id)
+        return uses == 0
+            ? "Delete Pattern \"\(pattern.name)\""
+            : "Delete Pattern \"\(pattern.name)\" (used by \(uses) layer\(uses == 1 ? "" : "s"))"
+    }()
+    let canEditPattern: Bool = {
+        guard selectedNodes.count == 1, let node = selectedNodes.first else { return false }
+        let paint: Paint?
+        switch node.content {
+        case .rectangle(let shape): paint = shape.fill
+        case .ellipse(let shape):   paint = shape.fill
+        case .polygon(let shape):   paint = shape.fill
+        case .path(let shape):      paint = shape.fill
+        default:                    paint = nil
+        }
+        guard let ref = paint?.patternValue else { return false }
+        return model.pattern(for: ref.patternID) != nil
+    }()
     /// The source behind the first selected instance — Delete Component names it
     /// in the menu title so it can never read as "delete the selected layer."
     let instanceSource = selectedNodes.compactMap { node -> ComponentSource? in
@@ -949,6 +1011,10 @@ func makeEditorMenuModel(document: ExpDocument, app: AppState, scope: CanvasScop
                 return true
             case .source(let parentSourceID):
                 return model.canNestComponent(candidate.id, in: parentSourceID)
+            case .pattern:
+                // A tile is outside the component dependency graph, so no edge it
+                // creates can make that graph cyclic. See `canPlaceComponent`.
+                return true
             }
         }
         .map { ComponentPlacementChoice(id: $0.id, name: $0.name) }
@@ -980,6 +1046,9 @@ func makeEditorMenuModel(document: ExpDocument, app: AppState, scope: CanvasScop
         canCreateComponent: hasNodes,
         canNewEmptyComponent: true,
         canEditComponent: hasInstance,
+        canEditPattern: canEditPattern,
+        canActOnPattern: patternCommandTarget != nil,
+        deletePatternTitle: deletePatternTitle,
         canDuplicateComponent: source != nil || hasInstance,
         canDetachComponent: hasInstance,
         canDeleteComponent: instanceSource != nil,
@@ -1244,6 +1313,8 @@ struct RightPanel: View {
                     ComponentStateEditing.applied(children, state: state))
             }
             return children
+        case .pattern(let pid):
+            return document.model.pattern(for: pid)?.children ?? []
         }
     }
 
@@ -1288,6 +1359,13 @@ struct RightPanel: View {
                     model.sources[si].size = bounds.size
                 }
             }
+        case .pattern(let pid):
+            guard let pi = model.patterns.firstIndex(where: { $0.id == pid }) else { return }
+            change(&model.patterns[pi].children)
+            // Deliberately NO managed-bounds re-hug: a tile's size is its repeat
+            // interval, and growing it because a shape moved would change the
+            // lattice for every layer using the pattern.
+            model.patterns[pi].children = model.reflowed(model.patterns[pi].children)
         }
         document.setModel(model, undoManager: undoManager, actionName: action)
     }
@@ -1460,6 +1538,11 @@ struct RightPanel: View {
         switch scope {
         case .source:
             return editingSource.map { .source($0) }
+        case .pattern:
+            // `PatternSource` stores no relationships, so there is nowhere to
+            // anchor one. Returning nil is the honest answer — the alternative is
+            // letting the user author a link that is silently dropped on save.
+            return nil
         case .document:
             guard let id = app.singleSelectedNodeID,
                   let node = findScopedNode(id) else { return nil }
@@ -5218,6 +5301,14 @@ extension RightPanel {
                              segments: StrokePattern.allCases.map { .init(value: $0, label: $0.label) })
                     .help("Use a solid, dashed, or dotted path stroke")
                     .accessibilityLabel("Path stroke pattern: solid, dash, or dot")
+                // BUG-064. Deliberately OUTSIDE the open-path branch below: caps
+                // only matter on exposed ends, but corners exist on closed paths
+                // too — a fat stroke on a small closed shape is nearly all joins,
+                // which is the case that made this visible.
+                EXPSegmented(selection: pathStrokeJoinBinding,
+                             segments: StrokeLineJoin.allCases.map { .init(value: $0, label: $0.label) })
+                    .help("Choose how the stroke turns each corner")
+                    .accessibilityLabel("Path corner join: miter, round, or bevel")
                 if !ps.closed && !ps.isMultiContour {
                     EXPSegmented(selection: pathStrokeCapBinding,
                                  segments: StrokeLineCap.allCases.map { .init(value: $0, label: $0.label) })
@@ -5287,6 +5378,10 @@ extension RightPanel {
     var pathStrokeCapBinding: Binding<StrokeLineCap> {
         Binding(get: { selectedPathShape?.strokeCap ?? .round },
                 set: { value in updatePath("Stroke Cap") { $0.strokeCap = value } })
+    }
+    var pathStrokeJoinBinding: Binding<StrokeLineJoin> {
+        Binding(get: { selectedPathShape?.strokeJoin ?? .round },
+                set: { value in updatePath("Stroke Join") { $0.strokeJoin = value } })
     }
     var pathStartMarkerBinding: Binding<StrokeMarker> {
         Binding(get: { selectedPathShape?.startMarker ?? .none },

@@ -333,6 +333,19 @@ private struct ObjectCommandItems: View {
             .disabled(menu?.componentPlacementChoices.isEmpty != false)
             Button("Edit Component") { sendEditorAction("editComponentAction:") }
                 .disabled(menu?.canEditComponent != true)
+            // FEAT-062 Stage E. No keyboard shortcut: like Edit Component it is an
+            // inherently contextual, low-frequency action, and the Object menu's
+            // conventional shortcuts are already spoken for.
+            Button("Create Pattern") { sendEditorAction("createPatternAction:") }
+                .disabled(menu?.canCreateComponent != true)
+            Button("Edit Pattern…") { sendEditorAction("editPatternAction:") }
+                .disabled(menu?.canEditPattern != true)
+            Button("Duplicate Pattern") { sendEditorAction("duplicatePatternAction:") }
+                .disabled(menu?.canActOnPattern != true)
+            Button(menu?.deletePatternTitle ?? "Delete Pattern", role: .destructive) {
+                sendEditorAction("deletePatternAction:")
+            }
+            .disabled(menu?.canActOnPattern != true)
             Button("Duplicate Component") { sendEditorAction("duplicateComponentSourceAction:") }
                 .disabled(menu?.canDuplicateComponent != true)
             Button("Detach Component") { sendEditorAction("detachComponentAction:") }

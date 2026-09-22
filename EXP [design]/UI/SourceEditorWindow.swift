@@ -66,7 +66,7 @@ final class SourceEditorWindowManager {
         window.addTitlebarAccessoryViewController(backdropAccessory)
 
         let delegate = SourceEditorWindowDelegate(
-            sourceID: sourceID,
+            editedID: sourceID,
             document: document,
             undoManager: undoManager,
             onClose: { [weak self] id in
@@ -82,6 +82,58 @@ final class SourceEditorWindowManager {
         window.makeKeyAndOrderFront(nil as Any?)
     }
 
+    /// Open (or re-focus) the editor for one PATTERN tile — FEAT-062 Stage E.
+    ///
+    /// Mirrors `open(sourceID:)` down to the window preferences, because it is
+    /// the same editor: only the header and the window title differ. The
+    /// registry is keyed by UUID and pattern ids come from the same space as
+    /// source ids, so one window per thing still holds.
+    func open(patternID: UUID, document: ExpDocument, undoManager: UndoManager?) {
+        if let existing = controllers[patternID] {
+            existing.showWindow(nil)
+            existing.window?.makeKeyAndOrderFront(nil)
+            return
+        }
+
+        let app = AppState()
+        let rootView = PatternEditorView(app: app, document: document, patternID: patternID)
+            .expInterfaceTypeSize()
+        let hosting = NSHostingController(rootView: rootView)
+        let window = NSWindow(contentViewController: hosting)
+        window.styleMask = [NSWindow.StyleMask.titled, .closable, .miniaturizable, .resizable]
+        window.title = "Edit Pattern"
+        window.isReleasedWhenClosed = false
+        if let frame = SourceEditorWindowPreferences.windowFrame {
+            window.setFrame(frame, display: false)
+        } else {
+            window.setContentSize(SourceEditorWindowPreferences.defaultContentSize)
+            window.center()
+        }
+
+        let backdropAccessory = NSTitlebarAccessoryViewController()
+        backdropAccessory.layoutAttribute = .trailing
+        let backdropHost = NSHostingView(rootView: SourceBackdropPicker(app: app))
+        backdropHost.setFrameSize(backdropHost.fittingSize)
+        backdropAccessory.view = backdropHost
+        window.addTitlebarAccessoryViewController(backdropAccessory)
+
+        let delegate = SourceEditorWindowDelegate(
+            editedID: patternID,
+            document: document,
+            undoManager: undoManager,
+            onClose: { [weak self] id in
+                self?.controllers[id] = nil
+                self?.delegates[id] = nil
+            })
+        window.delegate = delegate
+        delegates[patternID] = delegate
+
+        let controller = NSWindowController(window: window)
+        controllers[patternID] = controller
+        controller.showWindow(nil as Any?)
+        window.makeKeyAndOrderFront(nil as Any?)
+    }
+
     /// Close the editor for one source — used when that source is deleted, so
     /// no window is left editing a component the document no longer contains.
     func close(sourceID: UUID) {
@@ -89,8 +141,8 @@ final class SourceEditorWindowManager {
     }
 
     func closeAll(for document: ExpDocument) {
-        let ids = delegates.compactMap { sourceID, delegate in
-            delegate.document === document ? sourceID : nil
+        let ids = delegates.compactMap { editedID, delegate in
+            delegate.document === document ? editedID : nil
         }
         for id in ids {
             controllers[id]?.close()
@@ -150,14 +202,17 @@ private enum SourceEditorWindowPreferences {
 /// Makes the source-editor window vend the document's undo manager, persists
 /// the last editor frame, and tells the manager when a user closes the window.
 private final class SourceEditorWindowDelegate: NSObject, NSWindowDelegate {
-    let sourceID: UUID
+    /// Registry key — a ComponentSource id OR a PatternSource id. Named for what
+    /// it is rather than `sourceID`, so nobody reads it as component-only: this
+    /// delegate has served both since FEAT-062 Stage E.
+    let editedID: UUID
     weak var document: ExpDocument?
     let undoManager: UndoManager?
     let onClose: (UUID) -> Void
 
-    init(sourceID: UUID, document: ExpDocument, undoManager: UndoManager?,
+    init(editedID: UUID, document: ExpDocument, undoManager: UndoManager?,
          onClose: @escaping (UUID) -> Void) {
-        self.sourceID = sourceID
+        self.editedID = editedID
         self.document = document
         self.undoManager = undoManager
         self.onClose = onClose
@@ -168,7 +223,7 @@ private final class SourceEditorWindowDelegate: NSObject, NSWindowDelegate {
     func windowDidResize(_ notification: Notification) { saveFrame(notification) }
     func windowWillClose(_ notification: Notification) {
         saveFrame(notification)
-        onClose(sourceID)
+        onClose(editedID)
     }
 
     private func saveFrame(_ notification: Notification) {
@@ -341,34 +396,157 @@ struct SourceEditorView: View {
             // contents, so the AppKit-backed canvas stays inside its pane instead of
             // overdrawing the header and left panel (a plain HStack left the
             // unclipped canvas painting over its neighbours).
-            HStack(spacing: 0) {
-                ToolsStrip()
-                Divider()
-                HSplitView {
-                    LayersPanel(document: document, scope: .source(sourceID))
-                        .frame(minWidth: 180,
-                               idealWidth: SourceEditorWindowPreferences.leftPanelWidth,
-                               maxWidth: 320)
-                        .background(SourceEditorWidthReporter { width in
-                            SourceEditorWindowPreferences.leftPanelWidth = width
-                        })
-                    CanvasView(app: app, document: document, scope: .source(sourceID))
-                        .frame(minWidth: 320, maxWidth: .infinity, maxHeight: .infinity)
-                        .layoutPriority(1)
-                    RightPanel(document: document, scope: .source(sourceID))
-                        .frame(minWidth: 300,
-                               idealWidth: SourceEditorWindowPreferences.rightPanelWidth,
-                               maxWidth: 460)
-                        .background(SourceEditorWidthReporter { width in
-                            SourceEditorWindowPreferences.rightPanelWidth = width
-                        })
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            ScopedEditorPanes(app: app, document: document, scope: .source(sourceID))
         }
         .environment(app)
+        .expPatternPreviews(document)
         .focusedSceneValue(\.editorMenu, makeEditorMenuModel(document: document, app: app, scope: .source(sourceID)))
         .frame(minWidth: 760, maxWidth: .infinity, minHeight: 340, maxHeight: .infinity)
+    }
+}
+
+/// Editing surface for one pattern tile (FEAT-062 Stage E).
+///
+/// Deliberately the component editor with a different header: the panes below are
+/// the SAME `ScopedEditorPanes`, so the tile gets the real canvas, the real
+/// layers panel and the real inspector rather than a reduced imitation. What
+/// differs is what a tile does not have — no ARIA category (a pattern is
+/// decoration, not a semantic element), and no states bar.
+struct PatternEditorView: View {
+    @ObservedObject var document: ExpDocument
+    let patternID: UUID
+    @Environment(\.undoManager) private var undoManager
+
+    @State private var app: AppState
+    @State private var draftName = ""
+    @FocusState private var nameFocused: Bool
+
+    init(app: AppState, document: ExpDocument, patternID: UUID) {
+        _document = ObservedObject(wrappedValue: document)
+        self.patternID = patternID
+        _app = State(initialValue: app)
+    }
+
+    private var pattern: PatternSource? { document.model.pattern(for: patternID) }
+
+    /// Drafts locally, commits ONE undoable rename on submit or focus loss —
+    /// never per keystroke, matching the component editor and the project's
+    /// standing rule about writing the model on every key.
+    private func commitName() {
+        let trimmed = draftName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let pi = document.model.patterns.firstIndex(where: { $0.id == patternID }),
+              document.model.patterns[pi].name != trimmed else {
+            draftName = pattern?.name ?? ""
+            return
+        }
+        var model = document.model
+        model.patterns[pi].name = trimmed
+        document.setModel(model, undoManager: undoManager, actionName: "Rename Pattern")
+    }
+
+    private var tileDescription: String {
+        guard let pattern else { return "" }
+        let w = pattern.tileSize.width, h = pattern.tileSize.height
+        func trim(_ v: CGFloat) -> String {
+            let r = (v * 100).rounded() / 100
+            return r == r.rounded() ? String(Int(r)) : String(Double(r))
+        }
+        return "\(trim(w)) × \(trim(h))"
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(alignment: .center, spacing: 10) {
+                HStack(spacing: 6) {
+                    Image(systemName: "squareshape.split.3x3")
+                    TextField("Pattern name", text: $draftName)
+                        .textFieldStyle(.plain)
+                        .font(.expDocName)
+                        .foregroundStyle(EXPColor.textPrimary)
+                        .focused($nameFocused)
+                        .onSubmit { commitName() }
+                        .onChange(of: nameFocused) { _, focused in
+                            if !focused { commitName() }
+                        }
+                        .onAppear { draftName = pattern?.name ?? "" }
+                        .onChange(of: pattern?.name) { _, newName in
+                            if !nameFocused { draftName = newName ?? "" }
+                        }
+                        .frame(minWidth: 90, maxWidth: 260)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .accessibilityLabel("Pattern name")
+                }
+                Spacer()
+                // The tile size is the REPEAT INTERVAL, and it is shown rather
+                // than edited here: changing it re-lattices every layer painted
+                // with this pattern, which belongs behind a deliberate control
+                // (FEAT-064), not a field you can tab into while drawing.
+                Text("Tile \(tileDescription)")
+                    .font(.system(size: EXPType.mini, weight: .medium))
+                    .foregroundStyle(EXPColor.textSecondary)
+                    .accessibilityLabel("Tile size \(tileDescription) points")
+                Text("Edits apply everywhere this pattern is used")
+                    .font(.system(size: EXPType.mini))
+                    .foregroundStyle(EXPColor.textTertiary)
+                    .accessibilityLabel("Edits apply everywhere this pattern is used")
+            }
+            .padding(10)
+            Divider()
+
+            ScopedEditorPanes(app: app, document: document, scope: .pattern(patternID))
+        }
+        .environment(app)
+        .expPatternPreviews(document)
+        .focusedSceneValue(\.editorMenu,
+                           makeEditorMenuModel(document: document, app: app,
+                                               scope: .pattern(patternID)))
+        .frame(minWidth: 760, maxWidth: .infinity, minHeight: 340, maxHeight: .infinity)
+    }
+}
+
+/// The tools strip + layers / canvas / inspector split, for any scope.
+///
+/// Extracted so the pattern editor (FEAT-062 Stage E) IS the component editor
+/// below the header rather than a lookalike built beside it. Everything that
+/// makes the source editor work — selection, tools, the inspector, the editor
+/// menu — is already scope-parameterised, so a pattern tile gets all of it by
+/// passing a different scope.
+struct ScopedEditorPanes: View {
+    let app: AppState
+    @ObservedObject var document: ExpDocument
+    let scope: CanvasScope
+
+    var body: some View {
+        // Mirror the main window: the tools strip is pinned OUTSIDE the split,
+        // and the three panes live in an HSplitView. Split panes clip their
+        // contents, so the AppKit-backed canvas stays inside its pane instead of
+        // overdrawing the header and left panel (a plain HStack left the
+        // unclipped canvas painting over its neighbours).
+        HStack(spacing: 0) {
+            ToolsStrip()
+            Divider()
+            HSplitView {
+                LayersPanel(document: document, scope: scope)
+                    .frame(minWidth: 180,
+                           idealWidth: SourceEditorWindowPreferences.leftPanelWidth,
+                           maxWidth: 320)
+                    .background(SourceEditorWidthReporter { width in
+                        SourceEditorWindowPreferences.leftPanelWidth = width
+                    })
+                CanvasView(app: app, document: document, scope: scope)
+                    .frame(minWidth: 320, maxWidth: .infinity, maxHeight: .infinity)
+                    .layoutPriority(1)
+                RightPanel(document: document, scope: scope)
+                    .frame(minWidth: 300,
+                           idealWidth: SourceEditorWindowPreferences.rightPanelWidth,
+                           maxWidth: 460)
+                    .background(SourceEditorWidthReporter { width in
+                        SourceEditorWindowPreferences.rightPanelWidth = width
+                    })
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

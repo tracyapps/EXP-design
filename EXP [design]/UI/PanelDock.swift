@@ -38,6 +38,7 @@ enum PanelID: String, CaseIterable, Identifiable, Codable, Sendable {
     case properties
     case designLanguage
     case components
+    case patterns
     case handoff
     case sanaa
 
@@ -50,6 +51,7 @@ enum PanelID: String, CaseIterable, Identifiable, Codable, Sendable {
         case .properties: return "Properties"
         case .designLanguage: return "Design Language"
         case .components: return "Components"
+        case .patterns: return "Patterns"
         case .handoff: return "Handoff"
         case .sanaa: return "Sanaa"
         }
@@ -62,6 +64,7 @@ enum PanelID: String, CaseIterable, Identifiable, Codable, Sendable {
         case .properties: return "slider.horizontal.3"
         case .designLanguage: return "swatchpalette"
         case .components: return "rectangle.3.group"
+        case .patterns: return "squareshape.split.3x3"
         case .handoff: return "shippingbox"
         case .sanaa: return "message.and.waveform"
         }
@@ -70,7 +73,8 @@ enum PanelID: String, CaseIterable, Identifiable, Codable, Sendable {
     /// False = reserved slot with placeholder content (Color, for now).
     var implemented: Bool {
         switch self {
-        case .layers, .properties, .components, .designLanguage, .handoff, .sanaa: return true
+        case .layers, .properties, .components, .patterns, .designLanguage, .handoff, .sanaa:
+            return true
         }
     }
 
@@ -125,7 +129,12 @@ struct Workspace: Codable, Sendable {
             ], width: 264),
             right: DockColumn(groups: [
                 PanelGroup([.properties]),
-                PanelGroup([.components]),
+                // FEAT-065e. Patterns rides as a TAB alongside Components rather
+                // than its own group: they are the same idea (reusable artwork
+                // defined once, used many times), tabs cost no extra vertical
+                // space, and the dock already lets anyone who never makes a
+                // pattern drop the tab — which is what "hideable" means here.
+                PanelGroup([.components, .patterns]),
                 PanelGroup([.designLanguage]),
                 PanelGroup([.handoff]),
                 PanelGroup([.sanaa])
@@ -623,9 +632,161 @@ func panelContent(_ id: PanelID, document: ExpDocument) -> some View {
     case .layers:     LayersPanel(document: document, showsTitle: false)
     case .properties: RightPanel(document: document, showsTitle: false, showsZoom: false)
     case .components: ComponentsPanel(document: document)
+    case .patterns: PatternsPanel(document: document)
     case .designLanguage: DesignLanguagePanel(document: document)
     case .handoff: HandoffPanel(document: document)
     case .sanaa: SanaaPanel()
+    }
+}
+
+// MARK: - Patterns panel (FEAT-065e)
+
+/// Lists the document's pattern tiles. Deliberately the Components panel's
+/// sibling in shape and in behaviour: patterns and components are the same idea —
+/// artwork defined once and referenced many times — and a tool teaches itself
+/// faster when two things that behave alike also look alike.
+///
+/// Clicking a row opens the same Edit Pattern window the canvas and inspector
+/// open, rather than editing here. The panel's own job is the LIBRARY view:
+/// what exists, what each looks like, how widely it is used, and the destructive
+/// operations that are hard to reach from a single selection.
+struct PatternsPanel: View {
+    @ObservedObject var document: ExpDocument
+    @Environment(\.undoManager) private var undoManager
+
+    @State private var renamingID: UUID?
+    @State private var draftName = ""
+    @FocusState private var nameFocused: Bool
+
+    private var patterns: [PatternSource] { document.model.patterns }
+
+    var body: some View {
+        Group {
+            if patterns.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("No patterns yet")
+                        .font(.system(size: EXPType.base, weight: .medium))
+                        .foregroundStyle(EXPColor.textSecondary)
+                    // Says how one is MADE, because an empty library with no next
+                    // step is a dead end — and placing an SVG that uses <pattern>
+                    // is currently the only route until convert-to-pattern lands.
+                    Text("Placing an SVG that uses a pattern fill adds its tiles here.")
+                        .font(.system(size: EXPType.mini))
+                        .foregroundStyle(EXPColor.textTertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(10)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(patterns) { pattern in
+                            row(pattern)
+                            Divider()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private func row(_ pattern: PatternSource) -> some View {
+        let uses = document.model.patternUsageCount(pattern.id)
+        HStack(spacing: 8) {
+            PaintSwatch(paint: .pattern(PatternRef(patternID: pattern.id)))
+                .frame(width: 34, height: 24)
+            VStack(alignment: .leading, spacing: 1) {
+                if renamingID == pattern.id {
+                    TextField("Pattern name", text: $draftName)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: EXPType.base))
+                        .focused($nameFocused)
+                        .onSubmit { commitRename(pattern) }
+                        .onChange(of: nameFocused) { _, focused in
+                            if !focused { commitRename(pattern) }
+                        }
+                        .accessibilityLabel("Pattern name")
+                } else {
+                    Text(pattern.name)
+                        .font(.system(size: EXPType.base))
+                        .foregroundStyle(EXPColor.textPrimary)
+                        .lineLimit(1)
+                }
+                Text(usageLabel(uses, tile: pattern.tileSize))
+                    .font(.system(size: EXPType.mini))
+                    .foregroundStyle(uses == 0 ? EXPColor.textTertiary : EXPColor.textSecondary)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .contentShape(Rectangle())
+        .onTapGesture(count: 2) { beginRename(pattern) }
+        .onTapGesture { open(pattern) }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(pattern.name), \(usageLabel(uses, tile: pattern.tileSize))")
+        .accessibilityHint("Opens this pattern for editing")
+        .contextMenu {
+            Button("Edit Pattern…") { open(pattern) }
+            Button("Rename") { beginRename(pattern) }
+            Button("Duplicate Pattern") { act("duplicatePatternAction:", pattern) }
+            Divider()
+            // The count is IN the title, not behind a confirmation sheet: the
+            // number is the whole decision, and undo already covers the mistake.
+            Button(deleteTitle(pattern, uses: uses), role: .destructive) {
+                act("deletePatternAction:", pattern)
+            }
+        }
+    }
+
+    private func usageLabel(_ uses: Int, tile: CGSize) -> String {
+        func trim(_ v: CGFloat) -> String {
+            let r = (v * 100).rounded() / 100
+            return r == r.rounded() ? String(Int(r)) : String(Double(r))
+        }
+        let size = "\(trim(tile.width))×\(trim(tile.height))"
+        switch uses {
+        case 0:  return "\(size) · unused"
+        case 1:  return "\(size) · 1 layer"
+        default: return "\(size) · \(uses) layers"
+        }
+    }
+
+    private func deleteTitle(_ pattern: PatternSource, uses: Int) -> String {
+        uses == 0
+            ? "Delete Pattern"
+            : "Delete Pattern (used by \(uses) layer\(uses == 1 ? "" : "s"))"
+    }
+
+    private func open(_ pattern: PatternSource) {
+        SourceEditorWindowManager.shared.open(patternID: pattern.id, document: document,
+                                              undoManager: undoManager)
+    }
+
+    private func beginRename(_ pattern: PatternSource) {
+        draftName = pattern.name
+        renamingID = pattern.id
+        nameFocused = true
+    }
+
+    private func commitRename(_ pattern: PatternSource) {
+        defer { renamingID = nil }
+        let trimmed = draftName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed != pattern.name,
+              let pi = document.model.patterns.firstIndex(where: { $0.id == pattern.id })
+        else { return }
+        var model = document.model
+        model.patterns[pi].name = trimmed
+        document.setModel(model, undoManager: undoManager, actionName: "Rename Pattern")
+    }
+
+    /// Route through the canvas action rather than mutating here, so the panel,
+    /// the Object menu and the right-click menu all run ONE implementation —
+    /// the command-coverage rule's whole point.
+    private func act(_ selector: String, _ pattern: PatternSource) {
+        let item = NSMenuItem(title: "", action: Selector((selector)), keyEquivalent: "")
+        item.representedObject = pattern.id
+        NSApp.sendAction(Selector((selector)), to: nil, from: item)
     }
 }
 
@@ -994,6 +1155,11 @@ private struct ComponentSourcePreview: View {
                 Gradient(colors: colors.isEmpty ? [.white, .black] : colors),
                 startPoint: .zero,
                 endPoint: CGPoint(x: 90, y: 90)))
+        case .pattern(let ref):
+            // FEAT-062 Stage A. This is a small layer-thumbnail painter; the tile
+            // is not resolvable here yet, so it draws the same declared fallback
+            // the canvas does rather than a colour of its own invention.
+            context.fill(path, with: .color(ref.fallback.swiftUI))
         }
     }
 

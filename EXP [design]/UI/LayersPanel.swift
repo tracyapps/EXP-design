@@ -88,6 +88,8 @@ struct LayersPanel: View {
                 return ComponentStateEditing.applied(children, state: state)
             }
             return children
+        case .pattern(let pid):
+            return document.model.pattern(for: pid)?.children ?? []
         }
     }
 
@@ -122,6 +124,11 @@ struct LayersPanel: View {
                     model.sources[si].size = bounds.size
                 }
             }
+        case .pattern(let pid):
+            guard let pi = model.patterns.firstIndex(where: { $0.id == pid }) else { return }
+            // No states and no managed bounds: a tile's size is its repeat
+            // interval, so it must not re-hug its content the way a source does.
+            model.patterns[pi].children = model.reflowed(nodes)
         }
         document.setModel(model, undoManager: undoManager, actionName: actionName)
     }
@@ -566,7 +573,9 @@ struct LayersPanel: View {
     /// TOP-LEVEL node (pass the node's outermost ancestor).
     private func sectionID(for node: Node) -> String {
         switch scope {
-        case .source: return "source"
+        // One flat list either way — a tile, like a source, has no artboards to
+        // bucket its layers into.
+        case .source, .pattern: return "source"
         case .document:
             if let ab = document.model.owningArtboard(of: node, on: app.activeCanvasPageID) {
                 return ab.id.uuidString
@@ -637,6 +646,9 @@ struct LayersPanel: View {
             // A component source: one flat group of its children.
             guard let source = model.source(for: sid) else { return [] }
             return [LayerGroup(id: "source", title: source.name, nodes: scopeNodes.reversed())]
+        case .pattern(let pid):
+            guard let pattern = model.pattern(for: pid) else { return [] }
+            return [LayerGroup(id: "source", title: pattern.name, nodes: scopeNodes.reversed())]
         case .document:
             // PERF round 10: ONE pass over the nodes, bucketing each by its
             // owning artboard (nil = wall). The previous shape filtered ALL

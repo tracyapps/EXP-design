@@ -45,8 +45,80 @@ struct PaintWell: View {
     }
 }
 
+/// Renders pattern tiles small, for chrome that shows a `Paint` without owning a
+/// document — swatches above all (FEAT-065a).
+///
+/// Injected through the SwiftUI environment rather than threaded as a parameter:
+/// `PaintSwatch(paint:)` has eight call sites across the design-language panel,
+/// its settings, its transfer sheet and the paint editor, and most sit inside
+/// views that have no business knowing about a document. A default that resolves
+/// nothing means a swatch with no provider still paints the fallback colour
+/// instead of breaking.
+@MainActor
+final class PatternPreviewStore {
+    /// Shared. Safe because pattern ids are freshly minted UUIDs, so two open
+    /// documents cannot collide on one, and every entry re-checks the generation
+    /// it was built at.
+    static let shared = PatternPreviewStore()
+
+    private var images: [UUID: (generation: Int, image: CGImage)] = [:]
+    /// Longest edge of a preview tile, in pixels. Small on purpose: this is a
+    /// swatch, and rasterising is cheap enough at this size that a cache miss
+    /// during a drag (when `resolveGeneration` bumps every tick) does not matter.
+    private let previewPixels: CGFloat = 96
+
+    func image(for ref: PatternRef, document: ExpDocument) -> CGImage? {
+        let generation = document.resolveGeneration
+        if let hit = images[ref.patternID], hit.generation == generation { return hit.image }
+        guard let source = document.model.pattern(for: ref.patternID) else { return nil }
+        let longest = max(source.tileSize.width, source.tileSize.height)
+        guard longest > 0 else { return nil }
+        // The SAME rasteriser the canvas and every export path uses, so a swatch
+        // can never show something the artwork does not.
+        guard let image = ExportRenderView.patternTile(source, document: document.model,
+                                                       scale: max(0.02, previewPixels / longest))
+        else { return nil }
+        images[ref.patternID] = (generation, image)
+        return image
+    }
+}
+
+/// The document's pattern tiles, for chrome that shows or CHOOSES a pattern
+/// without owning a document.
+///
+/// Carries the list as well as the preview image because FEAT-065b needs both:
+/// the paint editor has to offer every available pattern, not just render the one
+/// already applied.
+struct PatternLibrary {
+    var sources: () -> [PatternSource]
+    var image: (PatternRef) -> CGImage?
+
+    static let empty = PatternLibrary(sources: { [] }, image: { _ in nil })
+}
+
+private struct PatternLibraryKey: EnvironmentKey {
+    static let defaultValue = PatternLibrary.empty
+}
+
+extension EnvironmentValues {
+    var patternLibrary: PatternLibrary {
+        get { self[PatternLibraryKey.self] }
+        set { self[PatternLibraryKey.self] = newValue }
+    }
+}
+
+extension View {
+    /// Provide the pattern library — previews and the list — below this point.
+    func expPatternPreviews(_ document: ExpDocument) -> some View {
+        environment(\.patternLibrary, PatternLibrary(
+            sources: { document.model.patterns },
+            image: { ref in PatternPreviewStore.shared.image(for: ref, document: document) }))
+    }
+}
+
 struct PaintSwatch: View {
     let paint: Paint
+    @Environment(\.patternLibrary) private var patternLibrary
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: EXPMetric.radiusRow, style: .continuous)
@@ -57,6 +129,28 @@ struct PaintSwatch: View {
                 shape.fill(c.swiftUI)
             case .gradient(let g):
                 gradientView(g, shape: shape)
+            case .pattern(let ref):
+                // FEAT-065a. Tile the real artwork so a pattern fill is
+                // recognisable at swatch size — this used to paint the flat
+                // fallback, which made a pattern indistinguishable from a solid
+                // until you opened the paint editor.
+                if let tile = patternLibrary.image(ref) {
+                    GeometryReader { proxy in
+                        // Draw the tile at the swatch's HEIGHT and let it repeat
+                        // across the width, so a wide swatch shows the motif
+                        // repeating rather than one stretched, unreadable copy.
+                        let side = max(6, proxy.size.height)
+                        Image(decorative: tile, scale: max(0.01, CGFloat(tile.height) / side))
+                            .resizable(resizingMode: .tile)
+                    }
+                    .clipShape(shape)
+                    .accessibilityLabel("Pattern fill")
+                } else {
+                    // No resolver, or a reference with no tile behind it: the
+                    // declared fallback, which is what every renderer paints for
+                    // that case too.
+                    shape.fill(ref.fallback.swiftUI)
+                }
             }
         }
         .overlay(shape.strokeBorder(EXPColor.borderSoft))
@@ -89,12 +183,23 @@ struct PaintEditor: View {
     var selectedGradientStopID: Binding<UUID?>? = nil
 
     @State private var localSelectedStopID: UUID?
+    @Environment(\.patternLibrary) private var patternLibrary
 
-    private enum Mode: Int { case solid, linear, radial }
+    /// FEAT-065b. True once Pattern is chosen but no tile has been picked yet.
+    ///
+    /// Choosing the mode must NOT change the paint on its own: a `PatternRef`
+    /// needs a real tile to point at, and minting a dangling one would show the
+    /// user a broken fill they never asked for. So the segment selects, the picker
+    /// appears, and the fill changes when a tile is actually chosen.
+    @State private var choosingPattern = false
+
+    private enum Mode: Int { case solid, linear, radial, pattern }
     private var mode: Mode {
+        if choosingPattern, !paint.isPattern { return .pattern }
         switch paint {
         case .solid: return .solid
         case .gradient(let g): return g.kind == .linear ? .linear : .radial
+        case .pattern: return .pattern
         }
     }
 
@@ -104,15 +209,23 @@ struct PaintEditor: View {
                 Text("Solid").tag(Mode.solid)
                 Text("Linear").tag(Mode.linear)
                 Text("Radial").tag(Mode.radial)
+                // FEAT-065b. ALWAYS present. It used to appear only when the fill
+                // already was a pattern — correct while there was no way to choose
+                // one, but the moment there is a library to pick from, a tab that
+                // comes and goes reads as a bug rather than a rule. Owner: keep the
+                // fill tabs consistent on every element.
+                Text("Pattern").tag(Mode.pattern)
             }
             .pickerStyle(.segmented)
             .labelsHidden()
 
-            switch paint {
+            switch mode {
             case .solid:
                 ColorPopover(color: solidBinding, supportsOpacity: supportsOpacity)
-            case .gradient:
+            case .linear, .radial:
                 gradientEditor
+            case .pattern:
+                patternEditor
             }
         }
         .onAppear { validateSelectedStop() }
@@ -246,19 +359,82 @@ struct PaintEditor: View {
 
     // MARK: Mode switching (converts the Paint)
 
+    // MARK: Pattern (FEAT-065b)
+
+    private let patternGrid = [GridItem(.adaptive(minimum: 46, maximum: 70), spacing: 6)]
+
+    @ViewBuilder private var patternEditor: some View {
+        let available = patternLibrary.sources()
+        VStack(alignment: .leading, spacing: 8) {
+            if available.isEmpty {
+                // The tab is still here — consistency was the point — but it says
+                // why it is empty and how to fill it, rather than showing a dead
+                // control that reads as broken.
+                Text("No patterns in this document yet.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                Text("Placing an SVG that uses a pattern fill adds its tiles to the Patterns panel.")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                LazyVGrid(columns: patternGrid, spacing: 6) {
+                    ForEach(available) { source in
+                        let isCurrent = paint.patternValue?.patternID == source.id
+                        PaintSwatch(paint: .pattern(source.reference))
+                            .frame(height: 34)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: EXPMetric.radiusRow,
+                                                 style: .continuous)
+                                    .strokeBorder(EXPColor.accent, lineWidth: isCurrent ? 2 : 0)
+                            )
+                            .onTapGesture { paint = .pattern(source.reference) }
+                            .help(source.name)
+                            .accessibilityLabel(source.name)
+                            .accessibilityAddTraits(isCurrent ? [.isButton, .isSelected] : .isButton)
+                            .accessibilityHint("Fill with this pattern")
+                    }
+                }
+                if paint.isPattern {
+                    Button("Edit Pattern…") {
+                        NSApp.sendAction(Selector(("editPatternAction:")), to: nil, from: nil)
+                    }
+                    .accessibilityLabel("Edit this pattern's tile")
+                    Text("Edits apply everywhere this pattern is used.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    Text("Choose a pattern to fill with.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     private var modeBinding: Binding<Mode> {
         Binding(
             get: { mode },
             set: { newMode in
                 switch newMode {
                 case .solid:
+                    choosingPattern = false
                     paint = .solid(paint.representativeColor)
                     activeSelectedStopID.wrappedValue = nil
                 case .linear, .radial:
+                    choosingPattern = false
                     var g = paint.gradientValue ?? seededGradient(from: paint.representativeColor)
                     g.kind = (newMode == .linear) ? .linear : .radial
                     paint = .gradient(g)
                     validateSelectedStop()
+                case .pattern:
+                    // FEAT-065b. Show the picker; do NOT touch the paint yet. A
+                    // `PatternRef` must point at a real tile, so the fill changes
+                    // only once one is chosen — and if the user switches back to
+                    // Solid without choosing, their original fill is untouched.
+                    choosingPattern = true
                 }
             }
         )

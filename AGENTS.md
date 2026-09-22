@@ -93,5 +93,9 @@ code write-back remain explicitly deferred pending evidence.
 Agent capability packs, Figma OAuth/Keychain/Variables, and agent write-back remain
 explicit non-gating follow-ups.
 See ROADMAP.md for the authoritative checklist and newest Progress Log entry.
-The v2.5 scope is intentionally unselected. Resume at ROADMAP → v2.5's owner
-scoping gate; do not silently promote candidate backlog items into the release.
+**v2.5 scope, set by the owner 2026-09-22:** finish the paint model — carrying
+in the built pattern system (FEAT-062/063/065 plus BUG-060–068, committed
+2026-09-22), then FEAT-064, BUG-065, BUG-062's semantic-HTML half, and the
+W3C token decision — and add Sanaa FEAT-058. Wave 1's owner verification gate
+is open: resume there, and keep the sequencing rule — no document-mutating
+slice starts while another awaits owner verification.

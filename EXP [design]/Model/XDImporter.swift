@@ -179,6 +179,10 @@ nonisolated private extension XDImporter {
                     switch value {
                     case .solid(let color): fallbackName = hexName(color)
                     case .gradient: fallbackName = "Gradient \(index + 1)"
+                    // FEAT-062. `libraryPaint` never returns a pattern (XD document
+                    // assets are colours and gradients), so this only exists to keep
+                    // the naming exhaustive rather than defaulted.
+                    case .pattern: fallbackName = "Pattern \(index + 1)"
                     }
                     let trimmedName = authoredName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                     language.assets.append(DesignAsset(

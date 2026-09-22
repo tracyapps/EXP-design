@@ -238,9 +238,35 @@ struct GradientFill: Codable, Equatable, Sendable {
 }
 
 /// A shape fill / artboard background: flat color or gradient.
+/// A fill that paints a repeating tile from the document's pattern library
+/// (FEAT-062).
+///
+/// Deliberately a REFERENCE, not the artwork itself. The tile lives once in
+/// `Document.patterns` as a `PatternSource`, exactly as a component's artwork
+/// lives once in `Document.sources` — so one pattern can back many layers,
+/// editing the tile updates every use, it round-trips to a single `<pattern>`
+/// in `<defs>` referenced by many fills, and `Paint` stays a small Equatable
+/// value type instead of becoming recursive (Paint → Node → Paint).
+struct PatternRef: Codable, Equatable, Sendable {
+    var patternID: UUID
+    /// Painted when the pattern cannot be resolved — a missing id, a document
+    /// opened by an older build, a library that failed to load. Never optional:
+    /// a fill must always be able to paint SOMETHING, and inventing a silent
+    /// black for an unresolvable reference is precisely the failure this feature
+    /// exists to remove. Importers should set this to a representative color
+    /// sampled from the tile, so a degraded render is at least plausible.
+    var fallback: RGBAColor
+
+    init(patternID: UUID, fallback: RGBAColor = .clear) {
+        self.patternID = patternID
+        self.fallback = fallback
+    }
+}
+
 enum Paint: Codable, Equatable, Sendable {
     case solid(RGBAColor)
     case gradient(GradientFill)
+    case pattern(PatternRef)
 
     /// A single representative color (the solid value, or the first stop) — used
     /// where one color is needed (swatches, solid overrides, fallbacks).
@@ -248,10 +274,13 @@ enum Paint: Codable, Equatable, Sendable {
         switch self {
         case .solid(let c): return c
         case .gradient(let g): return g.sortedStops.first?.color ?? .white
+        case .pattern(let p): return p.fallback
         }
     }
     var isGradient: Bool { if case .gradient = self { return true }; return false }
     var gradientValue: GradientFill? { if case .gradient(let g) = self { return g }; return nil }
+    var isPattern: Bool { if case .pattern = self { return true }; return false }
+    var patternValue: PatternRef? { if case .pattern(let p) = self { return p }; return nil }
 
     static let white = Paint.solid(.white)
     static let black = Paint.solid(.black)
@@ -259,15 +288,17 @@ enum Paint: Codable, Equatable, Sendable {
 
     // MARK: Codable (flat = bare RGBAColor; gradient = tagged)
 
-    private enum CodingKeys: String, CodingKey { case kind, gradient }
+    private enum CodingKeys: String, CodingKey { case kind, gradient, pattern }
 
     init(from decoder: Decoder) throws {
         // Legacy / flat: a bare {r,g,b,a} object decodes as RGBAColor.
         if let c = try? RGBAColor(from: decoder) { self = .solid(c); return }
         let ct = try decoder.container(keyedBy: CodingKeys.self)
-        if (try? ct.decodeIfPresent(String.self, forKey: .kind)) == "gradient",
-           let g = try? ct.decode(GradientFill.self, forKey: .gradient) {
+        let kind = (try? ct.decodeIfPresent(String.self, forKey: .kind)) ?? nil
+        if kind == "gradient", let g = try? ct.decode(GradientFill.self, forKey: .gradient) {
             self = .gradient(g)
+        } else if kind == "pattern", let p = try? ct.decode(PatternRef.self, forKey: .pattern) {
+            self = .pattern(p)
         } else {
             self = .solid(.white)
         }
@@ -281,6 +312,13 @@ enum Paint: Codable, Equatable, Sendable {
             var ct = encoder.container(keyedBy: CodingKeys.self)
             try ct.encode("gradient", forKey: .kind)
             try ct.encode(g, forKey: .gradient)
+        case .pattern(let p):
+            // An older build reading this falls through the decoder's unknown-kind
+            // branch to `.solid(.white)` rather than throwing, so a v2.5 document
+            // still OPENS in v2.4 — degraded, never bricked.
+            var ct = encoder.container(keyedBy: CodingKeys.self)
+            try ct.encode("pattern", forKey: .kind)
+            try ct.encode(p, forKey: .pattern)
         }
     }
 }

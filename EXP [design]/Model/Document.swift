@@ -340,8 +340,9 @@ struct Document: Codable, Sendable {
     /// History: 1 = v1.4 baseline; 2 = v1.6 component contract (states,
     /// relationships, public override props); 3 = document-level canvas pages;
     /// 4 = hidden code/component bridge provenance; 5 = open-stroke caps and
-    /// independent start/end markers.
-    static let currentSchemaVersion = 5
+    /// independent start/end markers; 6 = document-level pattern library
+    /// (FEAT-062) referenced by `Paint.pattern`.
+    static let currentSchemaVersion = 6
 
     /// The schema version this in-memory document was DECODED from (kept for
     /// diagnostics), or the current version for new documents. Encoding always
@@ -372,6 +373,11 @@ struct Document: Codable, Sendable {
     /// Reusable component definitions. An instance node refers to one of these
     /// by `id` — the reference-based heart of the model. Empty until Phase 4.
     var sources: [ComponentSource]
+
+    /// Reusable pattern tiles (FEAT-062). A `Paint.pattern` refers to one of
+    /// these by id, the same reference relationship `sources` has with instance
+    /// nodes. Empty for every document that has never used a pattern.
+    var patterns: [PatternSource] = []
 
     /// Hidden source receipts and bindings for code/component imports. This is
     /// not rendered and never contains credentials or executable app state.
@@ -414,7 +420,7 @@ struct Document: Codable, Sendable {
     // Custom decode so files saved before `guides` existed still open.
     enum CodingKeys: String, CodingKey {
         case schemaVersion, formatVersion, pages, artboards, nodes, sources, guides,
-             designLanguage, anchoredRelationships, codeBridges
+             designLanguage, anchoredRelationships, codeBridges, patterns
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -434,6 +440,11 @@ struct Document: Codable, Sendable {
                                 anchoredRelationships: legacyAnchors)]
         }
         sources = try c.decodeIfPresent([ComponentSource].self, forKey: .sources) ?? []
+        // decodeIfPresent, never decode: a property default does NOT save a
+        // synthesised decoder from throwing on a missing key, which is how
+        // FEAT-022 erased saved tray layouts. Every file written before v2.5
+        // simply has no patterns.
+        patterns = try c.decodeIfPresent([PatternSource].self, forKey: .patterns) ?? []
         // A malformed optional connector receipt must never brick the artwork.
         // The source can be re-imported; the design itself remains primary.
         codeBridges = ((try? c.decodeIfPresent([CodeBridgeManifest].self,
@@ -460,6 +471,9 @@ struct Document: Codable, Sendable {
         try c.encode(3, forKey: .formatVersion)
         try c.encode(pages, forKey: .pages)
         try c.encode(sources, forKey: .sources)
+        // Omitted entirely when unused, so a document that never touched a
+        // pattern keeps a byte-identical shape to what v2.4 wrote.
+        if !patterns.isEmpty { try c.encode(patterns, forKey: .patterns) }
         if !codeBridges.isEmpty { try c.encode(codeBridges, forKey: .codeBridges) }
         try c.encode(designLanguage, forKey: .designLanguage)
     }
@@ -553,6 +567,86 @@ struct Document: Codable, Sendable {
     /// Look up a component source by id (used when resolving an instance).
     func source(for id: UUID) -> ComponentSource? {
         sources.first { $0.id == id }
+    }
+
+    /// FEAT-062 Stage E. A pattern tile is edited exactly like a component
+    /// source — same window, same canvas, same layers panel — so it needs the
+    /// same lookup.
+    func pattern(for id: UUID) -> PatternSource? {
+        patterns.first { $0.id == id }
+    }
+
+    // MARK: Pattern library (FEAT-065e)
+
+    /// Every layer that paints with `id`, anywhere it can be painted: all pages,
+    /// every component source, and other pattern tiles.
+    ///
+    /// A pattern is referenced by id, so deleting one leaves those layers painting
+    /// their fallback colour. The Patterns panel says the number BEFORE deleting,
+    /// the way Delete Component names its source — a destructive action should not
+    /// have to be undone to find out what it did.
+    func patternUsageCount(_ id: UUID) -> Int {
+        func fillMatches(_ paint: Paint) -> Bool { paint.patternValue?.patternID == id }
+        func count(_ nodes: [Node]) -> Int {
+            var total = 0
+            for node in nodes {
+                switch node.content {
+                case .rectangle(let s): if fillMatches(s.fill) { total += 1 }
+                case .ellipse(let s):   if fillMatches(s.fill) { total += 1 }
+                case .polygon(let s):   if fillMatches(s.fill) { total += 1 }
+                case .path(let s):      if fillMatches(s.fill) { total += 1 }
+                case .group(let kids):  total += count(kids)
+                default: break
+                }
+                if let pad = node.autoPadding, let fill = pad.fill, fillMatches(fill) { total += 1 }
+            }
+            return total
+        }
+        var total = pages.reduce(0) { $0 + count($1.nodes) }
+        total += pages.reduce(0) { partial, page in
+            partial + page.artboards.reduce(0) { fillMatches($1.background) ? $0 + 1 : $0 }
+        }
+        total += sources.reduce(0) { $0 + count($1.children) }
+        // Other tiles, but never the pattern's own children — a tile that paints
+        // with itself would otherwise report a use that is really recursion.
+        total += patterns.filter { $0.id != id }.reduce(0) { $0 + count($1.children) }
+        return total
+    }
+
+    /// A copy of `id` with fresh ids, named "… copy". The copy is independent:
+    /// nothing points at it until a fill is changed to.
+    func duplicatingPattern(_ id: UUID) -> (document: Document, patternID: UUID)? {
+        guard let source = pattern(for: id) else { return nil }
+        var copy = source
+        copy.id = UUID()
+        copy.name = Self.uniquePatternName(base: source.name, existing: patterns.map(\.name))
+        var idMap: [UUID: UUID] = [:]
+        copy.children = source.children.map { reidentified($0, map: &idMap) }
+        var model = self
+        model.patterns.append(copy)
+        return (model, copy.id)
+    }
+
+    /// Remove a pattern. Fills referencing it are LEFT ALONE on purpose: they
+    /// already carry a fallback colour and will paint it, so the artwork degrades
+    /// visibly instead of silently rewriting layers the user did not select. Undo
+    /// then restores the tile and everything looks right again.
+    func deletingPattern(_ id: UUID) -> Document {
+        var model = self
+        model.patterns.removeAll { $0.id == id }
+        return model
+    }
+
+    static func uniquePatternName(base: String, existing: [String]) -> String {
+        let trimmed = base.trimmingCharacters(in: .whitespacesAndNewlines)
+        let root = trimmed.isEmpty ? "Pattern" : trimmed
+        var candidate = "\(root) copy"
+        var n = 2
+        while existing.contains(candidate) {
+            candidate = "\(root) copy \(n)"
+            n += 1
+        }
+        return candidate
     }
 
     // MARK: Component source dependency graph (v2.1 / Chunk I)
@@ -2620,6 +2714,32 @@ enum StrokePattern: String, Codable, Sendable, CaseIterable {
 
 /// The cap applied to both exposed ends of an open stroke. SVG and Core Graphics
 /// both model this as one whole-stroke property; endpoint decorations are markers.
+/// How a stroke turns a corner (BUG-064).
+///
+/// EXP drew every path corner ROUND, hardcoded in three places, while SVG's
+/// default is `miter`. On ordinary artwork that is a subtle softening; on
+/// `spectrum-triangles.svg` — a 1.25×1 triangle stroked at width 60, where the
+/// shape IS its joins — it turned triangles into discs.
+enum StrokeLineJoin: String, Codable, Sendable, CaseIterable {
+    case miter, round, bevel
+
+    var label: String {
+        switch self {
+        case .miter: return "Miter"
+        case .round: return "Round"
+        case .bevel: return "Bevel"
+        }
+    }
+
+    var cgLineJoin: CGLineJoin {
+        switch self {
+        case .miter: return .miter
+        case .round: return .round
+        case .bevel: return .bevel
+        }
+    }
+}
+
 enum StrokeLineCap: String, Codable, Sendable, CaseIterable {
     case butt, round, square
 
@@ -2860,13 +2980,20 @@ struct PathShape: Codable, Sendable {
     var strokeAlignment: StrokeAlignment = .center
     var strokePattern: StrokePattern = .solid
     var strokeCap: StrokeLineCap = .round
+    /// BUG-064. Defaults to `.round` so every path authored or saved BEFORE this
+    /// existed keeps the exact appearance it had — the old hardcoded behaviour.
+    /// The SVG importer sets it explicitly (SVG's own default is `miter`), so
+    /// imported artwork gets the corners its file actually asked for.
+    var strokeJoin: StrokeLineJoin = .round
+    /// SVG's `stroke-miterlimit` default. Only consulted for a miter join.
+    var strokeMiterLimit: CGFloat = 4
     var startMarker: StrokeMarker = .none
     var endMarker: StrokeMarker = .none
     var contours: [[PathPoint]]? = nil
 
     enum CodingKeys: String, CodingKey {
         case points, closed, fill, stroke, strokeWidth, strokeAlignment, strokePattern,
-             strokeCap, startMarker, endMarker, contours
+             strokeCap, strokeJoin, strokeMiterLimit, startMarker, endMarker, contours
     }
 
     /// Alignment is only meaningful on a closed outline; open paths render center.
@@ -2878,12 +3005,15 @@ struct PathShape: Codable, Sendable {
          stroke: RGBAColor = .black, strokeWidth: CGFloat = 2,
          strokeAlignment: StrokeAlignment = .center, strokePattern: StrokePattern = .solid,
          strokeCap: StrokeLineCap = .round,
+         strokeJoin: StrokeLineJoin = .round, strokeMiterLimit: CGFloat = 4,
          startMarker: StrokeMarker = .none, endMarker: StrokeMarker = .none,
          contours: [[PathPoint]]? = nil) {
         self.points = points; self.closed = closed; self.fill = fill
         self.stroke = stroke; self.strokeWidth = strokeWidth
         self.strokeAlignment = strokeAlignment; self.strokePattern = strokePattern
-        self.strokeCap = strokeCap; self.startMarker = startMarker; self.endMarker = endMarker
+        self.strokeCap = strokeCap; self.strokeJoin = strokeJoin
+        self.strokeMiterLimit = strokeMiterLimit
+        self.startMarker = startMarker; self.endMarker = endMarker
         self.contours = contours
     }
     init(from decoder: Decoder) throws {
@@ -2896,6 +3026,10 @@ struct PathShape: Codable, Sendable {
         strokeAlignment = try c.decodeIfPresent(StrokeAlignment.self, forKey: .strokeAlignment) ?? .center
         strokePattern = try c.decodeIfPresent(StrokePattern.self, forKey: .strokePattern) ?? .solid
         strokeCap = try c.decodeIfPresent(StrokeLineCap.self, forKey: .strokeCap) ?? .round
+        // `.round` on a missing key, deliberately: that is what every path drawn
+        // before BUG-064 actually rendered as, so old files do not change look.
+        strokeJoin = try c.decodeIfPresent(StrokeLineJoin.self, forKey: .strokeJoin) ?? .round
+        strokeMiterLimit = try c.decodeIfPresent(CGFloat.self, forKey: .strokeMiterLimit) ?? 4
         startMarker = try c.decodeIfPresent(StrokeMarker.self, forKey: .startMarker) ?? .none
         endMarker = try c.decodeIfPresent(StrokeMarker.self, forKey: .endMarker) ?? .none
         contours = try c.decodeIfPresent([[PathPoint]].self, forKey: .contours)
@@ -2907,6 +3041,8 @@ struct PathShape: Codable, Sendable {
         try c.encode(strokeWidth, forKey: .strokeWidth); try c.encode(strokeAlignment, forKey: .strokeAlignment)
         if strokePattern != .solid { try c.encode(strokePattern, forKey: .strokePattern) }
         if strokeCap != .round { try c.encode(strokeCap, forKey: .strokeCap) }
+        if strokeJoin != .round { try c.encode(strokeJoin, forKey: .strokeJoin) }
+        if strokeMiterLimit != 4 { try c.encode(strokeMiterLimit, forKey: .strokeMiterLimit) }
         if startMarker != .none { try c.encode(startMarker, forKey: .startMarker) }
         if endMarker != .none { try c.encode(endMarker, forKey: .endMarker) }
         try c.encodeIfPresent(contours, forKey: .contours)
@@ -3270,6 +3406,98 @@ struct TextContent: Codable, Sendable {
 /// reference it by `id` and never copy it (change the source, every instance
 /// updates). `children` are stored in source-local coordinates (origin 0,0) so
 /// the source editor's canvas can treat them exactly like a document's nodes.
+/// A six-value affine transform that persists cleanly (FEAT-062).
+///
+/// `CGAffineTransform`'s own Codable conformance is not relied on here: the
+/// on-disk shape of a `.design` file is a contract, and six named doubles is one
+/// we control and can read in ten years.
+struct AffineValue: Codable, Equatable, Sendable {
+    var a: Double = 1, b: Double = 0, c: Double = 0, d: Double = 1
+    var tx: Double = 0, ty: Double = 0
+
+    static let identity = AffineValue()
+
+    var cg: CGAffineTransform {
+        CGAffineTransform(a: CGFloat(a), b: CGFloat(b), c: CGFloat(c),
+                          d: CGFloat(d), tx: CGFloat(tx), ty: CGFloat(ty))
+    }
+    init() {}
+    init(_ t: CGAffineTransform) {
+        a = Double(t.a); b = Double(t.b); c = Double(t.c)
+        d = Double(t.d); tx = Double(t.tx); ty = Double(t.ty)
+    }
+}
+
+/// How a pattern's tile geometry is measured — SVG `patternUnits`.
+enum PatternUnits: String, Codable, Sendable {
+    /// `tileSize` is in document points. What every real-world fixture uses.
+    case userSpaceOnUse
+    /// `tileSize` is a fraction of the filled shape's bounding box.
+    case objectBoundingBox
+}
+
+/// A reusable tile of artwork that fills reference by id (FEAT-062).
+///
+/// Modelled directly on `ComponentSource` — the reference-based heart of this
+/// model — because a pattern is the same idea: artwork defined once, used many
+/// times. A `Paint.pattern` carries only a `PatternRef`, so editing this tile
+/// updates every layer painted with it, and the SVG exporter can emit ONE
+/// `<pattern>` in `<defs>` that many fills point at, which is what makes the
+/// round trip real rather than a bag of expanded shapes.
+struct PatternSource: Identifiable, Codable, Sendable {
+    var id = UUID()
+    var name: String
+    /// The tile's artwork in tile-local coordinates (origin at the tile's
+    /// top-left), same convention as a component's `children`.
+    var children: [Node]
+    /// The tile's repeat interval — SVG `width`/`height` on `<pattern>`.
+    var tileSize: CGSize
+    var units: PatternUnits = .userSpaceOnUse
+    /// SVG `patternTransform`: applied to the whole tiling lattice, not to each
+    /// tile's content. Real exports lean on this heavily (rotate + scale +
+    /// translate in one attribute), so it is first-class rather than baked into
+    /// the content at import time — baking it in would lose it on export.
+    var transform: AffineValue = .identity
+    /// A `viewBox` declared on the pattern, when it had one.
+    var viewBox: CGRect?
+
+    /// A colour that stands in for this tile wherever it cannot be drawn — an
+    /// older build, an export path that has not learned patterns, a resolver that
+    /// declines. Sampling the tile's own first solid fill keeps a degraded render
+    /// plausible instead of inventing a flat black, which is the failure FEAT-062
+    /// exists to remove. Lives here so the importer and the inspector cannot
+    /// disagree about what a pattern "looks like" in one colour.
+    var representativeColor: RGBAColor {
+        func firstSolid(_ nodes: [Node]) -> RGBAColor? {
+            for node in nodes {
+                switch node.content {
+                case .rectangle(let s): if case .solid(let c) = s.fill, c.a > 0 { return c }
+                case .ellipse(let s):   if case .solid(let c) = s.fill, c.a > 0 { return c }
+                case .polygon(let s):   if case .solid(let c) = s.fill, c.a > 0 { return c }
+                case .path(let s):      if case .solid(let c) = s.fill, c.a > 0 { return c }
+                case .group(let kids):  if let nested = firstSolid(kids) { return nested }
+                default: break
+                }
+            }
+            return nil
+        }
+        return firstSolid(children) ?? .clear
+    }
+
+    /// A `PatternRef` pointing at this tile, with the fallback already sampled.
+    var reference: PatternRef {
+        PatternRef(patternID: id, fallback: representativeColor)
+    }
+
+    init(id: UUID = UUID(), name: String, children: [Node], tileSize: CGSize,
+         units: PatternUnits = .userSpaceOnUse, transform: AffineValue = .identity,
+         viewBox: CGRect? = nil) {
+        self.id = id; self.name = name; self.children = children
+        self.tileSize = tileSize; self.units = units
+        self.transform = transform; self.viewBox = viewBox
+    }
+}
+
 struct ComponentSource: Identifiable, Codable, Sendable {
     var id = UUID()
     var name: String

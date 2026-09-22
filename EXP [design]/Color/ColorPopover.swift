@@ -225,13 +225,14 @@ struct ColorPopover: View {
 
     // MARK: Keyboard eyedropper
 
-    /// While the popover is open, plain `i` triggers the screen eyedropper — even
-    /// when the code field has focus. Safe to swallow there: a color code (hex /
-    /// rgb / hsl / lch / oklch) never contains the letter `i`, so keyboard-first
-    /// designers get an uninterrupted pick. ⌘/⌃/⌥+i are left for the system.
+    /// Plain `i` triggers the screen eyedropper only when the user is not typing.
+    /// This monitor receives events app-wide, including artboard/layer rename
+    /// fields outside the picker. All text editors (including color-code fields)
+    /// must keep their characters. ⌘/⌃/⌥+i are left for the system.
     private func installKeyMonitor() {
         guard keyMonitor == nil else { return }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            guard !isTypingInTextField() else { return event }
             let mods = event.modifierFlags.intersection([.command, .control, .option])
             if mods.isEmpty, event.charactersIgnoringModifiers?.lowercased() == "i" {
                 sampleScreen()

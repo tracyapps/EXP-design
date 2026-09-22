@@ -837,6 +837,12 @@ private struct HTMLWriter {
                                                        width: width, height: height))
                 fill = "url(#\(gradientID))"
                 fillOpacity = "1"
+            case .pattern(let ref):
+                // FEAT-062 Stage A. Stage D emits a real SVG <pattern> here.
+                // Until then the declared fallback keeps HTML agreeing with the
+                // canvas and the other exporters rather than inventing a colour.
+                fill = "var(--exp-path-fill, \(svgColor(ref.fallback)))"
+                fillOpacity = "1"
             }
         } else {
             fill = "none"
@@ -846,7 +852,7 @@ private struct HTMLWriter {
             ? " stroke=\"var(--exp-path-stroke, \(svgColor(path.stroke)))\" stroke-width=\"\(number(path.strokeWidth))\"\(svgStrokePattern(path.strokePattern, width: path.strokeWidth))"
             : ""
         let defs = definitions.isEmpty ? "" : "<defs>\(definitions)</defs>"
-        return "<svg class=\"exp-path-svg\" viewBox=\"0 0 \(number(width)) \(number(height))\" preserveAspectRatio=\"none\" aria-hidden=\"true\" focusable=\"false\">\(defs)<path class=\"exp-path-shape\" d=\"\(svgPathData(path))\" fill=\"\(fill)\" fill-opacity=\"\(fillOpacity)\"\(stroke) stroke-linejoin=\"round\" stroke-linecap=\"round\"/></svg>"
+        return "<svg class=\"exp-path-svg\" viewBox=\"0 0 \(number(width)) \(number(height))\" preserveAspectRatio=\"none\" aria-hidden=\"true\" focusable=\"false\">\(defs)<path class=\"exp-path-shape\" d=\"\(svgPathData(path))\" fill=\"\(fill)\" fill-opacity=\"\(fillOpacity)\"\(stroke) stroke-linejoin=\"\(path.strokeJoin.rawValue)\" stroke-linecap=\"\(path.strokeCap.rawValue)\"/></svg>"
     }
 
     private func svgStrokePattern(_ pattern: StrokePattern, width: CGFloat) -> String {
@@ -1341,6 +1347,10 @@ private struct CSSWriter {
         switch value {
         case .solid(let c):
             return color(c)
+        case .pattern(let ref):
+            // FEAT-062 Stage A — the pattern's own declared fallback, so every
+            // export surface degrades to the same colour the canvas paints.
+            return color(ref.fallback)
         case .gradient(let gradient):
             // FEAT-032: positions come from `cssStopPositions`, which projects an
             // explicit gradient line onto the CSS one. CSS has no syntax for "start

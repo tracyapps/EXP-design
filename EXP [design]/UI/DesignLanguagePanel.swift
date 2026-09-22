@@ -914,7 +914,8 @@ struct DesignLanguagePanel: View {
         panel.nameFieldStringValue = "design-language.json"
         panel.message = "Export this document's design language as EXP JSON."
         guard panel.runModal() == .OK, let url = panel.url,
-              let data = try? DesignLanguageIO.exportJSON(dl) else { return }
+              let data = try? DesignLanguageIO.exportJSON(dl, patterns: document.model.patterns)
+        else { return }
         try? data.write(to: url)
     }
 

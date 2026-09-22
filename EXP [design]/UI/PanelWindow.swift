@@ -594,6 +594,7 @@ struct TrayWindowView: View {
                let document = hub.activeDocument {
                 content(tray: presented, document: document)
                     .environment(app)   // so the hosted panels read the active doc's state
+                    .expPatternPreviews(document)   // FEAT-065a — pattern swatches
             } else {
                 Color.clear
             }

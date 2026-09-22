@@ -951,6 +951,13 @@ enum SanaaFacts {
 
     private static func artboardBacking(_ artboard: Artboard) -> Backing {
         switch artboard.background {
+        case .pattern:
+            // FEAT-062. A pattern tile has no single backing colour, so contrast
+            // against it cannot be computed from a paint alone. `unresolved` is the
+            // truthful answer and the one Sanaa already knows how to handle —
+            // reporting the fallback colour as if it were the background would hand
+            // the agent a contrast ratio for a surface that is not there.
+            return .unresolved("pattern fill (tile contents are not summarised as a single backing colour)")
         case .gradient(let fill):
             let translucent = fill.sortedStops.contains { $0.color.a < 0.999999 }
             return .gradient(fill: fill, rect: artboard.frame, opacity: 1,
