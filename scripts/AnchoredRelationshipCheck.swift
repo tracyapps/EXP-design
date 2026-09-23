@@ -6,17 +6,10 @@ import CoreGraphics
 // would silently destroy authored semantics if it regressed — see BACKLOG BUG-010,
 // BUG-012, and FEAT-012's chunk notes.
 //
-// Never renders text: deterministic metrics satisfy the model's auto-layout
-// references without pulling AppKit into a headless executable.
-extension TextContent {
-    func measuredSize(maxWidth: CGFloat? = nil) -> CGSize {
-        CGSize(width: maxWidth ?? 20, height: 20)
-    }
-
-    func measuredSize(boxWidth currentWidth: CGFloat) -> CGSize {
-        box == .fixed ? measuredSize(maxWidth: currentWidth) : measuredSize()
-    }
-}
+// This check used to carry a headless `measuredSize` shim; BUG-062 added
+// Typography.swift to its compile set (via ExportRenderer), so the REAL
+// measurement runs now — and the shim had to go or the two candidates made
+// Document.swift ambiguous.
 
 private func require(_ condition: @autoclosure () -> Bool, _ message: String) {
     guard condition() else {

@@ -88,6 +88,19 @@ block is the deliberate final walk of the NEW surfaces together.
 - [x] Working tree contains only intended v2.5/release changes; the 2026-09-23
       Dropbox-incident deletions are fully restored (`git status` clean).
 
+Verification snapshot, 2026-09-23: every scripted regression passes and the
+clean unsigned universal Release build and the production website build pass.
+The battery itself caught five check scripts that had silently broken since
+their last full run (2026-09-02): three passed bare `RGBAColor` values where
+BUG-065 widened stroke to `Paint` (nested-component-graph, SVG-token-bridge,
+effect-export-coverage), and two lacked the compile-set additions BUG-062's
+shared silhouette needs (`ExportRenderer` in anchored-relationships; the
+Typography/paint set in the semantic contract, whose fixture shim removal the
+battery then validated). All fixed in this commit — per-slice receipts ran
+only the pattern suite, which is why these waited for the freeze; the same
+class was already caught in `verify_semantic_html_package.sh` during BUG-062
+itself.
+
 Run (v2.5 adds the pattern suite and the semantic package check now compiles
 the shared silhouette):
 

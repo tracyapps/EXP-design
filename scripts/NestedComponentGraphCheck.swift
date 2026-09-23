@@ -69,14 +69,16 @@ private enum NestedComponentGraphCheck {
         // State editing must preserve the entire outline, including alpha and
         // inside/center/outside position, without leaking it into the base.
         let shapeID = UUID()
+        // BUG-065 made stroke a full Paint; the check authors solids through
+        // `.solid` like every model caller since.
         let baseShape = Node(id: shapeID, name: "Outlined",
                              frame: CGRect(x: 0, y: 0, width: 20, height: 20),
                              content: .rectangle(RectangleShape(
-                                stroke: RGBAColor(r: 0, g: 0, b: 0, a: 1),
+                                stroke: .solid(RGBAColor(r: 0, g: 0, b: 0, a: 1)),
                                 strokeWidth: 1, strokeAlignment: .center)))
         var editedShape = baseShape
         editedShape.content = .rectangle(RectangleShape(
-            stroke: RGBAColor(r: 1, g: 0.25, b: 0, a: 0.4),
+            stroke: .solid(RGBAColor(r: 1, g: 0.25, b: 0, a: 0.4)),
             strokeWidth: 6, strokeAlignment: .outside))
         let captured = ComponentStateEditing.capture(
             base: [baseShape], edited: [editedShape], state: ComponentState(name: "hover"))
@@ -94,7 +96,7 @@ private enum NestedComponentGraphCheck {
             exit(1)
         }
         require(appliedShape.strokeWidth == 6 && appliedShape.strokeAlignment == .outside
-                    && appliedShape.stroke.a == 0.4,
+                    && appliedShape.stroke.representativeColor.a == 0.4,
                 "captured outline did not resolve back onto the state")
 
         // Whole-layer blend mode is state-local appearance, not a base edit.

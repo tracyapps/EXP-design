@@ -64,7 +64,7 @@ private enum EffectExportCoverageCheck {
                              background: .solid(boardBG))
         let beneath = Node(name: "backdrop", frame: CGRect(x: 40, y: 50, width: 240, height: 200),
                            content: .rectangle(RectangleShape(
-                               fill: .solid(nodeFill), stroke: nodeFill, strokeWidth: 0)))
+                               fill: .solid(nodeFill), stroke: .solid(nodeFill), strokeWidth: 0)))
         guard let png = ExportRenderer(document: Document(artboards: [board], nodes: [beneath, node]))
             .pngData(for: board, scale: 2),
               let rep = NSBitmapImageRep(data: png)
@@ -206,7 +206,7 @@ private enum EffectExportCoverageCheck {
             Node(name: name, frame: CGRect(x: x, y: 50, width: 240, height: 200),
                  effects: effects,
                  content: .rectangle(RectangleShape(fill: .solid(nodeFill),
-                                                   stroke: nodeFill, strokeWidth: 0)))
+                                                   stroke: .solid(nodeFill), strokeWidth: 0)))
         }
         let nodes = [
             rect(40, "A1-plain", []),
@@ -269,7 +269,7 @@ private enum EffectExportCoverageCheck {
                                  background: .solid(boardBG))
             let node = Node(name: "sweep-node", frame: frame, effects: effects,
                             content: .rectangle(RectangleShape(fill: .solid(nodeFill),
-                                                               stroke: nodeFill, strokeWidth: 0)))
+                                                               stroke: .solid(nodeFill), strokeWidth: 0)))
             return (Document(artboards: [board], nodes: [node]), board)
         }
 
@@ -310,7 +310,7 @@ private enum EffectExportCoverageCheck {
                              background: .solid(boardBG))
         let child = Node(name: "g-child", frame: CGRect(x: 20, y: 20, width: 100, height: 100),
                          content: .rectangle(RectangleShape(fill: .solid(nodeFill),
-                                                            stroke: nodeFill, strokeWidth: 0)))
+                                                            stroke: .solid(nodeFill), strokeWidth: 0)))
         let group = Node(name: "g-noise", frame: CGRect(x: 40, y: 50, width: 240, height: 200),
                          effects: [Effect(kind: .noise, amount: 0.5)],
                          content: .group(children: [child]))
@@ -341,7 +341,7 @@ private enum EffectExportCoverageCheck {
                                           color: RGBAColor(r: 0, g: 0, b: 0, a: 0.8),
                                           dx: 6, dy: 6, blur: 10, preserveTransparency: true)],
                         content: .rectangle(RectangleShape(fill: .solid(halfFill),
-                                                           stroke: halfFill, strokeWidth: 0)))
+                                                           stroke: .solid(halfFill), strokeWidth: 0)))
         let doc = Document(artboards: [board], nodes: [node])
         let png = ExportRenderer(document: doc).pngData(for: board, scale: 1)
         require(png != nil, "knockout probe produced no PNG data")
@@ -367,7 +367,7 @@ private enum EffectExportCoverageCheck {
         let node = Node(name: "L-wide", frame: CGRect(x: 100, y: 50, width: 13000, height: 200),
                         effects: [Effect(kind: .layerBlur, blur: 20)],
                         content: .rectangle(RectangleShape(fill: .solid(nodeFill),
-                                                           stroke: nodeFill, strokeWidth: 0)))
+                                                           stroke: .solid(nodeFill), strokeWidth: 0)))
         let doc = Document(artboards: [board], nodes: [node])
         let png = ExportRenderer(document: doc).pngData(for: board, scale: 1)
         require(png != nil, "oversized-layer probe produced no PNG data")

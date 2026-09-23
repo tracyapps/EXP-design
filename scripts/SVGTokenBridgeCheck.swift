@@ -22,7 +22,7 @@ private enum SVGTokenBridgeCheck {
             frame: CGRect(x: 10, y: 10, width: 80, height: 80),
             effects: [Effect(kind: .layerBlur, blur: 3)],
             content: .rectangle(RectangleShape(
-                fill: .solid(action), stroke: action, strokeWidth: 2)))
+                fill: .solid(action), stroke: .solid(action), strokeWidth: 2)))
         let token = DesignAsset(
             id: UUID(uuidString: "00000000-0000-0000-0000-000000000103")!,
             name: "Action", value: .solid(action))
