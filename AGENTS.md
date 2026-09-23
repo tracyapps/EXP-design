@@ -94,10 +94,14 @@ Agent capability packs, Figma OAuth/Keychain/Variables, and agent write-back rem
 explicit non-gating follow-ups.
 See ROADMAP.md for the authoritative checklist and newest Progress Log entry.
 **v2.5 scope, set by the owner 2026-09-22:** finish the paint model and add
-Sanaa FEAT-058. Tonight's standing: the carry-in pattern system, FEAT-064
-(per-pattern anchoring), and BUG-065 (gradient strokes) are committed AND
-owner-verified — the paint model is complete; any paint can be a fill or a
-stroke. Wave 2 has one item left (BUG-062's semantic-HTML remainder, small,
-export-only); then Wave 3 (Sanaa FEAT-058 — read `docs/SANAA-PLAN.md` §10
-first). Nothing is awaiting verification, so resume directly at ROADMAP →
-v2.5 → Wave 2's last checkbox.
+Sanaa FEAT-058. Standing 2026-09-23: the paint model is complete and
+owner-verified (pattern system, FEAT-064, BUG-065), and BUG-062's
+semantic-HTML remainder is BUILT (mask groups export their authored
+silhouette as CSS `clip-path: path(...)`, mask shapes leave the DOM) —
+Wave 2 is code-complete with that one item awaiting owner verification
+(the only gate before Wave 3). Next: owner verifies BUG-062's handoff
+export, then Wave 3 (Sanaa FEAT-058 — read `docs/SANAA-PLAN.md` §10
+first). A 2026-09-23 Dropbox-folder incident (external deletion of .git
+metadata + 51 files, fully recovered; see the Progress Log entry and
+`~/exp-design-rescue-20260923/`) is recorded in ROADMAP.md with suggested
+owner follow-ups.

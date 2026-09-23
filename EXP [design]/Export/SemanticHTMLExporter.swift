@@ -255,7 +255,23 @@ private struct HTMLWriter {
 
         switch node.content {
         case .group(let children):
-            let childHTML = orderedChildren(children, autoLayout: node.autoLayout).map {
+            // BUG-062 semantic half. Inside a mask group, mask-shape layers are
+            // not elements at all — their silhouette became the group's
+            // clip-path (CSSWriter.geometry), the same way the SVG and raster
+            // exporters refuse to draw them. Rendering them as ordinary shapes
+            // was the "mask shape appears as a real shape over the top" artefact.
+            // Each still gets a fidelity entry so nothing disappears silently.
+            let groupChildren: [Node]
+            if node.isMask {
+                for child in children where child.isMaskShape {
+                    reportMaskShape(child, sourceID: sourceID,
+                                    instanceID: instanceID, issues: &issues)
+                }
+                groupChildren = children.filter { !$0.isMaskShape }
+            } else {
+                groupChildren = children
+            }
+            let childHTML = orderedChildren(groupChildren, autoLayout: node.autoLayout).map {
                 render(node: $0, instanceChain: instanceChain, sourceID: sourceID,
                        instanceNodeIDs: instanceNodeIDs,
                        semanticAncestors: semanticAncestors,
@@ -442,12 +458,14 @@ private struct HTMLWriter {
     /// outside it can be REPORTED rather than emitted as a dangling reference.
     /// Mirrors `render`'s chain handling exactly — if these two ever disagree about
     /// how an id is composed, every relationship silently becomes unresolvable.
+    /// BUG-062: it also mirrors render's mask-shape skip, for the same reason.
     private func collectDOMIDs(node: Node, chain: [UUID],
                                into result: inout Set<String>) {
         result.insert(SemanticHTMLIdentity.nodeDOMID(node.id, chain: chain))
         switch node.content {
         case .group(let children):
-            for child in children { collectDOMIDs(node: child, chain: chain, into: &result) }
+            let emitted = node.isMask ? children.filter { !$0.isMaskShape } : children
+            for child in emitted { collectDOMIDs(node: child, chain: chain, into: &result) }
         case .instance(let instance):
             for child in document.semanticHTMLResolvedChildren(of: instance.withoutActiveState) {
                 collectDOMIDs(node: child, chain: chain + [node.id], into: &result)
@@ -702,13 +720,26 @@ private struct HTMLWriter {
             report("unsupportedEffect",
                    "The enabled \(effect.kind.rawValue) effect is preserved in design.json but is not reproduced by semantic HTML/CSS.")
         }
-        if node.isMask {
-            report("maskClippingApproximation",
-                   "The mask group falls back to rectangular overflow clipping; its authored mask silhouette remains in design.json.")
+        if node.isMask, let padding = node.autoPadding,
+           padding.fill != nil || padding.strokeWidth > 0 {
+            // The clip-path is exact, but CSS applies it to the element's OWN
+            // painted background too, while the SVG and raster exporters draw
+            // the auto-padding box OUTSIDE the mask — a real, if rare, drift
+            // between the three, stated rather than hidden.
+            report("maskAutoPadding",
+                   "The mask group's auto-padding background/stroke is painted inside the clip-path here; the SVG and raster exports keep the padding box outside the mask.")
         }
+        // BUG-062: `maskClippingApproximation` is retired. The mask group's
+        // authored silhouette now reaches the browser verbatim as
+        // `clip-path: path(...)` — same silhouette construction, same nonzero
+        // winding, as the SVG and raster exporters. A group whose mask shapes
+        // are all hidden clips nothing, matching both other exporters.
         if node.isMaskShape {
+            // Reached only by an ORPHANED flag — a mask shape inside a
+            // NON-mask group. Acting mask shapes are filtered out of rendering
+            // before this and reported by `reportMaskShape` instead.
             report("maskShape",
-                   "This mask-shape layer cannot drive the HTML clipping silhouette and may remain visible in the preview.")
+                   "This mask-shape layer sits outside any mask group, so it renders as an ordinary layer and drives no clipping silhouette.")
         }
 
         switch node.content {
@@ -755,6 +786,45 @@ private struct HTMLWriter {
             }
         default:
             break
+        }
+    }
+
+    /// Fidelity entry for a mask shape that is ACTING as one (a direct child of
+    /// a mask group, filtered out of the DOM by BUG-062). Its silhouette is the
+    /// group's clip-path; the only honest variable left is whether that
+    /// silhouette is the layer's authored outline or the shared helper's
+    /// bounds-rectangle fallback.
+    private func reportMaskShape(_ node: Node, sourceID: UUID?,
+                                 instanceID: UUID?,
+                                 issues: inout [SemanticHTMLFidelityIssue]) {
+        let exact = Self.silhouetteIsExact(node)
+        issues.append(issue(node: node, sourceID: sourceID,
+                            instanceID: instanceID, role: nil,
+                            category: .visualFallback,
+                            requirement: "maskShape",
+                            detail: exact
+                                ? "The mask layer is not a DOM element; its exact outline drives the group's clip-path, and design.json keeps the layer editable."
+                                : "The mask layer's outline is approximated by its bounds rectangle; that approximation drives the group's clip-path. design.json keeps the layer editable."))
+    }
+
+    /// Mirrors `ExportRenderView.appendExportSilhouette`'s dispatch exactly:
+    /// rectangles (with radii), ellipses, polygons, and closed/multi-contour
+    /// paths contribute their authored outline; every other content kind falls
+    /// back to the frame rectangle. If these two ever disagree, the fidelity
+    /// report starts lying about which one the browser clipped with.
+    private static func silhouetteIsExact(_ node: Node) -> Bool {
+        switch node.content {
+        case .rectangle, .ellipse, .polygon:
+            return true
+        case .path(let shape):
+            return shape.isMultiContour || (shape.closed && shape.points.count >= 2)
+        case .group(let children):
+            // A closure literal, not a function reference: the reference would
+            // travel through allSatisfy's nonisolated parameter and drag this
+            // MainActor-isolated predicate out of its isolation.
+            return children.filter(\.isVisible).allSatisfy { silhouetteIsExact($0) }
+        default:
+            return false
         }
     }
 
@@ -1099,7 +1169,10 @@ private struct CSSWriter {
 
         switch node.content {
         case .group(let children):
-            for (index, child) in children.enumerated() {
+            // BUG-062: mask-shape layers of a mask group have no element in the
+            // DOM, so they earn no CSS rule either (z-index gaps are harmless).
+            for (index, child) in children.enumerated()
+            where !(node.isMask && child.isMaskShape) {
                 append(node: child, origin: child.frame.origin, zIndex: index + 1,
                        chain: chain, flexItem: node.autoLayout != nil)
             }
@@ -1166,7 +1239,10 @@ private struct CSSWriter {
             }
         }
         if case .group(let children) = node.content {
-            for (index, child) in children.enumerated() {
+            // Same BUG-062 skip as `append`, for state variants — the element
+            // does not exist in any state, so a rule for it would be dead CSS.
+            for (index, child) in children.enumerated()
+            where !(node.isMask && child.isMaskShape) {
                 appendState(node: child, origin: child.frame.origin,
                             zIndex: index + 1, chain: chain,
                             prefix: prefix, baseVisibility: baseVisibility,
@@ -1220,8 +1296,35 @@ private struct CSSWriter {
         if !transforms.isEmpty { declarations.append("transform: \(transforms.joined(separator: " "))") }
         if node.opacity != 1 { declarations.append("opacity: \(number(node.opacity))") }
         if node.blendMode != .normal { declarations.append("mix-blend-mode: \(node.blendMode.cssName)") }
-        if node.isMask { declarations.append("overflow: hidden") }
+        if node.isMask, let data = Self.maskClipData(node) {
+            // BUG-062: the authored silhouette replaces the rectangular
+            // `overflow: hidden` approximation. SVG path data is verbatim the
+            // CSS `path()` grammar, and `path()` measures from the element's
+            // border-box top-left with y down — the same group-local, y-down
+            // space the silhouette builds in, so a zero offset needs no flip.
+            // No `overflow: hidden` beside it: CSS clips the whole element
+            // already, and a silhouette that legitimately runs past the group's
+            // bounds must not be re-clipped to them (SVG and raster do not).
+            declarations.append("clip-path: path(\"\(data)\")")
+        }
         return declarations
+    }
+
+    /// The mask group's silhouette as SVG path data, or nil when it is empty.
+    /// Built by the SAME `appendExportSilhouette` the SVG and raster exporters
+    /// clip with and serialized by the same `exportPathData`, so the three
+    /// surfaces cannot drift. Child frames are group-local; a zero offset lands
+    /// them in exactly CSS's border-box reference space. An EMPTY silhouette
+    /// returns nil and clips nothing — matching the SVG exporter's
+    /// `if !clip.isEmpty` guard for a group whose only mask shape is hidden.
+    private static func maskClipData(_ node: Node) -> String? {
+        guard case .group(let children) = node.content else { return nil }
+        let clip = CGMutablePath()
+        for child in children where child.isMaskShape && child.isVisible {
+            ExportRenderView.appendExportSilhouette(of: child, offset: .zero,
+                                                    base: .identity, into: clip)
+        }
+        return clip.isEmpty ? nil : ExportRenderView.exportPathData(clip)
     }
 
     private func appearance(_ node: Node) -> [String] {

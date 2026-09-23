@@ -109,7 +109,13 @@ private enum SemanticHTMLPackageCheck {
         // deterministic JSON key ordering changed the manifest bytes while all
         // entry digests, HTML, CSS, README, fidelity rows, and counts stayed
         // byte-for-byte correct.
-        require(sha256(manifestData) == "4b12ebb821feb891093a6c169bafc0e83190443319d612096b04c725136e391a",
+        // Re-minted again 2026-09-23 for BUG-062: BUG-065 had left this
+        // fixture source un-compilable (a bare `RGBAColor` passed where stroke
+        // became a `Paint`), so the check had not run since that commit. The
+        // first re-run showed the same class of drift — manifest bytes only,
+        // while every embedded digest above still matches — verified by
+        // generating from pre-BUG-062 code and comparing bytes.
+        require(sha256(manifestData) == "e3f688827dcef7beae741deed9b23e68f1061cb5b8982f4882ec540a92990877",
                 "handoff manifest no longer matches the reviewed golden")
         require(sha256(Data(readme.utf8)) == "0aca4002dc6c9c9e57c4b9b5bf9f922c3ed8c79b3b20331698a967cdcff8637f",
                 "handoff README no longer matches the reviewed golden")
@@ -292,6 +298,88 @@ private enum SemanticHTMLPackageCheck {
         require(occurrences("<header", in: nestedHTML) == 2,
                 "nested-landmark fixture should export two <header> hosts")
 
+        // BUG-062 — mask groups clip through their authored silhouette
+        // (clip-path: path(...) from the SAME shared silhouette the SVG and
+        // raster exporters clip with), and mask-shape layers stop being DOM
+        // elements instead of rendering as real shapes over the content.
+        let maskDocument = Fixture.maskGroupDocument()
+        let maskBundle = SemanticHTMLExporter(document: maskDocument).makeBundle()
+        guard let maskHTMLArtifact = maskBundle.artifacts.first(where: { $0.mediaType == "text/html" }),
+              let maskCSSArtifact = maskBundle.artifacts.first(where: { $0.mediaType == "text/css" }) else {
+            require(false, "mask export produced no HTML/CSS"); return
+        }
+        let maskHTML = String(decoding: maskHTMLArtifact.data, as: UTF8.self)
+        let maskCSS = String(decoding: maskCSSArtifact.data, as: UTF8.self)
+        func maskRule(_ nodeUUID: String) -> Substring? {
+            let selector = "#" + SemanticHTMLIdentity.nodeDOMID(Fixture.id(nodeUUID), chain: [])
+            guard let start = maskCSS.range(of: selector + " {"),
+                  let end = maskCSS.range(of: "\n}", range: start.upperBound..<maskCSS.endIndex) else {
+                return nil
+            }
+            return maskCSS[start.lowerBound..<end.upperBound]
+        }
+
+        // The diamond's four vertices, in the GROUP's local space — the exact
+        // string proves the clip is the authored silhouette (not the bounds
+        // rectangle, not artboard-absolute coordinates, not y-flipped). The
+        // trailing `M 60 0` is NSBezierPath→CGPath's empty final move-to after
+        // the close — the same bytes the SVG half emits, kept identical by
+        // design (one serializer, no drift).
+        let diamond = maskRule("00000000-0000-0000-0000-000000000111")
+        require(diamond?.contains("clip-path: path(\"M 60 0 L 120 60 L 60 120 L 0 60 Z M 60 0\")") == true,
+                "diamond mask group does not carry its exact silhouette as clip-path")
+        require(diamond?.contains("overflow") == false,
+                "mask group still falls back to rectangular overflow clipping")
+        // The text mask cannot contribute an outline, so the shared helper's
+        // bounds-rectangle fallback is the clip — asserted verbatim so a
+        // coordinate-space regression cannot hide behind a contains-check.
+        let textMask = maskRule("00000000-0000-0000-0000-000000000121")
+        require(textMask?.contains("clip-path: path(\"M 0 20 L 160 20 L 160 100 L 0 100 Z\")") == true,
+                "text mask group does not clip to the layer's bounds rectangle")
+        // The ellipse mask contributes curves; the auto-padding background
+        // shares the same element here (the drift the fidelity report states).
+        let padded = maskRule("00000000-0000-0000-0000-000000000131")
+        require(padded?.contains("clip-path: path(") == true && padded?.contains(" C ") == true,
+                "ellipse mask silhouette lost its curves")
+        require(padded?.contains("background:") == true,
+                "padded mask group lost its background box")
+
+        // Mask shapes are not elements: no HTML node, no CSS rule.
+        for shapeUUID in ["00000000-0000-0000-0000-000000000112",
+                          "00000000-0000-0000-0000-000000000122",
+                          "00000000-0000-0000-0000-000000000132"] {
+            require(!maskHTML.contains("data-exp-id=\"\(Fixture.id(shapeUUID).uuidString.lowercased())\""),
+                    "mask shape leaked into the DOM as an element")
+            require(maskRule(shapeUUID) == nil, "mask shape earned a CSS rule with no element")
+        }
+        // The masked content and the ORPHANED mask flag stay ordinary layers.
+        for contentUUID in ["00000000-0000-0000-0000-000000000113",
+                            "00000000-0000-0000-0000-000000000123",
+                            "00000000-0000-0000-0000-000000000133",
+                            "00000000-0000-0000-0000-000000000141"] {
+            require(maskHTML.contains("data-exp-id=\"\(Fixture.id(contentUUID).uuidString.lowercased())\""),
+                    "content layer went missing from the mask export")
+        }
+        require(maskBundle.emittedNodeCount == 7,
+                "mask export emitted \(maskBundle.emittedNodeCount) nodes, expected 7 (3 groups + 3 contents + orphan)")
+
+        // Fidelity: exact silhouettes, the disclosed bounds fallback, the
+        // orphan flag, the auto-padding drift, and the relationship that can
+        // no longer resolve to an element which no longer exists.
+        let maskShapeIssues = maskBundle.fidelityIssues.filter { $0.requirement == "maskShape" }
+        require(maskShapeIssues.count == 4,
+                "expected 4 maskShape fidelity entries (2 exact, 1 bounds, 1 orphan), got \(maskShapeIssues.count)")
+        require(maskShapeIssues.filter { $0.detail.contains("exact outline") }.count == 2,
+                "exact mask silhouettes were not reported as exact")
+        require(maskShapeIssues.filter { $0.detail.contains("bounds rectangle") }.count == 1,
+                "the text mask's bounds-rectangle fallback was not disclosed")
+        require(maskShapeIssues.filter { $0.detail.contains("outside any mask group") }.count == 1,
+                "the orphaned mask flag was not reported")
+        require(maskBundle.fidelityIssues.contains { $0.requirement == "maskAutoPadding" },
+                "the auto-padding mask divergence was not reported")
+        require(maskBundle.fidelityIssues.contains { $0.requirement == "unresolvedRelationship" },
+                "a relationship aimed at a mask shape must be reported unresolvable, not dangle")
+
         let codePen = try CodePenPrefillExporter(document: document)
             .makePackage(artboardID: Fixture.artboardID)
         guard let codePenPayload = try JSONSerialization.jsonObject(
@@ -334,6 +422,7 @@ private enum SemanticHTMLPackageCheck {
         print("ok: hostile HTML/CSS text escaped and wall omission reported")
         print("ok: all 40 native/ARIA hosts, relationships, states, and fidelity reporting")
         print("ok: nested landmarks keep their authored role (BUG-018)")
+        print("ok: mask groups clip via their authored silhouette; mask shapes leave the DOM (BUG-062)")
         print("ok: one-artboard CodePen prefill stays static, bounded, and user-confirmed")
     }
 }

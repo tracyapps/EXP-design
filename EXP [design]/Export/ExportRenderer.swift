@@ -346,7 +346,7 @@ struct ExportRenderer {
                     inner = prefix + body
                 } else {
                     let id = "maskclip\(defs.count)"
-                    defs.append("  <clipPath id=\"\(id)\" clipPathUnits=\"userSpaceOnUse\">\n    <path d=\"\(svgPathData(clip))\"/>\n  </clipPath>\n")
+                    defs.append("  <clipPath id=\"\(id)\" clipPathUnits=\"userSpaceOnUse\">\n    <path d=\"\(ExportRenderView.exportPathData(clip))\"/>\n  </clipPath>\n")
                     // The clip goes on an INNER <g>, not on the wrapper that
                     // carries this node's filter. SVG applies filter first and
                     // clip second, so putting both on one element would clip the
@@ -616,35 +616,11 @@ struct ExportRenderer {
     /// `appendExportSilhouette`, rather than re-deriving a silhouette per shape
     /// kind for SVG. One silhouette definition means the SVG clip and the PNG
     /// clip cannot drift — per-corner radii, nested groups, rotation and flip all
-    /// arrive already resolved. Winding matches too: CGContext.clip() and SVG's
-    /// default clip-rule are both nonzero.
-    private func svgPathData(_ path: CGPath) -> String {
-        // CGPath.applyWithBlock takes a @convention(block) closure; a reference
-        // box keeps the accumulation unambiguous under strict concurrency rather
-        // than relying on capture semantics for a local var.
-        final class Accumulator { var parts: [String] = [] }
-        let acc = Accumulator()
-        let f = { (v: CGFloat) -> String in self.num(v) }
-        path.applyWithBlock { elementPointer in
-            let element = elementPointer.pointee
-            let p = element.points
-            switch element.type {
-            case .moveToPoint:
-                acc.parts.append("M \(f(p[0].x)) \(f(p[0].y))")
-            case .addLineToPoint:
-                acc.parts.append("L \(f(p[0].x)) \(f(p[0].y))")
-            case .addQuadCurveToPoint:
-                acc.parts.append("Q \(f(p[0].x)) \(f(p[0].y)) \(f(p[1].x)) \(f(p[1].y))")
-            case .addCurveToPoint:
-                acc.parts.append("C \(f(p[0].x)) \(f(p[0].y)) \(f(p[1].x)) \(f(p[1].y)) \(f(p[2].x)) \(f(p[2].y))")
-            case .closeSubpath:
-                acc.parts.append("Z")
-            @unknown default:
-                break
-            }
-        }
-        return acc.parts.joined(separator: " ")
-    }
+    /// arrive already resolved. Winding matches too: CGContext.clip(), SVG's
+    /// default clip-rule, and CSS clip-path's default fill rule are all nonzero.
+    /// Serialization itself lives on `ExportRenderView.exportPathData` (BUG-062)
+    /// beside the silhouette builder, so every exporter shares one definition.
+
 
     private func svgPathData(_ ps: PathShape, origin: CGPoint) -> String {
         func a(_ local: CGPoint) -> CGPoint { CGPoint(x: origin.x + local.x, y: origin.y + local.y) }
@@ -1639,6 +1615,43 @@ final class ExportRenderView: NSView {
             view.drawExportNode(node, offset: .zero, in: bitmap)
         }
         return bitmap.makeImage()
+    }
+
+    /// ONE path-data serializer for every exporter (BUG-062). The SVG `<clipPath>`,
+    /// and the semantic-HTML `clip-path: path(...)` serialize the SAME
+    /// `appendExportSilhouette` output through this function, so the three
+    /// surfaces cannot drift — same grammar (SVG path data doubles verbatim as
+    /// CSS `path()` syntax), same number precision, same nonzero winding.
+    static func exportPathData(_ path: CGPath) -> String {
+        // CGPath.applyWithBlock takes a @convention(block) closure; a reference
+        // box keeps the accumulation unambiguous under strict concurrency rather
+        // than relying on capture semantics for a local var.
+        final class Accumulator { var parts: [String] = [] }
+        let acc = Accumulator()
+        path.applyWithBlock { elementPointer in
+            let element = elementPointer.pointee
+            let p = element.points
+            switch element.type {
+            case .moveToPoint:
+                acc.parts.append("M \(Self.pathNum(p[0].x)) \(Self.pathNum(p[0].y))")
+            case .addLineToPoint:
+                acc.parts.append("L \(Self.pathNum(p[0].x)) \(Self.pathNum(p[0].y))")
+            case .addQuadCurveToPoint:
+                acc.parts.append("Q \(Self.pathNum(p[0].x)) \(Self.pathNum(p[0].y)) \(Self.pathNum(p[1].x)) \(Self.pathNum(p[1].y))")
+            case .addCurveToPoint:
+                acc.parts.append("C \(Self.pathNum(p[0].x)) \(Self.pathNum(p[0].y)) \(Self.pathNum(p[1].x)) \(Self.pathNum(p[1].y)) \(Self.pathNum(p[2].x)) \(Self.pathNum(p[2].y))")
+            case .closeSubpath:
+                acc.parts.append("Z")
+            @unknown default:
+                break
+            }
+        }
+        return acc.parts.joined(separator: " ")
+    }
+
+    private static func pathNum(_ v: CGFloat) -> String {
+        let r = (v * 100).rounded() / 100
+        return r == r.rounded() ? String(Int(r)) : String(Double(r))
     }
 
     /// Pure geometry, deliberately `static`: BUG-062 made the SVG exporter share

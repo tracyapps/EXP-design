@@ -330,8 +330,8 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: bug
 - Priority: P1
 - Area: export · SVG · handoff
-- Status: **SVG half owner-verified 2026-09-22 (Wave 1 gate); semantic-HTML
-  half remains open — v2.5 Wave 2 work**
+- Status: **built 2026-09-23 — both halves implemented (SVG owner-verified
+  2026-09-22; semantic-HTML half awaiting owner verification)**
 - Repro/Detail: Owner 2026-09-03: "if i have a masked shape, the shape used to
   create the mask, if i don't turn the color's transparency down to 0, it shows
   up as an actual shape over the top." Owner confirms this in **SVG export and
@@ -388,11 +388,62 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
     content because its mask shape was hidden.
   - Both `EXP [design]` and `EXPThumbnail` schemes build clean (ExportRenderer is
     a shared file); no new warnings in the touched files.
-- **NOT done, still open under this id:** the semantic HTML / Handoff Package
-  path. It continues to fall back to rectangular `overflow: hidden` and report
-  `maskClippingApproximation` / `maskShape`. The owner confirmed seeing the
-  artefact there too, so this entry does not close until CSS `clip-path` is
-  emitted from the same silhouette.
+- Implementation 2026-09-23 (semantic HTML — the remainder that kept this open):
+  the mask group now emits CSS `clip-path: path("…")` built from the SAME
+  `appendExportSilhouette` union, and mask-shape layers stop being DOM elements.
+  - **One silhouette, one serializer, three surfaces.** The CGPath→path-data
+    serializer moved from a private instance method on `ExportRenderer` to
+    `ExportRenderView.exportPathData(_:)` (static, internal) beside the silhouette
+    builder. SVG path data is verbatim the CSS `path()` grammar, so the SVG
+    `<clipPath>`, the raster `CGContext.clip()`, and the semantic-HTML
+    `clip-path: path(...)` serialize identically and cannot drift — same
+    nonzero winding on all three (CSS clip-path's default fill rule).
+  - **Coordinate space is free, not computed.** Child frames inside a group are
+    group-local and y-down; CSS `path()` measures from the element's border-box
+    top-left with y down. A zero offset into `appendExportSilhouette` lands the
+    clip in exactly the reference space CSS expects — no flip, no translation.
+  - **`overflow: hidden` is gone, deliberately.** `clip-path` clips the whole
+    element; keeping `overflow` beside it would re-clip a silhouette that
+    legitimately runs past the group's bounds, where SVG and raster do not. An
+    EMPTY silhouette (every mask shape hidden) emits no clip at all — the same
+    rule as the SVG half's `if !clip.isEmpty` guard.
+  - **Mask shapes leave the DOM, CSS, and id space together.** `render`'s group
+    branch filters `isMaskShape` children (the "real shape over the top"
+    artefact), `CSSWriter.append`/`appendState` skip their rules, and
+    `collectDOMIDs` mirrors the skip so a relationship AIMED at a mask shape is
+    reported `unresolvedRelationship` instead of emitting a dangling aria
+    attribute — the DOM-id collector and renderer must agree, or every
+    relationship silently becomes unresolvable.
+  - **The fidelity report tells the new truth.** `maskClippingApproximation` is
+    retired. Each acting mask shape reports whether its silhouette is the
+    authored outline or the shared helper's bounds-rectangle fallback
+    (text/image/line/open-path masks), an orphaned `isMaskShape` flag outside
+    any mask group still reports as an ordinary layer, and the one genuine
+    cross-surface drift is disclosed: a mask group with an auto-padding
+    background paints it INSIDE the clip in CSS, where SVG/raster keep the
+    padding box outside the mask (`maskAutoPadding`).
+  - **The check that guards this had been un-runnable since BUG-065.** The
+    golden fixture passed a bare `RGBAColor` where `PathShape.stroke` became a
+    `Paint`, so `verify_semantic_html_package.sh` had not compiled — or run —
+    since that commit. Fixed, and the manifest-only golden re-minted with the
+    story recorded at the assertion: every embedded digest (design.json,
+    tokens, CSS, HTML, README) still matches byte-for-byte; only the manifest's
+    own serialization drifted, verified by generating from pre-BUG-062 code and
+    comparing. The suite gained `Fixture.maskGroupDocument()` (diamond-polygon
+    exact silhouette asserted VERBATIM in group-local coordinates, text-layer
+    bounds fallback asserted verbatim, ellipse curves, auto-padding drift
+    report, orphan flag, relationship-to-mask-shape resolution) and compiles
+    `ExportRenderer` + paint deps now, so the check asserts the real shared
+    silhouette rather than a parallel one.
+  - Both schemes build clean; zero warnings in every touched file (5 files).
+    Pattern suite 86/86 (SVG output byte-identical — the serializer hoist is
+    output-neutral); semantic package check all-ok including the pre-existing
+    goldens.
+- **Round-trip caveat, unchanged and still true:** the SVG importer does not
+  read `clip-path` (open P0 in WEB-SVG-FIDELITY-INVENTORY.md), so an exported
+  mask renders correctly in browsers and Preview but re-imports into EXP
+  unclipped. The semantic-HTML half adds the same class of caveat on the OTHER
+  side: importing exported semantic HTML back is not a supported round trip.
 - Acceptance: exporting a mask group to SVG produces no visible mask-shape
   geometry and clips the content to the mask silhouette; the same board exported
   to PNG and to SVG match visually; a mask shape at full opacity behaves

@@ -1341,10 +1341,26 @@ verification. Waves alternate; each wave ends at a verification gate.
       strokes decode and render unchanged.
       **Owner-verified 2026-09-22** ("all tested and verified"), on top of
       86/86 fixture checks and the independent qlmanage comparison.
-- [ ] BUG-062 (remainder) — mask groups in the semantic-HTML export.
-- [ ] W3C design-token decision for patterns (FEAT-062 Stage A's open
+- [x] BUG-062 (remainder) — mask groups in the semantic-HTML export.
+      Built 2026-09-23: the group's authored silhouette reaches the browser as
+      CSS `clip-path: path(...)` from the SAME `appendExportSilhouette` union
+      and the SAME serializer (`ExportRenderView.exportPathData`, hoisted so
+      SVG/raster/HTML cannot drift); mask-shape layers stop being DOM elements
+      (the "shape over the top" artefact) and a relationship aimed at one is
+      reported unresolvable instead of dangling; the fidelity report tells the
+      new truth (exact vs bounds-rectangle silhouette, orphaned flag, the one
+      real drift — auto-padding background inside the CSS clip). `overflow:
+      hidden` approximation retired. Awaiting owner verification; see BACKLOG
+      BUG-062 for the full implementation record and the round-trip caveat.
+- [x] W3C design-token decision for patterns (FEAT-062 Stage A's open
       question: today tokens omit patterns rather than mislabel them; keep,
       or extend the format). Owner decision; record it in the Progress Log.
+      Settled 2026-09-22 the conservative way (tokens OMIT patterns — the
+      token format has no paint/tile concept, and a proprietary extension
+      would break the format's promise); the owner was told the recommendation
+      and raised no objection while directing work to continue. Recorded with
+      FEAT-064 above and in the 2026-09-22 Progress Log entries. **Wave 2 is
+      now complete pending BUG-062's owner-verification gate.**
 
 ### Wave 3 — Sanaa `apply_edits` v2 (mutating; FEAT-058)
 
@@ -3224,6 +3240,89 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-09-23 (BUG-062 semantic half built — Wave 2 code-complete; mid-session
+  Dropbox-folder incident, fully recovered — owner should read the incident
+  notes).** The last Wave 2 item: mask groups in the semantic-HTML/handoff
+  export now clip through their authored silhouette instead of a rectangular
+  `overflow: hidden`, and mask-shape layers stop rendering as real shapes over
+  the content — the exact artefact the owner reported 2026-09-03, closed on the
+  last surface that still had it.
+
+  **What shipped.** The clip is CSS `clip-path: path("…")` built by the SAME
+  `appendExportSilhouette` union the SVG and raster exporters clip with, now
+  serialized by ONE shared static (`ExportRenderView.exportPathData` — hoisted
+  from a private instance method on `ExportRenderer`) so the three surfaces
+  cannot drift; SVG path data is verbatim the CSS `path()` grammar, winding is
+  nonzero on all three. Child frames are group-local y-down, and `path()`
+  measures from the border-box top-left y-down, so the clip needs no transform
+  at all. Mask shapes leave the DOM, the CSS, and the DOM-id space together —
+  a relationship aimed at one now reports `unresolvedRelationship` rather than
+  dangling. The fidelity report states the new truth per mask shape (exact
+  outline vs the shared helper's bounds-rectangle fallback for text/image/
+  line/open-path masks), keeps an entry for an orphaned `isMaskShape` flag
+  outside any mask group, and discloses the one real cross-surface drift: a
+  mask group with an auto-padding background paints it inside the CSS clip,
+  where SVG/raster keep the padding box outside the mask. Round-trip caveat
+  unchanged: an exported mask renders right in browsers/Preview but re-imports
+  unclipped (open P0 in WEB-SVG-FIDELITY-INVENTORY.md).
+
+  **Two latent breaks found by trying to run the check.**
+  `verify_semantic_html_package.sh` had not compiled — or run — since BUG-065:
+  the golden fixture passed a bare `RGBAColor` where `PathShape.stroke` became
+  a `Paint`. Nobody noticed because that session's receipts ran only the
+  pattern suite. Fixed; and with the check runnable again its manifest golden
+  failed while every embedded digest (design.json, tokens, CSS, HTML, README)
+  still matched byte-for-byte — the same serialization-drift class the file's
+  own v2.4 note records, verified by generating from pre-BUG-062 code and
+  comparing bytes. Re-minted with the story at the assertion. The check also
+  now compiles `ExportRenderer` + paint deps (dropping the fixture's old
+  headless `measuredSize` shim for the real one) and gained
+  `Fixture.maskGroupDocument()` with the diamond silhouette asserted VERBATIM
+  in group-local coordinates — bounds-rect fallback, ellipse curves,
+  auto-padding drift report, orphan flag, and relationship-to-mask-shape
+  coverage alongside.
+
+  **Verification.** Both schemes build clean, zero warnings in every touched
+  file (5 files). Pattern suite **86/86** — SVG output byte-identical, so the
+  serializer hoist changed nothing on the verified SVG half. Semantic package
+  check all-ok, including the untouched CSS/HTML/README goldens (the fixture
+  has no masks — byte-neutrality for mask-free documents is itself asserted).
+
+  **⚠ Mid-session incident (fully recovered — owner action suggested).**
+  Between ~09:14 and ~09:22 CDT, while the session was running headless
+  checks, something external deleted `.git/HEAD` and `.git/config` and then
+  51 tracked working-tree files (ROADMAP.md, App entry point, most of docs/
+  and scripts/, the old website files) while unfamiliar content
+  (`website/content|public|dist|node_modules|src/generated` — untracked,
+  NOT touched by me) appeared in the folder. Nothing in the session's own
+  commands deletes those paths; the folder lives in
+  `~/Library/CloudStorage/Dropbox`, and the deletion wave is consistent with
+  Dropbox syncing a different machine's state of this path (this is a NEW,
+  separate event from the retracted 09-22 "resurrecting files" diagnosis —
+  that one was a script bug; this one deleted real files mid-session).
+  Recovery, in order: snapshotted the intact `.git` (all history through
+  99f5a2e) + the session's five modified files to
+  `~/exp-design-rescue-20260923/` BEFORE anything else; restored
+  `.git/HEAD` (`ref: refs/heads/main`) and a standard `.git/config`
+  (remote `git@github.com:tracyapps/EXP-design.git`, branch main — URL taken
+  from FETCH_HEAD; identity comes from global git config); restored the 51
+  deleted files with `git restore .` (which also reverted the five session
+  files — then re-copied them from the rescue snapshot; net loss: zero);
+  deletions stopped on their own and stayed stopped. Left for the owner:
+  the unfamiliar `website/` content (review, keep or delete — it is not
+  EXP's), a look at Dropbox's version history for `.git/HEAD` around
+  09:14–09:22 to confirm the source machine, and a decision about keeping
+  this repo in an actively-synced Dropbox path (git history is now ALSO safe
+  in the rescue snapshot until it's deleted). The next commit includes
+  everything from this session, adding another layer of protection.
+
+  **NEXT:** owner verifies BUG-062's semantic half (export a mask-group board
+  as Handoff Package / CodePen and open the HTML: content clipped to the
+  authored silhouette, no phantom shape, fidelity rows stating what clips;
+  confirm a mask-free board's package is unchanged). Then Wave 3 opens with
+  Sanaa FEAT-058 (`apply_edits` v2) — read `docs/SANAA-PLAN.md` §10/FEAT-058
+  first, per the standing rule for Sanaa work.
 
 - **2026-09-22 (session close — BUG-065 owner-verified; Wave 2 one item from
   done).** Owner ran the BUG-065 pass and confirmed everything ("excellent.

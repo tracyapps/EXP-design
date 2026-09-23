@@ -1,19 +1,11 @@
 import Foundation
 import CoreGraphics
 
-// The headless contract check does not render text. These deterministic metrics
-// satisfy Document/AutoLayoutEngine without pulling AppKit into the fixture.
-extension TextContent {
-    func measuredSize(maxWidth: CGFloat? = nil) -> CGSize {
-        let count = runs.reduce(0) { $0 + $1.string.count }
-        return CGSize(width: maxWidth ?? max(20, CGFloat(count) * firstRun.fontSize * 0.6),
-                      height: max(1, firstRun.fontSize * 1.3))
-    }
-
-    func measuredSize(boxWidth currentWidth: CGFloat) -> CGSize {
-        box == .fixed ? measuredSize(maxWidth: currentWidth) : measuredSize()
-    }
-}
+// NOTE: this check used to carry a headless `measuredSize` shim because
+// Typography.swift was outside its compile set. BUG-062 added ExportRenderer
+// (and with it Typography) to the set, so the REAL measurement now runs —
+// better fidelity than the shim, and the extension had to go or the two
+// `measuredSize(boxWidth:)` candidates made Document.swift ambiguous.
 
 enum Fixture {
     static func id(_ value: String) -> UUID { UUID(uuidString: value)! }
@@ -151,7 +143,7 @@ enum Fixture {
                     PathPoint(point: CGPoint(x: 120, y: 80),
                               controlIn: CGPoint(x: 100, y: 10))
                 ],
-                closed: true, fill: .solid(brand), stroke: hover, strokeWidth: 2))
+                closed: true, fill: .solid(brand), stroke: .solid(hover), strokeWidth: 2))
         )
         let instance = Node(
             id: instanceID,
@@ -220,6 +212,102 @@ enum Fixture {
             ],
             pageID: canvasPageID
         )
+    }
+
+    /// BUG-062 coverage. Three mask groups and one orphan:
+    ///  - a diamond-polygon mask (an EXACT silhouette — the clip-path must be
+    ///    its four vertices verbatim, in the GROUP's local space),
+    ///  - a text-layer mask (the shared silhouette helper's documented
+    ///    bounds-rectangle fallback, which the fidelity report must disclose),
+    ///  - an auto-padding mask group with a painted background (the one place
+    ///    CSS genuinely drifts from the SVG/raster mask behaviour),
+    ///  - an ORPHANED `isMaskShape` flag outside any mask group, which must
+    ///    keep rendering as an ordinary layer.
+    /// Plus a relationship AIMED at a mask shape: the shape is no longer a DOM
+    /// element, so the exporter must report the link unresolvable instead of
+    /// emitting a dangling aria attribute.
+    static func maskGroupDocument() -> Document {
+        let brand = RGBAColor(r: 0.12, g: 0.35, b: 0.82, a: 1)
+        let artboard = Artboard(
+            id: id("00000000-0000-0000-0000-000000000101"),
+            name: "Mask Fixture",
+            frame: CGRect(x: 0, y: 0, width: 400, height: 300))
+
+        let diamondMask = Node(
+            id: id("00000000-0000-0000-0000-000000000112"),
+            name: "Diamond mask",
+            frame: CGRect(x: 0, y: 0, width: 120, height: 120),
+            isMaskShape: true,
+            content: .polygon(PolygonShape(sides: 4, fill: .solid(brand))))
+        let diamondContent = Node(
+            id: id("00000000-0000-0000-0000-000000000113"),
+            name: "Masked card",
+            frame: CGRect(x: 10, y: 10, width: 100, height: 100),
+            content: .rectangle(RectangleShape(fill: .solid(brand))))
+        let diamondGroup = Node(
+            id: id("00000000-0000-0000-0000-000000000111"),
+            name: "Diamond mask group",
+            frame: CGRect(x: 20, y: 20, width: 120, height: 120),
+            isMask: true,
+            content: .group(children: [diamondMask, diamondContent]))
+
+        let textMask = Node(
+            id: id("00000000-0000-0000-0000-000000000122"),
+            name: "Text mask",
+            frame: CGRect(x: 0, y: 20, width: 160, height: 80),
+            isMaskShape: true,
+            content: .text(TextContent(string: "MASK", fontSize: 64)))
+        let textContent = Node(
+            id: id("00000000-0000-0000-0000-000000000123"),
+            name: "Masked body",
+            frame: CGRect(x: 20, y: 10, width: 120, height: 100),
+            content: .rectangle(RectangleShape(fill: .solid(brand))))
+        let textGroup = Node(
+            id: id("00000000-0000-0000-0000-000000000121"),
+            name: "Text mask group",
+            frame: CGRect(x: 180, y: 20, width: 160, height: 120),
+            isMask: true,
+            content: .group(children: [textMask, textContent]))
+
+        var padding = AutoPadding()
+        padding.fill = .solid(RGBAColor(r: 0.9, g: 0.2, b: 0.2, a: 1))
+        let paddedMask = Node(
+            id: id("00000000-0000-0000-0000-000000000132"),
+            name: "Ellipse mask",
+            frame: CGRect(x: 0, y: 0, width: 120, height: 100),
+            isMaskShape: true,
+            content: .ellipse(EllipseShape(fill: .solid(brand))))
+        let paddedContent = Node(
+            id: id("00000000-0000-0000-0000-000000000133"),
+            name: "Masked pill content",
+            frame: CGRect(x: 10, y: 10, width: 100, height: 80),
+            content: .rectangle(RectangleShape(fill: .solid(brand))))
+        let paddedGroup = Node(
+            id: id("00000000-0000-0000-0000-000000000131"),
+            name: "Padded mask group",
+            frame: CGRect(x: 20, y: 170, width: 120, height: 100),
+            autoPadding: padding,
+            isMask: true,
+            content: .group(children: [paddedMask, paddedContent]))
+
+        let orphan = Node(
+            id: id("00000000-0000-0000-0000-000000000141"),
+            name: "Orphan mask flag",
+            frame: CGRect(x: 280, y: 180, width: 80, height: 80),
+            isMaskShape: true,
+            content: .polygon(PolygonShape(sides: 4, fill: .solid(brand))))
+
+        return Document(
+            artboards: [artboard],
+            nodes: [diamondGroup, textGroup, paddedGroup, orphan],
+            anchoredRelationships: [
+                AnchoredRelationship(
+                    id: id("00000000-0000-0000-0000-000000000151"),
+                    kind: .describedby,
+                    subject: RelationshipEndpoint(nodeID: diamondContent.id),
+                    target: RelationshipEndpoint(nodeID: diamondMask.id))
+            ],
+            pageID: id("00000000-0000-0000-0000-000000000102"))
     }
 
     /// One real exported instance per curated role. This is intentionally plain:
