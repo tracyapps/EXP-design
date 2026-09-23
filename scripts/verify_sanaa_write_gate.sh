@@ -1,11 +1,19 @@
 #!/bin/bash
-# verify_sanaa_write_gate.sh — FEAT-048 gate matrix for Sanaa's `apply_edits`.
+# verify_sanaa_write_gate.sh — FEAT-048 gate matrix for Sanaa's `apply_edits`,
+# extended for FEAT-058's bulk ops (restyleNodes, applyToken, normalizeSpacing,
+# renameNodes).
 #
 # WHY THIS EXISTS: `apply_edits` is the first tool that can CHANGE the
 # designer's document from outside the app. Its gates are the feature. A build
 # that compiles proves nothing about them, and the matrix is too long to run by
-# hand reliably (SANAA-PLAN.md §6/FEAT-048, test 2). Every case below must fail
-# WHOLE, with its own accurate message, and leave the document untouched.
+# hand reliably (SANAA-PLAN.md §6/FEAT-048 test 2; §10/FEAT-058 testing). Every
+# case below must fail WHOLE, with its own accurate message, and leave the
+# document untouched.
+#
+# FEAT-058 scripted cases are refusals only: they fail during parse or the dry
+# run, BEFORE any consent sheet, so the script stays unattended-safe. The
+# consent-gated happy paths (bulk receipts, the preview the sheet shows, the
+# source-restyle warning) need the designer's eyes and are listed at the end.
 #
 # This script talks to the same current-user Unix socket the bundled exp-mcp
 # helper uses. It opens no network connection and needs no agent installed.
@@ -107,6 +115,9 @@ if phase_wanted 1; then
   echo "Phase 1 — Sanaa disabled"
   assert_refused "master switch off" "Sanaa is turned off in EXP" \
     '{"summary":"gate probe","ops":[{"op":"createArtboard","name":"Gate probe","frame":{"width":320,"height":200}}]}'
+  # FEAT-058: the bulk ops live behind the SAME switch, not a parallel gate.
+  assert_refused "master switch off (bulk op)" "Sanaa is turned off in EXP" \
+    '{"summary":"gate probe","ops":[{"op":"renameNodes","select":{"scope":"document"},"rule":{"prefix":"x"}}]}'
   reply="$(rpc '{"jsonrpc":"2.0","id":2,"method":"tools/list"}')"
   case "$reply" in
     *apply_edits*) bad "apply_edits is not advertised while Sanaa is off" "$reply" ;;
@@ -120,6 +131,8 @@ if phase_wanted 2; then
   echo "Phase 2 — enabled but not allowed to draw"
   assert_refused "write switch off" "not allowed to draw" \
     '{"summary":"gate probe","ops":[{"op":"createArtboard","name":"Gate probe","frame":{"width":320,"height":200}}]}'
+  assert_refused "write switch off (bulk op)" "not allowed to draw" \
+    '{"summary":"gate probe","ops":[{"op":"restyleNodes","select":{"scope":"document","types":["rectangle"]},"set":{"opacity":0.5}}]}'
 fi
 
 # ---------------------------------------------------------------- phase 3
@@ -164,12 +177,68 @@ if phase_wanted 3; then
   assert_refused "operation cap" "at most 200 operations" \
     "{\"summary\":\"cap probe\",\"ops\":[$ops]}"
 
+  # ------------------------- FEAT-058 — bulk op refusals (parse + dry run;
+  # all fail BEFORE any consent sheet, so nothing here needs a click).
+  assert_refused "bulk: unknown op key" "does not accept" \
+    '{"summary":"x","ops":[{"op":"restyleNodes","select":{"scope":"document"},"set":{"stoke":2}}]}'
+
+  assert_refused "bulk: no supported property" "named no supported property" \
+    '{"summary":"x","ops":[{"op":"restyleNodes","select":{"scope":"document"},"set":{}}]}'
+
+  assert_refused "bulk: bogus scope word" 'must be \"selection\", \"artboard\", \"page\", or \"document\"' \
+    '{"summary":"x","ops":[{"op":"renameNodes","select":{"scope":"everywhere"},"rule":{"prefix":"x"}}]}'
+
+  assert_refused "bulk: bogus layer type" "is not a layer type" \
+    '{"summary":"x","ops":[{"op":"restyleNodes","select":{"scope":"document","types":["shapes"]},"set":{"opacity":1}}]}'
+
+  assert_refused "bulk: normalize on selection scope" "nothing to space" \
+    '{"summary":"x","ops":[{"op":"normalizeSpacing","select":{"scope":"selection"},"unit":8}]}'
+
+  assert_refused "bulk: normalize without unit" "needs a positive" \
+    '{"summary":"x","ops":[{"op":"normalizeSpacing","select":{"scope":"document"}}]}'
+
+  assert_refused "bulk: rename with empty find" "must not be empty" \
+    '{"summary":"x","ops":[{"op":"renameNodes","select":{"scope":"document"},"rule":{"find":"","replace":"y"}}]}'
+
+  assert_refused "bulk: rename rule ambiguity" "exactly ONE kind of rule" \
+    '{"summary":"x","ops":[{"op":"renameNodes","select":{"scope":"document"},"rule":{"prefix":"a ","suffix":" b"}}]}'
+
+  assert_refused "bulk: unknown token" "no Design Language entry" \
+    '{"summary":"x","ops":[{"op":"applyToken","token":"Definitely Not A Token","select":{"scope":"document"}}]}'
+
+  assert_refused "bulk: restyle on unknown artboard" "no artboard exists" \
+    '{"summary":"x","ops":[{"op":"restyleNodes","select":{"scope":"artboard","artboardId":"00000000-0000-0000-0000-000000000000"},"set":{"opacity":1}}]}'
+
+  # A real, EMPTY artboard: the predicate must match nothing and say so —
+  # a bulk op must never apply zero changes quietly and report success.
+  bulk_board="$(call apply_edits '{"summary":"bulk gate board","ops":[{"op":"createArtboard","name":"Bulk gate","frame":{"width":240,"height":160}}]}' \
+    | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)"
+  if [ -z "$bulk_board" ]; then
+    bad "bulk gate artboard — no id returned" ""
+  else
+    ok "bulk gate artboard — created for predicate checks"
+    assert_refused "bulk: predicate matches nothing" "matched no layers" \
+      "{\"summary\":\"x\",\"ops\":[{\"op\":\"restyleNodes\",\"select\":{\"scope\":\"artboard\",\"artboardId\":\"$bulk_board\",\"types\":[\"path\"]},\"set\":{\"opacity\":0.5}}]}"
+  fi
+
   echo
   echo "  Consent (needs your eyes, not this script):"
   echo "   - Ask a connected agent to replaceNode or removeNodes on this document."
   echo "     EXP must ask before anything changes. Choose \"Not Now\": the call is"
   echo "     refused, the document is unchanged, and re-asking waits a minute."
   echo "   - Then allow it, and confirm a second in-place batch does NOT ask again."
+  echo
+  echo "  FEAT-058 bulk consent (also your eyes):"
+  echo "   - Draw two rectangles on the Bulk gate board, then ask the agent to"
+  echo "     restyleNodes scoped to that artboard. The consent sheet must list"
+  echo "     WHAT the batch will do (count first, e.g. \"Restyle 2 layers — One"
+  echo "     artboard (…)\") BEFORE you choose. Allow it: the reply carries an"
+  echo "     \"operations\" receipt (matched/changed/skipped), Command-Z reads one"
+  echo "     \"Sanaa: …\" step, and both rectangles restyled together."
+  echo "   - Scope restyleNodes at \"document\" with a name filter that hits a"
+  echo "     component source: the sheet must warn that every placement of that"
+  echo "     component changes, in plain words."
+  echo "   - applyToken: the receipt must say values were SET, not linked."
 fi
 
 echo

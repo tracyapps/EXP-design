@@ -94,12 +94,13 @@ Agent capability packs, Figma OAuth/Keychain/Variables, and agent write-back rem
 explicit non-gating follow-ups.
 See ROADMAP.md for the authoritative checklist and newest Progress Log entry.
 **v2.5 scope, set by the owner 2026-09-22:** finish the paint model and add
-Sanaa FEAT-058. Standing 2026-09-23 (later): Wave 2 is COMPLETE and fully
-owner-verified — pattern system, FEAT-064, BUG-065, and BUG-062 (both
-halves; semantic HTML verified 2026-09-23) — plus the conservative
-design-token decision. Nothing awaits verification. **Resume at Wave 3:
-Sanaa FEAT-058 (`apply_edits` v2) — read `docs/SANAA-PLAN.md` §10/FEAT-058
-FIRST, per the standing rule for Sanaa work.** Dropbox note: the folder is
+Sanaa FEAT-058. Standing 2026-09-23 (evening): Wave 2 is closed and fully
+owner-verified. Wave 3 (Sanaa FEAT-058 `apply_edits` v2 — restyleNodes,
+applyToken, normalizeSpacing, renameNodes) is BUILT 2026-09-23 with the gate
+matrix extended, and is the ONE item awaiting owner verification: run
+`scripts/verify_sanaa_write_gate.sh` (all phases, scratch document) plus the
+bulk-consent checks it prints. After that gate clears, v2.5's mutating scope
+is done and the release decision is the owner's. Dropbox note: the folder is
 supposed to be excluded from sync (one machine only); a known ongoing
 Dropbox issue has been corrupting the owner's dev folders (ticket open) —
 any Dropbox-caused change here may be safely overridden from git; see the

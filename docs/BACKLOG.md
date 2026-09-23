@@ -4048,7 +4048,8 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: feature
 - Priority: P2 (v2.5 candidate)
 - Area: export · model
-- Status: open
+- Status: **built 2026-09-23 — awaiting owner verification (live gate matrix
+  phase 3 + the bulk-consent eyeball list)**
 - Repro/Detail: MUTATING — the §8 sequencing rule applies in full. New op
   kinds inside the existing parse → dry-run → consent → rebuild pipeline:
   `restyleNodes` (property set by predicate), `applyToken` (Design Language
@@ -4067,6 +4068,55 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   every switch state); predicate-safety cases (empty match, unexpected broad
   match, preview-equals-apply proof); source-restyle warning; 201-op cap;
   undo label correct.
+- Implementation 2026-09-23:
+  - **One predicate, one resolution.** `NodePredicate` (scope selection/
+    artboard/page/document + `types` + `nameContains`; SELECTION is the
+    default) resolves in ONE Builder function, `resolveMatches`, which the
+    dry run (pass 2) and the real apply (pass 4) both run through `perform`.
+    Preview-equals-apply is by construction, not assertion: there is no second
+    resolution path to diverge. An empty match refuses the whole batch
+    ("matched no layers — nothing was changed") rather than applying zero
+    changes quietly.
+  - **Scopes are honest about blast radius.** Broad scopes (page, document)
+    label themselves "broad" on the consent sheet and in receipts; `document`
+    is the only scope that reaches component sources, and every matched
+    source produces the "every placement of <component> changes" warning —
+    on the sheet AND in the receipt.
+  - **The consent sheet now shows what the batch will do.** `SanaaConsent`
+    takes preview lines collected by the DRY run — counts first, scope
+    statement, warnings — bounded (≤12 lines), so Allow is informed. Batches
+    with no bulk ops show the same sheet as before.
+  - **Receipts.** The apply result gains `operations`: per-bulk-op
+    matched/changed/skipped + sample names (≤8) + bounded notes.
+    `applyToken` receipts state values were SET, not linked. `renameNodes`
+    returns from→to pairs (first 50). Instance internals are stated as never
+    edited.
+  - **The four ops.** restyleNodes: fill/stroke/strokeWidth/cornerRadius/
+    opacity via the REAL `Paint` decoder (gradients/patterns restyle exactly
+    as they render), per-kind applicability with skipped counts.
+    applyToken: color assets → fill/stroke, type styles → text runs +
+    paragraph properties; property/token-kind mismatches refuse with the fix.
+    normalizeSpacing: packed managed gaps snap to the unit; free spacing
+    snaps the gaps between a board's TOP-LEVEL layers along the board's
+    dominant axis (nested free layers untouched, stated); touched pages
+    settle through the existing reflow/ownership pass. renameNodes:
+    find/replace, prefix, suffix, sequence (document order, bounded list).
+  - **Caps/undo unchanged:** ≤200 ops, one consent, one
+    "Sanaa: <summary>" undo step. Receipt sizes are bounded regardless of
+    matched-set size (samples + counts, never full id lists per op) — the
+    4 MB socket concern in the plan is answered by construction.
+  - **Gate matrix extended** (`verify_sanaa_write_gate.sh`): bulk ops refuse
+    under both switch states (phases 1–2); twelve scripted refusal cases in
+    phase 3 (unknown keys, empty set, bogus scope/type, selection-scope
+    normalize, missing unit, empty find, ambiguous rule, unknown token,
+    unknown artboard, empty match on a real board) — all fail BEFORE any
+    consent sheet, so the script stays unattended-safe; the consent-gated
+    happy paths (receipt contents, sheet preview, source warning, set-not-
+    linked note, undo label) are listed as an eyeball checklist.
+  - Both schemes build clean; zero warnings in touched files (SanaaEdits,
+    AgentBridge). BUG-010 hazard: none of the four ops replace or remove
+    nodes, so no relationship remapping is triggered — recorded here because
+    the plan called for the check, not because code was needed.
 
 ### FEAT-059 — Sanaa: a11y guided fixes (v2.5 candidate)
 - Type: feature

@@ -1365,13 +1365,20 @@ verification. Waves alternate; each wave ends at a verification gate.
 
 ### Wave 3 — Sanaa `apply_edits` v2 (mutating; FEAT-058)
 
-- [ ] FEAT-058 per `docs/SANAA-PLAN.md` §10/FEAT-058: new op kinds
+- [x] FEAT-058 per `docs/SANAA-PLAN.md` §10/FEAT-058: new op kinds
       (`restyleNodes`, `applyToken`, `normalizeSpacing`, `renameNodes`) inside
       the existing parse → dry-run → consent → rebuild pipeline; preview and
       apply resolve predicates through the SAME code path; component-source
       restyle warns; caps ≤200 ops, one consent, one undo step. Acceptance:
       gate-matrix extension, predicate-safety cases (empty match, broad
       match, preview-equals-apply proof), 201-op cap, undo label correct.
+      Built 2026-09-23 (see BACKLOG FEAT-058 for the full record): ONE
+      predicate resolution shared by dry run and apply, consent sheet shows
+      the dry-run preview (counts + scope + source warnings), per-op receipts
+      with bounded samples, gate matrix extended (switch-state refusals +
+      twelve scripted refusal cases + the consent eyeball list).
+      **Awaiting owner verification** — run `scripts/verify_sanaa_write_gate.sh`
+      (all phases, scratch document) plus the bulk-consent checks it prints.
 
 **Excluded from v2.5 (v2.6+ candidates):** FEAT-057 (design directions),
 FEAT-059 (a11y guided fixes — depends on 058 anyway), FEAT-060 (evaluation
@@ -3241,6 +3248,59 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-09-23 (evening — FEAT-058 built: Sanaa `apply_edits` v2, the cleanup
+  ops; Wave 3 code-complete, awaiting owner verification).** One session, one
+  slice. Sanaa can now do the tedious work it was always meant for — bulk
+  renames, restyles, token application, spacing normalization — as consented,
+  undoable batches through the FEAT-048 spine, unchanged in its safety shape:
+  ≤200 ops, one consent, one "Sanaa: <summary>" undo step.
+
+  **The design decision that carries the slice: ONE predicate resolution.**
+  A `NodePredicate` (scope `selection`/`artboard`/`page`/`document`, plus
+  `types` and `nameContains` filters; selection is the DEFAULT because it is
+  the narrowest blast radius EXP can name) resolves in a single Builder
+  function. The dry run (pass 2) and the real apply (pass 4) both go through
+  it, so the preview the designer consents to and the edit that lands cannot
+  diverge — the plan's "worst-case defect" is excluded by construction, not
+  by testing parity. An empty match refuses the batch outright ("matched no
+  layers — nothing was changed") because a bulk op applying zero changes
+  while reporting success is exactly the quiet lie this tool must not tell.
+
+  **The consent sheet got its preview.** The dry run now collects
+  plain-language lines — count first ("Restyle 24 layers — One artboard"),
+  then the broad-scope statement, then per-source warnings ("Also changes the
+  component 'Card' — every placement of it updates") — and the sheet shows
+  them before Allow. Bounded (≤12 lines) so a document-scope batch can't
+  build a wall of text. Non-bulk batches show the same sheet as before.
+
+  **The four ops.** `restyleNodes` applies fill/stroke/strokeWidth/
+  cornerRadius/opacity through the REAL Paint decoder (a gradient restyles as
+  a gradient), with per-kind applicability and honest skipped counts.
+  `applyToken` resolves Design Language entries by exact name (colors →
+  fill/stroke, type styles → text runs + paragraph properties, mismatches
+  refused with the fix) and its receipt states plainly: values were SET, not
+  linked. `normalizeSpacing` snaps packed managed gaps and the free spacing
+  between a board's top-level layers along its dominant axis to the stated
+  unit (nested free layers untouched — stated). `renameNodes` does
+  find/replace, prefix, suffix, and sequence, returning from→to pairs.
+  Receipts per op (matched/changed/skipped + ≤8 sample names) ride the result
+  as `operations`.
+
+  **Verification so far.** Both schemes build clean, zero warnings in touched
+  files. The gate matrix (`verify_sanaa_write_gate.sh`) is extended: bulk ops
+  refuse under both off-states (phases 1–2, proving the new ops live behind
+  the same switches), and phase 3 gained twelve scripted refusal cases — all
+  failing during parse or the dry run, BEFORE any consent sheet, so the
+  script remains unattended-safe. The consent-gated happy paths are printed
+  as an eyeball checklist: receipt contents, the sheet preview, the
+  source-restyle warning, set-not-linked, undo label. BUG-010 checked: no new
+  op replaces or removes nodes, so relationship remapping never triggers.
+
+  **NEXT:** owner runs `scripts/verify_sanaa_write_gate.sh` (all phases,
+  scratch document) plus the printed bulk-consent checks; then v2.5's
+  mutating scope is DONE and what remains is the release decision
+  (v2.4's checklist pattern) or further scope at the owner's call.
 
 - **2026-09-23 (later — BUG-062 owner-verified; Wave 2 CLOSED; Wave 3 opens
   with Sanaa FEAT-058).** Owner verified the mask fix ("verified, mask bug is

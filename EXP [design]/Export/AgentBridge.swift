@@ -359,8 +359,9 @@ private enum AgentMCPRouter {
              properties: [:], required: [])
     ]}
 
-    /// FEAT-048. One write tool, deliberately transactional: the whole batch
-    /// applies or nothing does, and the designer gets exactly one undo step.
+    /// FEAT-048 + FEAT-058. One write tool, deliberately transactional: the
+    /// whole batch applies or nothing does, and the designer gets exactly one
+    /// undo step.
     private static var applyEditsTool: [String: Any] {
         tool("apply_edits",
              """
@@ -373,12 +374,18 @@ private enum AgentMCPRouter {
              - {"op":"insertNodes","artboardId":"$last","nodes":[<design.json node fragments>]} \u{2014} artboardId is a UUID, "$last" for the artboard this batch just created, or "$<op index>". EXP always assigns fresh ids and returns them. Frames are artboard-local for an artboard this batch created and document coordinates for an existing one; override with "coordinates":"artboard"|"document".
              - {"op":"replaceNode","id":"<uuid>","node":{\u{2026}}} \u{2014} keeps the id you name, so relationships survive. Start from the fragment get_node returned.
              - {"op":"removeNodes","ids":["<uuid>"]}
+             - {"op":"restyleNodes","select":{\u{2026}},"set":{"fill":{\u{2026}},"stroke":{\u{2026}},"strokeWidth":2,"cornerRadius":8,"opacity":1}} \u{2014} applies the named properties to every layer the predicate matches. Layers that cannot carry any chosen property are counted as skipped in the receipt, never silently changed.
+             - {"op":"applyToken","token":"Action","property":"fill","select":{\u{2026}}} \u{2014} sets a Design Language value (get_tokens lists exact names). property is "fill", "stroke", or "text" (type styles). Values are SET, not linked: later token changes do not cascade, and the receipt says so.
+             - {"op":"normalizeSpacing","select":{"scope":"artboard","artboardId":"<uuid>"},"unit":8} \u{2014} snaps managed gaps and the free spacing between a board's top-level layers to the unit's scale. Needs an artboard, page, or document scope.
+             - {"op":"renameNodes","select":{\u{2026}},"rule":{"find":"bttn","replace":"button"}} \u{2014} or {"prefix":"\u{2026}"}, {"suffix":"\u{2026}"}, or {"sequence":{"base":"Card ","start":1}}. Returns each from \u{2192} to pair.
+
+             "select" predicates (all bulk ops): {"scope":"selection"|"artboard"|"page"|"document", "artboardId"/"pageId":"<uuid>", "types":["rectangle","text",\u{2026}], "nameContains":"\u{2026}"}. Scope defaults to the designer's SELECTION \u{2014} the narrowest blast radius. "document" also reaches component sources, and the consent sheet then warns that every placement of that component changes. A predicate that matches nothing refuses the whole batch rather than applying zero changes quietly.
 
              Node fragments must be the real design.json shape \u{2014} copy what get_node or get_artboard returned and edit it. Anything else is refused with the decoding error.
 
-             Consent: creating pages, artboards, duplicates, and layers inside artboards from this same batch needs only the designer's Sanaa switches. Changing what is already on the canvas (replaceNode, removeNodes, insertNodes into an existing artboard) also asks the designer, per document, once per session. Ask them where work should go rather than assuming; "complete this" means in place OR on a duplicate beside it, and that is their choice, not yours.
+             Consent: creating pages, artboards, duplicates, and layers inside artboards from this same batch needs only the designer's Sanaa switches. Changing what is already on the canvas (replaceNode, removeNodes, insertNodes into an existing artboard, and every bulk op) also asks the designer, per document, once per session \u{2014} the sheet lists what a bulk batch will do, count first. Ask them where work should go rather than assuming; "complete this" means in place OR on a duplicate beside it, and that is their choice, not yours. Instance internals are never edited by bulk ops \u{2014} an instance changes as a whole layer or through its source.
 
-             Returns {"created":{"pages":[\u{2026}],"artboards":[\u{2026}],"nodes":[\u{2026}]},"undoStep":"\u{2026}"}.
+             Returns {"created":{\u{2026}},"affected":{\u{2026}},"operations":[per-bulk-op receipts: matched, changed, skipped, sample names],"undoStep":"\u{2026}"}.
              """,
              properties: [
                 "summary": stringProperty("A short, honest description of what this batch does (120 characters or fewer). It becomes the undo step the designer reads in the Edit menu."),

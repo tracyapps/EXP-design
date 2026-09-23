@@ -109,7 +109,7 @@ final class SanaaConsent {
     }
 
     func requireConsent(for document: ExpDocument, named name: String,
-                        client: String) async throws {
+                        client: String, preview: [String] = []) async throws {
         let key = ObjectIdentifier(document)
         if granted.contains(key) { return }
         if let until = declinedUntil[key], until > Date() {
@@ -118,7 +118,8 @@ final class SanaaConsent {
         guard !isAsking else { throw SanaaEditError.consentAlreadyOpen }
 
         isAsking = true
-        let allowed = await presentConsent(documentName: name, client: client)
+        let allowed = await presentConsent(documentName: name, client: client,
+                                           preview: preview)
         isAsking = false
 
         if allowed {
@@ -130,15 +131,22 @@ final class SanaaConsent {
         }
     }
 
-    private func presentConsent(documentName: String, client: String) async -> Bool {
+    private func presentConsent(documentName: String, client: String,
+                                preview: [String]) async -> Bool {
         await withCheckedContinuation { continuation in
             let alert = NSAlert()
             alert.alertStyle = .informational
             alert.messageText = "“\(client)” wants to change “\(documentName)”."
+            // FEAT-058: bulk batches show WHAT they will do — the count the dry
+            // run computed and the warnings it collected — so Allow is an
+            // informed act, not a leap. Bounded by construction upstream.
+            let previewBlock = preview.isEmpty ? "" : "\n\nThis batch will:\n" +
+                preview.prefix(12).map { "• " + $0 }.joined(separator: "\n")
             alert.informativeText = """
                 Sanaa applies changes from the agent you connected — it is that agent \
                 drawing here, not EXP. Changes arrive as ordinary layers you can edit, \
                 and each batch is one step you can undo.
+                \(previewBlock)
 
                 This permission covers changes to work that is already on the canvas, \
                 for this document, until EXP quits.
@@ -216,6 +224,16 @@ enum SanaaEdits {
         case insertNodes(artboard: Reference, nodes: [Node], artboardLocal: Bool)
         case replaceNode(id: UUID, node: Node)
         case removeNodes(ids: [UUID])
+        // FEAT-058 — cleanup & repetitive ops. All four mutate work the designer
+        // already made, so all four are consent-gated and all four resolve their
+        // predicate through the SAME Builder pass the dry run uses: the preview
+        // the designer consents to and the edit that lands are one code path,
+        // not two that agree by effort.
+        case restyleNodes(predicate: NodePredicate, set: RestyleSet)
+        case applyToken(predicate: NodePredicate, tokenName: String,
+                        property: TokenProperty)
+        case normalizeSpacing(predicate: NodePredicate, unit: CGFloat)
+        case renameNodes(predicate: NodePredicate, rule: RenameRule)
 
         /// True when the operation changes something the designer (or an earlier
         /// session) already made, rather than only adding new content. These are
@@ -225,8 +243,112 @@ enum SanaaEdits {
             case .createPage, .createArtboard, .duplicateArtboard: return false
             case .insertNodes(let artboard, _, _):                 return artboard.isExisting
             case .replaceNode, .removeNodes:                       return true
+            case .restyleNodes, .applyToken, .normalizeSpacing, .renameNodes:
+                return true
             }
         }
+    }
+
+    // MARK: FEAT-058 — predicates, payloads, rules
+
+    /// A content kind as the agent spells it — the same names `get_node`
+    /// fragments carry in their `content` discriminator.
+    enum NodeKind: String, CaseIterable {
+        case rectangle, ellipse, polygon, path, line, text, image, group, instance
+    }
+
+    /// What a bulk operation targets. Resolution lives in ONE place —
+    /// `Builder.resolveMatches` — which the dry run and the real apply both
+    /// call, so the receipt the designer consents to and the edit that lands
+    /// cannot diverge.
+    struct NodePredicate {
+        enum Scope: Equatable {
+            case selection
+            case artboard(UUID)
+            case page(UUID)
+            /// Every page AND every component source. Deliberately the only
+            /// scope that reaches source-owned nodes; matching one means the
+            /// receipt warns that every placement of that component changes.
+            case document
+        }
+
+        var scope: Scope
+        var kinds: Set<NodeKind>?
+        /// Case-insensitive substring match on layer names.
+        var nameContains: String?
+
+        var isBroad: Bool {
+            switch scope {
+            case .page, .document: return true
+            case .selection, .artboard: return false
+            }
+        }
+
+        var scopeWords: String {
+            switch scope {
+            case .selection: return "the current selection"
+            case .artboard(let id): return "one artboard (\(id.uuidString))"
+            case .page(let id): return "every layer on one canvas page (\(id.uuidString)) — a broad scope"
+            case .document: return "every layer in the document, including component sources — the broadest scope"
+            }
+        }
+    }
+
+    /// The property vocabulary for `restyleNodes`. Every field is optional;
+    /// a node that cannot carry ANY of the chosen properties is counted as
+    /// skipped, not silently changed.
+    struct RestyleSet {
+        var fill: Paint?
+        var stroke: Paint?
+        var strokeWidth: CGFloat?
+        var cornerRadius: CGFloat?
+        var opacity: Double?
+
+        var isEmpty: Bool {
+            fill == nil && stroke == nil && strokeWidth == nil
+                && cornerRadius == nil && opacity == nil
+        }
+
+        /// Which chosen properties this node can actually carry. Empty means
+        /// the node is skipped entirely.
+        func applicable(on kind: NodeKind) -> [String] {
+            var supported: [String] = []
+            switch kind {
+            case .rectangle:
+                supported = ["fill", "stroke", "strokeWidth", "cornerRadius"]
+            case .ellipse, .polygon, .path:
+                supported = ["fill", "stroke", "strokeWidth"]
+            case .line:
+                supported = ["stroke", "strokeWidth"]
+            case .group, .image, .instance:
+                break
+            case .text:
+                break
+            }
+            if opacity != nil { supported.append("opacity") }
+            return supported.filter { chosen.contains($0) }
+        }
+
+        private var chosen: Set<String> {
+            var set = Set<String>()
+            if fill != nil { set.insert("fill") }
+            if stroke != nil { set.insert("stroke") }
+            if strokeWidth != nil { set.insert("strokeWidth") }
+            if cornerRadius != nil { set.insert("cornerRadius") }
+            if opacity != nil { set.insert("opacity") }
+            return set
+        }
+    }
+
+    enum TokenProperty: String {
+        case fill, stroke, text
+    }
+
+    enum RenameRule {
+        case findReplace(find: String, replace: String)
+        case prefix(String)
+        case suffix(String)
+        case sequence(base: String, start: Int)
     }
 
     // MARK: Entry point
@@ -279,13 +401,17 @@ enum SanaaEdits {
         // Pass 2 — a dry run against a COPY of the document. This resolves every
         // reference and catches "no node exists with id …" before anyone is asked
         // for anything, so a batch that was never going to work cannot put a
-        // permission sheet in front of the designer.
-        _ = try build(operations, target: target)
+        // permission sheet in front of the designer. FEAT-058: for bulk ops the
+        // dry run also produces the plain-language preview the consent sheet
+        // shows — counts and warnings computed from the SAME predicate pass the
+        // apply will run, not a parallel estimate.
+        let dryRun = try build(operations, target: target)
 
         // Pass 3 — consent, decided from the parsed batch and asked for once.
         if operations.contains(where: \.touchesExistingContent) {
             try await SanaaConsent.shared.requireConsent(
-                for: target.document, named: target.name, client: client)
+                for: target.document, named: target.name, client: client,
+                preview: dryRun.consentLines)
         }
 
         // Pass 4 — build again against the document AS IT STANDS NOW. The consent
@@ -299,20 +425,27 @@ enum SanaaEdits {
                                  undoManager: target.undoManager,
                                  actionName: "Sanaa: \(summary)")
 
-        return ["created": ["pages": builder.createdPages,
-                            "artboards": builder.createdArtboards,
-                            "nodes": builder.createdNodes],
-                "affected": ["pages": builder.affectedPages,
-                             "artboardIds": builder.affectedArtboardIDs,
-                             "nodeIds": builder.affectedNodeIDs],
-                "undoStep": "Sanaa: \(summary)"]
+        var result: [String: Any] = [
+            "created": ["pages": builder.createdPages,
+                        "artboards": builder.createdArtboards,
+                        "nodes": builder.createdNodes],
+            "affected": ["pages": builder.affectedPages,
+                         "artboardIds": builder.affectedArtboardIDs,
+                         "nodeIds": builder.affectedNodeIDs],
+            "undoStep": "Sanaa: \(summary)"
+        ]
+        if !builder.bulkReceipts.isEmpty {
+            result["operations"] = builder.bulkReceipts
+        }
+        return result
     }
 
     /// Apply a parsed batch to a `Document` VALUE. Never touches the live
     /// document, so this doubles as the dry run.
     private static func build(_ operations: [Operation], target: Target) throws -> Builder {
         var builder = Builder(model: target.document.model,
-                              activePageID: target.app.activeCanvasPageID)
+                              activePageID: target.app.activeCanvasPageID,
+                              selectedNodeIDs: target.app.selectedNodeIDs)
         for (index, operation) in operations.enumerated() {
             do { try builder.perform(operation, at: index) }
             catch let error as SanaaEditError {
@@ -409,9 +542,62 @@ enum SanaaEdits {
             }
             return .removeNodes(ids: ids)
 
+        case "restyleNodes":
+            try checkKeys(raw, allowed: ["op", "select", "set"], what: "restyleNodes")
+            let predicate = try parsePredicate(raw["select"])
+            guard let setDict = raw["set"] as? [String: Any] else {
+                throw SanaaEditError.malformed("restyleNodes needs \"set\", the properties to apply.")
+            }
+            let set = try parseRestyleSet(setDict)
+            guard !set.isEmpty else {
+                throw SanaaEditError.malformed(
+                    "restyleNodes \"set\" named no supported property. Use fill, stroke, strokeWidth, cornerRadius, or opacity.")
+            }
+            return .restyleNodes(predicate: predicate, set: set)
+
+        case "applyToken":
+            try checkKeys(raw, allowed: ["op", "select", "token", "property"], what: "applyToken")
+            let predicate = try parsePredicate(raw["select"])
+            guard let rawToken = raw["token"] as? String,
+                  !rawToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw SanaaEditError.malformed(
+                    "applyToken needs \"token\", the exact Design Language asset or type-style name (get_tokens lists them).")
+            }
+            let tokenName = rawToken.trimmingCharacters(in: .whitespacesAndNewlines)
+            var property = TokenProperty.fill
+            if let rawProperty = raw["property"] as? String {
+                guard let parsed = TokenProperty(rawValue: rawProperty) else {
+                    throw SanaaEditError.malformed(
+                        "applyToken \"property\" must be \"fill\", \"stroke\", or \"text\".")
+                }
+                property = parsed
+            }
+            return .applyToken(predicate: predicate, tokenName: tokenName, property: property)
+
+        case "normalizeSpacing":
+            try checkKeys(raw, allowed: ["op", "select", "unit"], what: "normalizeSpacing")
+            let predicate = try parsePredicate(raw["select"])
+            if case .selection = predicate.scope {
+                throw SanaaEditError.malformed(
+                    "normalizeSpacing spaces artboards and managed groups, so a selection scope has nothing to space. Use \"artboard\", \"page\", or \"document\".")
+            }
+            guard let unit = number(raw["unit"]), unit > 0 else {
+                throw SanaaEditError.malformed(
+                    "normalizeSpacing needs a positive \"unit\" (the spacing scale to snap to, e.g. 8).")
+            }
+            return .normalizeSpacing(predicate: predicate, unit: unit)
+
+        case "renameNodes":
+            try checkKeys(raw, allowed: ["op", "select", "rule"], what: "renameNodes")
+            let predicate = try parsePredicate(raw["select"])
+            guard let ruleDict = raw["rule"] as? [String: Any] else {
+                throw SanaaEditError.malformed("renameNodes needs \"rule\".")
+            }
+            return .renameNodes(predicate: predicate, rule: try parseRenameRule(ruleDict))
+
         default:
             throw SanaaEditError.malformed(
-                "\"\(op)\" is not an apply_edits operation. Use createPage, createArtboard, duplicateArtboard, insertNodes, replaceNode, or removeNodes.")
+                "\"\(op)\" is not an apply_edits operation. Use createPage, createArtboard, duplicateArtboard, insertNodes, replaceNode, removeNodes, restyleNodes, applyToken, normalizeSpacing, or renameNodes.")
         }
     }
 
@@ -421,6 +607,173 @@ enum SanaaEdits {
             throw SanaaEditError.malformed("this operation needs a \"name\" for the new \(what).")
         }
         return name
+    }
+
+    // MARK: FEAT-058 parsing helpers
+
+    /// Unknown keys are refused everywhere, the same discipline the top-level
+    /// argument check follows: a typo like \"stoke\" must fail loudly, not
+    /// silently apply four of five properties.
+    private static func checkKeys(_ dict: [String: Any], allowed: Set<String>,
+                                  what: String) throws {
+        let extras = Set(dict.keys).subtracting(allowed)
+        guard extras.isEmpty else {
+            throw SanaaEditError.malformed(
+                "\(what) does not accept \(extras.sorted().map { "\"\($0)\"" }.joined(separator: ", ")).")
+        }
+    }
+
+    /// Default scope is the SELECTION — the narrowest thing EXP can name — so a
+    /// lazy or ambiguous predicate touches as little as possible. Broad scopes
+    /// exist and are labelled broad everywhere they appear.
+    private static func parsePredicate(_ raw: Any?) throws -> NodePredicate {
+        guard let raw else {
+            return NodePredicate(scope: .selection, kinds: nil, nameContains: nil)
+        }
+        guard let dict = raw as? [String: Any] else {
+            throw SanaaEditError.malformed("\"select\" must be an object.")
+        }
+        try checkKeys(dict, allowed: ["scope", "artboardId", "pageId", "types", "nameContains"],
+                      what: "\"select\"")
+
+        let scopeWord = (dict["scope"] as? String) ?? "selection"
+        let scope: NodePredicate.Scope
+        switch scopeWord {
+        case "selection":
+            scope = .selection
+        case "artboard":
+            guard let rawID = dict["artboardId"] as? String,
+                  let id = UUID(uuidString: rawID) else {
+                throw SanaaEditError.malformed(
+                    "scope \"artboard\" needs \"artboardId\", the UUID of an existing artboard.")
+            }
+            scope = .artboard(id)
+        case "page":
+            guard let rawID = dict["pageId"] as? String,
+                  let id = UUID(uuidString: rawID) else {
+                throw SanaaEditError.malformed(
+                    "scope \"page\" needs \"pageId\", the UUID of an existing canvas page.")
+            }
+            scope = .page(id)
+        case "document":
+            scope = .document
+        default:
+            throw SanaaEditError.malformed(
+                "\"scope\" must be \"selection\", \"artboard\", \"page\", or \"document\".")
+        }
+
+        var kinds: Set<NodeKind>?
+        if let rawTypes = dict["types"] {
+            guard let typeWords = rawTypes as? [String], !typeWords.isEmpty else {
+                throw SanaaEditError.malformed(
+                    "\"types\" must be a non-empty array like [\"rectangle\",\"text\"].")
+            }
+            var parsed = Set<NodeKind>()
+            for word in typeWords {
+                guard let kind = NodeKind(rawValue: word) else {
+                    throw SanaaEditError.malformed(
+                        "\"\(word)\" is not a layer type. Use rectangle, ellipse, polygon, path, line, text, image, group, or instance.")
+                }
+                parsed.insert(kind)
+            }
+            kinds = parsed
+        }
+
+        var nameContains: String?
+        if let rawName = dict["nameContains"] as? String {
+            let trimmed = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                throw SanaaEditError.malformed("\"nameContains\" must not be empty — remove it instead.")
+            }
+            nameContains = trimmed
+        }
+
+        return NodePredicate(scope: scope, kinds: kinds, nameContains: nameContains)
+    }
+
+    private static func parseRestyleSet(_ dict: [String: Any]) throws -> RestyleSet {
+        try checkKeys(dict,
+                      allowed: ["fill", "stroke", "strokeWidth", "cornerRadius", "opacity"],
+                      what: "restyleNodes \"set\"")
+        var set = RestyleSet()
+        if dict["fill"] != nil { set.fill = try decodePaint(dict["fill"]!, what: "fill") }
+        if dict["stroke"] != nil { set.stroke = try decodePaint(dict["stroke"]!, what: "stroke") }
+        if let width = number(dict["strokeWidth"]) {
+            guard width >= 0 else {
+                throw SanaaEditError.malformed("\"strokeWidth\" must be 0 or more.")
+            }
+            set.strokeWidth = width
+        } else if dict["strokeWidth"] != nil {
+            throw SanaaEditError.malformed("\"strokeWidth\" must be a number.")
+        }
+        if let radius = number(dict["cornerRadius"]) {
+            guard radius >= 0 else {
+                throw SanaaEditError.malformed("\"cornerRadius\" must be 0 or more.")
+            }
+            set.cornerRadius = radius
+        } else if dict["cornerRadius"] != nil {
+            throw SanaaEditError.malformed("\"cornerRadius\" must be a number.")
+        }
+        if let opacity = dict["opacity"] as? Double {
+            guard opacity >= 0, opacity <= 1 else {
+                throw SanaaEditError.malformed("\"opacity\" must be between 0 and 1.")
+            }
+            set.opacity = opacity
+        } else if dict["opacity"] != nil {
+            throw SanaaEditError.malformed("\"opacity\" must be a number between 0 and 1.")
+        }
+        return set
+    }
+
+    /// Paints decode through the REAL model, like node fragments do, so a
+    /// gradient or pattern restyle is exactly what EXP renders.
+    private static func decodePaint(_ raw: Any, what: String) throws -> Paint {
+        guard JSONSerialization.isValidJSONObject(raw),
+              let data = try? JSONSerialization.data(withJSONObject: raw) else {
+            throw SanaaEditError.malformed("\(what) must be a paint object (a color, gradient, or pattern fragment).")
+        }
+        do {
+            return try JSONDecoder().decode(Paint.self, from: data)
+        } catch {
+            throw SanaaEditError.malformed("\(what) is not a valid EXP paint (\(error.localizedDescription)).")
+        }
+    }
+
+    private static func parseRenameRule(_ dict: [String: Any]) throws -> RenameRule {
+        let named = Set(dict.keys).intersection(["find", "replace", "prefix", "suffix", "sequence"])
+        guard named.count <= 1 else {
+            throw SanaaEditError.malformed(
+                "renameNodes \"rule\" must name exactly ONE kind of rule (find, prefix, suffix, or sequence).")
+        }
+        if let find = dict["find"] as? String {
+            try checkKeys(dict, allowed: ["find", "replace"], what: "renameNodes \"rule\"")
+            guard !find.isEmpty else {
+                throw SanaaEditError.malformed("\"find\" must not be empty.")
+            }
+            return .findReplace(find: find, replace: dict["replace"] as? String ?? "")
+        }
+        if let prefix = dict["prefix"] as? String {
+            try checkKeys(dict, allowed: ["prefix"], what: "renameNodes \"rule\"")
+            return .prefix(prefix)
+        }
+        if let suffix = dict["suffix"] as? String {
+            try checkKeys(dict, allowed: ["suffix"], what: "renameNodes \"rule\"")
+            return .suffix(suffix)
+        }
+        if let sequence = dict["sequence"] as? [String: Any] {
+            try checkKeys(dict, allowed: ["sequence"], what: "renameNodes \"rule\"")
+            try checkKeys(sequence, allowed: ["base", "start"], what: "sequence")
+            guard let base = sequence["base"] as? String, !base.isEmpty else {
+                throw SanaaEditError.malformed("\"sequence\" needs a non-empty \"base\" (e.g. \"Card \").")
+            }
+            let start = sequence["start"] as? Int ?? 1
+            guard start >= 0 else {
+                throw SanaaEditError.malformed("\"sequence\" \"start\" must be 0 or more.")
+            }
+            return .sequence(base: base, start: start)
+        }
+        throw SanaaEditError.malformed(
+            "renameNodes \"rule\" must name one of: {\"find\", \"replace\"}, {\"prefix\"}, {\"suffix\"}, or {\"sequence\": {\"base\", \"start\"}}.")
     }
 
     private static func parsePlacement(_ raw: Any?, default fallback: Placement) throws -> Placement {
@@ -481,6 +834,7 @@ extension SanaaEdits {
     struct Builder {
         var model: Document
         let activePageID: UUID?
+        let selectedNodeIDs: Set<UUID>
 
         private var pagesByOpIndex: [Int: UUID] = [:]
         private var artboardsByOpIndex: [Int: UUID] = [:]
@@ -493,6 +847,15 @@ extension SanaaEdits {
         private(set) var createdPages: [[String: String]] = []
         private(set) var createdArtboards: [[String: String]] = []
         private(set) var createdNodes: [[String: String]] = []
+
+        /// FEAT-058. One receipt per bulk operation, returned to the agent in
+        /// the apply result so what changed is quotable, not implied.
+        private(set) var bulkReceipts: [[String: Any]] = []
+
+        /// FEAT-058. Plain-language lines for the consent sheet, collected
+        /// during the DRY run so the designer reads exactly what the batch will
+        /// do before allowing it — count first, warnings after.
+        private(set) var consentLines: [String] = []
 
         var affectedPages: [[String: String]] {
             model.pages.compactMap { page in
@@ -510,9 +873,10 @@ extension SanaaEdits {
             touchedNodes.map(\.uuidString).sorted()
         }
 
-        init(model: Document, activePageID: UUID?) {
+        init(model: Document, activePageID: UUID?, selectedNodeIDs: Set<UUID> = []) {
             self.model = model
             self.activePageID = activePageID
+            self.selectedNodeIDs = selectedNodeIDs
         }
 
         // MARK: Dispatch
@@ -537,6 +901,18 @@ extension SanaaEdits {
 
             case .removeNodes(let ids):
                 try removeNodes(ids)
+
+            case .restyleNodes(let predicate, let set):
+                try restyleNodes(predicate: predicate, set: set)
+
+            case .applyToken(let predicate, let tokenName, let property):
+                try applyToken(predicate: predicate, tokenName: tokenName, property: property)
+
+            case .normalizeSpacing(let predicate, let unit):
+                try normalizeSpacing(predicate: predicate, unit: unit)
+
+            case .renameNodes(let predicate, let rule):
+                try renameNodes(predicate: predicate, rule: rule)
             }
         }
 
@@ -805,6 +1181,542 @@ extension SanaaEdits {
             touchedNodes.formUnion(removed)
         }
 
+        // MARK: FEAT-058 — shared predicate resolution
+        //
+        // THE SAFETY INVARIANT: this is the only place a predicate turns into
+        // node ids. The dry run (pass 2) and the real apply (pass 4) both go
+        // through `perform` → here, so the set the designer consents to and the
+        // set that changes are the same code on the same document value. A
+        // second resolution path anywhere would be the divergence the plan
+        // calls the worst-case defect.
+
+        private enum MatchLocation: Equatable {
+            case page(index: Int)
+            /// A component source's children — editing these hits every
+            /// placement of the component, which the receipt must warn about.
+            case source(index: Int)
+        }
+
+        private struct MatchedNode {
+            let id: UUID
+            let name: String
+            let kind: NodeKind
+            let location: MatchLocation
+        }
+
+        private struct PredicateMatches {
+            var nodes: [MatchedNode]
+            var sourceNames: [String]
+            var broadScope: Bool
+            var scopeWords: String
+
+            var sampleNames: [String] {
+                Array(nodes.prefix(8).map(\.name))
+            }
+        }
+
+        private static func kind(of node: Node) -> NodeKind {
+            switch node.content {
+            case .rectangle: return .rectangle
+            case .ellipse: return .ellipse
+            case .polygon: return .polygon
+            case .path: return .path
+            case .line: return .line
+            case .text: return .text
+            case .image: return .image
+            case .group: return .group
+            case .instance: return .instance
+            }
+        }
+
+        private func passesFilters(_ node: Node, kinds: Set<NodeKind>?,
+                                   nameContains: String?) -> Bool {
+            if let kinds, !kinds.contains(Self.kind(of: node)) { return false }
+            if let nameContains,
+               node.name.range(of: nameContains, options: .caseInsensitive) == nil {
+                return false
+            }
+            return true
+        }
+
+        /// Collect matching nodes IN DOCUMENT ORDER (page trees first, then
+        /// sources), nested layers included. `member` decides scope membership
+        /// for a page-level root; descendants inherit it.
+        private func collect(in nodes: [Node], location: MatchLocation,
+                             member: (Node) -> Bool, predicate: NodePredicate,
+                             into out: inout [MatchedNode]) {
+            for node in nodes {
+                let inScope = member(node)
+                if inScope, passesFilters(node, kinds: predicate.kinds,
+                                          nameContains: predicate.nameContains) {
+                    out.append(MatchedNode(id: node.id, name: node.name,
+                                           kind: Self.kind(of: node), location: location))
+                }
+                if case .group(let children) = node.content {
+                    // Selection membership is per-node; every other scope is
+                    // inherited from the page-level root.
+                    if case .selection = predicate.scope {
+                        collect(in: children, location: location,
+                                member: member, predicate: predicate, into: &out)
+                    } else if inScope {
+                        collect(in: children, location: location,
+                                member: { _ in true }, predicate: predicate, into: &out)
+                    }
+                }
+            }
+        }
+
+        private func resolveMatches(_ predicate: NodePredicate) throws -> PredicateMatches {
+            var matches: [MatchedNode] = []
+
+            switch predicate.scope {
+            case .selection:
+                guard !selectedNodeIDs.isEmpty else {
+                    throw SanaaEditError.malformed(
+                        "the predicate defaults to the current selection, but nothing is selected. Name a scope (\"artboard\", \"page\", or \"document\") or select layers first. Nothing was changed.")
+                }
+                for pageIndex in model.pages.indices {
+                    collect(in: model.pages[pageIndex].nodes,
+                            location: .page(index: pageIndex),
+                            member: { selectedNodeIDs.contains($0.id) },
+                            predicate: predicate, into: &matches)
+                }
+
+            case .artboard(let artboardID):
+                guard model.page(containingArtboard: artboardID) != nil else {
+                    throw SanaaEditError.malformed(
+                        "no artboard exists with id \(artboardID.uuidString).")
+                }
+                for pageIndex in model.pages.indices {
+                    let pageID = model.pages[pageIndex].id
+                    collect(in: model.pages[pageIndex].nodes,
+                            location: .page(index: pageIndex),
+                            member: { root in
+                                (root.artboardID
+                                    ?? model.owningArtboard(of: root, on: pageID)?.id) == artboardID
+                            },
+                            predicate: predicate, into: &matches)
+                }
+
+            case .page(let pageID):
+                guard let pageIndex = model.pages.firstIndex(where: { $0.id == pageID }) else {
+                    throw SanaaEditError.malformed("no page exists with id \(pageID.uuidString).")
+                }
+                collect(in: model.pages[pageIndex].nodes,
+                        location: .page(index: pageIndex),
+                        member: { _ in true }, predicate: predicate, into: &matches)
+
+            case .document:
+                for pageIndex in model.pages.indices {
+                    collect(in: model.pages[pageIndex].nodes,
+                            location: .page(index: pageIndex),
+                            member: { _ in true }, predicate: predicate, into: &matches)
+                }
+                for sourceIndex in model.sources.indices {
+                    collect(in: model.sources[sourceIndex].children,
+                            location: .source(index: sourceIndex),
+                            member: { _ in true }, predicate: predicate, into: &matches)
+                }
+            }
+
+            guard !matches.isEmpty else {
+                throw SanaaEditError.malformed(
+                    "the predicate matched no layers. Nothing was changed — widen the scope or filters (types, nameContains) rather than assuming ids. Scope was \(predicate.scopeWords).")
+            }
+
+            let sourceNames: [String] = {
+                var names = Set<String>()
+                for match in matches {
+                    if case .source(let index) = match.location,
+                       index < model.sources.count {
+                        names.insert(model.sources[index].name)
+                    }
+                }
+                return names.sorted()
+            }()
+
+            return PredicateMatches(nodes: matches, sourceNames: sourceNames,
+                                    broadScope: predicate.isBroad,
+                                    scopeWords: predicate.scopeWords)
+        }
+
+        /// Consent + receipt lines shared by every bulk op: the honest count
+        /// first, then the scope statement, then warnings. Bounded so a
+        /// 10,000-layer document cannot build a 10,000-line sheet.
+        private mutating func recordConsentLines(headline: String,
+                                                 matches: PredicateMatches) {
+            consentLines.append(headline)
+            if matches.broadScope {
+                consentLines.append("Scope: \(matches.scopeWords).")
+            }
+            for name in matches.sourceNames.prefix(4) {
+                consentLines.append(
+                    "Also changes the component “\(name)” — every placement of it updates.")
+            }
+        }
+
+        /// Apply per-node mutations to every container the matches live in,
+        /// recursing into groups. Page containers are marked touched so
+        /// `settle()` reflows and re-settles ownership; source edits are
+        /// disclosed through the receipt and consent warning instead.
+        private mutating func applyEdits(_ edits: [UUID: (inout Node) -> Void]) {
+            for id in edits.keys { touchedNodes.insert(id) }
+            for pageIndex in model.pages.indices {
+                var nodes = model.pages[pageIndex].nodes
+                if Self.edit(matches: edits, in: &nodes) {
+                    model.pages[pageIndex].nodes = nodes
+                    touchedPages.insert(model.pages[pageIndex].id)
+                }
+            }
+            for sourceIndex in model.sources.indices {
+                var children = model.sources[sourceIndex].children
+                if Self.edit(matches: edits, in: &children) {
+                    model.sources[sourceIndex].children = children
+                }
+            }
+        }
+
+        private static func edit(matches edits: [UUID: (inout Node) -> Void],
+                                 in nodes: inout [Node]) -> Bool {
+            var changed = false
+            for index in nodes.indices {
+                if let edit = edits[nodes[index].id] {
+                    edit(&nodes[index])
+                    changed = true
+                }
+                if case .group(var children) = nodes[index].content {
+                    if edit(matches: edits, in: &children) {
+                        nodes[index].content = .group(children: children)
+                        changed = true
+                    }
+                }
+            }
+            return changed
+        }
+
+        // MARK: FEAT-058 — the four operations
+
+        private mutating func restyleNodes(predicate: NodePredicate, set: RestyleSet) throws {
+            let matches = try resolveMatches(predicate)
+            var edits: [UUID: (inout Node) -> Void] = [:]
+            for match in matches.nodes where !set.applicable(on: match.kind).isEmpty {
+                edits[match.id] = { node in
+                    if let opacity = set.opacity { node.opacity = opacity }
+                    switch node.content {
+                    case .rectangle(let shape):
+                        var shape = shape
+                        if let fill = set.fill { shape.fill = fill }
+                        if let stroke = set.stroke { shape.stroke = stroke }
+                        if let strokeWidth = set.strokeWidth { shape.strokeWidth = strokeWidth }
+                        if let radius = set.cornerRadius { shape.cornerRadius = radius }
+                        node.content = .rectangle(shape)
+                    case .ellipse(let shape):
+                        var shape = shape
+                        if let fill = set.fill { shape.fill = fill }
+                        if let stroke = set.stroke { shape.stroke = stroke }
+                        if let strokeWidth = set.strokeWidth { shape.strokeWidth = strokeWidth }
+                        node.content = .ellipse(shape)
+                    case .polygon(let shape):
+                        var shape = shape
+                        if let fill = set.fill { shape.fill = fill }
+                        if let stroke = set.stroke { shape.stroke = stroke }
+                        if let strokeWidth = set.strokeWidth { shape.strokeWidth = strokeWidth }
+                        node.content = .polygon(shape)
+                    case .path(let shape):
+                        var shape = shape
+                        if let fill = set.fill { shape.fill = fill }
+                        if let stroke = set.stroke { shape.stroke = stroke }
+                        if let strokeWidth = set.strokeWidth { shape.strokeWidth = strokeWidth }
+                        node.content = .path(shape)
+                    case .line(let shape):
+                        var shape = shape
+                        if let stroke = set.stroke { shape.stroke = stroke }
+                        if let strokeWidth = set.strokeWidth { shape.strokeWidth = strokeWidth }
+                        node.content = .line(shape)
+                    default:
+                        break
+                    }
+                }
+            }
+            let skipped = matches.nodes.count - edits.count
+            applyEdits(edits)
+
+            recordConsentLines(
+                headline: "Restyle \(edits.count) layer\(edits.count == 1 ? "" : "s")"
+                    + (skipped > 0 ? " (\(skipped) skipped — the properties do not apply to them)" : "")
+                    + " — \(matches.scopeWords.capitalizedFirst).",
+                matches: matches)
+            bulkReceipts.append([
+                "kind": "restyleNodes",
+                "matched": matches.nodes.count,
+                "changed": edits.count,
+                "skipped": skipped,
+                "sample": matches.sampleNames,
+                "notes": ["instance internals are never edited — an instance restyles only as a whole layer"]
+            ])
+        }
+
+        private mutating func applyToken(predicate: NodePredicate, tokenName: String,
+                                         property: TokenProperty) throws {
+            // Resolve BY VALUE, BY NAME, against the document as it stands —
+            // and never create a link: the receipt says so because it is the
+            // one thing a designer would otherwise assume happened.
+            let language = model.designLanguage
+            let asset = language.assets.first {
+                $0.name.compare(tokenName, options: [.caseInsensitive]) == .orderedSame
+            }
+            let typeStyle = language.typeStyles.first {
+                $0.name.compare(tokenName, options: [.caseInsensitive]) == .orderedSame
+            }
+            guard asset != nil || typeStyle != nil else {
+                let available = (language.assets.map(\.name) + language.typeStyles.map(\.name))
+                    .sorted().prefix(10).joined(separator: ", ")
+                throw SanaaEditError.malformed(
+                    "no Design Language entry is named “\(tokenName)”. get_tokens lists the exact names.\(available.isEmpty ? "" : " Closest known: \(available).")")
+            }
+
+            var set = RestyleSet()
+            switch (property, asset, typeStyle) {
+            case (.fill, let paint?, nil), (.stroke, let paint?, nil):
+                if property == .fill { set.fill = paint.value } else { set.stroke = paint.value }
+            case (.text, nil, _?):
+                break // the type style is applied on text layers below
+            case (.fill, nil, let style?):
+                throw SanaaEditError.malformed(
+                    "“\(style.name)” is a type style; property \"fill\" needs a color/gradient token. Use \"property\":\"text\".")
+            case (.stroke, nil, let style?):
+                throw SanaaEditError.malformed(
+                    "“\(style.name)” is a type style; property \"stroke\" needs a color/gradient token. Use \"property\":\"text\".")
+            case (.text, let paint?, nil):
+                throw SanaaEditError.malformed(
+                    "“\(paint.name)” is a color; property \"text\" needs a type style. Use \"property\":\"fill\" or \"stroke\".")
+            default:
+                throw SanaaEditError.malformed(
+                    "token “\(tokenName)” could not be resolved to a property to apply.")
+            }
+
+            let matches = try resolveMatches(predicate)
+            var edits: [UUID: (inout Node) -> Void] = [:]
+            var skipped = 0
+            for match in matches.nodes {
+                switch (property, match.kind) {
+                case (.fill, .rectangle), (.fill, .ellipse), (.fill, .polygon), (.fill, .path),
+                     (.stroke, .rectangle), (.stroke, .ellipse), (.stroke, .polygon),
+                     (.stroke, .path), (.stroke, .line):
+                    guard !set.applicable(on: match.kind).isEmpty else {
+                        skipped += 1; continue
+                    }
+                    edits[match.id] = { node in
+                        if let fill = set.fill {
+                            switch node.content {
+                            case .rectangle(var shape): shape.fill = fill; node.content = .rectangle(shape)
+                            case .ellipse(var shape): shape.fill = fill; node.content = .ellipse(shape)
+                            case .polygon(var shape): shape.fill = fill; node.content = .polygon(shape)
+                            case .path(var shape): shape.fill = fill; node.content = .path(shape)
+                            default: break
+                            }
+                        }
+                        if let stroke = set.stroke {
+                            switch node.content {
+                            case .rectangle(var shape): shape.stroke = stroke; node.content = .rectangle(shape)
+                            case .ellipse(var shape): shape.stroke = stroke; node.content = .ellipse(shape)
+                            case .polygon(var shape): shape.stroke = stroke; node.content = .polygon(shape)
+                            case .path(var shape): shape.stroke = stroke; node.content = .path(shape)
+                            case .line(var shape): shape.stroke = stroke; node.content = .line(shape)
+                            default: break
+                            }
+                        }
+                    }
+                case (.text, .text):
+                    guard let style = typeStyle else { break }
+                    edits[match.id] = { node in
+                        guard case .text(var text) = node.content else { return }
+                        text.align = style.align
+                        text.lineHeight = style.lineHeight
+                        text.lineHeightUnit = style.lineHeightUnit
+                        text.tracking = style.tracking
+                        text.textCase = style.textCase
+                        for runIndex in text.runs.indices {
+                            text.runs[runIndex].fontName = style.fontName
+                            text.runs[runIndex].fontSize = style.fontSize
+                            text.runs[runIndex].underline = style.underline
+                        }
+                        node.content = .text(text)
+                    }
+                default:
+                    skipped += 1
+                }
+            }
+            applyEdits(edits)
+            guard !edits.isEmpty else {
+                throw SanaaEditError.malformed(
+                    "the token applied to none of the \(matches.nodes.count) matched layer(s) — \(property.rawValue) does not fit their types. Nothing was changed.")
+            }
+
+            recordConsentLines(
+                headline: "Apply “\(tokenName)” to \(edits.count) layer\(edits.count == 1 ? "" : "s") as \(property.rawValue)"
+                    + (skipped > 0 ? " (\(skipped) skipped)" : "")
+                    + " — \(matches.scopeWords.capitalizedFirst).",
+                matches: matches)
+            bulkReceipts.append([
+                "kind": "applyToken",
+                "token": tokenName,
+                "property": property.rawValue,
+                "matched": matches.nodes.count,
+                "changed": edits.count,
+                "skipped": skipped,
+                "sample": matches.sampleNames,
+                "notes": ["values were SET, not linked — later token changes do not cascade to these layers",
+                          "instance internals are never edited"]
+            ])
+        }
+
+        private mutating func normalizeSpacing(predicate: NodePredicate, unit: CGFloat) throws {
+            let matches = try resolveMatches(predicate)
+
+            // Managed gaps: every matched group with a packed auto-layout.
+            var groupEdits: [UUID: (inout Node) -> Void] = [:]
+            var groupsSnapped = 0
+            for match in matches.nodes
+            where match.kind == .group {
+                groupEdits[match.id] = { node in
+                    guard var layout = node.autoLayout,
+                          layout.distribution == .packed else { return }
+                    let snapped = max(0, (layout.gap / unit).rounded() * unit)
+                    if abs(snapped - layout.gap) >= 0.01 {
+                        layout.gap = snapped
+                        node.autoLayout = layout
+                        groupsSnapped += 1
+                    }
+                }
+            }
+            applyEdits(groupEdits)
+
+            // Free sibling spacing: the top-level layers of every artboard the
+            // scope covers, snapped along the board's dominant stacking axis.
+            var boardIDs: [UUID] = []
+            switch predicate.scope {
+            case .artboard(let id): boardIDs = [id]
+            case .page(let pageID):
+                if let pageIndex = model.pages.firstIndex(where: { $0.id == pageID }) {
+                    boardIDs = model.pages[pageIndex].artboards.map(\.id)
+                }
+            case .document:
+                boardIDs = model.pages.flatMap { $0.artboards.map(\.id) }
+            case .selection:
+                break // refused at parse time
+            }
+            var moveEdits: [UUID: (inout Node) -> Void] = [:]
+            for boardID in boardIDs {
+                guard let page = model.page(containingArtboard: boardID),
+                      let pageIndex = model.pages.firstIndex(where: { $0.id == page.id }) else { continue }
+                let roots = model.pages[pageIndex].nodes.filter {
+                    $0.isVisible
+                        && ($0.artboardID ?? model.owningArtboard(of: $0, on: page.id)?.id) == boardID
+                }
+                guard roots.count >= 2 else { continue }
+                let vertical = {
+                    let ys = roots.map { $0.frame.minY }
+                    let xs = roots.map { $0.frame.minX }
+                    return (ys.max() ?? 0) - (ys.min() ?? 0) >= (xs.max() ?? 0) - (xs.min() ?? 0)
+                }()
+                let ordered = roots.sorted {
+                    vertical ? $0.frame.minY < $1.frame.minY : $0.frame.minX < $1.frame.minX
+                }
+                var cumulative: CGFloat = 0
+                for index in ordered.indices.dropFirst() {
+                    let previous = ordered[index - 1]
+                    let current = ordered[index]
+                    let delta = vertical
+                        ? current.frame.minY - previous.frame.maxY
+                        : current.frame.minX - previous.frame.maxX
+                    let snapped = max(0, (delta / unit).rounded() * unit)
+                    cumulative += snapped - delta
+                    if abs(cumulative) >= 0.01 {
+                        let shift = cumulative
+                        let id = current.id
+                        moveEdits[id] = { node in
+                            if vertical { node.frame.origin.y += shift }
+                            else { node.frame.origin.x += shift }
+                        }
+                    }
+                }
+            }
+            let layersMoved = moveEdits.count
+            applyEdits(moveEdits)
+            guard groupsSnapped > 0 || layersMoved > 0 else {
+                throw SanaaEditError.malformed(
+                    "normalizeSpacing found nothing to change — matched groups were already on the \(Int(unit))-pt scale and no artboard needed its free spacing snapped. Nothing was changed.")
+            }
+
+            let boardWords = boardIDs.count == 1 ? "1 artboard" : "\(boardIDs.count) artboards"
+            recordConsentLines(
+                headline: "Normalize spacing to the \(Int(unit))-pt scale — \(groupsSnapped) managed group(s), \(layersMoved) layer(s) moved across \(boardWords). \(matches.scopeWords.capitalizedFirst).",
+                matches: matches)
+            bulkReceipts.append([
+                "kind": "normalizeSpacing",
+                "unit": unit,
+                "groupsSnapped": groupsSnapped,
+                "layersMoved": layersMoved,
+                "artboardsConsidered": boardIDs.count,
+                "notes": ["free spacing snaps the gaps between a board's top-level layers along its dominant axis; nested free layers are untouched"]
+            ])
+        }
+
+        private mutating func renameNodes(predicate: NodePredicate, rule: RenameRule) throws {
+            let matches = try resolveMatches(predicate)
+            var edits: [UUID: (inout Node) -> Void] = [:]
+            var renamed: [[String: String]] = []
+            var sequenceNumber = 0
+            for match in matches.nodes {
+                let newName: String
+                switch rule {
+                case .findReplace(let find, let replace):
+                    newName = match.name.replacingOccurrences(of: find, with: replace)
+                case .prefix(let prefix):
+                    newName = prefix + match.name
+                case .suffix(let suffix):
+                    newName = match.name + suffix
+                case .sequence(let base, let start):
+                    newName = "\(base)\(start + sequenceNumber)"
+                    sequenceNumber += 1
+                }
+                guard newName != match.name, !newName.isEmpty else { continue }
+                let id = match.id
+                edits[id] = { node in node.name = newName }
+                if renamed.count < 50 {
+                    renamed.append(["id": id.uuidString, "from": match.name, "to": newName])
+                }
+            }
+            applyEdits(edits)
+            guard !edits.isEmpty else {
+                throw SanaaEditError.malformed(
+                    "the rename rule changed none of the \(matches.nodes.count) matched name(s) — every result was identical or empty. Nothing was changed.")
+            }
+
+            recordConsentLines(
+                headline: "Rename \(edits.count) layer\(edits.count == 1 ? "" : "s") — \(renameRuleWords(rule)). \(matches.scopeWords.capitalizedFirst).",
+                matches: matches)
+            bulkReceipts.append([
+                "kind": "renameNodes",
+                "matched": matches.nodes.count,
+                "renamed": edits.count,
+                "renames": renamed,
+                "notes": renamed.count < edits.count
+                    ? ["first 50 renames shown of \(edits.count)"] : []
+            ] as [String: Any])
+        }
+
+        private func renameRuleWords(_ rule: RenameRule) -> String {
+            switch rule {
+            case .findReplace(let find, let replace):
+                return "every “\(find)” becomes “\(replace)”"
+            case .prefix(let prefix): return "prefix “\(prefix)”"
+            case .suffix(let suffix): return "suffix “\(suffix)”"
+            case .sequence(let base, let start): return "sequence “\(base)\(start)…”"
+            }
+        }
+
         // MARK: Reference resolution
 
         private func resolvePage(_ reference: Reference?) throws -> UUID {
@@ -906,4 +1818,10 @@ extension SanaaEdits {
             return changed
         }
     }
+}
+
+private extension String {
+    /// "the current selection" → "The current selection", for consent lines
+    /// that read as sentences without touching the rest of the string.
+    var capitalizedFirst: String { prefix(1).uppercased() + dropFirst() }
 }
