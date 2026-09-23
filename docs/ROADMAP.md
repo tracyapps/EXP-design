@@ -1377,8 +1377,12 @@ verification. Waves alternate; each wave ends at a verification gate.
       the dry-run preview (counts + scope + source warnings), per-op receipts
       with bounded samples, gate matrix extended (switch-state refusals +
       twelve scripted refusal cases + the consent eyeball list).
-      **Awaiting owner verification** — run `scripts/verify_sanaa_write_gate.sh`
-      (all phases, scratch document) plus the bulk-consent checks it prints.
+      **Owner-verified 2026-09-23**: consent paths and phases 1–2 passed
+      first run ("flying colors"); two scripted fails fixed the same night
+      (rename-rule ambiguity miscounting find/replace; a flaky script id
+      capture) and phase 3 re-ran clean after rebuild. **v2.5's scoped work
+      is COMPLETE — every box checked; what remains is the release process
+      (the v2.4 checklist pattern).**
 
 **Excluded from v2.5 (v2.6+ candidates):** FEAT-057 (design directions),
 FEAT-059 (a11y guided fixes — depends on 058 anyway), FEAT-060 (evaluation
@@ -3248,6 +3252,37 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-09-23 (late — FEAT-058 phase-3 re-run PASSED; v2.5 scope COMPLETE —
+  release decision is the owner's).** Owner rebuilt and re-ran phase 3 after
+  the two fixes: "rebuilt and that passed now." FEAT-058 is closed in full —
+  gate matrix (all phases), consent paths, bulk-consent eyeball list, and the
+  two fixed cases. Every box in the v2.5 section is checked: the pattern
+  system, FEAT-064, BUG-065, BUG-062 (both halves), the design-token
+  decision, and FEAT-058.
+
+  **Nothing further is scoped for v2.5.** What remains is the release
+  process, following `docs/RELEASE-CHECKLIST-v2.4.md` as the pattern:
+  release notes, the standing accessibility verification pass, source
+  freeze + suite runs, signed archive → notarization → immutable zip +
+  SHA-256 → Sparkle metadata (build 16) → tag/GitHub release → website
+  deploy → public verification, and the Sparkle update proof (decision
+  below). Versions are already 2.5/build 16 across app, thumbnail, and
+  bundled runtimes — nothing to bump.
+
+  **Open decisions for the owner at the release gate:**
+  1. The preserved v2.3→v2.4 in-app Sparkle proof (the one v2.4
+     post-publication gate still listed open). With 2.5 shipping, the
+     meaningful proof becomes v2.4→v2.5 on the new appcast; doing the old
+     2.3→2.4 proof first is optional — supersede it by choice or run both.
+  2. Release-notes framing: the paint-model completion (any paint as fill or
+     stroke, patterns, anchoring, masks on both export surfaces) and Sanaa's
+     cleanup ops are the two stories; which leads is the owner's call.
+  3. Housekeeping before freeze: the stray untracked `website/` content that
+     arrived with the 2026-09-23 Dropbox incident is still present — review
+     and keep or delete so the frozen tree is clean; and
+     `~/exp-design-rescue-20260923/` can be retired once the owner is
+     confident in the repo's health.
 
 - **2026-09-23 (night — FEAT-058 gate matrix run by the owner; two fails
   fixed; phase 3 re-run pending).** Owner ran the full gate matrix plus the
