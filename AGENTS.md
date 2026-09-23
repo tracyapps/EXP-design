@@ -93,9 +93,11 @@ code write-back remain explicitly deferred pending evidence.
 Agent capability packs, Figma OAuth/Keychain/Variables, and agent write-back remain
 explicit non-gating follow-ups.
 See ROADMAP.md for the authoritative checklist and newest Progress Log entry.
-**v2.5 scope, set by the owner 2026-09-22:** finish the paint model — carrying
-in the built pattern system (FEAT-062/063/065 plus BUG-060–068, committed
-2026-09-22), then FEAT-064, BUG-065, BUG-062's semantic-HTML half, and the
-W3C token decision — and add Sanaa FEAT-058. Wave 1's owner verification gate
-is open: resume there, and keep the sequencing rule — no document-mutating
-slice starts while another awaits owner verification.
+**v2.5 scope, set by the owner 2026-09-22:** finish the paint model and add
+Sanaa FEAT-058. Tonight's standing: the carry-in pattern system, FEAT-064
+(per-pattern anchoring), and BUG-065 (gradient strokes) are committed AND
+owner-verified — the paint model is complete; any paint can be a fill or a
+stroke. Wave 2 has one item left (BUG-062's semantic-HTML remainder, small,
+export-only); then Wave 3 (Sanaa FEAT-058 — read `docs/SANAA-PLAN.md` §10
+first). Nothing is awaiting verification, so resume directly at ROADMAP →
+v2.5 → Wave 2's last checkbox.

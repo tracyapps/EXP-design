@@ -209,9 +209,7 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: bug (model gap)
 - Priority: P2
 - Area: model · import · paint
-- Status: **needs-verify — implemented 2026-09-22** (86/86 fixture checks
-  incl. an independent qlmanage comparison; both schemes clean; details in
-  ROADMAP's Progress Log)
+- Status: **done — owner verified 2026-09-22** ("all tested and verified")
 - Repro/Detail: `hexline-weave-neon.svg` imports its pattern correctly — tile
   size, `patternTransform`, content nodes all verified — and still renders
   without its neon lines. Compare `docs/evidence/FEAT-062/hexline-weave-neon.png`

@@ -1334,14 +1334,13 @@ verification. Waves alternate; each wave ends at a verification gate.
       format has no paint/tile concept, and a proprietary extension would
       break the format's promise. Owner was told the recommendation and raised
       no objection when directing work to continue.
-- [ ] BUG-065 — gradient strokes: widen shape `stroke` from `RGBAColor` to
+- [x] BUG-065 — gradient strokes: widen shape `stroke` from `RGBAColor` to
       `Paint` — the same surface FEAT-062 Stage A crossed (every shape, both
       renderers, both exporters, inspector, schema migration with tolerant
       decode). `hexline-weave-neon.svg` renders its lines; legacy solid
       strokes decode and render unchanged.
-      **Built 2026-09-22 — needs-verify** (details in the Progress Log;
-      fixture suite 86/86 including an independent qlmanage comparison;
-      both schemes clean, zero warnings in touched files).
+      **Owner-verified 2026-09-22** ("all tested and verified"), on top of
+      86/86 fixture checks and the independent qlmanage comparison.
 - [ ] BUG-062 (remainder) — mask groups in the semantic-HTML export.
 - [ ] W3C design-token decision for patterns (FEAT-062 Stage A's open
       question: today tokens omit patterns rather than mislabel them; keep,
@@ -3225,6 +3224,26 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-09-22 (session close — BUG-065 owner-verified; Wave 2 one item from
+  done).** Owner ran the BUG-065 pass and confirmed everything ("excellent.
+  all tested and verified") — hexline's neon lines, gradient/pattern strokes
+  from the inspector across canvas and exports, undo names, and legacy
+  documents unchanged. Backlog flipped to done.
+
+  **Where v2.5 stands after tonight:** three commits — the carry-in pattern
+  system (`6ec5c1f`), FEAT-064 per-pattern anchoring (`60f6d28`), BUG-065
+  gradient strokes (`f2e0380`) — every one built, suite-checked (86/86),
+  and owner-verified the same day. Wave 2 has ONE item left (BUG-062's
+  semantic-HTML remainder, small and export-only); Wave 3 (Sanaa FEAT-058)
+  is untouched. The fixture suite also gained its own regression this
+  session and lost its repo-root pollution bug (it was never Dropbox —
+  the owner can keep sync running).
+
+  **NEXT session, in order:** BUG-062's semantic-HTML half (mask groups as
+  `clip-path` in the handoff export) closes Wave 2 — then Wave 3 opens with
+  Sanaa FEAT-058 (`apply_edits` v2); read `docs/SANAA-PLAN.md` §10/FEAT-058
+  first, per the standing rule for Sanaa work.
 
 - **2026-09-22 (later still; BUG-065 — gradient strokes — the paint model
   completes).** FEAT-064 was owner-verified on review ("patterns all
