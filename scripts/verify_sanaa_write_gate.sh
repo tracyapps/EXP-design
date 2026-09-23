@@ -211,10 +211,21 @@ if phase_wanted 3; then
 
   # A real, EMPTY artboard: the predicate must match nothing and say so —
   # a bulk op must never apply zero changes quietly and report success.
-  bulk_board="$(call apply_edits '{"summary":"bulk gate board","ops":[{"op":"createArtboard","name":"Bulk gate","frame":{"width":240,"height":160}}]}' \
-    | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)"
+  # Id capture is two-layered: grep the apply reply first, and if that comes
+  # back empty (one owner run lost this call's reply entirely to a socket
+  # timing miss while the calls either side were fine), diff list_artboards
+  # before/after instead. If both fail, print the raw reply so the next run
+  # is diagnosable instead of a bare "<empty>".
+  uuid_re='[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
+  bulk_before="$(call list_artboards '{}' | grep -oE "$uuid_re" | sort)"
+  bulk_reply="$(call apply_edits '{"summary":"bulk gate board","ops":[{"op":"createArtboard","name":"Bulk gate","frame":{"width":240,"height":160}}]}')"
+  bulk_after="$(call list_artboards '{}' | grep -oE "$uuid_re" | sort)"
+  bulk_board="$(printf '%s\n' "$bulk_reply" | grep -oE "$uuid_re" | head -1)"
   if [ -z "$bulk_board" ]; then
-    bad "bulk gate artboard — no id returned" ""
+    bulk_board="$(comm -13 <(printf '%s\n' "$bulk_before") <(printf '%s\n' "$bulk_after") | head -1)"
+  fi
+  if [ -z "$bulk_board" ]; then
+    bad "bulk gate artboard — no id returned" "$bulk_reply"
   else
     ok "bulk gate artboard — created for predicate checks"
     assert_refused "bulk: predicate matches nothing" "matched no layers" \

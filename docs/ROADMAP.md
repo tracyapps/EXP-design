@@ -3249,6 +3249,33 @@ font import → Phase 9, shadows → Phase 10._
 
 ## Progress Log
 
+- **2026-09-23 (night — FEAT-058 gate matrix run by the owner; two fails
+  fixed; phase 3 re-run pending).** Owner ran the full gate matrix plus the
+  consent eyeball tests. **The consent paths passed with flying colors** —
+  both switch-off refusals including the bulk variants (phases 1–2), the
+  classic phase-3 refusals, the consent sheet preview, and the bulk-consent
+  checks. Two scripted fails, both now fixed:
+
+  - **`renameNodes` with an empty `find` reported the wrong error** — a real
+    DSL bug: the rule-ambiguity check counted `find` and `replace` as two
+    competing kinds when they are ONE rule's two parameters, so
+    `{"find":"","replace":"y"}` hit "exactly ONE kind of rule" before the
+    empty-`find` guard could speak. The check now counts rule KINDS
+    (find/replace together), and a lone `"replace"` gets the same clear
+    "find must not be empty" message.
+  - **`bulk gate artboard — no id returned`** — the script grepped the apply
+    reply for a UUID and that one call's reply never arrived (socket timing
+    miss; the calls either side were fine). Id capture is now two-layered:
+    grep the reply, else diff `list_artboards` before/after; if both fail it
+    prints the raw reply so the next run is diagnosable. The create itself
+    had succeeded — the gate's artboard-count discipline was never at risk.
+
+  Both schemes build clean; zero warnings in touched files. **NEXT:** owner
+  re-runs just phase 3 (`scripts/verify_sanaa_write_gate.sh --phase 3`, both
+  switches on, scratch document) to confirm the two fixed cases; everything
+  else in the matrix has already passed. That closes FEAT-058 — and with it
+  v2.5's mutating scope.
+
 - **2026-09-23 (evening — FEAT-058 built: Sanaa `apply_edits` v2, the cleanup
   ops; Wave 3 code-complete, awaiting owner verification).** One session, one
   slice. Sanaa can now do the tedious work it was always meant for — bulk

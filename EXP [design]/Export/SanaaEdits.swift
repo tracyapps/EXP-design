@@ -740,14 +740,24 @@ enum SanaaEdits {
     }
 
     private static func parseRenameRule(_ dict: [String: Any]) throws -> RenameRule {
-        let named = Set(dict.keys).intersection(["find", "replace", "prefix", "suffix", "sequence"])
-        guard named.count <= 1 else {
+        // find+replace are ONE rule — its two parameters — never two competing
+        // kinds. The first version of this check counted them separately, so
+        // {"find":"","replace":"y"} reported "exactly ONE kind of rule" before
+        // the empty-find guard could say what was actually wrong. Caught by the
+        // owner's gate-matrix run 2026-09-23.
+        let hasFindReplace = dict["find"] != nil || dict["replace"] != nil
+        let kindCount = [hasFindReplace, dict["prefix"] != nil,
+                         dict["suffix"] != nil, dict["sequence"] != nil]
+            .filter { $0 }.count
+        guard kindCount == 1 else {
             throw SanaaEditError.malformed(
-                "renameNodes \"rule\" must name exactly ONE kind of rule (find, prefix, suffix, or sequence).")
+                kindCount == 0
+                    ? "renameNodes \"rule\" must name one of: {\"find\", \"replace\"}, {\"prefix\"}, {\"suffix\"}, or {\"sequence\": {\"base\", \"start\"}}."
+                    : "renameNodes \"rule\" must name exactly ONE kind of rule (find, prefix, suffix, or sequence).")
         }
-        if let find = dict["find"] as? String {
+        if hasFindReplace {
             try checkKeys(dict, allowed: ["find", "replace"], what: "renameNodes \"rule\"")
-            guard !find.isEmpty else {
+            guard let find = dict["find"] as? String, !find.isEmpty else {
                 throw SanaaEditError.malformed("\"find\" must not be empty.")
             }
             return .findReplace(find: find, replace: dict["replace"] as? String ?? "")
@@ -772,6 +782,8 @@ enum SanaaEdits {
             }
             return .sequence(base: base, start: start)
         }
+        // Unreachable when kindCount == 1: one of the four branches above owns
+        // every key combination that survives the guard.
         throw SanaaEditError.malformed(
             "renameNodes \"rule\" must name one of: {\"find\", \"replace\"}, {\"prefix\"}, {\"suffix\"}, or {\"sequence\": {\"base\", \"start\"}}.")
     }

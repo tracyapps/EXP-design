@@ -4048,8 +4048,9 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: feature
 - Priority: P2 (v2.5 candidate)
 - Area: export · model
-- Status: **built 2026-09-23 — awaiting owner verification (live gate matrix
-  phase 3 + the bulk-consent eyeball list)**
+- Status: **gate matrix run 2026-09-23 — consent paths owner-verified
+  ("passed with flying colors"); two scripted fails fixed the same night;
+  awaiting the owner's phase-3 re-run of those two cases**
 - Repro/Detail: MUTATING — the §8 sequencing rule applies in full. New op
   kinds inside the existing parse → dry-run → consent → rebuild pipeline:
   `restyleNodes` (property set by predicate), `applyToken` (Design Language
