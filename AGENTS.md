@@ -49,8 +49,9 @@ import, unified Handoff/panel IA, editable rendered HTML/CSS import, CodePen
 handoff/import, and static Storybook import are shipped.
 
 `docs/RELEASE-CHECKLIST-v2.4.md` contains the notarization, immutable artifact,
-GitHub, Sparkle, and website receipts. The only post-publication gate still open
-is the preserved v2.3→v2.4 in-app Sparkle install/relaunch proof.
+GitHub, Sparkle, and website receipts. The preserved v2.3→v2.4 in-app Sparkle
+proof was SUPERSEDED by owner decision 2026-09-23 — RELEASE-CHECKLIST-v2.5 §10
+proves v2.4→v2.5 on the live feed instead; do not reopen the v2.3 case.
 
 **v2.4 scope, set by the owner 2026-08-25:** ship BOTH the deferred vector/tool
 queue and Sanaa, with **Sanaa as the headline**. Waves and gates live in
@@ -94,18 +95,17 @@ Agent capability packs, Figma OAuth/Keychain/Variables, and agent write-back rem
 explicit non-gating follow-ups.
 See ROADMAP.md for the authoritative checklist and newest Progress Log entry.
 **v2.5 scope, set by the owner 2026-09-22:** finish the paint model and add
-Sanaa FEAT-058. Standing 2026-09-23 (late): **v2.5 scope is COMPLETE and
-fully owner-verified** — pattern system, FEAT-064, BUG-065, BUG-062 (both
-halves), the design-token decision, and FEAT-058 (gate matrix + consent
-paths, phase-3 re-run clean 2026-09-23). Nothing further is scoped. **Next:
-the release process** per the `docs/RELEASE-CHECKLIST-v2.4.md` pattern
-(release notes, accessibility verification, freeze, archive, notarize,
-immutable zip, Sparkle build-16 metadata, GitHub, website, updater proof),
-plus the owner decisions recorded in the 2026-09-23 late Progress Log entry
-(v2.3→v2.4 proof supersede-or-run, release-notes framing, stray website/
-content + rescue-snapshot cleanup). Dropbox note: the folder is
-supposed to be excluded from sync (one machine only); a known ongoing
-Dropbox issue has been corrupting the owner's dev folders (ticket open) —
-any Dropbox-caused change here may be safely overridden from git; see the
-2026-09-23 Progress Log entries and
+Sanaa FEAT-058. Standing 2026-09-23 (launch): v2.5 scope is COMPLETE and
+fully owner-verified, and the owner has authorized LAUNCH. Release-gate
+decisions recorded: v2.3→v2.4 Sparkle proof superseded by the v2.4→v2.5
+proof; release notes lead with the pattern/paint story; the Dropbox incident
+is fully restored (tree clean). **Active work:
+`docs/RELEASE-CHECKLIST-v2.5.md`** — walk it top to bottom (release notes and
+checklist are written; §1's scripted freeze battery, then archive → notarize
+→ immutable zip → Sparkle metadata → tag/GitHub/website → public verify →
+the v2.4→v2.5 update proof, then the v2.6 dev-open step). Dropbox note: the
+folder is supposed to be excluded from sync (one machine only); a known
+ongoing Dropbox issue has been corrupting the owner's dev folders (ticket
+open) — any Dropbox-caused change here may be safely overridden from git;
+see the 2026-09-23 Progress Log entries and
 `~/exp-design-rescue-20260923/`.

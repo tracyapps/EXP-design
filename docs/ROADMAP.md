@@ -3253,6 +3253,31 @@ font import → Phase 9, shadows → Phase 10._
 
 ## Progress Log
 
+- **2026-09-23 (launch prep — all three release-gate decisions made; v2.5
+  launch work begins).** Owner decisions, recorded:
+
+  1. **The preserved v2.3→v2.4 Sparkle proof is SUPERSEDED and closed.** With
+     2.5 shipping, the meaningful proof is the current pipeline end to end;
+     RELEASE-CHECKLIST-v2.5 §10 proves public v2.4 → v2.5 on the live feed.
+  2. **Release notes lead with the pattern/paint story.** The owner's framing:
+     barely any tool does editable vector SVG patterns — Illustrator
+     rasterizes or drops pattern swatches on SVG export (owner recollection,
+     corroborated by user reports; release copy keeps the claim about what
+     EXP does and stays restrained about competitors).
+  3. **The Dropbox incident is fully restored; tree verified clean.** The
+     "stray" website content turned out to be the v2.4 website's own tracked
+     help/recording library that the deletion wave removed — nothing foreign,
+     nothing to keep-or-delete. `~/exp-design-rescue-20260923/` can be
+     retired at the owner's convenience.
+
+  Written this session: `RELEASE-NOTES-v2.5.md` (pattern-led, honest-limits
+  section) and `docs/RELEASE-CHECKLIST-v2.5.md` (full v2.4-pattern walk: all
+  three wave gates pre-filled as owner-verified, the v2.5 accessibility walk,
+  the scripted freeze battery — now including the pattern suite — archive →
+  notarize → immutable zip → Sparkle metadata → tag/GitHub/website → public
+  verification → the superseding v2.4→v2.5 update proof). Launch proceeds per
+  that checklist; §2's owner acceptance record fills in at release time.
+
 - **2026-09-23 (late — FEAT-058 phase-3 re-run PASSED; v2.5 scope COMPLETE —
   release decision is the owner's).** Owner rebuilt and re-ran phase 3 after
   the two fixes: "rebuilt and that passed now." FEAT-058 is closed in full —
