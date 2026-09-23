@@ -1350,8 +1350,9 @@ verification. Waves alternate; each wave ends at a verification gate.
       reported unresolvable instead of dangling; the fidelity report tells the
       new truth (exact vs bounds-rectangle silhouette, orphaned flag, the one
       real drift — auto-padding background inside the CSS clip). `overflow:
-      hidden` approximation retired. Awaiting owner verification; see BACKLOG
-      BUG-062 for the full implementation record and the round-trip caveat.
+      hidden` approximation retired. **Owner-verified 2026-09-23** ("verified,
+      mask bug is fixed"). See BACKLOG BUG-062 for the full implementation
+      record and the round-trip caveat.
 - [x] W3C design-token decision for patterns (FEAT-062 Stage A's open
       question: today tokens omit patterns rather than mislabel them; keep,
       or extend the format). Owner decision; record it in the Progress Log.
@@ -1359,8 +1360,8 @@ verification. Waves alternate; each wave ends at a verification gate.
       token format has no paint/tile concept, and a proprietary extension
       would break the format's promise); the owner was told the recommendation
       and raised no objection while directing work to continue. Recorded with
-      FEAT-064 above and in the 2026-09-22 Progress Log entries. **Wave 2 is
-      now complete pending BUG-062's owner-verification gate.**
+      FEAT-064 above and in the 2026-09-22 Progress Log entries. **Wave 2
+      COMPLETE — gate cleared with BUG-062's owner verification 2026-09-23.**
 
 ### Wave 3 — Sanaa `apply_edits` v2 (mutating; FEAT-058)
 
@@ -3240,6 +3241,31 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-09-23 (later — BUG-062 owner-verified; Wave 2 CLOSED; Wave 3 opens
+  with Sanaa FEAT-058).** Owner verified the mask fix ("verified, mask bug is
+  fixed") — both halves of BUG-062 are now owner-verified (SVG 2026-09-22,
+  semantic HTML 2026-09-23) and the entry is done in BACKLOG. That closes
+  Wave 2 completely: pattern system, FEAT-064, BUG-065, BUG-062, and the
+  conservative design-token decision are all built, checked, and signed off.
+  Nothing awaits verification, so Wave 3 (Sanaa `apply_edits` v2 / FEAT-058)
+  may start at the next session per the sequencing rule.
+
+  **Dropbox, from the owner, same day:** the folder is supposed to be EXCLUDED
+  from sync and only lives on one machine; Dropbox recently began "wreaking
+  havoc on ALL my development folders, not just this one"; a support ticket is
+  being opened. Standing rule recorded: any Dropbox-caused change in a dev
+  folder can be safely overridden — Dropbox is never right about these files.
+  This retroactively confirms the 2026-09-23 incident diagnosis (external
+  sync deleted `.git/HEAD`/`config` and 51 tracked files; recovered in full;
+  rescue snapshot at `~/exp-design-rescue-20260923/`). The stray `website/`
+  content that arrived with the wave remains untracked and untouched, pending
+  the owner's review.
+
+  **NEXT:** Wave 3 — Sanaa FEAT-058 (`apply_edits` v2: `restyleNodes`,
+  `applyToken`, `normalizeSpacing`, `renameNodes` inside the existing parse →
+  dry-run → consent → rebuild pipeline). Read `docs/SANAA-PLAN.md` §10/FEAT-058
+  FIRST, per the standing rule for Sanaa work.
 
 - **2026-09-23 (BUG-062 semantic half built — Wave 2 code-complete; mid-session
   Dropbox-folder incident, fully recovered — owner should read the incident

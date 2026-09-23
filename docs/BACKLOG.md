@@ -330,8 +330,8 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: bug
 - Priority: P1
 - Area: export · SVG · handoff
-- Status: **built 2026-09-23 — both halves implemented (SVG owner-verified
-  2026-09-22; semantic-HTML half awaiting owner verification)**
+- Status: **done — both halves owner-verified (SVG 2026-09-22; semantic HTML
+  2026-09-23, "verified, mask bug is fixed")**
 - Repro/Detail: Owner 2026-09-03: "if i have a masked shape, the shape used to
   create the mask, if i don't turn the color's transparency down to 0, it shows
   up as an actual shape over the top." Owner confirms this in **SVG export and

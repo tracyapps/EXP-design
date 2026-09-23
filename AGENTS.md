@@ -94,14 +94,14 @@ Agent capability packs, Figma OAuth/Keychain/Variables, and agent write-back rem
 explicit non-gating follow-ups.
 See ROADMAP.md for the authoritative checklist and newest Progress Log entry.
 **v2.5 scope, set by the owner 2026-09-22:** finish the paint model and add
-Sanaa FEAT-058. Standing 2026-09-23: the paint model is complete and
-owner-verified (pattern system, FEAT-064, BUG-065), and BUG-062's
-semantic-HTML remainder is BUILT (mask groups export their authored
-silhouette as CSS `clip-path: path(...)`, mask shapes leave the DOM) —
-Wave 2 is code-complete with that one item awaiting owner verification
-(the only gate before Wave 3). Next: owner verifies BUG-062's handoff
-export, then Wave 3 (Sanaa FEAT-058 — read `docs/SANAA-PLAN.md` §10
-first). A 2026-09-23 Dropbox-folder incident (external deletion of .git
-metadata + 51 files, fully recovered; see the Progress Log entry and
-`~/exp-design-rescue-20260923/`) is recorded in ROADMAP.md with suggested
-owner follow-ups.
+Sanaa FEAT-058. Standing 2026-09-23 (later): Wave 2 is COMPLETE and fully
+owner-verified — pattern system, FEAT-064, BUG-065, and BUG-062 (both
+halves; semantic HTML verified 2026-09-23) — plus the conservative
+design-token decision. Nothing awaits verification. **Resume at Wave 3:
+Sanaa FEAT-058 (`apply_edits` v2) — read `docs/SANAA-PLAN.md` §10/FEAT-058
+FIRST, per the standing rule for Sanaa work.** Dropbox note: the folder is
+supposed to be excluded from sync (one machine only); a known ongoing
+Dropbox issue has been corrupting the owner's dev folders (ticket open) —
+any Dropbox-caused change here may be safely overridden from git; see the
+2026-09-23 Progress Log entries and
+`~/exp-design-rescue-20260923/`.
