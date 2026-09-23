@@ -1077,27 +1077,27 @@ private struct ComponentSourcePreview: View {
             let p = Path(shape.effectiveRadii.path(in: rect, scale: scale))
             fill(p, with: shape.fill, in: &localContext)
             if shape.strokeWidth > 0 {
-                localContext.stroke(p, with: .color(shape.stroke.swiftUI),
+                localContext.stroke(p, with: .color(shape.stroke.representativeColor.swiftUI),
                                     lineWidth: max(0.75, shape.strokeWidth * scale))
             }
         case .ellipse(let shape):
             let p = Path(ellipseIn: rect)
             fill(p, with: shape.fill, in: &localContext)
             if shape.strokeWidth > 0 {
-                localContext.stroke(p, with: .color(shape.stroke.swiftUI),
+                localContext.stroke(p, with: .color(shape.stroke.representativeColor.swiftUI),
                                     lineWidth: max(0.75, shape.strokeWidth * scale))
             }
         case .polygon(let shape):
             let p = polygonPath(shape.vertices(in: rect))
             fill(p, with: shape.fill, in: &localContext)
             if shape.strokeWidth > 0 {
-                localContext.stroke(p, with: .color(shape.stroke.swiftUI),
+                localContext.stroke(p, with: .color(shape.stroke.representativeColor.swiftUI),
                                     lineWidth: max(0.75, shape.strokeWidth * scale))
             }
         case .path(let shape):
             let p = pathShape(shape, rect: rect, scale: scale)
             if shape.closed || shape.isMultiContour { fill(p, with: shape.fill, in: &localContext) }
-            localContext.stroke(p, with: .color(shape.stroke.swiftUI),
+            localContext.stroke(p, with: .color(shape.stroke.representativeColor.swiftUI),
                                 lineWidth: max(0.75, shape.strokeWidth * scale))
         case .line(let shape):
             var p = Path()
@@ -1105,7 +1105,7 @@ private struct ComponentSourcePreview: View {
                                y: rect.minY + shape.start.y * scale))
             p.addLine(to: CGPoint(x: rect.minX + shape.end.x * scale,
                                   y: rect.minY + shape.end.y * scale))
-            localContext.stroke(p, with: .color(shape.stroke.swiftUI),
+            localContext.stroke(p, with: .color(shape.stroke.representativeColor.swiftUI),
                                 lineWidth: max(0.75, shape.strokeWidth * scale))
         case .text(let text):
             drawText(text, in: rect, context: &localContext, scale: scale)

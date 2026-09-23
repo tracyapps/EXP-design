@@ -289,7 +289,7 @@ enum AutoLayoutEngine {
 
     /// The frame-style of a filled shape we can absorb as a frame background.
     static func backgroundStyle(of node: Node)
-        -> (fill: Paint?, corner: CGFloat, stroke: RGBAColor?, strokeWidth: CGFloat)? {
+        -> (fill: Paint?, corner: CGFloat, stroke: Paint?, strokeWidth: CGFloat)? {
         switch node.content {
         case .rectangle(let s): return (s.fill, s.cornerRadius, s.stroke, s.strokeWidth)
         case .ellipse(let s):   return (s.fill, 0, s.stroke, s.strokeWidth)

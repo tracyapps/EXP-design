@@ -1381,6 +1381,31 @@ final class CanvasNSView: NSView {
         return hypot(a.x - b.x, a.y - b.y) <= Self.pencilCloseDistance
     }
 
+    /// BUG-065. Canvas stroke dispatch: solid keeps the exact `strokeAligned` /
+    /// `strokePath` rendering every existing document has always drawn; a
+    /// gradient (or pattern) stroke builds the stroke region as a clip — at
+    /// VIEW width, zoom applied, exactly like the solid callers — and paints it
+    /// through the same `PaintRender` primitives the fills use, so canvas and
+    /// export cannot drift.
+    private func canvasStroke(_ path: NSBezierPath, width: CGFloat,
+                              alignment: StrokeAlignment, paint: Paint,
+                              bounds: CGRect, in ctx: CGContext,
+                              join: CGLineJoin = .miter, cap: CGLineCap = .butt,
+                              miterLimit: CGFloat = 4, pattern: StrokePattern) {
+        guard width > 0 else { return }
+        if case .solid(let c) = paint {
+            PaintRender.strokeAligned(path, width: width, alignment: alignment,
+                                      color: PaintRender.nsColor(c), join: join, cap: cap,
+                                      miterLimit: miterLimit, pattern: pattern, in: ctx)
+        } else {
+            PaintRender.strokePaint(path, width: width, alignment: alignment,
+                                    paint: paint, bounds: bounds, in: ctx,
+                                    join: join, cap: cap, miterLimit: miterLimit,
+                                    pattern: pattern, patterns: patterns,
+                                    patternSpace: patternSpace)
+        }
+    }
+
     /// The in-flight stroke, drawn as chrome rather than as document content.
     /// Uses the destination node's own stroke colour and width so the preview looks
     /// like what is about to exist, not like a selection artifact.
@@ -1389,7 +1414,7 @@ final class CanvasNSView: NSView {
         var color = NSColor.black.cgColor
         var width: CGFloat = 2
         if let id = pencilNodeID, let n = node(id), case .path(let ps) = n.content {
-            color = PaintRender.nsColor(ps.stroke).cgColor
+            color = PaintRender.nsColor(ps.stroke.representativeColor).cgColor
             width = ps.strokeWidth
         }
         ctx.saveGState()
@@ -1894,7 +1919,7 @@ final class CanvasNSView: NSView {
                                                                  shape: sourceShape,
                                                                  stroke: stroke)
             guard let outline = VectorPathGeometry.pathShape(from: outlinePath,
-                                                              fill: .solid(stroke.color)) else { return nil }
+                                                              fill: stroke.paint) else { return nil }
             let visibleFill = Self.paintIsVisible(VectorPathGeometry.fill(from: original.content))
 
             // Stroke-only (lines, open paths, or a transparent closed shape): one
@@ -1904,7 +1929,7 @@ final class CanvasNSView: NSView {
                     self.vectorPointToParent($0, node: original)
                 }
                 guard let converted = VectorPathGeometry.pathShape(from: parentPath,
-                                                                    fill: .solid(stroke.color)) else { return nil }
+                                                                    fill: stroke.paint) else { return nil }
                 return Node(id: original.id, name: original.name, frame: converted.bounds,
                             artboardID: original.artboardID,
                             isVisible: original.isVisible, isLocked: original.isLocked,
@@ -6248,7 +6273,11 @@ final class CanvasNSView: NSView {
     /// instances composite children, so they always keep it.
     private func isSinglePaintOp(_ node: Node) -> Bool {
         guard !node.effects.contains(where: { $0.isEnabled }) else { return false }
-        func strokeOp(_ w: CGFloat, _ c: RGBAColor) -> Bool { w > 0 && c.a > 0 }
+        func strokeOp(_ w: CGFloat, _ p: Paint) -> Bool {
+            guard w > 0 else { return false }
+            if case .solid(let c) = p { return c.a > 0 }
+            return true   // a gradient/pattern stroke always paints something
+        }
         func fillOp(_ p: Paint) -> Bool {
             if case .solid(let c) = p { return c.a > 0 }
             return true   // gradients: treat as visible
@@ -6631,50 +6660,51 @@ final class CanvasNSView: NSView {
                 cgPath: shape.effectiveRadii.path(in: rect, scale: app.zoom))
             PaintRender.fill(shape.fill, path: path, bounds: rect, in: ctx, patterns: patterns,
                              patternSpace: patternSpace)
-            if shape.strokeWidth > 0 {
-                PaintRender.strokeAligned(path, width: shape.strokeWidth * app.zoom,
-                                          alignment: shape.strokeAlignment,
-                                          color: shape.stroke.nsColor,
-                                          pattern: shape.strokePattern, in: ctx)
-            }
+            canvasStroke(path, width: shape.strokeWidth * app.zoom,
+                         alignment: shape.strokeAlignment, paint: shape.stroke,
+                         bounds: rect, in: ctx, pattern: shape.strokePattern)
         case .ellipse(let shape):
             let path = NSBezierPath(ovalIn: rect)
             PaintRender.fill(shape.fill, path: path, bounds: rect, in: ctx, patterns: patterns,
                              patternSpace: patternSpace)
-            if shape.strokeWidth > 0 {
-                PaintRender.strokeAligned(path, width: shape.strokeWidth * app.zoom,
-                                          alignment: shape.strokeAlignment,
-                                          color: shape.stroke.nsColor,
-                                          pattern: shape.strokePattern, in: ctx)
-            }
+            canvasStroke(path, width: shape.strokeWidth * app.zoom,
+                         alignment: shape.strokeAlignment, paint: shape.stroke,
+                         bounds: rect, in: ctx, pattern: shape.strokePattern)
         case .polygon(let shape):
             let path = Self.polygonBezier(shape.vertices(in: rect))
             PaintRender.fill(shape.fill, path: path, bounds: rect, in: ctx, patterns: patterns,
                              patternSpace: patternSpace)
-            if shape.strokeWidth > 0 {
-                PaintRender.strokeAligned(path, width: shape.strokeWidth * app.zoom,
-                                          alignment: shape.strokeAlignment,
-                                          color: shape.stroke.nsColor,
-                                          join: .miter, pattern: shape.strokePattern, in: ctx)
-            }
+            canvasStroke(path, width: shape.strokeWidth * app.zoom,
+                         alignment: shape.strokeAlignment, paint: shape.stroke,
+                         bounds: rect, in: ctx, join: .miter, pattern: shape.strokePattern)
         case .line(let ls):
             let a = docToViewPoint(CGPoint(x: frameDoc.minX + ls.start.x, y: frameDoc.minY + ls.start.y))
             let b = docToViewPoint(CGPoint(x: frameDoc.minX + ls.end.x,   y: frameDoc.minY + ls.end.y))
             let renderedWidth = max(1, ls.strokeWidth * app.zoom)
-            ctx.saveGState()
-            ls.stroke.nsColor.setStroke()
-            ctx.setLineWidth(renderedWidth)
-            PaintRender.configureStrokePattern(ls.strokePattern,
-                                               width: renderedWidth,
-                                               fallbackCap: ls.strokeCap.cgLineCap, in: ctx)
-            ctx.move(to: a)
-            ctx.addLine(to: b)
-            ctx.strokePath()
-            ctx.restoreGState()
+            if case .solid(let c) = ls.stroke {
+                ctx.saveGState()
+                PaintRender.nsColor(c).setStroke()
+                ctx.setLineWidth(renderedWidth)
+                PaintRender.configureStrokePattern(ls.strokePattern,
+                                                   width: renderedWidth,
+                                                   fallbackCap: ls.strokeCap.cgLineCap, in: ctx)
+                ctx.move(to: a)
+                ctx.addLine(to: b)
+                ctx.strokePath()
+                ctx.restoreGState()
+            } else {
+                let path = NSBezierPath()
+                path.move(to: a)
+                path.line(to: b)
+                canvasStroke(path, width: renderedWidth, alignment: .center,
+                             paint: ls.stroke, bounds: path.bounds, in: ctx,
+                             cap: ls.strokeCap.cgLineCap, pattern: ls.strokePattern)
+            }
+            let markerColor = PaintRender.nsColor(ls.stroke.representativeColor)
             PaintRender.drawMarker(ls.startMarker, endpoint: a, interior: b,
-                                   strokeWidth: renderedWidth, color: ls.stroke.nsColor, in: ctx)
+                                   strokeWidth: renderedWidth, color: markerColor, in: ctx)
             PaintRender.drawMarker(ls.endMarker, endpoint: b, interior: a,
-                                   strokeWidth: renderedWidth, color: ls.stroke.nsColor, in: ctx)
+                                   strokeWidth: renderedWidth, color: markerColor, in: ctx)
         case .path(let ps):
             guard !ps.renderContours.isEmpty else { break }
             let bez = bezierPath(for: ps, frameOrigin: frameDoc.origin)
@@ -6682,28 +6712,25 @@ final class CanvasNSView: NSView {
                 PaintRender.fill(ps.fill, path: bez, bounds: bez.bounds, in: ctx, patterns: patterns,
                                  patternSpace: patternSpace)
             }
-            if ps.strokeWidth > 0 {
-                PaintRender.strokeAligned(bez, width: ps.strokeWidth * app.zoom,
-                                          alignment: ps.effectiveStrokeAlignment,
-                                          color: ps.stroke.nsColor,
-                                          join: ps.strokeJoin.cgLineJoin,
-                                          cap: ps.strokeCap.cgLineCap,
-                                          miterLimit: ps.strokeMiterLimit,
-                                          pattern: ps.strokePattern, in: ctx)
-            }
+            canvasStroke(bez, width: ps.strokeWidth * app.zoom,
+                         alignment: ps.effectiveStrokeAlignment, paint: ps.stroke,
+                         bounds: bez.bounds, in: ctx, join: ps.strokeJoin.cgLineJoin,
+                         cap: ps.strokeCap.cgLineCap, miterLimit: ps.strokeMiterLimit,
+                         pattern: ps.strokePattern)
             if ps.strokeWidth > 0, let tangents = ps.endpointTangents {
                 let pointInView: (CGPoint) -> CGPoint = { point in
                     self.docToViewPoint(CGPoint(x: frameDoc.minX + point.x, y: frameDoc.minY + point.y))
                 }
                 let renderedWidth = ps.strokeWidth * app.zoom
+                let markerColor = PaintRender.nsColor(ps.stroke.representativeColor)
                 PaintRender.drawMarker(ps.startMarker,
                                        endpoint: pointInView(tangents.start.tip),
                                        interior: pointInView(tangents.start.interior),
-                                       strokeWidth: renderedWidth, color: ps.stroke.nsColor, in: ctx)
+                                       strokeWidth: renderedWidth, color: markerColor, in: ctx)
                 PaintRender.drawMarker(ps.endMarker,
                                        endpoint: pointInView(tangents.end.tip),
                                        interior: pointInView(tangents.end.interior),
-                                       strokeWidth: renderedWidth, color: ps.stroke.nsColor, in: ctx)
+                                       strokeWidth: renderedWidth, color: markerColor, in: ctx)
             }
         case .text(let text):
             // Lay the text out at TRUE size and scale the drawing, so wrapping and
@@ -6739,10 +6766,9 @@ final class CanvasNSView: NSView {
                                      patternSpace: patternSpace)
                 }
                 if pad.strokeWidth > 0, let stroke = pad.stroke {
-                    PaintRender.strokeAligned(path, width: pad.strokeWidth * z,
-                                              alignment: pad.strokeAlignment,
-                                              color: stroke.nsColor,
-                                              pattern: pad.strokePattern, in: ctx)
+                    canvasStroke(path, width: pad.strokeWidth * z,
+                                 alignment: pad.strokeAlignment, paint: stroke,
+                                 bounds: box, in: ctx, pattern: pad.strokePattern)
                 }
             }
             let childOffset = CGPoint(x: frameDoc.minX, y: frameDoc.minY)
@@ -12479,7 +12505,7 @@ final class CanvasNSView: NSView {
                     case .ellipse(var s):   s.fill = paint; node.content = .ellipse(s)
                     case .polygon(var s):   s.fill = paint; node.content = .polygon(s)
                     case .path(var s):      s.fill = paint; node.content = .path(s)
-                    case .line(var s):      s.stroke = rgba; node.content = .line(s)
+                    case .line(var s):      s.stroke = .solid(rgba); node.content = .line(s)
                     case .text(var t):      t.applyToAllRuns { $0.color = rgba }; node.content = .text(t)
                     case .group:            if node.autoPadding != nil { node.autoPadding?.fill = paint }
                     default: break

@@ -218,6 +218,11 @@ struct Expectation {
     /// its strokes", and pretending otherwise is how a green check starts lying.
     /// Printed with the results so the limitation stays visible.
     let limitation: String
+    /// BUG-065: the minimum fraction of non-dominant pixels the render must
+    /// carry. Defaults to the suite-wide bar; a fixture whose whole design IS
+    /// its strokes (hexline) earns a higher one so "the lines went missing
+    /// again" fails rather than limping past 10%.
+    var minNonDominant: Double = 0.10
 }
 
 static func main() {
@@ -240,15 +245,14 @@ let expectations: [Expectation] = [
                 tileSizes: [CGSize(width: 1000, height: 1000),
                             CGSize(width: 2000, height: 2000)],
                 limitation: ""),
-    // Imports its pattern correctly and still renders near-flat: every line is
-    // stroked `url(#g)`, and `PathShape.stroke` is an `RGBAColor` — a gradient
-    // stroke is not representable in the model at all. Pattern support cannot
-    // fix this one.
+    // BUG-065 was this fixture's whole story: every line is stroked url(#g), a
+    // gradient stroke was not representable in the model, and the neon lines
+    // imported blank. Now they must import as gradient-stroke PAINTS, survive
+    // the round trip, and carry the render past the suite-wide bar.
     Expectation(file: "hexline-weave-neon.svg", patternCount: 1,
                 tileSizes: [CGSize(width: 156.2, height: 270)],
-                limitation: "neon lines are missing: every line is stroked "
-                    + "url(#g) and PathShape.stroke is an RGBAColor, so a gradient "
-                    + "stroke is not representable. Pattern support cannot fix it."),
+                limitation: "",
+                minNonDominant: 0.30),
 ]
 
 let fixtureDir = CommandLine.arguments.count > 1
@@ -302,6 +306,35 @@ for expectation in expectations {
     if case .group(let kids) = result.group.content { countCarriers(kids) }
     check("percentage-sized carrier rect survived with a pattern fill", carriers >= 1,
           "BUG-060: `width='100%'` parsed as 0 and the rect was dropped")
+
+    // BUG-065: `stroke='url(#…)'` must import as a gradient-stroke PAINT. The
+    // expected count is read straight from the file's own markup — the same
+    // rule the tile sizes follow — so a single dropped line fails here.
+    let strokeURLMarkers = (String(data: data, encoding: .utf8) ?? "")
+        .components(separatedBy: "stroke=\"url(#").count - 1
+    func countGradientStrokes(_ nodes: [Node]) -> Int {
+        var n = 0
+        for node in nodes {
+            switch node.content {
+            case .line(let s):      if s.stroke.isGradient { n += 1 }
+            case .path(let s):      if s.stroke.isGradient { n += 1 }
+            case .rectangle(let s): if s.stroke.isGradient { n += 1 }
+            case .ellipse(let s):   if s.stroke.isGradient { n += 1 }
+            case .polygon(let s):   if s.stroke.isGradient { n += 1 }
+            case .group(let kids):  n += countGradientStrokes(kids)
+            default: break
+            }
+        }
+        return n
+    }
+    var importedGradientStrokes = 0
+    if case .group(let kids) = result.group.content {
+        importedGradientStrokes = countGradientStrokes(kids)
+    }
+    check("gradient strokes import as paints (file declares \(strokeURLMarkers))",
+          importedGradientStrokes == strokeURLMarkers,
+          "imported \(importedGradientStrokes) gradient-stroke layer(s), "
+          + "the file declares \(strokeURLMarkers)")
 
     // A tile must rasterise to something with actual structure in it.
     var document = Document(artboards: [], nodes: [])
@@ -359,9 +392,10 @@ for expectation in expectations {
             try? png.write(to: out)
         }
         let variety = nonDominantFraction(inPNG: png)
-        check("render carries real artwork", variety >= 0.10,
+        check("render carries real artwork", variety >= expectation.minNonDominant,
               String(format: "only %.1f%% of sampled pixels differ from the "
-                     + "dominant colour", variety * 100))
+                     + "dominant colour (bar: %.0f%%)", variety * 100,
+                     expectation.minNonDominant * 100))
         if !expectation.limitation.isEmpty {
             print("  NOTE incomplete — \(expectation.limitation)")
         }
@@ -395,6 +429,17 @@ for expectation in expectations {
               roundTripped.patterns.count == result.patterns.count,
               "re-importing the export produced \(roundTripped.patterns.count) "
               + "pattern(s), expected \(result.patterns.count)")
+        // BUG-065: the gradient strokes must come back through the export too —
+        // stroke="url(#grad…)" re-importing as a flat colour would mean the
+        // round trip flattened them.
+        var trippedGradientStrokes = 0
+        if case .group(let kids) = roundTripped.group.content {
+            trippedGradientStrokes = countGradientStrokes(kids)
+        }
+        check("round trip keeps gradient strokes",
+              trippedGradientStrokes >= importedGradientStrokes,
+              "re-import produced \(trippedGradientStrokes) gradient-stroke "
+              + "layer(s), imported \(importedGradientStrokes)")
         let originalSizes = result.patterns.map(\.tileSize)
             .sorted { $0.width * $0.height < $1.width * $1.height }
         let trippedSizes = roundTripped.patterns.map(\.tileSize)

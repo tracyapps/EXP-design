@@ -366,7 +366,7 @@ private nonisolated final class PageScan {
         let origin = bounds.origin
         let localized = contours.map { $0.map { localize($0, by: origin) } }
         var ps = PathShape(points: localized[0], closed: closed, fill: fill,
-                           stroke: stroke, strokeWidth: strokeWidth)
+                           stroke: .solid(stroke), strokeWidth: strokeWidth)
         if localized.count > 1 { ps.contours = localized }
         return Node(name: "Path", frame: bounds, content: .path(ps))
     }

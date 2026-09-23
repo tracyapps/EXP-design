@@ -849,7 +849,7 @@ private struct HTMLWriter {
             fillOpacity = "1"
         }
         let stroke = path.strokeWidth > 0
-            ? " stroke=\"var(--exp-path-stroke, \(svgColor(path.stroke)))\" stroke-width=\"\(number(path.strokeWidth))\"\(svgStrokePattern(path.strokePattern, width: path.strokeWidth))"
+            ? " stroke=\"var(--exp-path-stroke, \(svgColor(path.stroke.representativeColor)))\" stroke-width=\"\(number(path.strokeWidth))\"\(svgStrokePattern(path.strokePattern, width: path.strokeWidth))"
             : ""
         let defs = definitions.isEmpty ? "" : "<defs>\(definitions)</defs>"
         return "<svg class=\"exp-path-svg\" viewBox=\"0 0 \(number(width)) \(number(height))\" preserveAspectRatio=\"none\" aria-hidden=\"true\" focusable=\"false\">\(defs)<path class=\"exp-path-shape\" d=\"\(svgPathData(path))\" fill=\"\(fill)\" fill-opacity=\"\(fillOpacity)\"\(stroke) stroke-linejoin=\"\(path.strokeJoin.rawValue)\" stroke-linecap=\"\(path.strokeCap.rawValue)\"/></svg>"
@@ -1252,11 +1252,22 @@ private struct CSSWriter {
                 declarations.append("--exp-path-fill: \(color(fill))")
             }
             if shape.strokeWidth > 0 {
-                declarations.append("--exp-path-stroke: \(color(shape.stroke))")
+                // BUG-065: a custom property CAN hold a full CSS gradient, and the
+                // path SVG consumes it as its stroke — a gradient stroke survives
+                // handoff where CSS can express it.
+                declarations.append("--exp-path-stroke: \(paint(shape.stroke))")
             }
             return declarations
         case .line(let shape):
-            return ["border-top: \(number(shape.strokeWidth))px \(cssStrokePattern(shape.strokePattern)) \(color(shape.stroke))"]
+            // A line has no border-radius, so the plain border-top carries
+            // everything the border() helper would — same flattening rule.
+            return border(color: shape.stroke, width: shape.strokeWidth,
+                          pattern: shape.strokePattern)
+                .map { declaration -> String in
+                    declaration.hasPrefix("border: ")
+                        ? "border-top: " + declaration.dropFirst("border: ".count)
+                        : declaration
+                }
         case .text(let text):
             if DesignLanguageIO.firstTypeStyleBinding(
                 matching: text, in: document.designLanguage) != nil { return [] }
@@ -1326,9 +1337,18 @@ private struct CSSWriter {
         }
     }
 
-    private func border(color: RGBAColor, width: CGFloat,
+    private func border(color: Paint, width: CGFloat,
                         pattern: StrokePattern = .solid) -> [String] {
-        width > 0 ? ["border: \(number(width))px \(cssStrokePattern(pattern)) \(self.color(color))"] : []
+        guard width > 0 else { return [] }
+        // BUG-065. A CSS border cannot carry a gradient without border-image,
+        // and border-image breaks border-radius and the dash rhythms — so a
+        // non-solid stroke degrades to its representative colour HERE and the
+        // comment says so. The path SVG below carries the true gradient through
+        // its --exp-path-stroke custom property, so handoff fidelity survives
+        // where CSS can actually express it.
+        let flat: RGBAColor
+        if case .solid(let c) = color { flat = c } else { flat = color.representativeColor }
+        return ["border: \(number(width))px \(cssStrokePattern(pattern)) \(self.color(flat))"]
     }
 
     private func cssStrokePattern(_ pattern: StrokePattern) -> String {
@@ -1515,14 +1535,14 @@ extension Document {
                 node.blendMode = value
             case .stroke(let stroke):
                 switch node.content {
-                case .rectangle(var shape): shape.stroke = stroke.color ?? .clear; shape.strokeWidth = stroke.width; shape.strokeAlignment = stroke.alignment; shape.strokePattern = stroke.pattern ?? .solid; node.content = .rectangle(shape)
-                case .ellipse(var shape):   shape.stroke = stroke.color ?? .clear; shape.strokeWidth = stroke.width; shape.strokeAlignment = stroke.alignment; shape.strokePattern = stroke.pattern ?? .solid; node.content = .ellipse(shape)
-                case .polygon(var shape):   shape.stroke = stroke.color ?? .clear; shape.strokeWidth = stroke.width; shape.strokeAlignment = stroke.alignment; shape.strokePattern = stroke.pattern ?? .solid; node.content = .polygon(shape)
-                case .path(var shape):      shape.stroke = stroke.color ?? .clear; shape.strokeWidth = stroke.width; shape.strokeAlignment = stroke.alignment; shape.strokePattern = stroke.pattern ?? .solid; node.content = .path(shape)
-                case .line(var shape):      shape.stroke = stroke.color ?? .clear; shape.strokeWidth = stroke.width; shape.strokePattern = stroke.pattern ?? .solid; node.content = .line(shape)
+                case .rectangle(var shape): shape.stroke = stroke.paint ?? .clear; shape.strokeWidth = stroke.width; shape.strokeAlignment = stroke.alignment; shape.strokePattern = stroke.pattern ?? .solid; node.content = .rectangle(shape)
+                case .ellipse(var shape):   shape.stroke = stroke.paint ?? .clear; shape.strokeWidth = stroke.width; shape.strokeAlignment = stroke.alignment; shape.strokePattern = stroke.pattern ?? .solid; node.content = .ellipse(shape)
+                case .polygon(var shape):   shape.stroke = stroke.paint ?? .clear; shape.strokeWidth = stroke.width; shape.strokeAlignment = stroke.alignment; shape.strokePattern = stroke.pattern ?? .solid; node.content = .polygon(shape)
+                case .path(var shape):      shape.stroke = stroke.paint ?? .clear; shape.strokeWidth = stroke.width; shape.strokeAlignment = stroke.alignment; shape.strokePattern = stroke.pattern ?? .solid; node.content = .path(shape)
+                case .line(var shape):      shape.stroke = stroke.paint ?? .clear; shape.strokeWidth = stroke.width; shape.strokePattern = stroke.pattern ?? .solid; node.content = .line(shape)
                 case .group:
                     if node.autoPadding != nil {
-                        node.autoPadding?.stroke = stroke.color
+                        node.autoPadding?.stroke = stroke.paint
                         node.autoPadding?.strokeWidth = stroke.width
                         node.autoPadding?.strokeAlignment = stroke.alignment
                         node.autoPadding?.strokePattern = stroke.pattern ?? .solid

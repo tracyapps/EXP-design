@@ -139,7 +139,7 @@ enum PaintRender {
 
     /// Apply one semantic stroke rhythm at the current render scale. Dots use a
     /// near-zero dash with round caps; a true zero-length dash is inconsistently
-    /// handled across PDF/Core Graphics destinations.
+    /// handled across PDF/CoreGraphics destinations.
     static func configureStrokePattern(_ pattern: StrokePattern, width: CGFloat,
                                        fallbackCap: CGLineCap = .butt,
                                        in ctx: CGContext) {
@@ -156,6 +156,80 @@ enum PaintRender {
                             lengths: [0.001, max(2, width * 2.25)])
             ctx.setLineCap(.round)
         }
+    }
+
+    /// BUG-065. Stroke with ANY paint — a gradient (or pattern) stroke. The
+    /// stroke region becomes the clip — built with the same alignment
+    /// arithmetic `strokeAligned` uses, and shaped by the same join/miter/cap/
+    /// dash settings, since those change the STROKED PATH's outline too — and
+    /// the paint fills it through the same primitives the fills use, so a
+    /// gradient stroke cannot disagree between the canvas and raster/PDF export.
+    ///
+    /// Solid strokes do NOT come through here: callers branch and keep
+    /// `strokeAligned`/`strokePath`, which renders byte-for-byte what every
+    /// existing document has always drawn. `bounds` is the element's GEOMETRY
+    /// frame — SVG resolves a stroke gradient against the element bbox, not the
+    /// outer stroke edge, and the canvas matches the export.
+    static func strokePaint(_ path: NSBezierPath, width: CGFloat,
+                            alignment: StrokeAlignment, paint: Paint,
+                            bounds: CGRect, in ctx: CGContext,
+                            join: CGLineJoin = .miter, cap: CGLineCap = .butt,
+                            miterLimit: CGFloat = 4,
+                            pattern: StrokePattern = .solid,
+                            pdfSafeAlpha: Bool = false,
+                            patterns: PatternResolver? = nil,
+                            patternSpace: CGAffineTransform = .identity) {
+        guard width > 0 else { return }
+        let cg = path.cgPath
+        let cover = cg.boundingBoxOfPath.insetBy(dx: -width * 2 - 8, dy: -width * 2 - 8)
+
+        ctx.saveGState()
+        ctx.setLineJoin(join)
+        // Same rationale as strokeAligned: CG defaults to 10, SVG to 4, and the
+        // limit changes the SHAPE of sharp corners in the stroked region.
+        ctx.setMiterLimit(miterLimit)
+        configureStrokePattern(pattern, width: width, fallbackCap: cap, in: ctx)
+        switch alignment {
+        case .center:
+            ctx.addPath(cg)
+            ctx.setLineWidth(width)
+            ctx.replacePathWithStrokedPath()
+            ctx.clip()
+        case .inside:
+            ctx.addPath(cg)
+            ctx.clip()
+            ctx.addPath(cg)
+            ctx.setLineWidth(width * 2)
+            ctx.replacePathWithStrokedPath()
+            ctx.clip()
+        case .outside:
+            let outer = CGMutablePath()
+            outer.addRect(cover)
+            outer.addPath(cg)
+            ctx.addPath(outer)
+            ctx.clip(using: .evenOdd)
+            ctx.addPath(cg)
+            ctx.setLineWidth(width * 2)
+            ctx.replacePathWithStrokedPath()
+            ctx.clip()
+        }
+        switch paint {
+        case .solid(let c):
+            ctx.setFillColor(cgColor(c))
+            ctx.fill(cover)
+        case .gradient(let g):
+            ctx.saveGState()
+            drawGradient(g, in: bounds, ctx: ctx, pdfSafeAlpha: pdfSafeAlpha)
+            ctx.restoreGState()
+        case .pattern(let ref):
+            let drawn = tilePattern(ref, bounds: cover, in: ctx, resolver: patterns,
+                                    space: patternSpace)
+            if !drawn {
+                ctx.setFillColor(cgColor(ref.fallback))
+                ctx.fill(cover)
+            }
+        }
+        ctx.restoreGState()
     }
 
     /// Draw one endpoint marker in the renderer's current coordinate space.

@@ -318,7 +318,7 @@ nonisolated private final class FigmaFileMapper {
                                  content: .rectangle(RectangleShape(
                                     fill: fill ?? .clear,
                                     cornerRadius: radii.uniform,
-                                    stroke: stroke.color,
+                                    stroke: .solid(stroke.color),
                                     strokeWidth: stroke.width,
                                     strokeAlignment: stroke.alignment,
                                     strokePattern: stroke.pattern,
@@ -407,7 +407,7 @@ nonisolated private final class FigmaFileMapper {
             let fill = paint(from: firstVisiblePaint(object["fills"])) ?? .clear
             let stroke = strokeStyle(object)
             node = Node(id: id, name: name, frame: frame,
-                        content: .ellipse(EllipseShape(fill: fill, stroke: stroke.color,
+                        content: .ellipse(EllipseShape(fill: fill, stroke: .solid(stroke.color),
                                                        strokeWidth: stroke.width,
                                                        strokeAlignment: stroke.alignment,
                                                        strokePattern: stroke.pattern)))
@@ -418,7 +418,7 @@ nonisolated private final class FigmaFileMapper {
             node = Node(id: id, name: name, frame: frame,
                         content: .polygon(PolygonShape(
                             sides: Int(Self.number(object["pointCount"]) ?? 3), fill: fill,
-                            stroke: stroke.color, strokeWidth: stroke.width,
+                            stroke: .solid(stroke.color), strokeWidth: stroke.width,
                             strokeAlignment: stroke.alignment,
                             strokePattern: stroke.pattern)))
             report.mapped("Polygon")
@@ -513,7 +513,7 @@ nonisolated private final class FigmaFileMapper {
         let node = Node(id: id, name: name, frame: frame,
                         content: .line(LineShape(start: .zero,
                                                 end: CGPoint(x: length, y: 0),
-                                                stroke: stroke.color,
+                                                stroke: .solid(stroke.color),
                                                 strokeWidth: max(1, stroke.width),
                                                 strokePattern: stroke.pattern,
                                                 strokeCap: stroke.cap,
@@ -546,7 +546,7 @@ nonisolated private final class FigmaFileMapper {
         registerPaintStyle(object, paint: fill)
         return Node(id: id, name: name, frame: frame,
                     content: .rectangle(RectangleShape(fill: fill,
-                        cornerRadius: radii.uniform, stroke: stroke.color,
+                        cornerRadius: radii.uniform, stroke: .solid(stroke.color),
                         strokeWidth: stroke.width, strokeAlignment: stroke.alignment,
                         strokePattern: stroke.pattern,
                         cornerRadii: radii.perCorner)))
@@ -587,7 +587,7 @@ nonisolated private final class FigmaFileMapper {
         report.mapped("Vector path")
         return Node(id: id, name: name, frame: frame,
                     content: .path(PathShape(points: mapped[0], closed: closed, fill: fill,
-                                             stroke: stroke.color, strokeWidth: stroke.width,
+                                             stroke: .solid(stroke.color), strokeWidth: stroke.width,
                                              strokeAlignment: stroke.alignment,
                                              strokePattern: stroke.pattern,
                                              strokeCap: stroke.cap,

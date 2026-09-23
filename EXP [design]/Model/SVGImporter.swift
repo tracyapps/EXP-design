@@ -185,7 +185,11 @@ enum SVGImporter {
     /// Resolved presentation style as it flows down the tree.
     private struct Style {
         var fill: Paint? = .solid(.black)   // SVG default fill is black
-        var stroke: RGBAColor? = nil
+        /// BUG-065. A full paint: SVG strokes may be `url(#…)` gradients (or
+        /// patterns) exactly like fills, and hexline-weave-neon's every line is.
+        /// Resolution goes through the SAME `paint()` the fill uses, so a stroke
+        /// reference resolves against the same gradient/pattern index.
+        var stroke: Paint? = nil
         var strokeWidth: CGFloat = 1
         var strokeCap: StrokeLineCap = .butt
         // BUG-064. SVG's own defaults, which are NOT EXP's: a path with no
@@ -466,7 +470,10 @@ enum SVGImporter {
         if let v = props["fill"] { s.fill = paint(v, opacity: s.fillOpacity, ctx: ctx) }
         else if s.fill != nil, s.fillOpacity < 1 { s.fill = s.fill.map { withOpacity($0, s.fillOpacity) } }
         if let v = props["stroke"] {
-            if v == "none" { s.stroke = nil } else { s.stroke = color(v).map { applyAlpha($0, s.strokeOpacity) } }
+            // BUG-065: resolve through paint() so `stroke='url(#g)'` imports a
+            // gradient stroke instead of being dropped to nil. Solid colors
+            // keep the stroke-opacity bake exactly as before.
+            if v == "none" { s.stroke = nil } else { s.stroke = paint(v, opacity: s.strokeOpacity, ctx: ctx) }
         }
         return s
     }

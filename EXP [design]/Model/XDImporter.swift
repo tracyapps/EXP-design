@@ -595,12 +595,12 @@ nonisolated private extension XDImporter {
             } else { corners = nil }
             result = Node(name: name, frame: frame,
                           content: .rectangle(RectangleShape(fill: fill,
-                            cornerRadius: uniform, stroke: stroke, strokeWidth: width,
+                            cornerRadius: uniform, stroke: .solid(stroke), strokeWidth: width,
                             strokeAlignment: alignment, cornerRadii: corners)))
             report.mapped("Rectangle")
         case "ellipse", "circle":
             result = Node(name: name, frame: frame,
-                          content: .ellipse(EllipseShape(fill: fill, stroke: stroke,
+                          content: .ellipse(EllipseShape(fill: fill, stroke: .solid(stroke),
                                                         strokeWidth: width,
                                                         strokeAlignment: alignment)))
             report.mapped("Ellipse")
@@ -608,7 +608,7 @@ nonisolated private extension XDImporter {
             let sides = Int(number(shape["sides"]) ?? 3)
             result = Node(name: name, frame: frame,
                           content: .polygon(PolygonShape(sides: sides, fill: fill,
-                                                        stroke: stroke, strokeWidth: width,
+                                                        stroke: .solid(stroke), strokeWidth: width,
                                                         strokeAlignment: alignment)))
             report.mapped("Polygon")
         case "line":
@@ -623,7 +623,7 @@ nonisolated private extension XDImporter {
                                                                   y: (y1 - minY) * scaleY),
                                                   end: CGPoint(x: (x2 - minX) * scaleX,
                                                                 y: (y2 - minY) * scaleY),
-                                                  stroke: stroke, strokeWidth: max(1, width))))
+                                                  stroke: .solid(stroke), strokeWidth: max(1, width))))
             report.mapped("Line")
         case "path", "compound":
             guard let data = string(shape["path"]), !data.isEmpty else {
@@ -653,7 +653,7 @@ nonisolated private extension XDImporter {
             }
             let closed = subpaths.contains { $0.closed } || fill.representativeColor.a > 0
             let pathShape = PathShape(points: contours[0], closed: closed,
-                                      fill: fill, stroke: stroke, strokeWidth: width,
+                                      fill: fill, stroke: .solid(stroke), strokeWidth: width,
                                       strokeAlignment: alignment,
                                       contours: contours.count > 1 ? contours : nil)
             result = Node(name: name, frame: frame, content: .path(pathShape))

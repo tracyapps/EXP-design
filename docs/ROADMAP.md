@@ -1323,18 +1323,25 @@ verification. Waves alternate; each wave ends at a verification gate.
 
 ### Wave 2 — paint-model completion (mutating; starts only after Wave 1's gate)
 
-- [ ] FEAT-064 — per-pattern anchoring: `objectBoundingBox` rendering
+- [x] FEAT-064 — per-pattern anchoring: `objectBoundingBox` rendering
       (resolver cache keyed by resolved tile size, not pattern id alone), the
       pattern-scoped inspector control, `patternUnits` export. Acceptance per
       backlog entry: imported units survive unchanged; a pattern can be
       switched to shape-anchored and visibly rides its layer.
-      **Built 2026-09-22 — needs-verify** (details in the Progress Log;
-      fixture suite 78/78, both schemes clean, no new warnings).
+      **Owner-verified 2026-09-22** ("patterns all verified"). The W3C
+      design-token question is settled the conservative way the export already
+      behaves: tokens OMIT patterns rather than mislabel them — the token
+      format has no paint/tile concept, and a proprietary extension would
+      break the format's promise. Owner was told the recommendation and raised
+      no objection when directing work to continue.
 - [ ] BUG-065 — gradient strokes: widen shape `stroke` from `RGBAColor` to
       `Paint` — the same surface FEAT-062 Stage A crossed (every shape, both
       renderers, both exporters, inspector, schema migration with tolerant
       decode). `hexline-weave-neon.svg` renders its lines; legacy solid
       strokes decode and render unchanged.
+      **Built 2026-09-22 — needs-verify** (details in the Progress Log;
+      fixture suite 86/86 including an independent qlmanage comparison;
+      both schemes clean, zero warnings in touched files).
 - [ ] BUG-062 (remainder) — mask groups in the semantic-HTML export.
 - [ ] W3C design-token decision for patterns (FEAT-062 Stage A's open
       question: today tokens omit patterns rather than mislabel them; keep,
@@ -3218,6 +3225,73 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-09-22 (later still; BUG-065 — gradient strokes — the paint model
+  completes).** FEAT-064 was owner-verified on review ("patterns all
+  verified"); the W3C design-token question is settled conservatively (tokens
+  omit patterns — recorded in the Wave 2 box). Then the stroke migration.
+
+  **`stroke` is a `Paint` everywhere.** All six stroke-bearing payloads
+  (rectangle, ellipse, polygon, line, path, AutoPadding) plus the carriers
+  `StrokeStyleOverride` (component states + Sanaa `apply_edits`) and
+  `VectorStrokeGeometry` (Outline Stroke) hold a full paint. Compatibility is
+  BY CONSTRUCTION rather than by migration: `Paint`'s decoder already read a
+  bare `{r,g,b,a}` as `.solid` and `.solid` encodes back as the bare colour,
+  so a pre-BUG-065 file's strokes decode into solids and re-save byte-identical
+  — the same property fills have always had. `StrokeStyleOverride` additionally
+  decodes its legacy `color` key, keeps nil ("remove the outline") distinct
+  from a solid, and ENCODES the representative colour alongside `paint` so an
+  older build opening a new file still shows the closest solid outline
+  instead of reading nil.
+
+  - **Render.** New `PaintRender.strokePaint` builds the stroke REGION as a
+    clip — the same alignment arithmetic and join/miter/cap/dash settings
+    `strokeAligned` uses, since those shape the stroked path's outline too —
+    and fills it through the same primitives the fills use. Every caller
+    branches: a SOLID stroke keeps the exact `strokeAligned`/`strokePath` path
+    it always had (byte-for-byte rendering for every existing document); only
+    gradient/pattern strokes take the new route. The gradient's frame is the
+    element's GEOMETRY bounds, matching SVG's objectBoundingBox-on-stroke
+    rule, so canvas and export agree.
+  - **Import.** `Style.stroke` resolves through the SAME `paint()` fills use,
+    so `stroke='url(#g)'` imports a gradient stroke (with pattern support for
+    free). The other importers (XD, Figma, PDF, rendered-HTML) wrap their
+    solid strokes in `.solid(...)`.
+  - **SVG export.** `strokePaintAttr`: solid emits exactly the old
+    attributes; a gradient registers one objectBoundingBox def resolved
+    against the stroked element's own frame and references
+    `stroke="url(#…)"`; a pattern references the shared `<pattern>` def.
+    Markers keep `context-stroke` (which carries the paint) with the
+    representative colour's alpha.
+  - **Semantic HTML.** `--exp-path-stroke` now carries a REAL CSS gradient
+    (the path SVG consumes it as its stroke), while borders — which CSS
+    cannot gradient without border-image breaking radius and dash rhythms —
+    flatten to the representative colour with the reason stated in code.
+  - **Inspector.** Every stroke ColorWell became the `PaintWell` the Fill row
+    uses (multi-select, shape, line, path, auto-padding frame), so a stroke
+    is authored with the full solid/gradient/pattern editor. Undo names
+    updated ("Stroke", "Path Stroke", "Frame Stroke").
+  - **Outline Stroke** now converts a gradient-stroked shape into an outline
+    filled with the SAME paint rather than flattening to the first stop.
+
+  **Verification.** The fixture suite grew three checks that read the
+  expectation straight from each file's markup: every `stroke="url(#…)"`
+  imports as a gradient-stroke paint (exact count), survives the round trip,
+  and hexline's render bar rose from 10% to 30% non-dominant pixels — its
+  whole design IS the lines, so "the lines went missing again" must fail, not
+  limp past the suite-wide bar. **86/86** (was 78). And the claim that
+  matters was checked against an INDEPENDENT renderer: EXP's exported
+  hexline SVG through `qlmanage` matches the original fixture's own qlmanage
+  render — same dark plum ground, same isometric-cube tessellation built
+  entirely from thin neon lines whose colours cycle pink → gold → cyan along
+  their length. Both schemes build clean; zero warnings in every touched
+  file (14 files).
+
+  **NEXT:** owner verifies BUG-065 (import hexline — the neon lines must be
+  there; give some shape a gradient stroke from the inspector and export it;
+  reopen a pre-2.5-dev document and confirm strokes render unchanged; undo
+  names on stroke edits). Then BUG-062's semantic-HTML remainder closes
+  Wave 2, and Wave 3 (Sanaa FEAT-058) opens.
 
 - **2026-09-22 (later; Wave 1 gate cleared; FEAT-064 — per-pattern anchoring —
   built).** Owner returned after the carry-in commit and cleared the Wave 1

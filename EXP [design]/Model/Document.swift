@@ -2386,7 +2386,11 @@ struct AutoPadding: Codable, Equatable, Sendable {
     // nil fill = transparent.
     var fill: Paint? = nil
     var cornerRadius: CGFloat = 0
-    var stroke: RGBAColor? = nil
+    // BUG-065. A full Paint, so a frame stroke can be a gradient (or pattern)
+    // like any shape stroke; nil = no stroke. Paint's decoder reads the bare
+    // {r,g,b,a} an older file stored here as `.solid`, so old documents open
+    // unchanged — the same compatibility fills have always had.
+    var stroke: Paint? = nil
     var strokeWidth: CGFloat = 0
     var strokeAlignment: StrokeAlignment = .center
     var strokePattern: StrokePattern = .solid
@@ -2410,7 +2414,7 @@ struct AutoPadding: Codable, Equatable, Sendable {
         marginLeft = try c.decodeIfPresent(CGFloat.self, forKey: .marginLeft) ?? 0
         fill = try c.decodeIfPresent(Paint.self, forKey: .fill)
         cornerRadius = try c.decodeIfPresent(CGFloat.self, forKey: .cornerRadius) ?? 0
-        stroke = try c.decodeIfPresent(RGBAColor.self, forKey: .stroke)
+        stroke = try c.decodeIfPresent(Paint.self, forKey: .stroke)
         strokeWidth = try c.decodeIfPresent(CGFloat.self, forKey: .strokeWidth) ?? 0
         strokeAlignment = try c.decodeIfPresent(StrokeAlignment.self, forKey: .strokeAlignment) ?? .center
         strokePattern = try c.decodeIfPresent(StrokePattern.self, forKey: .strokePattern) ?? .solid
@@ -2816,7 +2820,10 @@ enum StrokeMarker: String, Codable, Sendable, CaseIterable {
 struct RectangleShape: Codable, Sendable {
     var fill: Paint = .white
     var cornerRadius: CGFloat = 0
-    var stroke: RGBAColor = .black
+    // BUG-065: a full Paint (solid/gradient/pattern). `.solid` encodes as the
+    // bare {r,g,b,a} every older file stored here, so nothing changes on disk
+    // unless a gradient stroke is actually authored.
+    var stroke: Paint = .black
     var strokeWidth: CGFloat = 0
     var strokeAlignment: StrokeAlignment = .center
     var strokePattern: StrokePattern = .solid
@@ -2837,7 +2844,7 @@ struct RectangleShape: Codable, Sendable {
     }
 
     init(fill: Paint = .white, cornerRadius: CGFloat = 0,
-         stroke: RGBAColor = .black, strokeWidth: CGFloat = 0,
+         stroke: Paint = .black, strokeWidth: CGFloat = 0,
          strokeAlignment: StrokeAlignment = .center, strokePattern: StrokePattern = .solid,
          cornerRadii: CornerRadii? = nil) {
         self.fill = fill; self.cornerRadius = cornerRadius
@@ -2849,7 +2856,7 @@ struct RectangleShape: Codable, Sendable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         fill = try c.decodeIfPresent(Paint.self, forKey: .fill) ?? .white
         cornerRadius = try c.decodeIfPresent(CGFloat.self, forKey: .cornerRadius) ?? 0
-        stroke = try c.decodeIfPresent(RGBAColor.self, forKey: .stroke) ?? .black
+        stroke = try c.decodeIfPresent(Paint.self, forKey: .stroke) ?? .black
         strokeWidth = try c.decodeIfPresent(CGFloat.self, forKey: .strokeWidth) ?? 0
         strokeAlignment = try c.decodeIfPresent(StrokeAlignment.self, forKey: .strokeAlignment) ?? .center
         strokePattern = try c.decodeIfPresent(StrokePattern.self, forKey: .strokePattern) ?? .solid
@@ -2867,7 +2874,7 @@ struct RectangleShape: Codable, Sendable {
 
 struct EllipseShape: Codable, Sendable {
     var fill: Paint = .white
-    var stroke: RGBAColor = .black
+    var stroke: Paint = .black
     var strokeWidth: CGFloat = 0
     var strokeAlignment: StrokeAlignment = .center
     var strokePattern: StrokePattern = .solid
@@ -2876,7 +2883,7 @@ struct EllipseShape: Codable, Sendable {
         case fill, stroke, strokeWidth, strokeAlignment, strokePattern
     }
 
-    init(fill: Paint = .white, stroke: RGBAColor = .black, strokeWidth: CGFloat = 0,
+    init(fill: Paint = .white, stroke: Paint = .black, strokeWidth: CGFloat = 0,
          strokeAlignment: StrokeAlignment = .center, strokePattern: StrokePattern = .solid) {
         self.fill = fill; self.stroke = stroke; self.strokeWidth = strokeWidth
         self.strokeAlignment = strokeAlignment; self.strokePattern = strokePattern
@@ -2884,7 +2891,7 @@ struct EllipseShape: Codable, Sendable {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         fill = try c.decodeIfPresent(Paint.self, forKey: .fill) ?? .white
-        stroke = try c.decodeIfPresent(RGBAColor.self, forKey: .stroke) ?? .black
+        stroke = try c.decodeIfPresent(Paint.self, forKey: .stroke) ?? .black
         strokeWidth = try c.decodeIfPresent(CGFloat.self, forKey: .strokeWidth) ?? 0
         strokeAlignment = try c.decodeIfPresent(StrokeAlignment.self, forKey: .strokeAlignment) ?? .center
         strokePattern = try c.decodeIfPresent(StrokePattern.self, forKey: .strokePattern) ?? .solid
@@ -2903,7 +2910,7 @@ struct EllipseShape: Codable, Sendable {
 struct PolygonShape: Codable, Sendable {
     var sides: Int = 3
     var fill: Paint = .white
-    var stroke: RGBAColor = .black
+    var stroke: Paint = .black
     var strokeWidth: CGFloat = 0
 
     var strokeAlignment: StrokeAlignment = .center
@@ -2913,7 +2920,7 @@ struct PolygonShape: Codable, Sendable {
         case sides, fill, stroke, strokeWidth, strokeAlignment, strokePattern
     }
 
-    init(sides: Int = 3, fill: Paint = .white, stroke: RGBAColor = .black, strokeWidth: CGFloat = 0,
+    init(sides: Int = 3, fill: Paint = .white, stroke: Paint = .black, strokeWidth: CGFloat = 0,
          strokeAlignment: StrokeAlignment = .center, strokePattern: StrokePattern = .solid) {
         self.sides = Swift.min(25, Swift.max(3, sides))
         self.fill = fill; self.stroke = stroke; self.strokeWidth = strokeWidth
@@ -2923,7 +2930,7 @@ struct PolygonShape: Codable, Sendable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         sides = Swift.min(25, Swift.max(3, try c.decodeIfPresent(Int.self, forKey: .sides) ?? 3))
         fill = try c.decodeIfPresent(Paint.self, forKey: .fill) ?? .white
-        stroke = try c.decodeIfPresent(RGBAColor.self, forKey: .stroke) ?? .black
+        stroke = try c.decodeIfPresent(Paint.self, forKey: .stroke) ?? .black
         strokeWidth = try c.decodeIfPresent(CGFloat.self, forKey: .strokeWidth) ?? 0
         strokeAlignment = try c.decodeIfPresent(StrokeAlignment.self, forKey: .strokeAlignment) ?? .center
         strokePattern = try c.decodeIfPresent(StrokePattern.self, forKey: .strokePattern) ?? .solid
@@ -2953,7 +2960,7 @@ struct PolygonShape: Codable, Sendable {
 struct LineShape: Codable, Sendable {
     var start: CGPoint
     var end: CGPoint
-    var stroke: RGBAColor = .black
+    var stroke: Paint = .black
     var strokeWidth: CGFloat = 2
     var strokePattern: StrokePattern = .solid
     var strokeCap: StrokeLineCap = .round
@@ -2963,7 +2970,7 @@ struct LineShape: Codable, Sendable {
     enum CodingKeys: String, CodingKey {
         case start, end, stroke, strokeWidth, strokePattern, strokeCap, startMarker, endMarker
     }
-    init(start: CGPoint, end: CGPoint, stroke: RGBAColor = .black,
+    init(start: CGPoint, end: CGPoint, stroke: Paint = .black,
          strokeWidth: CGFloat = 2, strokePattern: StrokePattern = .solid,
          strokeCap: StrokeLineCap = .round,
          startMarker: StrokeMarker = .none, endMarker: StrokeMarker = .none) {
@@ -2975,7 +2982,7 @@ struct LineShape: Codable, Sendable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         start = try c.decode(CGPoint.self, forKey: .start)
         end = try c.decode(CGPoint.self, forKey: .end)
-        stroke = try c.decodeIfPresent(RGBAColor.self, forKey: .stroke) ?? .black
+        stroke = try c.decodeIfPresent(Paint.self, forKey: .stroke) ?? .black
         strokeWidth = try c.decodeIfPresent(CGFloat.self, forKey: .strokeWidth) ?? 2
         strokePattern = try c.decodeIfPresent(StrokePattern.self, forKey: .strokePattern) ?? .solid
         strokeCap = try c.decodeIfPresent(StrokeLineCap.self, forKey: .strokeCap) ?? .round
@@ -3013,7 +3020,7 @@ struct PathShape: Codable, Sendable {
     var points: [PathPoint]
     var closed: Bool = false
     var fill: Paint = .white
-    var stroke: RGBAColor = .black
+    var stroke: Paint = .black
     var strokeWidth: CGFloat = 2
     var strokeAlignment: StrokeAlignment = .center
     var strokePattern: StrokePattern = .solid
@@ -3040,7 +3047,7 @@ struct PathShape: Codable, Sendable {
     }
 
     init(points: [PathPoint], closed: Bool = false, fill: Paint = .white,
-         stroke: RGBAColor = .black, strokeWidth: CGFloat = 2,
+         stroke: Paint = .black, strokeWidth: CGFloat = 2,
          strokeAlignment: StrokeAlignment = .center, strokePattern: StrokePattern = .solid,
          strokeCap: StrokeLineCap = .round,
          strokeJoin: StrokeLineJoin = .round, strokeMiterLimit: CGFloat = 4,
@@ -3059,7 +3066,7 @@ struct PathShape: Codable, Sendable {
         points = try c.decode([PathPoint].self, forKey: .points)
         closed = try c.decodeIfPresent(Bool.self, forKey: .closed) ?? false
         fill = try c.decodeIfPresent(Paint.self, forKey: .fill) ?? .white
-        stroke = try c.decodeIfPresent(RGBAColor.self, forKey: .stroke) ?? .black
+        stroke = try c.decodeIfPresent(Paint.self, forKey: .stroke) ?? .black
         strokeWidth = try c.decodeIfPresent(CGFloat.self, forKey: .strokeWidth) ?? 2
         strokeAlignment = try c.decodeIfPresent(StrokeAlignment.self, forKey: .strokeAlignment) ?? .center
         strokePattern = try c.decodeIfPresent(StrokePattern.self, forKey: .strokePattern) ?? .solid
@@ -4308,28 +4315,28 @@ enum ComponentStateEditing {
 
     private static func stroke(of node: Node) -> StrokeStyleOverride? {
         switch node.content {
-        case .rectangle(let s): return StrokeStyleOverride(color: s.stroke, width: s.strokeWidth, alignment: s.strokeAlignment, pattern: s.strokePattern)
-        case .ellipse(let s):   return StrokeStyleOverride(color: s.stroke, width: s.strokeWidth, alignment: s.strokeAlignment, pattern: s.strokePattern)
-        case .polygon(let s):   return StrokeStyleOverride(color: s.stroke, width: s.strokeWidth, alignment: s.strokeAlignment, pattern: s.strokePattern)
-        case .path(let s):      return StrokeStyleOverride(color: s.stroke, width: s.strokeWidth, alignment: s.effectiveStrokeAlignment, pattern: s.strokePattern)
-        case .line(let s):      return StrokeStyleOverride(color: s.stroke, width: s.strokeWidth, alignment: .center, pattern: s.strokePattern)
+        case .rectangle(let s): return StrokeStyleOverride(paint: s.stroke, width: s.strokeWidth, alignment: s.strokeAlignment, pattern: s.strokePattern)
+        case .ellipse(let s):   return StrokeStyleOverride(paint: s.stroke, width: s.strokeWidth, alignment: s.strokeAlignment, pattern: s.strokePattern)
+        case .polygon(let s):   return StrokeStyleOverride(paint: s.stroke, width: s.strokeWidth, alignment: s.strokeAlignment, pattern: s.strokePattern)
+        case .path(let s):      return StrokeStyleOverride(paint: s.stroke, width: s.strokeWidth, alignment: s.effectiveStrokeAlignment, pattern: s.strokePattern)
+        case .line(let s):      return StrokeStyleOverride(paint: s.stroke, width: s.strokeWidth, alignment: .center, pattern: s.strokePattern)
         case .group:
             guard let pad = node.autoPadding else { return nil }
-            return StrokeStyleOverride(color: pad.stroke, width: pad.strokeWidth, alignment: pad.strokeAlignment, pattern: pad.strokePattern)
+            return StrokeStyleOverride(paint: pad.stroke, width: pad.strokeWidth, alignment: pad.strokeAlignment, pattern: pad.strokePattern)
         default: return nil
         }
     }
 
     private static func setStroke(_ stroke: StrokeStyleOverride, on node: inout Node) {
         switch node.content {
-        case .rectangle(var s): s.stroke = stroke.color ?? .clear; s.strokeWidth = stroke.width; s.strokeAlignment = stroke.alignment; s.strokePattern = stroke.pattern ?? .solid; node.content = .rectangle(s)
-        case .ellipse(var s):   s.stroke = stroke.color ?? .clear; s.strokeWidth = stroke.width; s.strokeAlignment = stroke.alignment; s.strokePattern = stroke.pattern ?? .solid; node.content = .ellipse(s)
-        case .polygon(var s):   s.stroke = stroke.color ?? .clear; s.strokeWidth = stroke.width; s.strokeAlignment = stroke.alignment; s.strokePattern = stroke.pattern ?? .solid; node.content = .polygon(s)
-        case .path(var s):      s.stroke = stroke.color ?? .clear; s.strokeWidth = stroke.width; s.strokeAlignment = stroke.alignment; s.strokePattern = stroke.pattern ?? .solid; node.content = .path(s)
-        case .line(var s):      s.stroke = stroke.color ?? .clear; s.strokeWidth = stroke.width; s.strokePattern = stroke.pattern ?? .solid; node.content = .line(s)
+        case .rectangle(var s): s.stroke = stroke.paint ?? .clear; s.strokeWidth = stroke.width; s.strokeAlignment = stroke.alignment; s.strokePattern = stroke.pattern ?? .solid; node.content = .rectangle(s)
+        case .ellipse(var s):   s.stroke = stroke.paint ?? .clear; s.strokeWidth = stroke.width; s.strokeAlignment = stroke.alignment; s.strokePattern = stroke.pattern ?? .solid; node.content = .ellipse(s)
+        case .polygon(var s):   s.stroke = stroke.paint ?? .clear; s.strokeWidth = stroke.width; s.strokeAlignment = stroke.alignment; s.strokePattern = stroke.pattern ?? .solid; node.content = .polygon(s)
+        case .path(var s):      s.stroke = stroke.paint ?? .clear; s.strokeWidth = stroke.width; s.strokeAlignment = stroke.alignment; s.strokePattern = stroke.pattern ?? .solid; node.content = .path(s)
+        case .line(var s):      s.stroke = stroke.paint ?? .clear; s.strokeWidth = stroke.width; s.strokePattern = stroke.pattern ?? .solid; node.content = .line(s)
         case .group:
             if node.autoPadding != nil {
-                node.autoPadding?.stroke = stroke.color
+                node.autoPadding?.stroke = stroke.paint
                 node.autoPadding?.strokeWidth = stroke.width
                 node.autoPadding?.strokeAlignment = stroke.alignment
                 node.autoPadding?.strokePattern = stroke.pattern ?? .solid
@@ -4554,15 +4561,61 @@ struct TextStyleOverride: Codable, Sendable, Equatable {
     }
 }
 
-/// The complete outline appearance stored by a component state. Color includes
-/// alpha, and an optional color lets a state remove a group background outline.
+/// The complete outline appearance stored by a component state. BUG-065: the
+/// stroke is a full `Paint` (solid/gradient/pattern), so a state can override
+/// with a gradient outline. An optional paint lets a state remove a group
+/// background outline; `color` remains as the color-speaking face used by
+/// older surfaces — reading it yields the representative color, writing it
+/// replaces the paint with a solid.
 struct StrokeStyleOverride: Codable, Sendable, Equatable {
-    var color: RGBAColor?
+    var paint: Paint?
     var width: CGFloat
     var alignment: StrokeAlignment
     /// Optional so v2.0/v2.1 documents whose state override predates stroke
     /// patterns continue to decode as a solid outline.
     var pattern: StrokePattern? = nil
+
+    var color: RGBAColor? {
+        get { paint?.representativeColor }
+        set { paint = newValue.map { Paint.solid($0) } }
+    }
+
+    enum CodingKeys: String, CodingKey { case paint, color, width, alignment, pattern }
+
+    init(paint: Paint? = nil, width: CGFloat, alignment: StrokeAlignment,
+         pattern: StrokePattern? = nil) {
+        self.paint = paint; self.width = width; self.alignment = alignment
+        self.pattern = pattern
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        // `paint` covers the new format; the `color` fallback covers every
+        // document written before BUG-065 (and keeps nil — "remove the
+        // outline" — distinct from a decoded solid).
+        if let p = try? c.decodeIfPresent(Paint.self, forKey: .paint) {
+            paint = p
+        } else if let legacy = try c.decodeIfPresent(RGBAColor.self, forKey: .color) {
+            paint = .solid(legacy)
+        } else {
+            paint = nil
+        }
+        width = try c.decode(CGFloat.self, forKey: .width)
+        alignment = try c.decode(StrokeAlignment.self, forKey: .alignment)
+        pattern = try c.decodeIfPresent(StrokePattern.self, forKey: .pattern)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encodeIfPresent(paint, forKey: .paint)
+        // Also write the representative color so an OLDER build opening the
+        // document still shows the closest solid outline rather than reading
+        // nil as "remove the outline". New builds prefer `paint`.
+        try c.encodeIfPresent(paint?.representativeColor, forKey: .color)
+        try c.encode(width, forKey: .width)
+        try c.encode(alignment, forKey: .alignment)
+        try c.encodeIfPresent(pattern, forKey: .pattern)
+    }
 }
 
 /// One bounded override targeting a node inside the resolved instance.
@@ -4642,14 +4695,14 @@ extension ComponentInstance {
                 node.blendMode = value
             case .stroke(let stroke):
                 switch node.content {
-                case .rectangle(var shape): shape.stroke = stroke.color ?? .clear; shape.strokeWidth = stroke.width; shape.strokeAlignment = stroke.alignment; shape.strokePattern = stroke.pattern ?? .solid; node.content = .rectangle(shape)
-                case .ellipse(var shape):   shape.stroke = stroke.color ?? .clear; shape.strokeWidth = stroke.width; shape.strokeAlignment = stroke.alignment; shape.strokePattern = stroke.pattern ?? .solid; node.content = .ellipse(shape)
-                case .polygon(var shape):   shape.stroke = stroke.color ?? .clear; shape.strokeWidth = stroke.width; shape.strokeAlignment = stroke.alignment; shape.strokePattern = stroke.pattern ?? .solid; node.content = .polygon(shape)
-                case .path(var shape):      shape.stroke = stroke.color ?? .clear; shape.strokeWidth = stroke.width; shape.strokeAlignment = stroke.alignment; shape.strokePattern = stroke.pattern ?? .solid; node.content = .path(shape)
-                case .line(var shape):      shape.stroke = stroke.color ?? .clear; shape.strokeWidth = stroke.width; shape.strokePattern = stroke.pattern ?? .solid; node.content = .line(shape)
+                case .rectangle(var shape): shape.stroke = stroke.paint ?? .clear; shape.strokeWidth = stroke.width; shape.strokeAlignment = stroke.alignment; shape.strokePattern = stroke.pattern ?? .solid; node.content = .rectangle(shape)
+                case .ellipse(var shape):   shape.stroke = stroke.paint ?? .clear; shape.strokeWidth = stroke.width; shape.strokeAlignment = stroke.alignment; shape.strokePattern = stroke.pattern ?? .solid; node.content = .ellipse(shape)
+                case .polygon(var shape):   shape.stroke = stroke.paint ?? .clear; shape.strokeWidth = stroke.width; shape.strokeAlignment = stroke.alignment; shape.strokePattern = stroke.pattern ?? .solid; node.content = .polygon(shape)
+                case .path(var shape):      shape.stroke = stroke.paint ?? .clear; shape.strokeWidth = stroke.width; shape.strokeAlignment = stroke.alignment; shape.strokePattern = stroke.pattern ?? .solid; node.content = .path(shape)
+                case .line(var shape):      shape.stroke = stroke.paint ?? .clear; shape.strokeWidth = stroke.width; shape.strokePattern = stroke.pattern ?? .solid; node.content = .line(shape)
                 case .group:
                     if node.autoPadding != nil {
-                        node.autoPadding?.stroke = stroke.color
+                        node.autoPadding?.stroke = stroke.paint
                         node.autoPadding?.strokeWidth = stroke.width
                         node.autoPadding?.strokeAlignment = stroke.alignment
                         node.autoPadding?.strokePattern = stroke.pattern ?? .solid

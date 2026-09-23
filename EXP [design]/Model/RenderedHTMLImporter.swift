@@ -1424,7 +1424,7 @@ struct RenderedHTMLImporter {
                                        ? .solid(RGBAColor(r: 0.9, g: 0.91, b: 0.94, a: 1))
                                        : fill ?? .clear,
                                    cornerRadius: radii.topLeft,
-                                   stroke: borderColor,
+                                   stroke: .solid(borderColor),
                                    strokeWidth: isImagePlaceholder ? 1
                                        : (usesOutline ? outlineWidth : borderWidth),
                                    strokeAlignment: usesOutline ? .outside : .inside,

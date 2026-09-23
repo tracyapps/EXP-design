@@ -2538,9 +2538,9 @@ struct RightPanel: View {
         Binding(get: { Double(selectedAutoPadding?.cornerRadius ?? 0) },
                 set: { v in mutateAP("Frame Corner") { $0.cornerRadius = Swift.max(0, CGFloat(v)) } })
     }
-    private var apStrokeBinding: Binding<RGBAColor> {
+    private var apStrokeBinding: Binding<Paint> {
         Binding(get: { selectedAutoPadding?.stroke ?? .black },
-                set: { c in mutateAP("Frame Stroke") { $0.stroke = c } })
+                set: { p in mutateAP("Frame Stroke") { $0.stroke = p } })
     }
     private var apStrokeWidthBinding: Binding<Double> {
         Binding(get: { Double(selectedAutoPadding?.strokeWidth ?? 0) },
@@ -2593,7 +2593,7 @@ struct RightPanel: View {
                         .accessibilityLabel("Background corner radius")
                     Spacer()
                     Text("Stroke").foregroundStyle(EXPColor.textSecondary)
-                    ColorWell(label: "", color: apStrokeBinding)
+                    PaintWell(label: "", paint: apStrokeBinding)
                     TextField("", value: apStrokeWidthBinding, format: .number.precision(.fractionLength(0)))
                         .labelsHidden().textFieldStyle(.exp)
                         .multilineTextAlignment(.trailing).monospacedDigit()
@@ -2937,7 +2937,7 @@ struct RightPanel: View {
         }
         return .white
     }
-    private var multiStroke: RGBAColor {
+    private var multiStroke: Paint {
         for n in selectedResolvedNodes {
             switch n.content {
             case .rectangle(let s): return s.stroke
@@ -3004,16 +3004,16 @@ struct RightPanel: View {
             }
         })
     }
-    private var multiStrokeBinding: Binding<RGBAColor> {
-        Binding(get: { multiStroke }, set: { c in
-            mutateAllSelected("Stroke Color") { node in
+    private var multiStrokeBinding: Binding<Paint> {
+        Binding(get: { multiStroke }, set: { p in
+            mutateAllSelected("Stroke") { node in
                 switch node.content {
-                case .rectangle(var s): s.stroke = c; node.content = .rectangle(s)
-                case .ellipse(var s):   s.stroke = c; node.content = .ellipse(s)
-                case .polygon(var s):   s.stroke = c; node.content = .polygon(s)
-                case .path(var s):      s.stroke = c; node.content = .path(s)
-                case .line(var s):      s.stroke = c; node.content = .line(s)
-                case .group:            if node.autoPadding != nil { node.autoPadding?.stroke = c }
+                case .rectangle(var s): s.stroke = p; node.content = .rectangle(s)
+                case .ellipse(var s):   s.stroke = p; node.content = .ellipse(s)
+                case .polygon(var s):   s.stroke = p; node.content = .polygon(s)
+                case .path(var s):      s.stroke = p; node.content = .path(s)
+                case .line(var s):      s.stroke = p; node.content = .line(s)
+                case .group:            if node.autoPadding != nil { node.autoPadding?.stroke = p }
                 default: break
                 }
             }
@@ -3141,7 +3141,9 @@ struct RightPanel: View {
             if includeFillAndStroke, multiAnyStroke {
                 Divider()
                 InspectorSectionTitle(title: "Stroke", icon: "pencil.line").padding(.top, 4)
-                ColorWell(label: "Color", color: multiStrokeBinding)
+                // BUG-065: the stroke is a full paint — the same PaintWell the
+                // Fill row uses, so a stroke can be a gradient (or pattern).
+                PaintWell(label: "Paint", paint: multiStrokeBinding)
                 HStack(spacing: 8) {
                     Text("Width").foregroundStyle(EXPColor.textSecondary)
                     TextField("", value: multiStrokeWidthBinding, format: .number.precision(.fractionLength(0)))
@@ -4449,7 +4451,7 @@ struct RightPanel: View {
                     .numericStepping(strokeWidthBinding, min: 0)
                 Spacer()
             }
-            ColorWell(label: "Color", color: strokeColorBinding)
+            PaintWell(label: "Paint", paint: strokeColorBinding)
             EXPSegmented(selection: lineStrokePatternBinding,
                          segments: StrokePattern.allCases.map { .init(value: $0, label: $0.label) })
                 .help("Use a solid, dashed, or dotted line")
@@ -4483,9 +4485,9 @@ struct RightPanel: View {
         Binding(get: { Double(selectedLineShape?.strokeWidth ?? 2) },
                 set: { newValue in updateLineContent { $0.strokeWidth = max(1, CGFloat(newValue)) } })
     }
-    private var strokeColorBinding: Binding<RGBAColor> {
+    private var strokeColorBinding: Binding<Paint> {
         Binding(get: { selectedLineShape?.stroke ?? .black },
-                set: { c in updateLineContent { $0.stroke = c } })
+                set: { p in updateLineContent { $0.stroke = p } })
     }
     private var lineStrokePatternBinding: Binding<StrokePattern> {
         Binding(get: { selectedLineShape?.strokePattern ?? .solid },
@@ -5012,7 +5014,7 @@ struct RightPanel: View {
             }
             Divider()
             InspectorSectionTitle(title: "Stroke", icon: "pencil.line")
-            ColorWell(label: "Color", color: shapeStrokeBinding)
+            PaintWell(label: "Paint", paint: shapeStrokeBinding)
             HStack(spacing: 8) {
                 Text("Width").foregroundStyle(EXPColor.textSecondary).font(.callout)
                 TextField("", value: strokeWidthShapeBinding, format: .number.precision(.fractionLength(0)))
@@ -5061,7 +5063,7 @@ struct RightPanel: View {
         default: return nil
         }
     }
-    private var shapeStroke: RGBAColor? {
+    private var shapeStroke: Paint? {
         guard let content = selectedNode?.content else { return nil }
         switch content {
         case .rectangle(let s): return s.stroke
@@ -5101,9 +5103,9 @@ struct RightPanel: View {
         Binding(get: { shapeFill ?? .white },
                 set: { c in updateShape("Fill") { $0.fill = c } })
     }
-    private var shapeStrokeBinding: Binding<RGBAColor> {
+    private var shapeStrokeBinding: Binding<Paint> {
         Binding(get: { shapeStroke ?? .black },
-                set: { c in updateShape("Stroke Color") { $0.stroke = c } })
+                set: { p in updateShape("Stroke") { $0.stroke = p } })
     }
     private var strokeWidthShapeBinding: Binding<Double> {
         Binding(get: { Double(shapeStrokeWidth) },
@@ -5245,7 +5247,7 @@ struct RightPanel: View {
 /// Inspector can edit them through one code path.
 private struct ShapeStyle {
     var fill: Paint
-    var stroke: RGBAColor
+    var stroke: Paint
     var strokeWidth: CGFloat
     var strokePattern: StrokePattern
 }
@@ -5289,7 +5291,7 @@ extension RightPanel {
                 }
                 Divider()
                 InspectorSectionTitle(title: "Stroke", icon: "pencil.line")
-                ColorWell(label: "Color", color: pathStrokeBinding)
+                PaintWell(label: "Paint", paint: pathStrokeBinding)
                 HStack(spacing: 8) {
                     Text("Width").foregroundStyle(EXPColor.textSecondary).font(.callout)
                     TextField("", value: pathStrokeWidthBinding, format: .number.precision(.fractionLength(0)))
@@ -5363,9 +5365,9 @@ extension RightPanel {
         Binding(get: { selectedPathShape?.fill ?? .white },
                 set: { c in updatePath("Path Fill") { $0.fill = c } })
     }
-    var pathStrokeBinding: Binding<RGBAColor> {
+    var pathStrokeBinding: Binding<Paint> {
         Binding(get: { selectedPathShape?.stroke ?? .black },
-                set: { c in updatePath("Path Stroke") { $0.stroke = c } })
+                set: { p in updatePath("Path Stroke") { $0.stroke = p } })
     }
     var pathStrokeWidthBinding: Binding<Double> {
         Binding(get: { Double(selectedPathShape?.strokeWidth ?? 2) },

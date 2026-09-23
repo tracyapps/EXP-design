@@ -27,11 +27,17 @@ enum VectorBooleanOperation {
 }
 
 struct VectorStrokeGeometry {
-    var color: RGBAColor
+    /// BUG-065: the full stroke paint, so Outline Stroke converts a gradient
+    /// (or pattern) stroke into an outline filled with the SAME paint rather
+    /// than flattening it to the representative color.
+    var paint: Paint
     var width: CGFloat
     var alignment: StrokeAlignment
     var join: CGLineJoin
     var cap: CGLineCap
+
+    /// Color face for geometry math that only ever needed one color.
+    var color: RGBAColor { paint.representativeColor }
 }
 
 enum VectorPathGeometry {
@@ -104,23 +110,23 @@ enum VectorPathGeometry {
     static func stroke(from content: NodeContent) -> VectorStrokeGeometry? {
         switch content {
         case .rectangle(let s) where s.strokeWidth > 0:
-            return VectorStrokeGeometry(color: s.stroke, width: s.strokeWidth,
+            return VectorStrokeGeometry(paint: s.stroke, width: s.strokeWidth,
                                         alignment: s.strokeAlignment,
                                         join: .miter, cap: .butt)
         case .ellipse(let s) where s.strokeWidth > 0:
-            return VectorStrokeGeometry(color: s.stroke, width: s.strokeWidth,
+            return VectorStrokeGeometry(paint: s.stroke, width: s.strokeWidth,
                                         alignment: s.strokeAlignment,
                                         join: .miter, cap: .butt)
         case .polygon(let s) where s.strokeWidth > 0:
-            return VectorStrokeGeometry(color: s.stroke, width: s.strokeWidth,
+            return VectorStrokeGeometry(paint: s.stroke, width: s.strokeWidth,
                                         alignment: s.strokeAlignment,
                                         join: .miter, cap: .butt)
         case .line(let s) where s.strokeWidth > 0:
-            return VectorStrokeGeometry(color: s.stroke, width: s.strokeWidth,
+            return VectorStrokeGeometry(paint: s.stroke, width: s.strokeWidth,
                                         alignment: .center,
                                         join: .round, cap: s.strokeCap.cgLineCap)
         case .path(let s) where s.strokeWidth > 0:
-            return VectorStrokeGeometry(color: s.stroke, width: s.strokeWidth,
+            return VectorStrokeGeometry(paint: s.stroke, width: s.strokeWidth,
                                         alignment: s.effectiveStrokeAlignment,
                                         join: s.strokeJoin.cgLineJoin,
                                         cap: s.strokeCap.cgLineCap)
@@ -230,7 +236,7 @@ enum VectorPathGeometry {
     /// Convert Core Graphics output back to EXP's editable cubic-anchor model.
     /// Quadratic segments are promoted exactly to cubic segments.
     static func pathShape(from path: CGPath, fill: Paint,
-                          stroke: RGBAColor = .black, strokeWidth: CGFloat = 0,
+                          stroke: Paint = .black, strokeWidth: CGFloat = 0,
                           strokeAlignment: StrokeAlignment = .center) -> (shape: PathShape, bounds: CGRect)? {
         guard !path.isEmpty else { return nil }
         let bounds = path.boundingBoxOfPath.standardized
