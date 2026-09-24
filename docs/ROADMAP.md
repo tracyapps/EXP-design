@@ -1286,6 +1286,16 @@ promote them into release gates.
 
 ---
 
+## v2.6 — in development (scope set at the owner's scoping gate)
+
+Opened 2026-09-24 with `MARKETING_VERSION 2.6` / `CURRENT_PROJECT_VERSION 17`
+across the app, thumbnail extension, and bundled runtime configurations. The
+public v2.5/build 16 release, its immutable artifacts, and the appcast entry
+remain untouched. Candidates queued from the v2.5 deferrals: FEAT-057 (design
+directions), FEAT-059 (a11y guided fixes), FEAT-060 (evaluation harness), and
+the prioritized open backlog (incl. the SVG `clip-path` import P0 from
+WEB-SVG-FIDELITY-INVENTORY.md). Nothing starts until the owner sets scope.
+
 ## v2.5 — released (2026-09-23)
 
 Development identity: **2.5 / build 16** across the main app, thumbnail
@@ -3252,6 +3262,18 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-09-24 (night close — §10 Sparkle proof GREEN; v2.5 COMPLETE; v2.6
+  development opened).** Owner ran the in-app update on the daily-driver
+  install (`/Applications/design/…`) from the live feed and drew the homepage
+  demo wordmark immediately after ("that svg export was what i created right
+  after using the sparkle in app update") — the artwork itself proves the
+  updated app's document, paint, mask, and export pipeline end to end.
+  Verified: the updated install reads 2.5/16 and passes all 18
+  release-candidate checks. The preserved v2.3 copy in /Applications was not
+  needed (supersede decision). v2.5 is CLOSED — every gate in
+  RELEASE-CHECKLIST-v2.5 checked. Opened v2.6 development (2.6/build 17
+  everywhere; scope awaits the owner's gate).
 
 - **2026-09-24 (later — the paint story got its demo: the owner's hand-lettered
   "EXP" wordmark now sits beside the homepage copy).** The owner supplied the

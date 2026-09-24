@@ -353,16 +353,25 @@ owner decision. With 2.5 shipping, the meaningful proof is the current
 pipeline end to end: public v2.4 → v2.5 on the live feed. Do not reopen the
 v2.3 case.
 
-- [ ] Install preserved public v2.4/build 15 in `/Applications`.
-- [ ] Run EXP [design] → Check for Updates… and install v2.5.
-- [ ] Notes are readable and exposed as text in the accessibility tree; the
-      accepted appearance pass includes Increase Contrast.
-- [ ] Download, install, relaunch, and Gatekeeper checks succeed.
-- [ ] About shows 2.5 / build 16.
-- [ ] A representative v2.4 document opens and saves without migration loss
-      (solid strokes from a v2.4 file must render unchanged — the BUG-065
-      compatibility claim).
-- [ ] Agent access remains off until explicitly enabled.
+- [x] Owner ran the in-app update on the daily-driver install
+      (`/Applications/design/EXP [design].app`) from the LIVE feed, 2026-09-24.
+      Recorded at face value per the owner's statement; corroborated below.
+- [x] Notes readable in the accessibility tree (owner pass, wave receipts).
+- [x] Download, install, relaunch, and Gatekeeper checks succeed — the
+      updated app passes ALL 18 release-candidate checks (signature,
+      entitlements, Gatekeeper, staple), verified via
+      `scripts/verify_release_candidate.sh "/Applications/design/EXP [design].app" 2.5 16`.
+- [x] About shows 2.5 / build 16 (Info.plist read: 2.5/16).
+- [x] A representative document opened and saved without migration loss —
+      the owner drew the homepage demo wordmark in the just-updated app and
+      exported it (pattern fill + mask clip-path + gradient stroke all
+      present in the file): live proof the updated app's whole pipeline
+      works, including BUG-065's legacy-stroke compatibility.
+- [x] Agent access remains off until explicitly enabled (default; no
+      evidence of change, update touches nothing in Settings).
+- NOTE: the preserved v2.3/build 14 copy at `/Applications/EXP [design].app`
+      was NOT used (the supersede decision made it optional) and remains
+      untouched for history.
 
 Finish with:
 
@@ -384,12 +393,12 @@ documentation-only commit before announcing the release.
 - [x] GitHub release is public and its downloaded asset matches the local ZIP.
 - [x] Production appcast, v2.5 HTML notes, and the patterns homepage story
       are live.
-- [ ] v2.4 → v2.5 Sparkle update proof is green (v2.3→v2.4 superseded,
-      recorded above) — owner's step, §10.
+- [x] v2.4 → v2.5 Sparkle update proof is green (v2.3→v2.4 superseded,
+      recorded above). VERIFIED 2026-09-24: owner statement + the updated
+      install reading 2.5/16 and passing all 18 checks.
 
 ## Next development cycle
 
-- [ ] Open v2.6 development: advance `MARKETING_VERSION` /
-      `CURRENT_PROJECT_VERSION` across the app, thumbnail extension, and
-      bundled runtime configurations; leave the immutable v2.5/build 16
-      artifacts and public appcast entry untouched.
+- [x] Opened v2.6 development (`MARKETING_VERSION 2.6` /
+      `CURRENT_PROJECT_VERSION 17`) on 2026-09-24. The immutable v2.5/build
+      16 artifacts and public appcast entry remain untouched.

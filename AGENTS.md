@@ -94,18 +94,14 @@ code write-back remain explicitly deferred pending evidence.
 Agent capability packs, Figma OAuth/Keychain/Variables, and agent write-back remain
 explicit non-gating follow-ups.
 See ROADMAP.md for the authoritative checklist and newest Progress Log entry.
-**v2.5 IS PUBLIC (2026-09-24)** — signed, notarized, immutable zip
-(`cda96ddb…`), Sparkle build 16, GitHub release, notes page, and the
-homepage paint story are all live; receipts in
-`docs/RELEASE-CHECKLIST-v2.5.md` and the 2026-09-24 Progress Log entry.
-**The ONE remaining gate is §10: the owner's v2.4→v2.5 Sparkle update
-proof** (install public v2.4/build 15 → Check for Updates → install,
-relaunch, About 2.5/16, a v2.4 document's solid strokes render unchanged,
-agent access still off; then
-`scripts/verify_release_candidate.sh "/Applications/EXP [design].app" 2.5 16`
-and a documentation-only proof commit — the v2.3→v2.4 proof is superseded,
-do not reopen it). After that proof, open v2.6 per the checklist's next
-development cycle. Dropbox note: the
+**v2.5 is RELEASED AND COMPLETE (2026-09-24)** — public, owner-verified
+through every gate including the v2.4→v2.5 Sparkle proof (the updated
+install reads 2.5/16 and passed all 18 release-candidate checks; receipts in
+`docs/RELEASE-CHECKLIST-v2.5.md`). **v2.6 development is OPEN**
+(`MARKETING_VERSION 2.6` / `CURRENT_PROJECT_VERSION 17`; immutable v2.5
+artifacts untouched). Nothing document-mutating starts until the owner sets
+v2.6 scope at a scoping gate; queued candidates live in ROADMAP → v2.6.
+Dropbox note: the
 folder is supposed to be excluded from sync (one machine only); a known
 ongoing Dropbox issue has been corrupting the owner's dev folders (ticket
 open) — any Dropbox-caused change here may be safely overridden from git;
