@@ -16,6 +16,7 @@ const issuesUrl = "https://github.com/tracyapps/EXP-design/issues/new";
 // /download and /learn.
 const featureLinks = [
   { label: "features", href: "/#features" },
+  { label: "paint", href: "/#paint" },
   { label: "Sanaa", href: "/#sanaa" },
   { label: "components", href: "/#component-system" },
   { label: "accessibility", href: "/#accessibility" },
@@ -362,6 +363,60 @@ function FeatureStory() {
             <span>{feature.title}</span>
           </button>
         ))}
+      </div>
+    </section>
+  );
+}
+
+// v2.5's headline: the completed paint model. Text-only by design — the
+// story is about what the paint editor and the exporters do; screenshots can
+// join later without changing copy.
+function PaintCallout() {
+  return (
+    <section id="paint" className="paint-section" aria-labelledby="paint-title">
+      <div className="section-copy narrow">
+        <p className="section-label">new in 2.5 — paint, everywhere</p>
+        <h2 id="paint-title">any paint can be a fill or a stroke. patterns included.</h2>
+        <p>
+          Vector patterns import from SVG as live, editable tiles and stay
+          patterns on the way back out — where most professional tools
+          rasterize pattern swatches for SVG or drop them entirely. Gradients
+          and patterns share one paint editor for fills and strokes, each
+          pattern anchors its own way, and masked groups export masked to
+          every surface.
+        </p>
+        <ul className="feature-points" aria-label="Pattern and paint capabilities">
+          <li>
+            <span>
+              SVG pattern fills import as real editable paints and round-trip
+              as true pattern definitions in the exported file.
+            </span>
+          </li>
+          <li>
+            <span>
+              Gradient and pattern strokes on every shape, authored in the
+              same editor fills use.
+            </span>
+          </li>
+          <li>
+            <span>
+              Per-pattern anchoring: artwork-anchored tiles ride the layer,
+              while imported shape-anchored tiles keep their authored
+              behavior.
+            </span>
+          </li>
+          <li>
+            <span>
+              Mask groups export as real clips in SVG and CSS — one silhouette
+              shared by every export surface.
+            </span>
+          </li>
+        </ul>
+        <p className="sanaa-boundary">
+          Honest edge: an exported mask renders correctly in browsers and
+          Preview, but re-imports into EXP unclipped until SVG clip-path
+          import lands.
+        </p>
       </div>
     </section>
   );
@@ -1460,6 +1515,7 @@ export default function App() {
       <main>
         <Hero />
         <FeatureStory />
+        <PaintCallout />
         <SanaaCallout />
         <ComponentCallout />
         <WorkspaceCallout />

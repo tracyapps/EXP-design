@@ -1286,7 +1286,7 @@ promote them into release gates.
 
 ---
 
-## v2.5 — in development
+## v2.5 — released (2026-09-23)
 
 Development identity: **2.5 / build 16** across the main app, thumbnail
 extension, and bundled runtime configurations. Public v2.4/build 15 artifacts,

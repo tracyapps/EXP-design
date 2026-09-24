@@ -389,6 +389,7 @@ main {
 .product-story,
 .workspace-section,
 .features-section,
+.paint-section,
 .sanaa-section,
 .component-section,
 .a11y-section,
@@ -884,6 +885,11 @@ main {
   display: block;
   width: 100%;
   height: auto;
+}
+
+.paint-section {
+  padding: 32px 0 104px;
+  border-top: 1px solid var(--hairline);
 }
 
 .design-language-section {

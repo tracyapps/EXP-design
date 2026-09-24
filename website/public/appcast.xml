@@ -8,6 +8,15 @@
     <channel>
         <title>EXP [design]</title>
         <item>
+            <title>2.5</title>
+            <pubDate>Wed, 23 Sep 2026 19:11:29 -0500</pubDate>
+            <sparkle:version>16</sparkle:version>
+            <sparkle:shortVersionString>2.5</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>26.2</sparkle:minimumSystemVersion>
+            <sparkle:releaseNotesLink>https://expdesign.app/EXP-design-v2.5.html</sparkle:releaseNotesLink>
+            <enclosure url="https://github.com/tracyapps/EXP-design/releases/download/v2.5/EXP-design-v2.5.zip" length="32395457" type="application/octet-stream" sparkle:edSignature="jbAtck13sjCHotjx+5ecxTxQ3zgo05Tv/wLMQWKa7Qf65QW0Y7a0FV0Xs855RZqISGOrPEa6U9sxGAviPvfUBA=="/>
+        </item>
+        <item>
             <title>2.4</title>
             <pubDate>Wed, 02 Sep 2026 10:44:05 -0500</pubDate>
             <sparkle:version>15</sparkle:version>
@@ -24,15 +33,6 @@
             <sparkle:minimumSystemVersion>26.2</sparkle:minimumSystemVersion>
             <sparkle:releaseNotesLink>https://expdesign.app/EXP-design-v2.3.html</sparkle:releaseNotesLink>
             <enclosure url="https://github.com/tracyapps/EXP-design/releases/download/v2.3/EXP-design-v2.3.zip" length="30462182" type="application/octet-stream" sparkle:edSignature="Sqgs5smLlmce0Sba8PMada+I4seIcufTeAQrYuHO3jRS7kYoaYxijn+a67BiyRdQzTcTDRlPjwe09vx5s6txAg=="/>
-        </item>
-        <item>
-            <title>2.2</title>
-            <pubDate>Wed, 05 Aug 2026 02:25:14 -0500</pubDate>
-            <sparkle:version>13</sparkle:version>
-            <sparkle:shortVersionString>2.2</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>26.2</sparkle:minimumSystemVersion>
-            <sparkle:releaseNotesLink>https://expdesign.app/EXP-design-v2.2.html</sparkle:releaseNotesLink>
-            <enclosure url="https://github.com/tracyapps/EXP-design/releases/download/v2.2/EXP-design-v2.2.zip" length="29873902" type="application/octet-stream" sparkle:edSignature="PCu/dRXeeIhGg3hM/FhxvRsZan+LR2LpXhdHRUM9hEXo9bHaUuduTnhlbOCA3bUPgT+xqvQC4UtFwoqiFLzZCw=="/>
         </item>
     </channel>
 </rss>
