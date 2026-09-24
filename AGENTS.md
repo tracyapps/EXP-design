@@ -94,16 +94,18 @@ code write-back remain explicitly deferred pending evidence.
 Agent capability packs, Figma OAuth/Keychain/Variables, and agent write-back remain
 explicit non-gating follow-ups.
 See ROADMAP.md for the authoritative checklist and newest Progress Log entry.
-**v2.5 scope, set by the owner 2026-09-22:** finish the paint model and add
-Sanaa FEAT-058. Standing 2026-09-23 (launch): v2.5 scope is COMPLETE and
-fully owner-verified, and the owner has authorized LAUNCH. Release-gate
-decisions recorded: v2.3→v2.4 Sparkle proof superseded by the v2.4→v2.5
-proof; release notes lead with the pattern/paint story; the Dropbox incident
-is fully restored (tree clean). **Active work:
-`docs/RELEASE-CHECKLIST-v2.5.md`** — walk it top to bottom (release notes and
-checklist are written; §1's scripted freeze battery, then archive → notarize
-→ immutable zip → Sparkle metadata → tag/GitHub/website → public verify →
-the v2.4→v2.5 update proof, then the v2.6 dev-open step). Dropbox note: the
+**v2.5 IS PUBLIC (2026-09-24)** — signed, notarized, immutable zip
+(`cda96ddb…`), Sparkle build 16, GitHub release, notes page, and the
+homepage paint story are all live; receipts in
+`docs/RELEASE-CHECKLIST-v2.5.md` and the 2026-09-24 Progress Log entry.
+**The ONE remaining gate is §10: the owner's v2.4→v2.5 Sparkle update
+proof** (install public v2.4/build 15 → Check for Updates → install,
+relaunch, About 2.5/16, a v2.4 document's solid strokes render unchanged,
+agent access still off; then
+`scripts/verify_release_candidate.sh "/Applications/EXP [design].app" 2.5 16`
+and a documentation-only proof commit — the v2.3→v2.4 proof is superseded,
+do not reopen it). After that proof, open v2.6 per the checklist's next
+development cycle. Dropbox note: the
 folder is supposed to be excluded from sync (one machine only); a known
 ongoing Dropbox issue has been corrupting the owner's dev folders (ticket
 open) — any Dropbox-caused change here may be safely overridden from git;
