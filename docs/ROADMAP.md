@@ -3253,6 +3253,16 @@ font import → Phase 9, shadows → Phase 10._
 
 ## Progress Log
 
+- **2026-09-24 (later — the paint story got its demo: the owner's hand-lettered
+  "EXP" wordmark now sits beside the homepage copy).** The owner supplied the
+  artwork (`patterns-and-masks-and-gradients-ohmy.svg`); the file is itself an
+  EXP 2.5 export carrying a `<pattern>` fill, a mask group emitted as
+  clip-path (BUG-062's SVG half), and a gradient stroke (BUG-065) — so the
+  section's claims and its image are the same bytes, and the caption says so.
+  Two-column layout, glass shot card, responsive collapse, descriptive alt
+  text; committed `a248941`, deployed, and verified live (asset 200 + bundle
+  reference).
+
 - **2026-09-24 (v2.5 IS PUBLIC — signed, notarized, on GitHub, Sparkle, and
   the website; one gate left: the owner's v2.4→v2.5 update proof).** Launched
   in one evening, per RELEASE-CHECKLIST-v2.5:
