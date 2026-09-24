@@ -368,13 +368,14 @@ function FeatureStory() {
   );
 }
 
-// v2.5's headline: the completed paint model. Text-only by design — the
-// story is about what the paint editor and the exporters do; screenshots can
-// join later without changing copy.
+// v2.5's headline: the completed paint model. The figure is the owner's own
+// hand-lettered "EXP" wordmark, drawn and exported in 2.5 — the file itself
+// carries a pattern fill, a mask group (as a clip-path), and a gradient
+// stroke, so the section's claims and its image are the same bytes.
 function PaintCallout() {
   return (
     <section id="paint" className="paint-section" aria-labelledby="paint-title">
-      <div className="section-copy narrow">
+      <div className="section-copy">
         <p className="section-label">new in 2.5 — paint, everywhere</p>
         <h2 id="paint-title">any paint can be a fill or a stroke. patterns included.</h2>
         <p>
@@ -418,6 +419,19 @@ function PaintCallout() {
           import lands.
         </p>
       </div>
+      <figure className="paint-gallery" aria-label="Hand-lettered EXP wordmark demonstrating patterns, masks, and gradient strokes">
+        <div className="paint-shot">
+          <img
+            src="/assets/patterns-and-masks-and-gradients-ohmy.svg"
+            alt="A hand-lettered “EXP” wordmark on a dark ground: the letters are filled with a neon isometric-cube pattern masked to the letterforms and outlined with a thick green, yellow, and orange gradient stroke."
+            loading="lazy"
+          />
+        </div>
+        <figcaption>
+          drawn and exported in EXP — one wordmark, a pattern fill, a mask, and
+          a gradient stroke.
+        </figcaption>
+      </figure>
     </section>
   );
 }
