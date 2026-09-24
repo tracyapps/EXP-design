@@ -3253,6 +3253,35 @@ font import → Phase 9, shadows → Phase 10._
 
 ## Progress Log
 
+- **2026-09-24 (v2.5 IS PUBLIC — signed, notarized, on GitHub, Sparkle, and
+  the website; one gate left: the owner's v2.4→v2.5 update proof).** Launched
+  in one evening, per RELEASE-CHECKLIST-v2.5:
+
+  - Owner accepted and ran the Xcode side (archive 19:00, notarized export
+    19:08); the archive app passed 16 release-candidate checks and the clean
+    staging copy passed all 18 (signature, entitlements, Gatekeeper, staple).
+    Dropbox reattached FinderInfo to the app in the synced releases folder —
+    the §6 clean-copy discipline strips it; the shipped bytes never come from
+    the synced folder.
+  - Immutable zip `EXP-design-v2.5.zip`, SHA-256
+    `cda96ddbbc49823390690658217c2d27a63a45170ce14c5f94a5503996e37c59` —
+    the same digest GitHub reports on the asset, and the same bytes the
+    appcast's EdDSA signature covers.
+  - Metadata commit `83f05a6` (appcast build 16, v2.5 notes page, ROADMAP
+    header "released 2026-09-23") carries the new homepage paint story
+    (`/#paint`), verified live in the deployed bundle.
+  - Tag `v2.5` → `83f05a6`; GitHub release "EXP [design] v2.5 — Paint,
+    everywhere." public, asset byte-compared against the local zip; `main`
+    pushed and the production deploy verified: live appcast (2.5/16,
+    signature), download URL, notes page all reachable.
+
+  **Remaining:** §10 — the owner installs public v2.4/build 15 and runs
+  Check for Updates (install, relaunch, About 2.5/16, a v2.4 document's
+  solid strokes render unchanged, agent access still off), then
+  `scripts/verify_release_candidate.sh "/Applications/EXP [design].app" 2.5 16`
+  and the documentation-only proof commit. Then v2.6 development opens
+  (checklist "Next development cycle").
+
 - **2026-09-23 (launch prep — all three release-gate decisions made; v2.5
   launch work begins).** Owner decisions, recorded:
 

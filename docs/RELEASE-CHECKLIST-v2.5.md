@@ -150,19 +150,21 @@ pass, not part of this scripted battery.
 
 ## 2. Final owner acceptance record
 
-The owner's v2.5 acceptance record goes here at release time. Do not carry a
-previous release's narrative forward.
+Owner record, 2026-09-23: acceptance given on the session's accumulated wave
+receipts ("looks good"), then the owner created the Xcode archive and exported
+the notarized app directly (§4/§5 below). Recorded at face value, matching the
+wave gates in §A.
 
-Release smoke coverage:
+Release smoke coverage (via the §A wave gates, all owner-run 2026-09-22/23):
 
-- [ ] Create/open/edit/save/reopen; undo/redo; export each format.
-- [ ] Pattern fills and strokes across canvas, SVG, handoff, and raster;
+- [x] Create/open/edit/save/reopen; undo/redo; export each format.
+- [x] Pattern fills and strokes across canvas, SVG, handoff, and raster;
       an imported generated-background SVG round-trips as a live pattern.
-- [ ] Per-pattern anchoring flip visibly rides the layer.
-- [ ] Mask group export: browser/Preview render the mask; no phantom shape.
-- [ ] Sanaa bulk batch through a connected agent: sheet preview, receipt,
+- [x] Per-pattern anchoring flip visibly rides the layer.
+- [x] Mask group export: browser/Preview render the mask; no phantom shape.
+- [x] Sanaa bulk batch through a connected agent: sheet preview, receipt,
       one undo step.
-- [ ] Owner's configured test suite is green.
+- [x] Owner's configured test suite is green.
 
 ## 3. Commit the frozen source
 
@@ -179,6 +181,10 @@ test -z "$(git status --porcelain)"
 Do not tag yet; the tag points at the later metadata commit.
 
 ## 4. Create and verify the signed archive
+
+- [x] Owner created the archive in Xcode Organizer, 2026-09-23 19:00
+      (`EXP [design] 9-23-26, 7.00 PM.xcarchive`, including a notarization
+      submission record). Archive app passed all 16 release-candidate checks.
 
 ```sh
 cd "$ROOT"
@@ -215,6 +221,12 @@ The exported result must be exactly:
 /Users/tapps/Library/CloudStorage/Dropbox/work/custom-work-tools/apps/releases/v2.5/EXP [design].app
 ```
 
+- [x] Done, 2026-09-23 19:08. The clean staging copy passed all 18 checks
+      (signature, entitlements, Gatekeeper, staple). Dropbox had reattached
+      `com.apple.FinderInfo` to the app in the synced releases folder — the
+      §6 clean-copy discipline strips it; the shipped bytes come from the
+      staging copy, not the synced folder.
+
 ## 6. Create the immutable shipping zip
 
 ```sh
@@ -241,6 +253,10 @@ shasum -a 256 "$ZIP_PATH"
 The zip is immutable: the same bytes back Sparkle's signature, the GitHub
 asset, and the public download.
 
+- [x] Done 2026-09-23. Clean app and unzip-roundtrip both passed all 18
+      checks. SHA-256:
+      `cda96ddbbc49823390690658217c2d27a63a45170ce14c5f94a5503996e37c59`.
+
 ## 7. Generate and commit release metadata
 
 ```sh
@@ -264,6 +280,14 @@ git diff --cached --check
 git commit -m "v2.5: publish release metadata"
 test -z "$(git status --porcelain)"
 ```
+
+- [x] Done — commit `83f05a6`. `siteContent.json` was unchanged (already
+      2.5/16). Sparkle checks passed; zip bytes identical to the Sparkle
+      copy. ROADMAP header now reads "v2.5 — released (2026-09-23)".
+- [x] The homepage gained the patterns feature story (`/#paint`, nav
+      "paint"), committed with the metadata and verified live in the
+      deployed JS bundle (the site is a React SPA; the copy ships in the
+      bundle, not the HTML shell).
 
 ## 8. Tag, upload, and deploy
 
@@ -294,6 +318,12 @@ Wait for the existing production website deployment to succeed. The homepage
 gains a v2.5 feature story led by patterns (mirror of the notes' framing);
 draft it into `website/` before this step if not already present.
 
+- [x] Done 2026-09-23/24: tag `v2.5` pushed; GitHub release
+      "EXP [design] v2.5 — Paint, everywhere." public with the zip; the
+      downloaded asset is byte-identical (`cmp` clean) and GitHub reports
+      digest `sha256:cda96ddbbc49823390690658217c2d27a63a45170ce14c5f94a5503996e37c59`;
+      `main` pushed and the production deploy verified live.
+
 ## 9. Verify the public release
 
 ```sh
@@ -309,6 +339,11 @@ curl -fsSIL "https://github.com/tracyapps/EXP-design/releases/download/v$VERSION
 curl -fsSI "https://expdesign.app/EXP-design-v$VERSION.html" >/dev/null
 gh release view "v$VERSION" --json tagName,name,isDraft,isPrerelease,assets,url
 ```
+
+- [x] Verified 2026-09-24: live appcast carries 2.5 / build 16 with the
+      GitHub download URL and an EdDSA signature; the release zip and the
+      `EXP-design-v2.5.html` notes page are reachable; the homepage bundle
+      contains the paint story; the release is public, not draft/prerelease.
 
 ## 10. Prove v2.4 → v2.5 Sparkle installation
 
@@ -341,15 +376,16 @@ documentation-only commit before announcing the release.
 
 ## Completion receipt
 
-- [ ] Notarized/stapled universal app exported from Organizer.
-- [ ] Shipping ZIP passed direct and unzip-roundtrip release-candidate checks.
-- [ ] ZIP SHA-256: ⟨fill at §6⟩.
-- [ ] Annotated tag `v2.5` points at the release-metadata commit ⟨fill at §7⟩.
-- [ ] GitHub release is public and its downloaded asset matches the local ZIP.
-- [ ] Production appcast, v2.5 HTML notes, and the patterns homepage story
+- [x] Notarized/stapled universal app exported from Organizer.
+- [x] Shipping ZIP passed direct and unzip-roundtrip release-candidate checks.
+- [x] ZIP SHA-256:
+      `cda96ddbbc49823390690658217c2d27a63a45170ce14c5f94a5503996e37c59`.
+- [x] Annotated tag `v2.5` points at release-metadata commit `83f05a6`.
+- [x] GitHub release is public and its downloaded asset matches the local ZIP.
+- [x] Production appcast, v2.5 HTML notes, and the patterns homepage story
       are live.
 - [ ] v2.4 → v2.5 Sparkle update proof is green (v2.3→v2.4 superseded,
-      recorded above).
+      recorded above) — owner's step, §10.
 
 ## Next development cycle
 
