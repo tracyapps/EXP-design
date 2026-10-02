@@ -250,6 +250,24 @@ const testerPhaseCopy = [
 
 const testerLatestReleaseCopy = [
   {
+    phase: "v2.6 — Performance and convenience",
+    title: "Smoother busy design walls",
+    status: "done",
+    body: "Select, move and recolor large icon batches with less repeated work; pan complex pattern walls and track ruler pointers without repainting all the artwork.",
+  },
+  {
+    phase: "v2.6 — Vector tools",
+    title: "Cut along your stroke; unite nested folders",
+    status: "done",
+    body: "Knife follows the cut you draw, with shape/path/image and layer-scope controls. Cut with Line adds a movable preview, and Unite collects compatible vectors inside nested folders.",
+  },
+  {
+    phase: "v2.6 — Appearance and handoff",
+    title: "Copy just the appearance you need",
+    status: "done",
+    body: "Copy effects with Shift–Command–C/V, paint with Option–Command–C/V, or both with Option–Shift–Command–C/V. Save named type styles from Properties and export notes as real task lists.",
+  },
+  {
     phase: "v2.2 — Rendered HTML + CSS import",
     title: "Rendered pages become editable",
     status: "done",

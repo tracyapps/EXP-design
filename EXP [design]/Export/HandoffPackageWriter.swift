@@ -290,9 +290,29 @@ struct HandoffPackageWriter {
     }
 
     private func markdownBlockquote(_ value: String) -> String {
-        value.split(separator: "\n", omittingEmptySubsequences: false)
-            .map { "> \($0)" }
-            .joined(separator: "\n")
+        // The native notes editor stores bare checkbox markers. GFM §5.3 needs
+        // a list item around the marker. Normalize only prose, preserving code,
+        // existing list syntax, and the saved plain-string document format.
+        var fence: (character: Character, count: Int)?
+        return value.split(separator: "\n", omittingEmptySubsequences: false).map { raw in
+            let line = String(raw)
+            let indent = line.prefix { $0 == " " }.count
+            let body = line.dropFirst(indent)
+            if indent < 4, let first = body.first, first == "`" || first == "~" {
+                let count = body.prefix { $0 == first }.count
+                if count >= 3 {
+                    if let current = fence {
+                        if first == current.character, count >= current.count,
+                           body.dropFirst(count).trimmingCharacters(in: .whitespaces).isEmpty { fence = nil }
+                    } else { fence = (first, count) }
+                }
+            }
+            let isCheckbox = ["[ ] ", "[x] ", "[X] ", "[ ]\t", "[x]\t", "[X]\t"].contains { body.hasPrefix($0) }
+                || body == "[ ]" || body == "[x]" || body == "[X]"
+            let normalized = fence == nil && indent < 4 && isCheckbox
+                ? String(line.prefix(indent)) + "- " + body : line
+            return "> " + normalized
+        }.joined(separator: "\n")
     }
 }
 

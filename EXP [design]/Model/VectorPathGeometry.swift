@@ -41,6 +41,87 @@ struct VectorStrokeGeometry {
 }
 
 enum VectorPathGeometry {
+    static func pointToParent(_ point: CGPoint, node: Node) -> CGPoint {
+        var x = point.x - node.frame.width / 2, y = point.y - node.frame.height / 2
+        if node.flipH { x = -x }; if node.flipV { y = -y }
+        let a = node.rotation * .pi / 180
+        return CGPoint(x: node.frame.midX + x * cos(a) - y * sin(a),
+                       y: node.frame.midY + x * sin(a) + y * cos(a))
+    }
+
+    static func pointFromParent(_ point: CGPoint, node: Node) -> CGPoint {
+        let a = -node.rotation * .pi / 180
+        let x = point.x - node.frame.midX, y = point.y - node.frame.midY
+        var u = x * cos(a) - y * sin(a), v = x * sin(a) + y * cos(a)
+        if node.flipH { u = -u }; if node.flipV { v = -v }
+        return CGPoint(x: u + node.frame.width / 2, y: v + node.frame.height / 2)
+    }
+
+    static func copyStrokeStyle(from source: PathShape, to target: inout PathShape) {
+        target.strokePattern = source.strokePattern; target.strokeCap = source.strokeCap
+        target.strokeJoin = source.strokeJoin; target.strokeMiterLimit = source.strokeMiterLimit
+        target.startMarker = source.startMarker; target.endMarker = source.endMarker
+    }
+
+    /// Split by two bounded half planes. CG's path operations keep curves and
+    /// winding/holes; each side can be an editable compound path.
+    static func split(_ path: CGPath, from a: CGPoint, to b: CGPoint) -> [CGPath]? {
+        let bounds = path.boundingBoxOfPath
+        let distance = hypot(b.x - a.x, b.y - a.y)
+        guard !path.isEmpty, distance.isFinite, distance > 1e-7,
+              !bounds.isNull, !bounds.isInfinite, bounds.width > 0, bounds.height > 0 else { return nil }
+        let u = CGPoint(x: (b.x - a.x) / distance, y: (b.y - a.y) / distance)
+        let n = CGPoint(x: -u.y, y: u.x)
+        let center = CGPoint(x: bounds.midX, y: bounds.midY)
+        let projection = (center.x - a.x) * u.x + (center.y - a.y) * u.y
+        let origin = CGPoint(x: a.x + projection * u.x, y: a.y + projection * u.y)
+        let reach = hypot(bounds.width, bounds.height) + 1
+        guard hypot(center.x - origin.x, center.y - origin.y) < reach else { return nil }
+        // Work in cutter coordinates: its line is exactly y=0. Tight Bézier
+        // extrema reject tangent touches before CG's normalization can create a
+        // numerical sliver at a corner. Axis-aligned clipping also avoids huge
+        // diagonal half-plane polygons for tiny shapes.
+        var transform = CGAffineTransform(a: u.x, b: n.x, c: u.y, d: n.y,
+                                          tx: -origin.x * u.x - origin.y * u.y,
+                                          ty: -origin.x * n.x - origin.y * n.y)
+        guard let aligned = path.copy(using: &transform) else { return nil }
+        let extent = aligned.boundingBoxOfPath
+        let epsilon = max(1e-7, reach * 1e-10)
+        guard extent.minY < -epsilon, extent.maxY > epsilon else { return nil }
+        let positive = CGPath(rect: CGRect(x: extent.minX - 1, y: 0,
+                                          width: extent.width + 2, height: extent.maxY + 1), transform: nil)
+        let negative = CGPath(rect: CGRect(x: extent.minX - 1, y: extent.minY - 1,
+                                          width: extent.width + 2, height: 1 - extent.minY), transform: nil)
+        var inverse = transform.inverted()
+        let pieces = [aligned.intersection(positive, using: .winding), aligned.intersection(negative, using: .winding)]
+            .compactMap { $0.copy(using: &inverse) }
+        guard pieces.count == 2 else { return nil }
+        guard pieces.allSatisfy({ !$0.isEmpty && $0.boundingBoxOfPath.width > 1e-7 && $0.boundingBoxOfPath.height > 1e-7 }) else { return nil }
+        return pieces
+    }
+
+    static func cut(_ node: Node, from a: CGPoint, to b: CGPoint) -> [Node]? {
+        guard isClosedVector(node.content),
+              let source = pathShape(from: node.content, size: node.frame.size),
+              let halves = split(cgPath(from: source), from: a, to: b) else { return nil }
+        var pieces: [Node] = []
+        for (i, half) in halves.enumerated() {
+            guard var converted = pathShape(from: half, fill: source.fill, stroke: source.stroke,
+                                            strokeWidth: source.strokeWidth,
+                                            strokeAlignment: source.effectiveStrokeAlignment) else { return nil }
+            copyStrokeStyle(from: source, to: &converted.shape)
+            var piece = i == 0 ? node : Document.duplicatingNode(node)
+            piece.name = "\(node.name) \(i + 1)"
+            let center = pointToParent(CGPoint(x: converted.bounds.midX, y: converted.bounds.midY), node: node)
+            piece.frame = CGRect(x: center.x - converted.bounds.width / 2,
+                                 y: center.y - converted.bounds.height / 2,
+                                 width: converted.bounds.width, height: converted.bounds.height)
+            piece.content = .path(converted.shape)
+            pieces.append(piece)
+        }
+        return pieces
+    }
+
     /// Convert one of EXP's primitive vector payloads into the equivalent path.
     /// Kept outside CanvasView so Outline Stroke and Pathfinder use the exact
     /// same primitive geometry as Object -> Path -> Convert to Path.
@@ -59,7 +140,8 @@ enum VectorPathGeometry {
             }
             return PathShape(points: points, closed: true, fill: s.fill,
                              stroke: s.stroke, strokeWidth: s.strokeWidth,
-                             strokeAlignment: s.strokeAlignment)
+                             strokeAlignment: s.strokeAlignment, strokePattern: s.strokePattern,
+                             strokeCap: .butt, strokeJoin: .miter)
 
         case .ellipse(let s):
             let kx = w / 2 * 0.5522847498, ky = h / 2 * 0.5522847498
@@ -83,14 +165,16 @@ enum VectorPathGeometry {
             ]
             return PathShape(points: points, closed: true, fill: s.fill,
                              stroke: s.stroke, strokeWidth: s.strokeWidth,
-                             strokeAlignment: s.strokeAlignment)
+                             strokeAlignment: s.strokeAlignment, strokePattern: s.strokePattern,
+                             strokeCap: .butt, strokeJoin: .miter)
 
         case .polygon(let s):
             let rect = CGRect(origin: .zero, size: size)
             return PathShape(points: s.vertices(in: rect).map { PathPoint(point: $0) },
                              closed: true, fill: s.fill, stroke: s.stroke,
                              strokeWidth: s.strokeWidth,
-                             strokeAlignment: s.strokeAlignment)
+                             strokeAlignment: s.strokeAlignment, strokePattern: s.strokePattern,
+                             strokeCap: .butt, strokeJoin: .miter)
 
         case .line(let s):
             return PathShape(points: [PathPoint(point: s.start), PathPoint(point: s.end)],

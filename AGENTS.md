@@ -38,11 +38,13 @@ EXP [design]/
 ```
 
 ## Current status
-Public **v2.4/build 15** is released, notarized, and owner-verified.
-Active development is **v2.5/build 16** (`MARKETING_VERSION 2.5`,
-`CURRENT_PROJECT_VERSION 16`) across the app, thumbnail extension, and bundled
-runtime configs. This is a development identity only; the public appcast and
-immutable v2.4 artifacts remain 2.4/build 15.
+Public **v2.5/build 16** is released, notarized, and owner-verified.
+**v2.6/build 17 is accepted and in release preparation (2026-10-01).**
+All app/thumbnail/runtime configurations read 2.6/17. The owner explicitly
+accepted the performance, Knife/Unite and convenience bundle and authorized
+packaging/publication; see `docs/RELEASE-CHECKLIST-v2.6.md`. Immutable public
+v2.5 artifacts remain unchanged. After freezing v2.6, open **v2.7/build 18**
+with its scope intentionally unselected.
 The core native editor, component states/behavior contract, semantic Handoff
 Package, agent-bridge spine, nested components, canvas pages, editable XD/Figma
 import, unified Handoff/panel IA, editable rendered HTML/CSS import, CodePen
@@ -94,13 +96,11 @@ code write-back remain explicitly deferred pending evidence.
 Agent capability packs, Figma OAuth/Keychain/Variables, and agent write-back remain
 explicit non-gating follow-ups.
 See ROADMAP.md for the authoritative checklist and newest Progress Log entry.
-**v2.5 is RELEASED AND COMPLETE (2026-09-24)** — public, owner-verified
-through every gate including the v2.4→v2.5 Sparkle proof (the updated
-install reads 2.5/16 and passed all 18 release-candidate checks; receipts in
-`docs/RELEASE-CHECKLIST-v2.5.md`). **v2.6 development is OPEN**
-(`MARKETING_VERSION 2.6` / `CURRENT_PROJECT_VERSION 17`; immutable v2.5
-artifacts untouched). Nothing document-mutating starts until the owner sets
-v2.6 scope at a scoping gate; queued candidates live in ROADMAP → v2.6.
+**v2.5 is RELEASED AND COMPLETE (2026-09-24)** — receipts in
+`docs/RELEASE-CHECKLIST-v2.5.md`, including the v2.4→v2.5 Sparkle proof.
+**v2.6 is owner-accepted for release (2026-10-01)**; follow its checklist to
+archive, notarize, package and publish before changing the development identity.
+Queued candidates carry forward to the next owner scoping gate in ROADMAP.
 Dropbox note: the
 folder is supposed to be excluded from sync (one machine only); a known
 ongoing Dropbox issue has been corrupting the owner's dev folders (ticket

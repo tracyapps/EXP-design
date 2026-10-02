@@ -26,6 +26,9 @@ docs/*
 !docs/WORKING-AGREEMENT.md
 !docs/VISUAL-HANDOFF.md
 !docs/PERF-HANDOFF.md
+!docs/PERF-STRESS-2026-10-01.md
+!docs/VECTOR-EDITING-2026-10-01.md
+!docs/CONVENIENCE-UPDATE-2026-10-01.md
 # The E0 import contract is a durable deliverable that CLAUDE.md and ROADMAP.md
 # both point at, so it belongs in the repo rather than in one working copy.
 !docs/HTML-IMPORT-CONTRACT.md

@@ -46,6 +46,27 @@ private enum SemanticHTMLPackageCheck {
             generatedAt: generatedAt
         )
         try writer.write(to: output)
+        var notesDocument = document
+        notesDocument.artboards[0].notes = """
+        Checklist **heading**
+        [ ] Pending
+        [x] Complete
+        [X] Uppercase
+        - [ ] Already a task
+        ```text
+        [ ] literal code
+        ```
+            [x] indented code
+        """
+        let notesOutput = output.deletingLastPathComponent().appendingPathComponent("Notes Fixture.exph")
+        try HandoffPackageWriter(document: notesDocument, sourceURL: nil, generatedAt: generatedAt).write(to: notesOutput)
+        let orientation = try String(contentsOf: notesOutput.appendingPathComponent("README.llm.md"), encoding: .utf8)
+        require(orientation.contains("> - [ ] Pending"), "bare notes checkbox must export as a GFM task list")
+        require(orientation.contains("> - [x] Complete") && orientation.contains("> - [X] Uppercase"), "checked task states preserved")
+        require(orientation.contains("> - [ ] Already a task") && !orientation.contains("- - [ ]"), "existing tasks are not double-prefixed")
+        require(orientation.contains("> [ ] literal code") && orientation.contains(">     [x] indented code"), "code samples untouched")
+        require(notesDocument.artboards[0].notes.contains("\n[ ] Pending"), "export does not rewrite saved notes")
+        print("ok: GFM notes task lists, checked states, existing tasks, code samples, unchanged saved notes")
 
         let pageName = SemanticHTMLIdentity.artboardFilename(
             name: document.artboards[0].name, id: Fixture.artboardID)

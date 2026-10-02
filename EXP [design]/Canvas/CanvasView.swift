@@ -43,6 +43,14 @@ enum CanvasScope: Equatable {
     case pattern(UUID)
 }
 
+struct CanvasTreeReadKey: Equatable {
+    let documentID: ObjectIdentifier
+    let generation: Int
+    let scope: CanvasScope
+    let pageID: UUID?
+    let stateID: UUID?
+}
+
 final class CanvasPageTransferRequest: NSObject {
     let pageID: UUID
     /// Context menus snapshot the selection when they open. SwiftUI/AppKit may
@@ -81,7 +89,7 @@ struct CanvasView: NSViewRepresentable {
         nsView.document = document
         nsView.scope = scope
         nsView.documentURL = documentURL
-        _ = (app.zoom, app.panOffset, app.tool,
+        _ = (app.zoom, app.panOffset, app.tool, app.knifeLinePreview,
              app.selectedArtboardIDs, app.selectedNodeIDs,
              app.selectedGradientStopID,
              app.activeCanvasPageID,
@@ -102,6 +110,7 @@ struct CanvasView: NSViewRepresentable {
         DispatchQueue.main.async { [weak nsView] in
             nsView?.commitTextEditingIfSelectionChanged()
         }
+        nsView.syncRulerPointer()
         nsView.refreshCursor()
         nsView.needsDisplay = true
     }
@@ -208,6 +217,8 @@ final class CanvasNSView: NSView {
         // `pencilSamples` rather than the case so a long stroke does not copy an
         // ever-growing array on every enum assignment.
         case pencilStroke
+        case knife(startDoc: CGPoint, selection: Set<UUID>, revision: CanvasTreeReadKey)
+        case knifeLine(original: KnifeLinePreview, handle: Int, startDoc: CGPoint)
         case pathPoint(nodeID: UUID, target: PathPointTarget)  // node tool: drag an anchor/handle
         // node tool: drag every selected anchor/handle together by the same
         // delta, so grabbing one selected point (or the shape body, see
@@ -245,6 +256,11 @@ final class CanvasNSView: NSView {
     private var gestureUndoName = "Edit"
     private var lastDragPoint: CGPoint?
     private var marqueeCurrent: CGPoint?
+    private var knifeEndDoc: CGPoint?
+    private var knifeSamples: [CGPoint] = []
+    private var knifeCoalescing: Bool?
+    private var knifeLineSelection: Set<UUID> = []
+    private var knifeLineRevision: CanvasTreeReadKey?
 
     /// The node tool's multi-selected path points (anchors), by address.
     /// Cleared whenever the edited path or tool changes — see
@@ -340,6 +356,18 @@ final class CanvasNSView: NSView {
     /// sitting ON its anchor, not to re-create the old exclusive radius. BUG-027.
     private static let anchorPriorityBias: CGFloat = 3
     private let rulerThickness: CGFloat = 20
+    private let rulerPointerOverlay = RulerPointerOverlay(frame: .zero)
+
+    func syncRulerPointer() {
+        if rulerPointerOverlay.frame != bounds { rulerPointerOverlay.frame = bounds }
+        rulerPointerOverlay.update(pointer: lastMouse, thickness: rulerThickness,
+                                   enabled: app?.showRulers == true && !isSourceScope)
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        syncRulerPointer()
+    }
 
     private var didInitialFit = false
     private var cameraPersistTimer: Timer?
@@ -425,6 +453,9 @@ final class CanvasNSView: NSView {
         // chrome such as the page-tab strip must never become part of the wall.
         wantsLayer = true
         layer?.masksToBounds = true
+        rulerPointerOverlay.autoresizingMask = [.width, .height]
+        addSubview(rulerPointerOverlay)
+        syncRulerPointer()
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
         setAccessibilityLabel("Design canvas")
@@ -487,6 +518,7 @@ final class CanvasNSView: NSView {
 
     deinit {
         cameraPersistTimer?.invalidate()
+        if let knifeCoalescing { NSEvent.isMouseCoalescingEnabled = knifeCoalescing }
         sanaaHighlightTimer?.invalidate()
         if let spaceKeyUpMonitor { NSEvent.removeMonitor(spaceKeyUpMonitor) }
         NotificationCenter.default.removeObserver(self)
@@ -518,6 +550,7 @@ final class CanvasNSView: NSView {
 
     override func layout() {
         super.layout()
+        syncRulerPointer()
         // Report viewport size so AppState's zoom commands can keep the center.
         if app?.viewportSize != bounds.size { app?.viewportSize = bounds.size }
         if !didInitialFit, bounds.width > 1, bounds.height > 1 {
@@ -745,8 +778,15 @@ final class CanvasNSView: NSView {
     /// collapse to the anchor, i.e. a straight segment).
     private func bezierPath(for ps: PathShape, frameOrigin: CGPoint) -> NSBezierPath {
         let bez = NSBezierPath()
+        // Read the observable camera once, not for every anchor/control point.
+        // A wall of imported vectors can contain hundreds of thousands of these
+        // points; registering the same SwiftUI observation for each dominated
+        // path construction in the zoomed-out stress-document profile.
+        let zoom = app?.zoom ?? 1
+        let pan = app?.panOffset ?? .zero
         func v(_ local: CGPoint) -> CGPoint {
-            docToViewPoint(CGPoint(x: frameOrigin.x + local.x, y: frameOrigin.y + local.y))
+            CGPoint(x: (frameOrigin.x + local.x) * zoom + pan.x,
+                    y: (frameOrigin.y + local.y) * zoom + pan.y)
         }
         func addContour(_ pts: [PathPoint], closed: Bool) {
             guard !pts.isEmpty else { return }
@@ -1439,6 +1479,14 @@ final class CanvasNSView: NSView {
     /// Finish any active pen session if the tool is no longer the pen.
     func endPenIfNeeded() {
         if penNodeID != nil, app?.tool != .pen { finishPen() }
+        if case .knife(_, let selection, let revision) = dragMode,
+           app?.tool != .knife || app?.selectedNodeIDs != selection || vectorRevision != revision {
+            cancelKnife()
+        }
+        if knifeLineRevision != nil,
+           app?.tool != .knife || app?.selectedNodeIDs != knifeLineSelection || vectorRevision != knifeLineRevision {
+            cancelKnifeLineAction(nil)
+        }
     }
 
     // MARK: Node tool (point editing)
@@ -2026,6 +2074,13 @@ final class CanvasNSView: NSView {
 
     private func applyPathfinder(_ operation: VectorBooleanOperation) {
         guard let app else { return }
+        if case .unite = operation {
+            guard let edit = VectorShapeEditing.unite(currentNodes, selected: app.selectedNodeIDs) else {
+                NSSound.beep(); return
+            }
+            applyVectorEdit(edit, actionName: operation.actionName)
+            return
+        }
         let inputs = pathfinderInputs()
         // Do not partially consume a mixed selection: every selected item must be
         // a closed vector shape, and Pathfinder always needs at least two.
@@ -2129,6 +2184,140 @@ final class CanvasNSView: NSView {
         return pathfinderInputs().count == app.selectedNodeIDs.count
     }
 
+    private var selectionCanUnite: Bool {
+        guard let app else { return false }
+        return (VectorOperationSelection.closed(in: indexedNodes, selected: app.selectedNodeIDs,
+                                                includingGroups: true)?.shapes.count ?? 0) >= 2
+    }
+
+    private var selectionCanCutShapes: Bool {
+        guard let app else { return false }
+        return KnifeEditing.selectedRoots(indexedNodes, selected: app.selectedNodeIDs) != nil
+    }
+
+    private var vectorRevision: CanvasTreeReadKey? {
+        guard let document else { return nil }
+        return CanvasTreeReadKey(documentID: ObjectIdentifier(document), generation: document.resolveGeneration,
+                                 scope: scope, pageID: activePageID, stateID: app?.activeComponentStateID)
+    }
+
+    private func applyVectorEdit(_ edit: VectorShapeEditing.Edit, actionName: String) {
+        // Structural edits introduce/remove selected ids. Restore selection with
+        // geometry, so Undo cannot leave a phantom cut piece selected.
+        undoManager?.beginUndoGrouping()
+        commitNodes(edit.nodes, actionName: actionName, removingAnchorsReferencing: edit.removedIDs)
+        setVectorSelection(edit.selection, artboards: [])
+        undoManager?.endUndoGrouping()
+        needsDisplay = true
+    }
+
+    private func setVectorSelection(_ selected: Set<UUID>, artboards: Set<UUID>) {
+        guard let app else { return }
+        let old = app.selectedNodeIDs, oldBoards = app.selectedArtboardIDs
+        undoManager?.registerUndo(withTarget: self) { canvas in
+            canvas.setVectorSelection(old, artboards: oldBoards)
+        }
+        app.selectedNodeIDs = selected; app.selectedArtboardIDs = artboards
+        needsDisplay = true
+    }
+
+    private func cutShapes(from start: CGPoint, to end: CGPoint, selection: Set<UUID>) {
+        guard let edit = VectorShapeEditing.cut(currentNodes, selected: selection, from: start, to: end) else {
+            NSSound.beep(); return
+        }
+        applyVectorEdit(edit, actionName: "Cut Shapes")
+    }
+
+    /// Numeric equivalent to the pointer gesture, reachable through the native
+    /// menu and Inspector for keyboard and VoiceOver users.
+    @objc func cutWithLineAction(_ sender: Any?) {
+        guard let app, selectionCanCutShapes else { NSSound.beep(); return }
+        setTool(.knife)
+        let index = indexedNodes
+        let roots = KnifeEditing.selectedRoots(index, selected: app.selectedNodeIDs) ?? []
+        let paths = roots.compactMap { KnifeEditing.worldPath($0, index: index) }
+        let bounds = paths.reduce(CGRect.null) { $0.union($1.boundingBoxOfPath) }
+        guard !bounds.isNull else { return }
+        knifeLineSelection = app.selectedNodeIDs; knifeLineRevision = vectorRevision
+        app.knifeLinePreview = KnifeLinePreview(x: bounds.midX, y: bounds.midY,
+                                               length: max(80 / app.zoom, hypot(bounds.width, bounds.height) * 1.2))
+        window?.makeFirstResponder(self); needsDisplay = true
+    }
+
+    @objc func applyKnifeLineAction(_ sender: Any?) {
+        guard let app, let preview = app.knifeLinePreview,
+              vectorRevision == knifeLineRevision, app.selectedNodeIDs == knifeLineSelection else {
+            cancelKnifeLineAction(nil); return
+        }
+        let (a,b) = preview.endpoints, selection = knifeLineSelection
+        cancelKnifeLineAction(nil)
+        cutShapes(from: a, to: b, selection: selection)
+    }
+
+    @objc func cancelKnifeLineAction(_ sender: Any?) {
+        app?.knifeLinePreview = nil; knifeLineRevision = nil; knifeLineSelection = []
+        if case .knifeLine = dragMode { dragMode = .none }
+        needsDisplay = true
+    }
+
+    private func cancelKnife() {
+        guard case .knife = dragMode else { return }
+        dragMode = .none; finishKnifeCapture(); needsDisplay = true
+    }
+
+    private func finishKnifeCapture() {
+        if let previous = knifeCoalescing { NSEvent.isMouseCoalescingEnabled = previous }
+        knifeCoalescing = nil; knifeSamples = []; knifeEndDoc = nil
+    }
+
+    private func knifeLineHandle(at p: CGPoint) -> Int? {
+        guard let preview = app?.knifeLinePreview else { return nil }
+        let (a,b) = preview.endpoints
+        let points = [docToViewPoint(a), docToViewPoint(b), docToViewPoint(CGPoint(x:preview.x,y:preview.y))]
+        for (i,q) in points.enumerated() where hypot(p.x-q.x,p.y-q.y) <= 10 { return i }
+        let av = points[0], bv = points[1], dx = bv.x-av.x, dy = bv.y-av.y, ll = dx*dx+dy*dy
+        let t = ((p.x-av.x)*dx+(p.y-av.y)*dy)/ll
+        if t >= 0 && t <= 1 && hypot(p.x-(av.x+t*dx),p.y-(av.y+t*dy)) < 6 { return 2 }
+        return nil
+    }
+
+    private func drawKnifePreview(in ctx: CGContext) {
+        if let preview = app?.knifeLinePreview {
+            let (a,b) = preview.endpoints
+            drawKnifeLine(from:a,to:b,in:ctx)
+            ctx.saveGState()
+            for p in [a,b,CGPoint(x:preview.x,y:preview.y)] {
+                let v = docToViewPoint(p), rect = CGRect(x:v.x-5,y:v.y-5,width:10,height:10)
+                ctx.setFillColor(NSColor.windowBackgroundColor.cgColor); ctx.fillEllipse(in:rect)
+                ctx.setStrokeColor(NSColor.controlAccentColor.cgColor); ctx.setLineWidth(2); ctx.strokeEllipse(in:rect)
+            }
+            ctx.restoreGState(); return
+        }
+        guard case .knife = dragMode, knifeSamples.count >= 2 else { return }
+        ctx.saveGState(); ctx.setStrokeColor(NSColor.controlAccentColor.cgColor); ctx.setLineWidth(2)
+        ctx.move(to:docToViewPoint(knifeSamples[0]))
+        for point in knifeSamples.dropFirst() { ctx.addLine(to:docToViewPoint(point)) }
+        ctx.strokePath(); ctx.restoreGState()
+    }
+
+    private func drawKnifeLine(from start: CGPoint, to end: CGPoint, in ctx: CGContext) {
+        let a = docToViewPoint(start), b = docToViewPoint(end)
+        let length = hypot(b.x - a.x, b.y - a.y)
+        guard length > 1 else { return }
+        // Show the actual infinite cutter across the visible canvas, with a
+        // heavier solid segment showing the user's drag direction.
+        let dx = (b.x - a.x) / length, dy = (b.y - a.y) / length
+        let reach = hypot(bounds.width, bounds.height) * 2
+        ctx.saveGState()
+        ctx.setStrokeColor(NSColor.controlAccentColor.cgColor)
+        ctx.setLineWidth(1); ctx.setLineDash(phase: 0, lengths: [4, 4])
+        ctx.move(to: CGPoint(x: a.x - dx * reach, y: a.y - dy * reach))
+        ctx.addLine(to: CGPoint(x: a.x + dx * reach, y: a.y + dy * reach)); ctx.strokePath()
+        ctx.setLineDash(phase: 0, lengths: []); ctx.setLineWidth(2)
+        ctx.move(to: a); ctx.addLine(to: b); ctx.strokePath()
+        ctx.restoreGState()
+    }
+
     private var selectionConvertibleToPath: Bool {
         selectedSubtreesContain { node in
             switch node.content {
@@ -2164,17 +2353,30 @@ final class CanvasNSView: NSView {
 
     // MARK: Type styles (v1.3 — Design Language)
 
-    /// TYPE ▸ Save as Type Style: capture the selected text layer's treatment —
-    /// everything EXCEPT color (owner decision; color pairs from the color
-    /// library) — into the document's Design Language. Starts named after the
-    /// layer; rename in the Design Language panel.
+    /// Capture the text treatment into Design Language, with a name before save.
+    /// Color and geometry remain independent of reusable typography.
     @objc func saveTypeStyleAction(_ sender: Any?) {
-        guard let app, let document, let id = app.singleSelectedNodeID,
+        guard let app, let document, let window, let id = app.singleSelectedNodeID,
               let n = node(id), case .text(let tc) = n.content else { return }
-        var model = document.model
-        let style = TypeStyle.capture(from: tc, name: n.name)
-        model.designLanguage.saveTypeStyle(style)
-        document.setModel(model, undoManager: undoManager, actionName: "Save Type Style")
+        let captured = TypeStyle.capture(from: tc, name: n.name)
+        let alert = NSAlert()
+        alert.messageText = "Save as Type Style"
+        alert.informativeText = "Save this text treatment to Design Language."
+        alert.addButton(withTitle: "Save"); alert.addButton(withTitle: "Cancel")
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 280, height: 24))
+        field.stringValue = n.name.isEmpty ? captured.fallbackLabel : n.name
+        field.setAccessibilityLabel("Type style name")
+        alert.accessoryView = field
+        alert.window.initialFirstResponder = field
+        alert.beginSheetModal(for: window) { [weak self, weak document] response in
+            guard let self, let document, response == .alertFirstButtonReturn else { return }
+            var style = captured
+            let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            style.name = name.isEmpty ? captured.fallbackLabel : name
+            var model = document.model
+            model.designLanguage.saveTypeStyle(style)
+            document.setModel(model, undoManager: self.undoManager, actionName: "Save Type Style")
+        }
     }
 
     /// TYPE / Inspector / context menu all write the same content-level intent.
@@ -3163,6 +3365,16 @@ final class CanvasNSView: NSView {
 
     // MARK: Lookups
 
+    private let treeReadCache = NodeTreeReadCache<CanvasTreeReadKey>()
+    private var indexedNodes: NodeTreeIndex {
+        guard let document else { return NodeTreeIndex([]) }
+        let key = CanvasTreeReadKey(documentID: ObjectIdentifier(document),
+                                    generation: document.resolveGeneration, scope: scope,
+                                    pageID: activePageID,
+                                    stateID: app?.activeComponentStateID)
+        return treeReadCache.tree(for: key, nodes: { currentNodes })
+    }
+
     private func nodeIndex(_ id: UUID) -> Int? {
         currentNodes.firstIndex { $0.id == id }
     }
@@ -3171,34 +3383,19 @@ final class CanvasNSView: NSView {
     /// returned node's `frame` is in its parent's local space — use `nodeOffset` to
     /// get the document-space origin to add.
     private func node(_ id: UUID) -> Node? {
-        func find(_ nodes: [Node]) -> Node? {
-            for n in nodes {
-                if n.id == id { return n }
-                if case .group(let kids) = n.content, let f = find(kids) { return f }
-            }
-            return nil
-        }
-        return find(currentNodes)
+        indexedNodes.entries[id]?.node
     }
 
     /// The accumulated document-space offset of a node (sum of ancestor group
     /// origins). `.zero` for a top-level node. A nested node's absolute frame is
     /// `node.frame.offsetBy(nodeOffset(id))`.
     private func nodeOffset(_ id: UUID) -> CGPoint {
-        func find(_ nodes: [Node], _ off: CGPoint) -> CGPoint? {
-            for n in nodes {
-                if n.id == id { return off }
-                if case .group(let kids) = n.content,
-                   let r = find(kids, CGPoint(x: off.x + n.frame.minX, y: off.y + n.frame.minY)) { return r }
-            }
-            return nil
-        }
-        return find(currentNodes, .zero) ?? .zero
+        indexedNodes.entries[id]?.offset ?? .zero
     }
 
     /// True if `id` is a top-level node (not nested inside a group).
     private func isTopLevelNode(_ id: UUID) -> Bool {
-        currentNodes.contains { $0.id == id }
+        indexedNodes.entries[id]?.ancestors.isEmpty ?? false
     }
 
     /// True when the node's ancestor chain applies NO transform — every group
@@ -3258,14 +3455,7 @@ final class CanvasNSView: NSView {
     /// coordinate space its `frame.origin` lives in. 0 for a top-level node. (The
     /// node's own rotation isn't included; that rotates its content, not its slot.)
     private func ancestorRotation(of id: UUID) -> Double {
-        func find(_ nodes: [Node], _ acc: Double) -> Double? {
-            for n in nodes {
-                if n.id == id { return acc }
-                if case .group(let k) = n.content, let r = find(k, acc + n.rotation) { return r }
-            }
-            return nil
-        }
-        return find(currentNodes, 0) ?? 0
+        indexedNodes.entries[id]?.ancestorRotation ?? 0
     }
 
     /// Rotate a free vector (no center) by `deg`, matching the canvas's flipped,
@@ -3279,16 +3469,7 @@ final class CanvasNSView: NSView {
     /// The ancestor groups of a node, outermost (top-level) first to its immediate
     /// parent. Empty for a top-level node.
     private func ancestorGroups(of id: UUID) -> [Node] {
-        var chain: [Node] = []
-        func find(_ nodes: [Node], _ stack: [Node]) -> Bool {
-            for n in nodes {
-                if n.id == id { chain = stack; return true }
-                if case .group(let k) = n.content, find(k, stack + [n]) { return true }
-            }
-            return false
-        }
-        _ = find(currentNodes, [])
-        return chain
+        indexedNodes.ancestorGroups(of: id)
     }
 
     /// Map a point from a node's PARENT-local space up to document space, applying
@@ -3740,6 +3921,11 @@ final class CanvasNSView: NSView {
     private func groupContentBounds(_ node: Node, parentOffset: CGPoint) -> CGRect? {
         let absFrame = node.frame.offsetBy(dx: parentOffset.x, dy: parentOffset.y)
         guard case .group(let kids) = node.content else { return absFrame }
+        if node.isMask {
+            var untransformed = node
+            untransformed.rotation = 0; untransformed.flipH = false; untransformed.flipV = false
+            return SelectionTransform.visualBounds(untransformed).offsetBy(dx:parentOffset.x,dy:parentOffset.y)
+        }
         var union: CGRect?
         for k in kids {
             if let b = groupContentBounds(k, parentOffset: absFrame.origin) {
@@ -4037,16 +4223,7 @@ final class CanvasNSView: NSView {
 
     /// True if any ancestor group of `id` is itself selected.
     private func hasSelectedAncestor(_ id: UUID) -> Bool {
-        guard let app else { return false }
-        func walk(_ nodes: [Node], _ selectedAbove: Bool) -> Bool? {
-            for n in nodes {
-                if n.id == id { return selectedAbove }
-                if case .group(let kids) = n.content,
-                   let r = walk(kids, selectedAbove || app.selectedNodeIDs.contains(n.id)) { return r }
-            }
-            return nil
-        }
-        return walk(currentNodes, false) ?? false
+        indexedNodes.hasSelectedAncestor(id, selectedIDs: app?.selectedNodeIDs ?? [])
     }
 
     /// The transform's selected nodes with frames lifted into DOCUMENT space (parent
@@ -5064,6 +5241,7 @@ final class CanvasNSView: NSView {
         // Live pan/zoom: blit the cached gesture snapshot instead of re-rendering
         // the scene (see the "Pan/zoom bitmap blit" section above).
         if let ctx = NSGraphicsContext.current?.cgContext, drawPanZoomBlit(into: ctx) {
+            drawKnifePreview(in: ctx)
             drawSanaaHighlight(in: ctx)
             if perf.enabled {
                 perf.record("frame(blit)", ms: (CFAbsoluteTimeGetCurrent() - perfFrameT0) * 1000)
@@ -5081,6 +5259,7 @@ final class CanvasNSView: NSView {
             // document until release), and leaving it out of this branch is exactly
             // why the stroke went invisible while the mouse was down.
             if case .pencilStroke = dragMode { drawPencilPreview(in: ctx) }
+            drawKnifePreview(in: ctx)
             drawSanaaHighlight(in: ctx)
             if perf.enabled {
                 perf.record("frame(drag)", ms: (CFAbsoluteTimeGetCurrent() - perfFrameT0) * 1000)
@@ -5239,6 +5418,7 @@ final class CanvasNSView: NSView {
         }
 
         if case .pencilStroke = dragMode { drawPencilPreview(in: ctx) }
+        drawKnifePreview(in: ctx)
 
         if optionHeld { perf.measure("draw-measure") { drawMeasurements(in: ctx) } }
 
@@ -5394,7 +5574,7 @@ final class CanvasNSView: NSView {
     // MARK: Rulers
 
     private func drawRulers(in ctx: CGContext) {
-        guard let app else { return }
+        guard app != nil else { return }
         let t = rulerThickness
         ctx.saveGState()
         let bg = NSColor.windowBackgroundColor
@@ -5413,13 +5593,6 @@ final class CanvasNSView: NSView {
         ctx.move(to: CGPoint(x: t - 0.5, y: 0)); ctx.addLine(to: CGPoint(x: t - 0.5, y: bounds.height))
         ctx.strokePath()
 
-        // Pointer position markers.
-        NSColor.controlAccentColor.setStroke()
-        ctx.setLineWidth(1)
-        if lastMouse.x >= t { ctx.move(to: CGPoint(x: lastMouse.x, y: 0)); ctx.addLine(to: CGPoint(x: lastMouse.x, y: t)) }
-        if lastMouse.y >= t { ctx.move(to: CGPoint(x: 0, y: lastMouse.y)); ctx.addLine(to: CGPoint(x: t, y: lastMouse.y)) }
-        ctx.strokePath()
-        _ = app
         ctx.restoreGState()
     }
 
@@ -6331,6 +6504,15 @@ final class CanvasNSView: NSView {
         // The node being inline-edited is drawn by its NSTextView overlay instead
         // (true at any nesting depth).
         if node.id == editingNodeID { return }
+        // Dense-pattern stamps are for plain compositing only. Keep ancestor
+        // effects, masks, viewBox crops and transforms on the established path.
+        let priorPatternRasterization = patternRasterizationAllowed
+        patternRasterizationAllowed = priorPatternRasterization
+            && node.opacity == 1 && node.blendMode == .normal && !node.isMask
+            && node.rotation == 0 && !node.flipH && !node.flipV
+            && !node.effects.contains(where: { $0.isEnabled })
+        if case .instance = node.content { patternRasterizationAllowed = false }
+        defer { patternRasterizationAllowed = priorPatternRasterization }
         let frameDoc = node.frame.offsetBy(dx: offset.x, dy: offset.y)
         let rect = docToView(frameDoc)
 
@@ -6417,7 +6599,15 @@ final class CanvasNSView: NSView {
         // included, so a dissolved node casts a dissolved shadow); drop shadows
         // go behind the content, inner shadows on top (clipped), noise last.
         let enabled = node.effects.filter { $0.isEnabled }
-        let sil = nodeSilhouette(node, frameDoc: frameDoc, rect: rect)
+        // Most SVG leaves have no effects. Building their silhouette anyway
+        // constructed the entire vector a second time before drawing it. Only
+        // these effects consume it; masks/background blur obtain their own clip
+        // at their existing call sites. Dissolve/layer blur need no silhouette.
+        let needsSilhouette = enabled.contains {
+            $0.kind == .dropShadow || $0.kind == .innerShadow
+                || ($0.kind == .noise && $0.amount > 0)
+        }
+        let sil = needsSilhouette ? nodeSilhouette(node, frameDoc: frameDoc, rect: rect) : nil
         let dissolves = enabled.filter { $0.kind == .dissolve && $0.amount > 0 }
         let noises = enabled.filter { $0.kind == .noise && $0.amount > 0 }
         let layerBlurs = enabled.filter { $0.kind == .layerBlur && $0.blur > 0 }
@@ -6709,8 +6899,21 @@ final class CanvasNSView: NSView {
             guard !ps.renderContours.isEmpty else { break }
             let bez = bezierPath(for: ps, frameOrigin: frameDoc.origin)
             if ps.isMultiContour || (ps.closed && ps.points.count >= 2) {
-                PaintRender.fill(ps.fill, path: bez, bounds: bez.bounds, in: ctx, patterns: patterns,
-                                 patternSpace: patternSpace)
+                let cached: Bool
+                if patternRasterizationAllowed, case .pattern(let ref) = ps.fill,
+                   let document {
+                    let revision = CanvasTreeReadKey(documentID: ObjectIdentifier(document),
+                                                     generation: document.resolveGeneration,
+                                                     scope: scope, pageID: activePageID,
+                                                     stateID: app.activeComponentStateID)
+                    cached = patternRasterCache.draw(nodeID: node.id, revision: revision, ref: ref,
+                                                     path: bez, bounds: bez.bounds, patterns: patterns,
+                                                     space: patternSpace, in: ctx)
+                } else { cached = false }
+                if !cached {
+                    PaintRender.fill(ps.fill, path: bez, bounds: bez.bounds, in: ctx, patterns: patterns,
+                                     patternSpace: patternSpace)
+                }
             }
             canvasStroke(bez, width: ps.strokeWidth * app.zoom,
                          alignment: ps.effectiveStrokeAlignment, paint: ps.stroke,
@@ -6854,6 +7057,8 @@ final class CanvasNSView: NSView {
     /// `ExportRenderView.patternTile` — the SAME rasteriser the export paths use,
     /// so canvas and export cannot disagree about what a tile looks like.
     private let patternStore = PatternTileStore()
+    private let patternRasterCache = CanvasPatternRasterCache<CanvasTreeReadKey>()
+    private var patternRasterizationAllowed = true
     private var patternStoreGen: Int = -1
 
     /// A resolver for `PaintRender`, with the tile cache cleared whenever the
@@ -7729,6 +7934,7 @@ final class CanvasNSView: NSView {
 
     @objc private func applicationDidResignActive() {
         endTemporaryPan()
+        cancelKnife()
     }
 
     func refreshCursor(flags: NSEvent.ModifierFlags = NSEvent.modifierFlags) {
@@ -7737,6 +7943,8 @@ final class CanvasNSView: NSView {
 
     /// Switch tools, finishing any in-progress pen path first.
     private func setTool(_ tool: Tool) {
+        cancelKnife()
+        cancelKnifeLineAction(nil)
         if penNodeID != nil, tool != .pen { finishPen() }
         if pencilNodeID != nil, tool != .pencil { finishPencilStroke() }
         app?.tool = tool
@@ -7764,6 +7972,7 @@ final class CanvasNSView: NSView {
     @objc func nodeToolAction(_ s: Any?)       { setTool(.node) }
     @objc func penToolAction(_ s: Any?)        { setTool(.pen) }
     @objc func pencilToolAction(_ s: Any?)     { setTool(.pencil) }
+    @objc func knifeToolAction(_ s: Any?)      { setTool(.knife) }
     @objc func textToolAction(_ s: Any?)       { setTool(.text) }
     @objc func rectangleToolAction(_ s: Any?)  { setTool(.rectangle) }
     @objc func ellipseToolAction(_ s: Any?)    { setTool(.ellipse) }
@@ -7867,7 +8076,7 @@ final class CanvasNSView: NSView {
                 if let n = node(hover.leafID), penAddable(n) { return Self.addPointCursor }
             }
             return .crosshair
-        case .rectangle, .ellipse, .polygon, .line, .artboard, .pencil:
+        case .rectangle, .ellipse, .polygon, .line, .artboard, .pencil, .knife:
             return .crosshair
         case .pan:
             return .openHand
@@ -7916,14 +8125,15 @@ final class CanvasNSView: NSView {
     override func mouseMoved(with event: NSEvent) {
         lastMouse = convert(event.locationInWindow, from: nil)
         let opt = event.modifierFlags.contains(.option)
-        // Redraw while measuring, to track the ruler pointer marker, and under the
-        // pen tool so the hovered vector's anchors light up as the cursor moves.
-        if opt || optionHeld || app?.showRulers == true || app?.tool == .pen { needsDisplay = true }
+        syncRulerPointer()
+        // Measurement and pen hover change canvas content; ruler markers do not.
+        if opt || optionHeld || app?.tool == .pen { needsDisplay = true }
         optionHeld = opt
         refreshCursor(flags: event.modifierFlags)
     }
 
     override func flagsChanged(with event: NSEvent) {
+        if case .knife = dragMode { needsDisplay = true }
         let opt = event.modifierFlags.contains(.option)
         if opt != optionHeld { optionHeld = opt; needsDisplay = true }
         refreshCursor(flags: event.modifierFlags)
@@ -7975,6 +8185,18 @@ final class CanvasNSView: NSView {
     }
 
     override func keyDown(with event: NSEvent) {
+        if app?.knifeLinePreview != nil {
+            if event.keyCode == 36 { applyKnifeLineAction(nil); return }
+            if event.keyCode == 53 { cancelKnifeLineAction(nil); return }
+            if [123,124,125,126].contains(event.keyCode), var preview = app?.knifeLinePreview {
+                let step: Double = event.modifierFlags.contains(.shift) ? 10 : event.modifierFlags.contains(.option) ? 0.1 : 1
+                if event.keyCode == 123 { preview.x -= step }
+                if event.keyCode == 124 { preview.x += step }
+                if event.keyCode == 125 { preview.y += step }
+                if event.keyCode == 126 { preview.y -= step }
+                app?.knifeLinePreview = preview; needsDisplay = true; return
+            }
+        }
         if event.keyCode == 49 {
             if !spaceHeld { spaceHeld = true; NSCursor.openHand.set() }
             return
@@ -8020,6 +8242,7 @@ final class CanvasNSView: NSView {
             case "l": setTool(.line);      return
             case "p": setTool(.pen);       return
             case "n": setTool(.pencil);    return   // Illustrator's Pencil key
+            case "k": setTool(.knife);     return
             case "t": setTool(.text);      return
             case "f": setTool(.artboard);  return   // Figma's Frame key
             case "i": eyedropToSelection(); return   // sample → apply to selection
@@ -8080,6 +8303,7 @@ final class CanvasNSView: NSView {
         notePerfInput(event, "down")
         let p = convert(event.locationInWindow, from: nil)
         lastMouse = p
+        syncRulerPointer()
 
         // A click anywhere outside the text editor commits the in-progress edit.
         if editingNodeID != nil { commitTextEditing() }
@@ -8100,6 +8324,23 @@ final class CanvasNSView: NSView {
         didEdit = false
         let shift = event.modifierFlags.contains(.shift)
         let option = event.modifierFlags.contains(.option)
+
+        if app.tool == .knife {
+            if let preview = app.knifeLinePreview {
+                guard let handle = knifeLineHandle(at:p) else { return }
+                dragMode = .knifeLine(original:preview,handle:handle,startDoc:viewToDoc(p))
+                return
+            }
+            guard let revision = vectorRevision else { return }
+            let start = viewToDoc(p)
+            knifeEndDoc = start
+            knifeSamples = [start]
+            knifeCoalescing = NSEvent.isMouseCoalescingEnabled
+            NSEvent.isMouseCoalescingEnabled = false
+            dragMode = .knife(startDoc: start, selection: app.selectedNodeIDs, revision: revision)
+            needsDisplay = true
+            return
+        }
 
         // Rulers / guides: pull a new guide from a ruler, or grab an existing one.
         if !isSourceScope, !app.guidesLocked, beginGuideDrag(at: p) { return }
@@ -8473,6 +8714,7 @@ final class CanvasNSView: NSView {
         notePerfInput(event, "drag")
         let p = convert(event.locationInWindow, from: nil)
         lastMouse = p
+        syncRulerPointer()
         let shift = event.modifierFlags.contains(.shift)
         // ⌘ bypasses every kind of snapping for this gesture. Whole-pixel rounding
         // is a separate preference from guides/grid/artboard snapping (BUG-036(b));
@@ -8548,14 +8790,13 @@ final class CanvasNSView: NSView {
             if !bypassAllSnapping {
                 (dx, dy) = snapNodeOffset(dx: dx, dy: dy, origins: origins)
             }
+            // Read ancestor transforms before publishing any change, then update
+            // the selection together. The old per-id updateNode loop published and
+            // reflowed the whole scene once PER ICON on every mouse event.
+            let index = indexedNodes
+            var positions: [UUID: CGPoint] = [:]
             for (id, origin0) in origins {
-                // A node's position lives in its PARENT's space. Convert the
-                // document-space delta through the whole ancestor chain —
-                // rotations AND flips — by mapping two doc points down and
-                // differencing. (The old rotate-only shortcut moved children of
-                // a flipped group the wrong way along the mirrored axis, and
-                // summed angles ignore that a mirror reverses rotation.)
-                let chain = ancestorGroups(of: id)
+                let chain = index.ancestorGroups(of: id)
                 let d: CGPoint
                 if chain.isEmpty {
                     d = CGPoint(x: dx, y: dy)
@@ -8564,7 +8805,14 @@ final class CanvasNSView: NSView {
                     let b = docToParentLocal(CGPoint(x: startDoc.x + dx, y: startDoc.y + dy), chain: chain)
                     d = CGPoint(x: b.x - a.x, y: b.y - a.y)
                 }
-                updateNode(id) { $0.frame.origin = CGPoint(x: origin0.x + d.x, y: origin0.y + d.y) }
+                positions[id] = CGPoint(x: origin0.x + d.x, y: origin0.y + d.y)
+            }
+            let model = document?.model
+            withNodes { nodes in
+                NodeTreeMutation.apply(Set(positions.keys), in: &nodes) { node in
+                    if let position = positions[node.id] { node.frame.origin = position }
+                }
+                nodes = model?.reflowed(nodes) ?? AutoLayoutEngine.reflowed(nodes)
             }
             didEdit = true
             needsDisplay = true
@@ -8853,6 +9101,26 @@ final class CanvasNSView: NSView {
         case .pencilStroke:
             pencilMouseDragged(p)
 
+        case .knife:
+            let point = viewToDoc(p)
+            if let last = knifeSamples.last, hypot(point.x-last.x,point.y-last.y)*(app?.zoom ?? 1) >= 0.5 { knifeSamples.append(point) }
+            knifeEndDoc = point
+            needsDisplay = true
+
+        case .knifeLine(let original, let handle, let start):
+            let point = viewToDoc(p)
+            var preview = original
+            if handle == 2 {
+                preview.x += point.x-start.x; preview.y += point.y-start.y
+            } else {
+                var angle = atan2(point.y-original.y,point.x-original.x) * 180 / .pi
+                if handle == 0 { angle += 180 }
+                if event.modifierFlags.contains(.shift) { angle = (angle/45).rounded()*45 }
+                preview.angle = angle
+                preview.length = max(20/(app?.zoom ?? 1),2*hypot(point.x-original.x,point.y-original.y))
+            }
+            app?.knifeLinePreview = preview; needsDisplay = true
+
         case .marquee:
             marqueeCurrent = p
             needsDisplay = true
@@ -8891,6 +9159,27 @@ final class CanvasNSView: NSView {
 
         case .pencilStroke:
             finishPencilStroke()
+
+        case .knife(let start, let selection, let revision):
+            defer { finishKnifeCapture() }
+            if app?.tool == .knife, app?.selectedNodeIDs == selection,
+               vectorRevision == revision {
+                let end = viewToDoc(p)
+                knifeSamples.append(end)
+                let length = zip(knifeSamples,knifeSamples.dropFirst()).reduce(CGFloat(0)) { $0+hypot($1.0.x-$1.1.x,$1.0.y-$1.1.y) }
+                if length * (app?.zoom ?? 1) > 3 {
+                    if let settings = app?.knifeSettings,
+                       let edit = KnifeEditing.cut(currentNodes,samples:knifeSamples,settings:settings) {
+                        applyVectorEdit(edit,actionName:"Cut Shapes")
+                    } else { NSSound.beep() }
+                } else if let app {
+                    let hit = KnifeEditing.hit(currentNodes,at:start,settings:app.knifeSettings)
+                    app.selectedNodeIDs = hit.map { [$0] } ?? []; app.selectedArtboardIDs = []
+                }
+            }
+
+        case .knifeLine:
+            break  // Preview-only; Cut/Return commits, Cancel/Escape discards.
 
         case .drawArtboard(let id, _):
             // A bare click lands the same default the New Artboard menu's primary
@@ -11403,17 +11692,18 @@ final class CanvasNSView: NSView {
     @objc func flipHorizontalAction(_ sender: Any?) { flipSelection(horizontal: true) }
     @objc func flipVerticalAction(_ sender: Any?) { flipSelection(horizontal: false) }
 
-    @objc func copyLayerStyle(_ sender: Any?) { copySelectedStyle() }
-    @objc func pasteLayerStyle(_ sender: Any?) { pasteStyleToSelection() }
+    @objc func copyLayerStyle(_ sender: Any?) { copySelectedStyle(.effects) }
+    @objc func pasteLayerStyle(_ sender: Any?) { pasteStyleToSelection(.effects) }
+    @objc func copyPaintStyle(_ sender: Any?) { copySelectedStyle(.paint) }
+    @objc func pastePaintStyle(_ sender: Any?) { pasteStyleToSelection(.paint) }
+    @objc func copyFullStyle(_ sender: Any?) { copySelectedStyle(.all) }
+    @objc func pasteFullStyle(_ sender: Any?) { pasteStyleToSelection(.all) }
 
-    /// The node whose appearance "Copy Style" reads: the first selected node in
-    /// document (z) order, so it's deterministic even with a multi-selection. nil
-    /// when nothing is selected.
-    private func primaryStyleSourceNode() -> Node? {
+    private func primaryStyleSourceNode(paintOnly: Bool = false) -> Node? {
         guard let app, !app.selectedNodeIDs.isEmpty else { return nil }
         func walk(_ nodes: [Node]) -> Node? {
             for n in nodes {
-                if app.selectedNodeIDs.contains(n.id) { return n }
+                if app.selectedNodeIDs.contains(n.id), !paintOnly || n.layerPaintStyle != nil { return n }
                 if case .group(let kids) = n.content, let f = walk(kids) { return f }
             }
             return nil
@@ -11421,25 +11711,16 @@ final class CanvasNSView: NSView {
         return walk(currentNodes)
     }
 
-    /// Copy Style — capture the primary selected node's effects + blend mode +
-    /// opacity into the shared clipboard (no undo; it changes nothing on canvas).
-    private func copySelectedStyle() {
-        guard let app, let src = primaryStyleSourceNode() else { return }
-        app.copiedLayerStyle = src.layerStyle
+    private func copySelectedStyle(_ mode: AppearanceCopyMode) {
+        guard let app, let src = primaryStyleSourceNode(paintOnly: mode == .paint) else { return }
+        app.copyAppearance(from: src, mode: mode)
     }
 
-    /// Paste Style — apply the copied appearance to every selected node (recursing
-    /// into groups so a child picked inside a group is reached too) as one undo
-    /// step. Only appearance is touched; geometry/fill/content stay put.
-    private func pasteStyleToSelection() {
-        guard let app, let style = app.copiedLayerStyle, !app.selectedNodeIDs.isEmpty else { return }
+    private func pasteStyleToSelection(_ mode: AppearanceCopyMode) {
+        guard let app, let style = app.copiedAppearance(for: mode), !app.selectedNodeIDs.isEmpty else { return }
         var nodes = currentNodes
-        var changed = false
-        for id in app.selectedNodeIDs {
-            if Self.mutateNested(id, in: &nodes, { $0.applyLayerStyle(style) }) { changed = true }
-        }
-        guard changed else { return }
-        commitNodes(nodes, actionName: "Paste Style")
+        guard Node.pasteAppearance(style, to: app.selectedNodeIDs, in: &nodes) else { return }
+        commitNodes(nodes, actionName: "Paste " + mode.title)
         needsDisplay = true
     }
 
@@ -12309,16 +12590,7 @@ final class CanvasNSView: NSView {
 
     /// The group directly containing `id`, or nil if it's top-level.
     private func parentGroupID(of id: UUID) -> UUID? {
-        var result: UUID?
-        func walk(_ nodes: [Node], _ parent: UUID?) -> Bool {
-            for n in nodes {
-                if n.id == id { result = parent; return true }
-                if case .group(let k) = n.content, walk(k, n.id) { return true }
-            }
-            return false
-        }
-        _ = walk(currentNodes, nil)
-        return result
+        indexedNodes.entries[id]?.ancestors.last
     }
 
     /// Replace each selected group with its children, rebased into the parent's
@@ -13207,10 +13479,14 @@ final class CanvasNSView: NSView {
             add(menu, "Reveal in Layers", #selector(revealSelectionInLayersAction(_:)))
             if let askSanaa = sanaaPromptMenuItem() { menu.addItem(askSanaa) }
             menu.addItem(.separator())
-            // Copy / Paste Style (effects + blend mode + opacity). Both always
-            // appear; validateMenuItem greys out Paste Style until a style is copied.
-            add(menu, "Copy Style", #selector(copyLayerStyle(_:)))
-            add(menu, "Paste Style", #selector(pasteLayerStyle(_:)))
+            // Three independent appearance channels, validated against their
+            // matching session clipboard and the current selection.
+            add(menu, "Copy Effects", #selector(copyLayerStyle(_:)))
+            add(menu, "Copy Style", #selector(copyPaintStyle(_:)))
+            add(menu, "Copy Style & Effects", #selector(copyFullStyle(_:)))
+            add(menu, "Paste Effects", #selector(pasteLayerStyle(_:)))
+            add(menu, "Paste Style", #selector(pastePaintStyle(_:)))
+            add(menu, "Paste Style & Effects", #selector(pasteFullStyle(_:)))
             menu.addItem(.separator())
             // Lock / Unlock — show whichever applies to the current selection.
             if anySelected({ !$0.isLocked }) { add(menu, "Lock", #selector(lockSelection(_:))) }
@@ -13264,7 +13540,7 @@ final class CanvasNSView: NSView {
             }
             switch hit.content {
             case .text:
-                add(menu, "Save as Type Style", #selector(saveTypeStyleAction(_:)))
+                add(menu, "Save as Type Style…", #selector(saveTypeStyleAction(_:)))
                 let roleItem = NSMenuItem(title: "Content Role", action: nil, keyEquivalent: "")
                 let roleMenu = NSMenu()
                 let currentRole: TextContentRole = {
@@ -13301,7 +13577,10 @@ final class CanvasNSView: NSView {
             if selectionCanOutlineStroke {
                 add(menu, "Outline Stroke", #selector(outlineStrokeAction(_:)))
             }
-            if selectionCanPathfinder {
+            if selectionCanCutShapes {
+                add(menu, "Cut with Line…", #selector(cutWithLineAction(_:)))
+            }
+            if selectionCanPathfinder || selectionCanUnite {
                 let pathfinder = NSMenuItem(title: "Pathfinder", action: nil, keyEquivalent: "")
                 let sub = NSMenu()
                 add(sub, "Unite", #selector(pathfinderUniteAction(_:)))
@@ -13527,6 +13806,14 @@ extension CanvasNSView: NSMenuItemValidation {
             return node(nodeID)?.effects.contains(where: { $0.id == effectID }) == true
         case #selector(groupSelection(_:)):
             return (app?.selectedNodeIDs.count ?? 0) >= 2
+        case #selector(copyPaintStyle(_:)):
+            return primaryStyleSourceNode(paintOnly: true) != nil
+        case #selector(copyFullStyle(_:)):
+            return hasNodes
+        case #selector(pastePaintStyle(_:)):
+            return hasNodes && app?.copiedPaintStyle != nil && anySelected { $0.layerPaintStyle != nil }
+        case #selector(pasteFullStyle(_:)):
+            return hasNodes && app?.copiedFullStyle != nil
         case #selector(pasteLayerStyle(_:)):
             return hasNodes && (app?.copiedLayerStyle != nil)
         case #selector(duplicateArtboardsAction(_:)), #selector(renameArtboardAction(_:)):
@@ -13639,7 +13926,11 @@ extension CanvasNSView: NSMenuItemValidation {
             return selectionConvertibleToPath
         case #selector(outlineStrokeAction(_:)):
             return selectionCanOutlineStroke
-        case #selector(pathfinderUniteAction(_:)), #selector(pathfinderSubtractAction(_:)),
+        case #selector(cutWithLineAction(_:)):
+            return selectionCanCutShapes
+        case #selector(pathfinderUniteAction(_:)):
+            return selectionCanUnite
+        case #selector(pathfinderSubtractAction(_:)),
              #selector(pathfinderIntersectAction(_:)), #selector(pathfinderExcludeAction(_:)):
             return selectionCanPathfinder
         case #selector(toggleBoldText(_:)), #selector(toggleItalicText(_:)), #selector(toggleUnderlineText(_:)):

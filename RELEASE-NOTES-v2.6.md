@@ -1,0 +1,60 @@
+# EXP [design] v2.6
+
+## A smoother canvas, and tools for the everyday work.
+
+This small update focuses on busy design documents: the versions, inspiration
+images, complex vectors and walls of icon possibilities you keep around while
+working. It also adds a Knife that follows your hand, nested-folder Unite, and
+three ways to copy just the appearance you need.
+
+### Faster large documents
+
+- Selecting, moving and recoloring large batches avoids repeated layer-tree
+  searches and individual updates for every icon.
+- Panning and zooming complex vector walls do less work. Dense path-based pattern
+  fills use a cached canvas preview while the editable vectors and export remain
+  intact.
+- Ruler pointer markers move independently of the artwork, so moving the pointer
+  with rulers visible no longer redraws the entire canvas.
+
+### A Knife that follows your stroke
+
+- Press K, click to select artwork, then draw the cut you want. The cut follows
+  the path you draw, including bends and closed loops.
+- Choose what to cut: shapes, lines, paths and images. Choose the layer scope:
+  top layer, within the group, or all layers/groups.
+- Mask shapes can be cut too. Image cuts keep the original image and use editable
+  masks rather than discarding pixels.
+- Object → Path → Cut with Line keeps straight cuts precise, with a movable,
+  rotatable preview and keyboard stepping for measurements and angle.
+- Unite can collect compatible vector shapes from nested folders, so you no
+  longer have to select every shape individually. Mixed folders stay intact.
+
+### Copy exactly the style you need
+
+| Copy / Paste | Shortcut | Includes |
+| --- | --- | --- |
+| Effects | ⇧⌘C / ⇧⌘V | Effects, opacity and blending |
+| Style | ⌥⌘C / ⌥⌘V | Fill, gradients/patterns, stroke and corners |
+| Style & Effects | ⌥⇧⌘C / ⌥⇧⌘V | Both together |
+
+Each command keeps its own clipboard. Paint can reach compatible artwork in
+nested folders; pasting appearance remains one Undo step.
+
+### Small conveniences
+
+- Save a named type style directly from Properties into Design Language.
+- Checked and unchecked artboard notes export as proper GitHub-flavored Markdown
+  task lists in the Handoff Package.
+
+### Limits worth knowing
+
+- A cut must cross the artwork or form a closed loop to split a filled shape.
+  Locked and hidden layers are protected.
+- Paint attributes apply where the target supports them. Live text supports solid
+  color and outlines; images and component instances receive whole-layer effects.
+- Appearance clipboards stay within the current editing window/session.
+- Complex pattern previews are a canvas optimization; SVG/export fidelity and
+  editable pattern sources are preserved.
+
+EXP [design] 2.6 is build 17 and requires macOS 26.2 or later.

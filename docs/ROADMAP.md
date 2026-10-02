@@ -1286,15 +1286,69 @@ promote them into release gates.
 
 ---
 
-## v2.6 — in development (scope set at the owner's scoping gate)
+## v2.6 — release preparation (2026-10-01)
 
-Opened 2026-09-24 with `MARKETING_VERSION 2.6` / `CURRENT_PROJECT_VERSION 17`
-across the app, thumbnail extension, and bundled runtime configurations. The
-public v2.5/build 16 release, its immutable artifacts, and the appcast entry
-remain untouched. Candidates queued from the v2.5 deferrals: FEAT-057 (design
-directions), FEAT-059 (a11y guided fixes), FEAT-060 (evaluation harness), and
-the prioritized open backlog (incl. the SVG `clip-path` import P0 from
-WEB-SVG-FIDELITY-INVENTORY.md). Nothing starts until the owner sets scope.
+**Owner-scoped small release: performance and everyday convenience tools.**
+Build 17 includes the accepted stress-document performance pass, freehand Knife
+and precise Cut with Line preview, nested-folder Unite, three appearance copy/paste
+channels, Inspector type-style saving, and GFM notes task-list export. Owner accepts
+all additions and explicitly requests packaging/publication on 2026-10-01.
+`RELEASE-CHECKLIST-v2.6.md` records the archive, notarization, immutable artifact,
+GitHub/Sparkle/site receipts. Public v2.5/build 16 stays live until build 17 exists.
+
+Deferred candidates (not part of v2.6): FEAT-057 design directions, FEAT-059 a11y
+fix guidance, FEAT-060 evaluation harness, SVG `clip-path` import and the remaining
+backlog. They carry into the next owner-scoped development cycle.
+
+- [x] PERF-009 — remove repeated Inspector tree searches and per-icon drag
+      publishes/reflows; batch bulk style edits. Source + isolated-app verification
+      complete 2026-10-01; evidence in `PERF-STRESS-2026-10-01.md`.
+- [ ] Owner retest PERF-009 in Xcode with `stresstest.design`: marquee all icons,
+      move repeatedly, change fill, deselect, undo/redo, pan and pinch across the
+      complex SVGs and large photos. Check nested/grouped selections in everyday
+      docs too. Ancillary checks remain open; the owner's subsequent explicit
+      FEAT-066/067 request authorizes that next slice without implying these passed.
+- [x] PERF-010 — remove per-point camera observation and unused effect outlines
+      from wall rendering. Exact geometry checks, real-document benchmark and
+      Debug build pass 2026-10-01. Owner confirmed PERF-009 improved icon selection,
+      movement and fills; reported residual lag when zoomed out to the full wall.
+- [x] Owner accepted the full-wall navigation fix after PERF-012 (2026-10-01):
+      “great. that is much better. we can mark that resolved.” Earlier residual
+      pan/zoom beachballs are resolved through the combined rendering changes.
+- [x] PERF-011 — profile residual frame presentation and disable Metal API
+      validation in the ordinary Xcode Run scheme. Build and scheme checks pass.
+- [x] Owner accepted the combined navigation result after PERF-012. PERF-011
+      alone was insufficient; no separate improvement or post-relaunch process
+      environment verification is attributed to the validation setting.
+- [x] PERF-012 — collapse dense plain path-pattern fills into canvas-only,
+      pixel-grid raster stamps with bounded caching. Green SVG benchmark, pixel
+      comparisons, fresh Debug build and isolated native overview/pan pass.
+- [x] PERF-012 owner-verified and resolved 2026-10-01: owner reports the result
+      is much better and explicitly authorizes closing the issue. Detailed
+      rendering/invalidation checks retain their source-verification evidence;
+      no additional owner test results or whole-app FPS claims are inferred.
+
+- [x] FEAT-066 — owner-amended freehand Knife (K), click selection, target-type
+      toggles and top/group/all scope; editable lines/paths and non-destructive
+      mask/image pieces. Cut with Line has a movable/rotatable preview and numeric
+      Up/Down stepping. Source/native checks and fresh Debug build pass.
+- [x] FEAT-067 — Unite expands nested vector folders with shared eligibility,
+      transform handling and one-step geometry/selection Undo/Redo. Source and
+      disposable native-app checks pass; mixed folders remain intact.
+- [x] FEAT-066/067 owner-verified 2026-10-01: “spectacular. that works perfectly.
+      exactly how i want. check that all off as verified.” Shared Knife/Unite gate
+      cleared. Details, boundaries and retained regression checklist:
+      `VECTOR-EDITING-2026-10-01.md`. A formal VoiceOver/Full Keyboard Access audit
+      is not inferred from feature acceptance. Subsequent scope is chosen separately.
+
+### Approved performance/convenience bundle — 2026-10-01
+
+- [x] Implemented and source/native checked: PERF-005 ruler marker overlay;
+      FEAT-068 three appearance copy/paste modes; FEAT-034 Inspector type-style
+      save/name sheet; FEAT-019 GFM notes task-list export.
+- [x] **Shared owner verification gate** closed 2026-10-01: “excellent. all work
+      great to me.” Owner explicitly requests these additions in the small v2.6
+      release. Evidence/regression checklist: `CONVENIENCE-UPDATE-2026-10-01.md`.
 
 ## v2.5 — released (2026-09-23)
 
@@ -2602,10 +2656,12 @@ ORIGINAL PLAN (kept for reference):
       first when originals are needed. Subtract Front keeps the bottom selected shape
       and cuts every selected shape above it, matching the familiar Pathfinder model.
 
-#### 16c — Copy / paste styles (FUTURE; requested)
-- [ ] **Copy Style / Paste Style** (⌥⌘C / ⌥⌘V) — carry fill, stroke, corner,
-      opacity, blend, effects (and auto-padding background) from one layer to
-      compatible targets. A small `Style` payload + apply-to-each-selected.
+#### 16c — Copy / paste styles (FEAT-068; owner-verified 2026-10-01)
+- [x] Effects ⇧⌘C/V; paint/style ⌥⌘C/V; both ⌥⇧⌘C/V. Three independent
+      clipboards, complete paint/stroke/corner values, recursive folder artwork,
+      compatible targets, one-pass batch/one-step Undo, Edit/canvas/Layers routes.
+- [x] Owner verification with the approved convenience bundle, 2026-10-01;
+      `CONVENIENCE-UPDATE-2026-10-01.md`.
 
 ### Phase 16.5 — Background blur effect (requested; needs an offscreen render pass)
 - [x] **Background blur** — a stackable `Effect.Kind.backgroundBlur` (reuses the
@@ -3262,6 +3318,232 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-10-01 — v2.6 accepted: a smoother canvas and everyday tools.**
+  Owner verified the full performance/convenience bundle and requested a small
+  release. Knife follows the drawn stroke; Unite collects nested vector folders;
+  three independent appearance shortcuts copy effects, paint or both. Large icon
+  batches and complex pattern walls do less repeated work, ruler markers update
+  independently, and type-style saving plus notes task lists complete the update.
+  Release preparation uses build 17, preserves v2.5's immutable artifacts, and
+  follows `RELEASE-CHECKLIST-v2.6.md`. **NEXT:** verify/archive/notarize/package,
+  publish the immutable download before the Sparkle feed, then open v2.7/build 18.
+
+- **2026-10-01 (approved performance/convenience bundle built; owner gate pending).**
+  Owner approved all four candidates after FEAT-066/067 acceptance, with explicit
+  three-channel shortcuts. Added FEAT-068 (ID guard confirmed next free): Effects
+  ⇧⌘C/V, Style ⌥⌘C/V, both ⌥⇧⌘C/V, independent per-window clipboards, complete
+  paint/stroke/corners and recursive folder artwork. Batched tree application
+  replaces per-selected-layer rescans; menu selection validation reuses the existing
+  tree index. Preserves geometry, text, padding and
+  protected branches. All Edit/canvas/Layers command routes and validations wired.
+  PERF-005 now updates two retained overlay markers without full artwork redraw;
+  500 native marker updates produced zero parent draws. FEAT-034 adds a labelled
+  28pt Inspector save button and shared name sheet across existing type-save
+  routes. FEAT-019 normalizes legacy notes checkbox markers on package export,
+  preserving editor/schema and code samples (GFM §5.3 checked).
+  **Verification:** Debug app/thumbnail build; appearance model/persistence/800-icon
+  batch checks; native ruler overlay; semantic package/golden/task-list checks;
+  Knife/Unite regression; disposable native shortcut/channel/independent clipboard,
+  named type-style save, Undo/Redo and saved geometry checks all pass. Existing
+  compiler warnings remain; formal assistive-technology and owner stress-document
+  checks not inferred. Test build closed; owner app/documents and prior working-tree
+  changes preserved. Evidence: `CONVENIENCE-UPDATE-2026-10-01.md`.
+  **NEXT:** owner rebuilds and verifies the shared four-item bundle before any new
+  document-mutating work. No commit, publication or release-scope expansion.
+
+- **2026-10-01 (FEAT-066/067 owner-verified; small-update candidate review).**
+  Owner accepted the amended Knife exactly as desired and explicitly asked to
+  check all of the shared vector slice off as verified. Closed FEAT-066/067 in
+  the roadmap/backlog and evidence document; preserved the regression checklist
+  and separate formal assistive-technology testing boundary. No ancillary
+  PERF-009 checks, public release or new implementation scope are inferred.
+  Reviewed the open queue against current source for a small performance and
+  convenience update: PERF-005 remains actionable (`mouseMoved` still requests
+  scene redraws for ruler markers); Phase 16c's fuller Copy/Paste Style remains
+  open because the existing payload carries effects/blend/opacity only; FEAT-034
+  has a remaining Inspector type-style save convenience; FEAT-019's notes task-list
+  export is a small optional polish item. Candidate assessment only, no new source
+  changes. Complex gradient/import work, unreproduced bugs and parked renderer
+  work are unsuitable for this quick scope. Pre-existing working-tree changes
+  preserved. **NEXT:** owner chooses additions; suggested core is PERF-005 plus
+  full appearance Copy/Paste Style. Broader v2.6 release scope remains unset.
+
+- **2026-10-01 (FEAT-066 amendment — drawn Knife, masks/images, targeting and
+  editable straight preview built; owner gate pending).** Owner explicitly
+  amended the existing Knife slice while its shared FEAT-066/067 gate remains
+  open. Knife now follows sampled pointer positions without curve fitting,
+  click-selects and cuts unselected eligible artwork. Properties provides
+  independent Shapes/Lines/Paths/Images toggles and top/outer-folder/all scope,
+  including nested folders. Lines/open cubics split at crossings; mask/image
+  pieces retain original content/pixels under ordinary editable mask groups.
+  Selected clipping shapes promote to masked artwork for Cut with Line. That
+  command now shows an axis with move/rotate handles and live X/Y/Angle fields,
+  Up/Down (Shift/Option) stepping, Shift rotation snapping, explicit Cut/Return
+  and Cancel/Escape. Pending preview changes are session-only. contact.sensor
+  is installed as the owner's trial icon. Native testing caught hidden image
+  pixels inflating both selection and painted/Inspector bounds; failing regression
+  and fix now match visible cut pieces. Empty rotated masks retain a finite clip
+  editing surface, also covered by a failing-then-passing regression. Model tests cover sampled bends/loops,
+  analytic open cubics, masks/images/transforms, types/scopes/protection, clipped
+  bounds, recursive Unite and persistence. Fresh Debug build, canvas-page and
+  node-tree parity checks pass. Disposable native builds verify field stepping,
+  preview dragging/rotation/cancel/cut, click selection, unselected raster/mask
+  cuts, independent image pixels and Undo/Redo, clipped piece dimensions, and
+  nested-group scope. Curved hand gestures and full VoiceOver/Full Keyboard Access
+  remain owner checks. Boundaries and receipts: `VECTOR-EDITING-2026-10-01.md`.
+  The owner's running app/docs, public artifacts, version/schema, pre-existing
+  performance work, SVG script edits and .zcodeignore remain untouched.
+  **NEXT:** owner rebuilds/runs this amendment and verifies FEAT-066/067 together;
+  no further document-mutating slice until that gate clears. No Unite acceptance
+  or additional PERF-009 verification is inferred.
+
+- **2026-10-01 (FEAT-066/067 — straight-line Knife and nested-folder Unite
+  built; awaiting owner verification).** After accepting PERF-012, the owner
+  explicitly requested these two vector operations as the next bounded slice.
+  Added Knife (K): drag one straight line through selected closed vectors, Shift
+  constrains to 45° increments; semantic preview, cancellation on context/tool
+  changes, mouse-up-only commit and numeric Object → Path → Cut with Line… route.
+  Split paths retain editable curves/compound contours and their original parent
+  through nested transforms; styles inherit with ordinary per-piece paint bounds.
+  Unite now expands selected vector folders recursively, deduplicates descendants,
+  rejects incompatible folders wholly, and preserves same-parent placement and
+  root identity while adopting the frontmost vector's appearance. Both register
+  selection with structural Undo/Redo and use ordinary persisted PathShapes.
+  Model geometry/style/no-op/hierarchy/persistence checks and canvas-page checks
+  pass; node-index stress parity remains green. Fresh unsigned Debug build passes.
+  Disposable native app verifies gesture and numeric cuts, independent movement,
+  folder Unite, single-step Undo/Redo and disabled mixed-folder Unite. Native AX
+  labels observed; full assistive-technology testing is not claimed. Apple naming
+  and keyboard sources are linked in FEAT-066. Details and owner steps in
+  `VECTOR-EDITING-2026-10-01.md`. No changes to the owner's running app/documents,
+  public release identity or immutable artifacts. Pre-existing performance work,
+  `verify_svg_pattern_import.sh` edits and `.zcodeignore` remain intact.
+  **NEXT:** owner rebuilds/runs in Xcode and verifies FEAT-066/067 together; pause
+  further document-mutating work until that gate clears. PERF-009's ancillary
+  checks remain open, without inferring verification from the next-slice request.
+
+- **2026-10-01 (PERF-012 — owner-verified and resolved).** Owner response to
+  the green SVG rendering fix: “great. that is much better. we can mark that
+  resolved.” Closed PERF-012 and the earlier residual full-wall navigation gate
+  in the roadmap, backlog and performance evidence document. Acceptance covers
+  the reported navigation issue; it does not establish separate PERF-011 gains,
+  new FPS measurements or additional detailed regression tests. PERF-009's
+  remaining editing checks retain their existing status. Documentation-only
+  closure; implementation and unrelated working-tree changes preserved.
+
+- **2026-10-01 (PERF-012 — owner isolates the large green wavy SVG;
+  dense-pattern canvas stamps built, owner retest pending).** Removing that SVG
+  eliminates the owner's remaining navigation delay. Inspected its preserved
+  stress-file copy: `jagged-alternations` contains six tall patterned paths,
+  overflowing the imported 2,000×1,500 root frame. Their original fill loops issue
+  **60,099 tile-image draws per render**. Added `CanvasPatternRasterCache.swift`:
+  rasterize those same loops at the destination pixel grid, then submit one image
+  per eligible fill. Reuse stamps on integer-pixel pan; rebuild for fractional
+  camera changes, zoom, geometry/lattice/tile changes and document revisions.
+  Cache is limited to 32 MiB, each stamp ≤1,048,576 pixels and ≤2,048 pixels per
+  side. Large/high-zoom fills fall back to the live renderer. Ancestor effects,
+  masks, opacity/blending, rotations/flips and instance crops bypass this cache;
+  strokes and editable vector geometry remain live. Shared paint/export code
+  and document serialization are untouched.
+
+  Optimized benchmark on the real green SVG, twenty complete fill+stroke passes:
+  repeated view **401.1→9.6ms (41.9×)**; integer pan **391.2→9.5ms (41.0×)**.
+  Changing zoom/cold revisions still cost about 19ms/pass on the CPU; their screen
+  submission nevertheless drops from 60,099 tile commands to six fill images.
+  These are isolated CPU render timings, not app latency/FPS measurements. Eighteen
+  real-artwork comparisons cover 2/4/13% zoom, 1×/2× backing, integer/fractional pan
+  and size fallback: maximum channel difference 3/255, full-image mean ≤0.01118/255.
+  Transparent/asymmetric tiles, light/dark backgrounds, changed tiles/lattices,
+  geometry, winding, revision invalidation and missing/sparse-pattern fallback
+  also pass. Exact pixel equality is not claimed: stamp compositing adds small
+  8-bit rounding differences. Fresh unsigned Debug build, canvas-page suite,
+  backlog-id check and diff whitespace check pass. The isolated **EXP Green Wave
+  Test** opened the complete original-fixture copy, displayed 2→4→2% zoom, and
+  panned out/back with the green SVG present; then it was closed. Normal app and
+  original document were not edited/stopped. Evidence: `PERF-STRESS-2026-10-01.md`.
+  Owner must rebuild/run with the green SVG included and judge pan/pinch behavior
+  and artwork fidelity. Earlier icon-editing acceptance remains partially open.
+
+- **2026-10-01 (PERF-011 — residual pan/zoom implicates Xcode's Metal validation;
+  launch configuration corrected, relaunch test pending).** Owner confirmed the
+  previous rendering patch helps but small beachballs remain most times; clarified
+  full-wall zoom/pan is the trigger. Profiled the running Xcode Debug app, including
+  a 2%→3%→2% overview zoom sequence (`/tmp/exp-stress-validation-on.sample.txt`).
+  EXP draw submission was only 163 inclusive samples versus 4,919 beneath frame
+  transaction flushing and 2,576 in the asynchronous Core Animation raster worker;
+  these branches overlap and are not additive frame-time measurements. Worker
+  stacks repeatedly enter Metal debug wrappers while submitting image rectangles.
+  A filtered process-environment read confirmed `MTL_DEBUG_LAYER=1`. The shared
+  scheme omitted the explicit off setting, so Xcode defaults to API validation.
+  Added `LaunchAction enableGPUValidationMode="1"` (counterintuitively, 1 = off;
+  checked against CMake's primary Xcode scheme writer). This leaves normal Debug
+  compilation, the main-thread checker, and Release profile/archive behavior intact.
+  Fresh unsigned Debug build succeeds; XML/attribute checks and `git diff --check`
+  pass. The current process still carries its old launch environment. Owner must
+  Stop → Run and retest before attributing any smoothness improvement to this.
+  This is a development-run correction, not a shipped-runtime performance claim.
+
+  Also trialed native Core Graphics pattern tiling because the wall has thousands
+  of repeated image draws. Transparent/asymmetric pixel comparisons exposed
+  low-zoom differences (mean channel error up to 21/255); rejected and fully removed
+  that experiment. Pattern rendering/export files have no changes from this turn.
+  Evidence, citations and remaining gates: `PERF-STRESS-2026-10-01.md`. Original
+  artwork was only viewed/zoomed, not edited; no original app was stopped.
+
+- **2026-10-01 (PERF-010 — follow-up for zoomed-out wall lag; built, owner
+  retest pending).** Owner rebuilt and confirmed that icon selection, movement
+  and recoloring are much faster after PERF-009, but full-wall zoom/navigation
+  and movement still lag. Sampled the owner's running Xcode Debug app at 4%
+  during panning (`/tmp/exp-stress-wall-before.sample.txt`). Rendering dominates
+  the active work: paths rebuild view coordinates through observable camera
+  reads at each anchor/control, and `drawNode` eagerly rebuilds a second outline
+  for effects even on nodes with no effects. `bezierPath` now snapshots zoom/pan
+  once per path; shadow/noise outlines are obtained only when consumed. Mask and
+  background-blur clips keep their existing paths. No camera bitmap workaround,
+  simplified artwork or export/schema change. Fresh Debug production-method
+  geometry benchmark on all 2,729 stress-file paths: ten geometry passes
+  **1,555.2 → 182.1ms (8.5×)**; exact command/control/winding parity at 1%, 4%,
+  14%, 100% and 375%, including empty/open/multi-contour fixtures. This isolates
+  geometry construction and discarded outlines, not full-frame timing or FPS.
+  `verify_canvas_path_performance.sh`, fresh unsigned Debug build and diff checks
+  pass. Updated native app rendered the entire wall at 2% with photos/patterns
+  intact. Computer-use drag routing repeatedly returned `windowNotFoundAtPosition`
+  on both displays; no successful after-patch pan/drag latency claim is made.
+  Receipts and remaining owner gate are in `PERF-STRESS-2026-10-01.md`.
+
+- **2026-10-01 (PERF-009 — stress-document selection/edit bottlenecks fixed;
+  owner retest pending).** Owner provided `stresstest.design` to reproduce seconds
+  of beachball on icon selection, movement, fill changes, deselection, and canvas
+  navigation; this authorizes the bounded performance slice in v2.6, while broader
+  release scope stays unset. Read the real 298,243,643-byte file (284 MiB): 231
+  top-level layers, 3,323 nodes, 169 named SVG icons, 28 images, 23 patterns.
+  A live public-v2.5 main-thread sample caught repeated `RightPanel` tree walks
+  and geometry reads inside SwiftUI layout. Also traced the drag loop calling
+  `updateNode` (publish + full reflow) per selected icon per tick.
+
+  Added revision/scope/page/state/document-keyed read indexes for canvas and
+  Inspector; selection geometry/style targets are shared across Inspector fields.
+  Bulk styles traverse once; icon dragging computes ancestor-aware positions
+  first and publishes/reflows once per tick. No schema, export, artwork-fidelity,
+  or public release changes. Optimized benchmark on the real 169-icon workload:
+  20 Inspector read sets **5,104.2 → 6.7 ms**; one move tick incl. reflow
+  **205.5 → 2.2 ms**; fill traversal **35.9 → 1.3 ms**. These are measured code
+  paths, not whole-app latency or FPS promises. Move and fill results match the
+  prior algorithm's complete encoded tree.
+
+  Fresh unsigned Debug build succeeds; node-tree regression/benchmark and canvas
+  page regression suites pass; `git diff --check` passes. Native verification in
+  an isolated test app/copy passed 169-icon marquee selection, drag, fill,
+  deselection, pan, and one-step Undo for fill and move. Duplicate bundle identities
+  confused automation initially; a temporary uniquely named/bundled test app
+  resolved input routing without changing the installed app or project identity.
+  Original document byte-compared unchanged. Evidence/commands/limits:
+  `PERF-STRESS-2026-10-01.md`. Pre-existing `verify_svg_pattern_import.sh` edits
+  and `.zcodeignore` preserved. **NEXT:** owner runs the v2.6 Xcode build and
+  repeats the stress gestures, incl. pinch/pan over complex artwork, undo/redo,
+  and nested selections. PERF-009 stays pending owner verification; no new
+  document-mutating slice before that gate.
 
 - **2026-09-24 (night close — §10 Sparkle proof GREEN; v2.5 COMPLETE; v2.6
   development opened).** Owner ran the in-app update on the daily-driver

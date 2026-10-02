@@ -26,7 +26,7 @@ struct ToolsStrip: View {
     /// Artboard sits alone at the bottom on purpose. It draws a CONTAINER, not a
     /// shape, and grouping it with the shape tools would imply otherwise.
     private let toolGroups: [[Tool]] = [
-        [.pan, .select, .node],
+        [.pan, .select, .node, .knife],
         [.rectangle, .ellipse, .polygon, .line, .pen, .pencil],
         [.text, .image, .component],
         [.artboard]
@@ -95,6 +95,9 @@ private struct ToolButton: View {
         .animation(EXPMotion.fast, value: isActive)
         .expTooltip(label: tool.label, shortcut: tool.shortcutKey)   // design tooltip + keycap
         .accessibilityLabel(tool.label)
+        .accessibilityHint(tool == .knife
+                          ? "Click to select; draw across artwork to cut along your stroke. Choose types and layer scope in Properties. Object, Path, Cut with Line opens an editable straight cut preview."
+                          : "")
         .accessibilityAddTraits(isActive ? [.isSelected] : [])
     }
 }

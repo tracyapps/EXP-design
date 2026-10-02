@@ -263,12 +263,24 @@ private struct EditCommandItems: View {
             .keyboardShortcut("a", modifiers: [.command, .shift])
             .disabled(menu?.hasAnySelection != true)
         Divider()
-        Button("Copy Style") { sendEditorAction("copyLayerStyle:") }
+        Button("Copy Effects") { sendEditorAction("copyLayerStyle:") }
             .keyboardShortcut("c", modifiers: [.command, .shift])
             .disabled(menu?.canCopyStyle != true)
-        Button("Paste Style") { sendEditorAction("pasteLayerStyle:") }
+        Button("Paste Effects") { sendEditorAction("pasteLayerStyle:") }
             .keyboardShortcut("v", modifiers: [.command, .shift])
             .disabled(menu?.canPasteStyle != true)
+        Button("Copy Style") { sendEditorAction("copyPaintStyle:") }
+            .keyboardShortcut("c", modifiers: [.command, .option])
+            .disabled(menu?.canCopyPaintStyle != true)
+        Button("Paste Style") { sendEditorAction("pastePaintStyle:") }
+            .keyboardShortcut("v", modifiers: [.command, .option])
+            .disabled(menu?.canPastePaintStyle != true)
+        Button("Copy Style & Effects") { sendEditorAction("copyFullStyle:") }
+            .keyboardShortcut("c", modifiers: [.command, .option, .shift])
+            .disabled(menu?.canCopyStyle != true)
+        Button("Paste Style & Effects") { sendEditorAction("pasteFullStyle:") }
+            .keyboardShortcut("v", modifiers: [.command, .option, .shift])
+            .disabled(menu?.canPasteFullStyle != true)
     }
 }
 
@@ -388,14 +400,21 @@ private struct ObjectCommandItems: View {
                 .disabled(menu?.canConvertToPath != true)
             Button("Outline Stroke") { sendEditorAction("outlineStrokeAction:") }
                 .disabled(menu?.canOutlineStroke != true)
+            Divider()
+            Button("Cut with Line…") { sendEditorAction("cutWithLineAction:") }
+                .disabled(menu?.canCutShapes != true)
         }
         Menu("Pathfinder") {
             Button("Unite") { sendEditorAction("pathfinderUniteAction:") }
+                .disabled(menu?.canUnite != true)
             Button("Subtract Front") { sendEditorAction("pathfinderSubtractAction:") }
+                .disabled(menu?.canPathfinder != true)
             Button("Intersect") { sendEditorAction("pathfinderIntersectAction:") }
+                .disabled(menu?.canPathfinder != true)
             Button("Exclude Overlap") { sendEditorAction("pathfinderExcludeAction:") }
+                .disabled(menu?.canPathfinder != true)
         }
-        .disabled(menu?.canPathfinder != true)
+        .disabled(menu?.canPathfinder != true && menu?.canUnite != true)
         Button("Round to Pixel") { sendEditorAction("roundToPixelAction:") }
             .disabled(menu?.canRoundToPixel != true)
         if sanaaEnabled {
@@ -439,7 +458,7 @@ private struct TypeCommandItems: View {
         Button("Convert to Outlines") { sendEditorAction("convertTextToShapesAction:") }
             .disabled(menu?.canConvertTextToOutlines != true)
         Divider()
-        Button("Save as Type Style") { sendEditorAction("saveTypeStyleAction:") }
+        Button("Save as Type Style…") { sendEditorAction("saveTypeStyleAction:") }
             .keyboardShortcut("o", modifiers: [.command, .shift])
             .disabled(menu?.canTypeActions != true)
     }
@@ -514,6 +533,7 @@ private struct ToolsCommandItems: View {
     var body: some View {
         Button("Select") { sendEditorAction("selectToolAction:") }
         Button("Edit Points") { sendEditorAction("nodeToolAction:") }
+        Button("Knife") { sendEditorAction("knifeToolAction:") }
         Divider()
         Button("Pen") { sendEditorAction("penToolAction:") }
         Button("Pencil") { sendEditorAction("pencilToolAction:") }

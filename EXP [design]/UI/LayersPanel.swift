@@ -209,8 +209,8 @@ struct LayersPanel: View {
                                 onDuplicate: { duplicateLayers([$0]) },
                                 onCopy: { copyLayers(selectionOrRow($0)) },
                                 onDelete: { deleteLayers(selectionOrRow($0)) },
-                                onCopyStyle: { copyStyleFromRow($0) },
-                                onPasteStyle: { pasteStyleToRows(selectionOrRow($0)) },
+                                onCopyStyle: { copyStyleFromRow($0, mode: $1) },
+                                onPasteStyle: { pasteStyleToRows(selectionOrRow($0), mode: $1) },
                                 onSelect: { selectNested($0) }
                             )
                             // Flush rows (no extra vertical insets / separators) so the
@@ -899,30 +899,16 @@ struct LayersPanel: View {
         return [provider]
     }
 
-    /// Copy Style from a row — capture its effects + blend mode + opacity into the
-    /// shared clipboard. Reimplemented here (like Delete) so it works whatever has
-    /// focus; the canvas owns the equivalent action for canvas-side use.
-    private func copyStyleFromRow(_ id: UUID) {
-        guard let n = findNode(id) else { return }
-        app.copiedLayerStyle = n.layerStyle
+    private func copyStyleFromRow(_ id: UUID, mode: AppearanceCopyMode) {
+        guard let node = findNode(id) else { return }
+        app.copyAppearance(from: node, mode: mode)
     }
 
-    /// Paste Style onto `ids` (and any nested descendants matched) as one undo step,
-    /// touching appearance only. Mirrors the canvas's Paste Style.
-    private func pasteStyleToRows(_ ids: Set<UUID>) {
-        guard let style = app.copiedLayerStyle, !ids.isEmpty else { return }
-        func recurse(_ nodes: [Node]) -> [Node] {
-            nodes.map { node in
-                var node = node
-                if ids.contains(node.id) {
-                    node.applyLayerStyle(style)
-                } else if case .group(let children) = node.content {
-                    node.content = .group(children: recurse(children))
-                }
-                return node
-            }
-        }
-        commitNodes(recurse(scopeNodes), "Paste Style")
+    private func pasteStyleToRows(_ ids: Set<UUID>, mode: AppearanceCopyMode) {
+        guard let style = app.copiedAppearance(for: mode), !ids.isEmpty else { return }
+        var nodes = scopeNodes
+        guard Node.pasteAppearance(style, to: ids, in: &nodes) else { return }
+        commitNodes(nodes, "Paste " + mode.title)
     }
 
     /// Delete `ids` (and any nested descendants) from the scoped node list as one
@@ -1295,8 +1281,8 @@ private struct LayerOutlineRow: View {
     let onDuplicate: (UUID) -> Void
     let onCopy: (UUID) -> Void
     let onDelete: (UUID) -> Void
-    let onCopyStyle: (UUID) -> Void
-    let onPasteStyle: (UUID) -> Void
+    let onCopyStyle: (UUID, AppearanceCopyMode) -> Void
+    let onPasteStyle: (UUID, AppearanceCopyMode) -> Void
     let onSelect: (UUID) -> Void
 
     private func displayName(_ n: Node) -> String {
@@ -1406,8 +1392,8 @@ private struct LayerOutlineRow: View {
                  onDuplicate: { onDuplicate(node.id) },
                  onCopy: { onCopy(node.id) },
                  onDelete: { onDelete(node.id) },
-                 onCopyStyle: { onCopyStyle(node.id) },
-                 onPasteStyle: { onPasteStyle(node.id) },
+                 onCopyStyle: { onCopyStyle(node.id, $0) },
+                 onPasteStyle: { onPasteStyle(node.id, $0) },
                  onEditComponent: instance.map { instance in
                      {
                          SourceEditorWindowManager.shared.open(
@@ -1627,8 +1613,8 @@ private struct LayerRow: View {
     let onDuplicate: () -> Void
     let onCopy: () -> Void
     let onDelete: () -> Void
-    let onCopyStyle: () -> Void
-    let onPasteStyle: () -> Void
+    let onCopyStyle: (AppearanceCopyMode) -> Void
+    let onPasteStyle: (AppearanceCopyMode) -> Void
     let onEditComponent: (() -> Void)?
 
     @State private var editing = false
@@ -1750,9 +1736,12 @@ private struct LayerRow: View {
                 }
             }
             Divider()
-            Button("Copy Style") { onCopyStyle() }
-            Button("Paste Style") { onPasteStyle() }
-                .disabled(app.copiedLayerStyle == nil)
+            ForEach(AppearanceCopyMode.allCases, id: \.self) { mode in
+                Button("Copy " + mode.title) { onCopyStyle(mode) }
+                    .disabled(mode == .paint && node.layerPaintStyle == nil)
+                Button("Paste " + mode.title) { onPasteStyle(mode) }
+                    .disabled(app.copiedAppearance(for: mode) == nil || (mode == .paint && node.layerPaintStyle == nil))
+            }
             Divider()
             Button("Delete", role: .destructive) { onDelete() }
         }
@@ -1806,8 +1795,12 @@ private struct LayerRow: View {
             }))
         }
         entries.append(.separator)
-        entries.append(.action("Copy Style", onCopyStyle))
-        entries.append(.action("Paste Style", enabled: app.copiedLayerStyle != nil, onPasteStyle))
+        for mode in AppearanceCopyMode.allCases {
+            let compatible = mode != .paint || node.layerPaintStyle != nil
+            entries.append(.action("Copy " + mode.title, enabled: compatible) { onCopyStyle(mode) })
+            entries.append(.action("Paste " + mode.title,
+                enabled: compatible && app.copiedAppearance(for: mode) != nil) { onPasteStyle(mode) })
+        }
         entries.append(.separator)
         entries.append(.action("Delete", onDelete))
         return entries

@@ -128,24 +128,25 @@ EXP [design]/
 ```
 
 ## Current status
-Public **v2.4/build 15** is released, notarized, and owner-verified.
-Active development is **v2.5/build 16** (`MARKETING_VERSION 2.5`,
-`CURRENT_PROJECT_VERSION 16`) across the app, thumbnail extension, and bundled
-runtime configs. This does not alter the immutable v2.4 release or public appcast.
+Public **v2.5/build 16** is released, notarized, and owner-verified.
+**v2.6/build 17 is accepted and in release preparation (2026-10-01).**
+All app/thumbnail/runtime configurations read 2.6/17. The owner explicitly
+accepted the performance, Knife/Unite and convenience bundle and authorized
+packaging/publication; see `docs/RELEASE-CHECKLIST-v2.6.md`. Immutable public
+v2.5 artifacts remain unchanged. After freezing v2.6, open **v2.7/build 18**
+with its scope intentionally unselected.
 The native editor, Design Language, component states/behavior contract, semantic
 Handoff Package, agent bridge, nested components, canvas pages, XD/Figma import,
 rendered HTML/CSS import, CodePen handoff/import, static Storybook import, and the
 five-family compatibility matrix are shipped. Documents save as **`.design`**
 (legacy `.exp` opens for migration).
 
-`docs/RELEASE-CHECKLIST-v2.4.md` contains the notarization, immutable artifact,
-GitHub, Sparkle, and website receipts. The preserved v2.3→v2.4 in-app Sparkle
-install/relaunch proof remains as a post-publication check.
-
-v2.5 has been opened as a clean development baseline only. Its scope is
-intentionally unselected; FEAT-057–060 and other backlog entries remain
-candidates, not commitments. **Next:** use ROADMAP → v2.5's owner scoping gate
-before implementing anything. Do not infer a release plan from backlog order.
+Release receipts live in `docs/RELEASE-CHECKLIST-v2.5.md` and
+`docs/RELEASE-CHECKLIST-v2.6.md`. The older v2.3→v2.4 updater proof was
+superseded by owner decision; v2.5's live update proof is complete.
+Next development scope remains owner-selected; FEAT-057/059/060, SVG
+`clip-path` import and other backlog entries remain candidates, not commitments.
+Do not infer the next release plan from backlog order.
 
 **Backlog hygiene:** run `scripts/verify_backlog_ids.sh` before assigning a new id.
 Ids are referenced from ROADMAP, PERF-LOG and PERF-TODO as well as BACKLOG, so

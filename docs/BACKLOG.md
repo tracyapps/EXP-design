@@ -3026,6 +3026,107 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 
 ## ✨ Features
 
+### FEAT-068 — Three independent appearance copy/paste commands
+- Type: feature
+- Priority: P2
+- Area: canvas · layers · keyboard · convenience
+- Status: done — owner-verified 2026-10-01
+- Owner acceptance: “excellent. all work great to me.” Shared gate closed;
+  owner explicitly requests this bundle in the v2.6 release.
+- Owner-authorized scope: ⇧⌘C/V keeps effects, opacity and blending; ⌥⌘C/V copies
+  fill/gradients/patterns, stroke and corners without effects; ⌥⇧⌘C/V combines both.
+  Each mode retains its own session clipboard. All six commands appear in Edit,
+  canvas and Layers context menus, with compatible-target/clipboard validation.
+- Implementation: shared model payload and one-pass batch application, recursive
+  ordinary folders, auto-padding background without layout changes, fresh effect
+  IDs and one Undo step. Unsupported text paints are not flattened; images and
+  instances receive effects only; hidden/locked branches are protected.
+- Verification: model checks including 800 icons and persistence; native keyboard
+  pairs, independent effects clipboard, channel preservation, rendering and Undo;
+  Debug app/thumbnail build pass. Owner checks and boundaries in
+  `CONVENIENCE-UPDATE-2026-10-01.md`. One gate with PERF-005/FEAT-034/FEAT-019.
+
+### FEAT-067 — Unite selected folders, including nested vector folders
+- Type: feature
+- Priority: P2
+- Area: canvas · inspector · model
+- Status: done — owner-verified 2026-10-01
+- Repro/Detail: Owner wants to select a folder and Unite all its shapes, including
+  nested folders, without manually selecting every leaf.
+- Implementation: shared eligibility and operation code expands selected folders
+  in paint order, deduplicates selected descendants, bakes nested rotations/flips,
+  and creates an ordinary editable path. Same-parent operands keep that parent
+  and the frontmost consumed slot. The selected frontmost root supplies identity
+  and metadata; its frontmost vector supplies appearance. Removed child IDs have
+  anchored connections cleaned through the existing commit route.
+- Boundaries: at least two closed vector leaves; folders containing text, images,
+  instances, open paths, hidden/locked layers, masks, or folder backgrounds,
+  enabled effects, opacity or blend changes are rejected as a whole. Mixed-parent
+  selection keeps Pathfinder's existing promotion to the current scope root.
+  Subtract/Intersect/Exclude still require directly selected shapes.
+- Verification: nested transform/flip parity, redundant descendant selection,
+  unselected sibling preservation, consumed IDs, mixed-content rejection and
+  persistence pass in `scripts/verify_vector_shape_editing.sh`. Disposable native
+  app confirms folder → one path, selection and one-step Undo/Redo; a folder with
+  text has Unite disabled and remains intact. Debug build passes.
+- Acceptance: owner rebuilds, selects a nested vector folder in an everyday doc,
+  presses Unite, edits the result, then Undo/Redo; verifies the result's location,
+  stacking and chosen appearance. Rejection must never discard mixed content.
+- Owner acceptance 2026-10-01: “spectacular. that works perfectly. exactly how
+  i want. check that all off as verified.” Shared Knife/Unite gate is cleared;
+  no separate formal assistive-technology audit is inferred from this acceptance.
+- Evidence and closed owner gate: `VECTOR-EDITING-2026-10-01.md`.
+
+### FEAT-066 — Freehand Knife, masks/images and editable straight-line preview
+- Type: feature
+- Priority: P2
+- Area: canvas · inspector · model
+- Status: done — owner-verified 2026-10-01
+- Repro/Detail: Owner amended the original straight-line Knife: follow the actual
+  drawn stroke without smoothing; select/cut artwork directly; include mask
+  shapes and raster images; choose target types and layer/group scope. Numeric
+  Cut with Line needed Up/Down stepping and a movable/rotatable canvas preview.
+- Implementation: K click-selects eligible artwork and cuts under the sampled
+  stroke on mouse-up. Independent Shapes/Lines/Paths/Images toggles and Top layer /
+  All within group / All layers/groups scope live in Properties. Group scope
+  includes nested folders within the frontmost hit's outer folder. Open lines and
+  single-contour open paths split at crossings with exact cubic handles. Mask
+  targets remain atomic; clip selection promotes to the masked container.
+  Image/mask pieces use ordinary editable mask groups with original content/pixels
+  retained. Visual and painted bounds clip hidden content from handles/dimensions.
+  Cut with Line previews its selected-layer cutting axis, supports center/body
+  movement and end-handle rotation, Shift snapping, numeric Up/Down stepping
+  (Shift ×10 / Option ×0.1), canvas arrows, Cut/Return and Cancel/Escape. Session
+  preview changes do not mutate artwork until Cut. Trial icon is contact.sensor.
+- Boundaries: open strokes through closed shapes must begin/end outside the local
+  shape bounding box; no invented interior extensions. Exact closed loops are
+  supported without automatic closure. Text/instances and multi-contour open
+  paths are unsupported. Hidden/locked artwork is protected; a locked descendant
+  protects a mask. Images default off and retain full pixels per piece, which can
+  grow saved files. Vector gradients/patterns fit new bounds and strokes follow
+  new edges. Ordinary folders are not expanded by the selected straight command.
+- Verification: initial mask and painted-bounds regressions fail before their
+  fixes and pass afterward. Model suite covers sampled bends/loops, analytic open
+  cubics/lines, masks/images/pixel transforms, types/scopes/protection, nested
+  transforms, curves/holes/no-ops/styles/IDs, recursive Unite and persistence.
+  Native builds verify selection, stepping/live preview, move/rotate handles,
+  Cancel/Cut, raster/mask cuts, independent pixels, clipped bounds, image Undo/Redo
+  and nested-group scope. Debug build, canvas pages and node-tree parity pass.
+- Accessibility: native labels/checkboxes/picker and keyboard route follow
+  [Apple's accessibilityLabel guidance](https://developer.apple.com/documentation/appkit/nsaccessibility-c.protocol/accessibilitylabel)
+  and [Apple's keyboard guidance](https://developer.apple.com/design/human-interface-guidelines/keyboards/).
+  AX labels and field stepping observed; full VoiceOver/Full Keyboard Access
+  remains unverified. No ARIA/export-role contract is intentionally changed.
+- Acceptance: owner rebuilds and tries actual bent strokes, every type/scope,
+  masks/images, independent movement, point editing, preview/stepping/cancel,
+  Undo/Redo, save/reopen and expected per-piece vector paint behavior. Decide
+  whether contact.sensor is the preferred icon. Shared FEAT-067 gate cleared by
+  the owner acceptance below.
+- Owner acceptance 2026-10-01: “spectacular. that works perfectly. exactly how
+  i want. check that all off as verified.” Shared Knife/Unite gate is cleared;
+  no separate formal assistive-technology audit is inferred from this acceptance.
+- Evidence and closed owner gate: `VECTOR-EDITING-2026-10-01.md`.
+
 ### FEAT-065 — Patterns become a first-class paint: swatch preview, any-shape fills, convert-to-pattern, design language, Patterns panel
 - Type: feature (umbrella — five owner requests that share one dependency)
 - Priority: P2
@@ -5527,8 +5628,18 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: feature
 - Priority: P2
 - Area: color · type · design-language
-- Status: **partly delivered by FEAT-045; remaining surfaces deferred to v2.4 by
-  owner decision 2026-08-21**
+- Status: **done — gradient surface delivered by FEAT-045; Inspector font surface
+  owner-verified 2026-10-01 with the v2.6 convenience bundle**
+- Implementation 2026-10-01: Type section save button shares the existing canvas
+  action with menu/context/panel routes; native name sheet, sensible default,
+  Cancel without edits, one Undo step, existing document type-style library.
+  Current category model remains unfiled; historical candidate status below is
+  superseded by the shared category redesign.
+- Verification: native save button/name-field AX labels, named 24pt library entry,
+  one-step Undo/Redo and saved fixture; model/build pass. Accessible naming checked
+  against https://www.w3.org/WAI/ARIA/apg/patterns/button/ (button name/activation).
+  Full VoiceOver/FKA and appearance passes not claimed. Shared owner gate:
+  `CONVENIENCE-UPDATE-2026-10-01.md`.
 - Repro/Detail: Owner request 2026-08-11: an add-to-Design-Language button on the
   gradient control, so adding a gradient does not require opening the Design
   Language panel — while keeping that route too. Owner: "can be the same 'save' icon
@@ -5802,7 +5913,14 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: feature
 - Priority: P3
 - Area: export · notes
-- Status: open
+- Status: done — owner-verified 2026-10-01
+- Implementation 2026-10-01: export-time normalization makes bare notes markers
+  GFM list items, preserves checked states and existing task syntax, and leaves
+  fenced/indented code untouched. Saved notes/editor continuation are unchanged.
+  Spec: https://github.github.com/gfm/#task-list-items-extension- (section 5.3).
+  Fresh package fixture failed before the change and passes afterward, alongside
+  existing semantic HTML goldens. Shared owner gate:
+  `CONVENIENCE-UPDATE-2026-10-01.md`.
 - Repro/Detail: the notes editor writes checkboxes as `[ ] ` / `[x] ` at the start of a
   line and styles them in place (checked lines strike through). The Handoff Package
   emits notes as live Markdown inside a blockquote, but GitHub-flavoured Markdown needs
@@ -6731,6 +6849,99 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Acceptance: a repeatable stress-test doc + before/after frame-time numbers; no
   interaction regressions.
 
+### PERF-009 — Stress-document multi-selection repeatedly searches/publishes the full tree
+- Type: perf
+- Priority: P1
+- Area: perf · canvas · inspector
+- Status: built + source/native verification passed 2026-10-01; owner confirmed
+  faster icon selection/move/fill; remaining acceptance checks pending
+- Repro: `~/Desktop/test2/perf-tests-2.5/stresstest.design`; select all 169 named
+  icons, move, change fill, deselect; seconds of beachball in public v2.5.
+- Cause: each Inspector field repeatedly resolves every selected id/ancestor by
+  searching the full tree; each dragged icon calls `updateNode`, separately
+  publishing and reflowing the document on every mouse tick.
+- Fix: revision/scope/page/component-state/document-keyed node indexes and shared
+  selection reads; one batch mutation/reflow/publish per drag tick; one traversal
+  for bulk style targets. Original source-state, nesting, transforms, and undo
+  funnels preserved. No file format or settled-render fidelity change.
+- Evidence: `PERF-STRESS-2026-10-01.md`; real-file optimized benchmark, full-tree
+  move/fill JSON parity, cache invalidation/nesting checks, fresh Debug build,
+  and native interaction/undo checks on a separate copy. See its limits before
+  interpreting code-path timings as whole-app latency.
+- Owner acceptance: rebuild in Xcode, repeat all reported gestures plus pinch,
+  undo/redo and everyday nested selections; report any remaining stall for the
+  next profile. This is the current document-mutation sequencing gate.
+
+### PERF-010 — Full-wall drawing repeats observable camera reads and unused vector outlines
+- Type: perf
+- Priority: P1
+- Area: perf · canvas
+- Status: built + source/build checks passed 2026-10-01; owner confirms better,
+  residual full-wall navigation issue resolved with PERF-012, owner-verified
+- Repro: same stress document, zoom out until the complete wall is visible;
+  navigation and selection movement remain delayed after PERF-009.
+- Cause: per-anchor/control-point observable camera reads in path construction;
+  a second path silhouette is built for every closed leaf even without effects.
+- Fix: capture camera values once per path; build effect silhouettes only for
+  drop shadow, inner shadow or active noise. Masks and background blur retain
+  their existing clip construction. Preserve all curves, winding and detail.
+- Evidence: `PERF-STRESS-2026-10-01.md`; running Debug app's main-thread sample,
+  actual production-method geometry parity at five zooms, 2,729-path benchmark
+  (ten passes 1,555.2 → 182.1ms), fresh Debug build, native overview render.
+  Geometry timings are not full-frame/FPS measurements. Automated drag routing
+  failed on both displays; after-patch pan/drag smoothness needs owner testing.
+- Acceptance: rebuild in Xcode, pan/pinch around the full wall and move selections
+  while zoomed out. Check effect/mask appearance and zoom back into vector detail.
+
+### PERF-011 — Xcode's Metal API validation adds work to full-wall frame presentation
+- Type: perf
+- Priority: P1
+- Area: perf · development run configuration
+- Status: shared Run scheme corrected 2026-10-01; build/XML checks pass;
+  owner still reports lag; isolated green SVG addressed by PERF-012
+- Repro: after PERF-009/010, owner still sees small beachballs on full-wall pan/zoom
+  in the Xcode-run Debug app. Current process has `MTL_DEBUG_LAYER=1`.
+- Evidence: full-frame transaction flushing/raster worker dominate the active
+  profile, including repeated `MTLDebugCommandBuffer` paths for image rectangles.
+  Draw submission alone substantially understates this work. See
+  `PERF-STRESS-2026-10-01.md` for samples, counts, scope and citations.
+- Change: explicitly disable Metal API validation for the ordinary shared Run
+  scheme (`enableGPUValidationMode="1"`). EXP doesn't issue its own Metal API
+  commands; framework rendering was being instrumented. Normal Debug compilation
+  and the main-thread checker remain; API validation can be enabled deliberately
+  for a graphics investigation via Edit Scheme → Run → Diagnostics.
+- Acceptance: Stop → Run from Xcode and repeat full-wall zoom/pan. Check the new
+  process environment and smoothness. This does not change public runtime behavior,
+  and is not evidence that all document rendering costs have been solved.
+
+### PERF-012 — Large green wavy SVG submits tens of thousands of pattern tiles per frame
+- Type: perf
+- Priority: P1
+- Area: perf · canvas · patterns
+- Status: resolved — source/native checks pass; owner-verified 2026-10-01
+- Repro: full-wall zoom/pan in `stresstest.design`; owner finds removing the large
+  green wavy SVG eliminates the delay. Preserved fixture is `jagged-alternations`.
+- Cause: six tall patterned paths overflow the import's root frame and submit
+  60,099 tile-image draws through the original renderer on each redraw, including
+  at tiny overview zoom. Framework raster/presentation work follows submission.
+- Fix: canvas-only, destination-pixel-grid stamps for dense plain path fills;
+  one image submission per fill, reused on integer-pixel pans. Exact original
+  tile loop/lattice feeds each stamp. Revision/tile/path/winding/transform keys
+  invalidate changed artwork; 32 MiB LRU and stamp-size caps bound allocations.
+  High-zoom/large stamps and ancestors with masks/effects/opacity/blending,
+  rotation/flips or component viewBox crops retain the existing renderer.
+  Strokes, editable paths, persisted artwork and export renderer remain intact.
+- Evidence: `PERF-STRESS-2026-10-01.md`; actual SVG twenty repeated render passes
+  401.1→9.6ms, integer pan 391.2→9.5ms. Cold/zoom CPU work stays about 19ms/pass;
+  screen submission is reduced to six fill images. No full-frame/FPS claim.
+  Eighteen actual-artwork pixel comparisons (max rounding difference 3/255),
+  transparent/asymmetric tiles and invalidation/fallback checks pass; fresh
+  Debug build and native 2→4→2% zoom plus pan/return on a disposable copy pass.
+- Owner acceptance 2026-10-01: “great. that is much better. we can mark that
+  resolved.” The reported green SVG/full-wall navigation issue is closed.
+  Detailed artwork/invalidation checks retain the source/native evidence above;
+  no additional owner regression-test results or whole-app FPS claims are inferred.
+
 ### PERF-002 — Blend/opacity fidelity while dragging (conditional true-composite mode)
 - Type: perf · feature
 - Priority: P2
@@ -6849,7 +7060,14 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: perf
 - Priority: P2
 - Area: canvas · perf
-- Status: open
+- Status: done — owner-verified 2026-10-01
+- Implementation 2026-10-01: retained, decorative, click-through CAShapeLayer
+  marker overlay; plain ruler pointer motion no longer invalidates canvas artwork.
+  Option measurement and pen hover retain their required canvas redraws.
+  A native AppKit check exercises 500 updates with zero parent artwork redraws,
+  exact positions, no animations and correct hiding/hit-testing; Debug build pass.
+  Owner accepted the bundle; the detailed regression checklist remains in:
+  `CONVENIENCE-UPDATE-2026-10-01.md`.
 - Repro/Detail: With rulers shown, `mouseMoved` sets `needsDisplay = true` to
   update the two accent pointer lines — a FULL scene render per mouse twitch.
   On the image-heavy doc (frames ~60–80ms) this reads as constant sluggishness

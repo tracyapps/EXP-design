@@ -545,6 +545,8 @@ final class AppState {
 
     /// What a click-drag on the canvas does. Defaults to Select.
     var tool: Tool = .select
+    var knifeSettings = KnifeSettings()
+    var knifeLinePreview: KnifeLinePreview?
 
     /// Side count used when drawing a NEW polygon (default 3 = triangle). Editing a
     /// polygon's Sides in the Inspector updates this so the next one matches.
@@ -743,12 +745,30 @@ final class AppState {
     /// clicked row.
     var selectionAnchorID: UUID?
 
-    /// The layer "style" captured by Copy Style — effects + blend mode + opacity —
-    /// ready for Paste Style onto one or many other layers. Session-only (not saved
+    /// The effects captured by Copy Effects — effects + blend mode + opacity —
+    /// ready for Paste Effects onto one or many other layers. Session-only (not saved
     /// with the file) and shared by the canvas and the Layers panel, so either
     /// surface can copy and the other can paste. nil = nothing copied yet, which is
-    /// what keeps Paste Style disabled.
+    /// what keeps Paste Effects disabled.
     var copiedLayerStyle: LayerStyle?
+    var copiedPaintStyle: LayerPaintStyle?
+    var copiedFullStyle: NodeAppearanceStyle?
+
+    func copyAppearance(from node: Node, mode: AppearanceCopyMode) {
+        switch mode {
+        case .effects: copiedLayerStyle = node.layerStyle
+        case .paint: copiedPaintStyle = node.layerPaintStyle
+        case .all: copiedFullStyle = NodeAppearanceStyle(paint: node.layerPaintStyle, effects: node.layerStyle)
+        }
+    }
+
+    func copiedAppearance(for mode: AppearanceCopyMode) -> NodeAppearanceStyle? {
+        switch mode {
+        case .effects: return copiedLayerStyle.map { NodeAppearanceStyle(effects: $0) }
+        case .paint: return copiedPaintStyle.map { NodeAppearanceStyle(paint: $0) }
+        case .all: return copiedFullStyle
+        }
+    }
 
     // MARK: Artboard notes (session UI — the notes text itself lives on Artboard)
 
@@ -902,6 +922,7 @@ enum Tool: Hashable {
     /// (FEAT-029). The output is an ordinary path — nothing about it is special
     /// afterwards, which is the point.
     case pencil
+    case knife       // sampled freehand cutter; Cut with Line is a separate preview
     case text
     case image       // action tool: opens the importer (reverts to select)
     case component   // action tool: makes an empty component + opens its editor
@@ -922,6 +943,7 @@ enum Tool: Hashable {
         case .line:      return "line.diagonal"
         case .pen:       return "point.topleft.down.to.point.bottomright.curvepath.fill"
         case .pencil:    return "scribble"
+        case .knife:     return "contact.sensor"
         case .text:      return "character.textbox"
         case .image:     return "photo.fill"
         case .component: return "square.on.square.squareshape.controlhandles"
@@ -943,6 +965,7 @@ enum Tool: Hashable {
         case .line:      return "Line"
         case .pen:       return "Pen"
         case .pencil:    return "Pencil"
+        case .knife:     return "Knife"
         case .text:      return "Text"
         case .image:     return "Place Image"
         case .component: return "New Component"
@@ -963,6 +986,7 @@ enum Tool: Hashable {
         case .pen:       return "P"
         // N, following Illustrator's Pencil.
         case .pencil:    return "N"
+        case .knife:     return "K"
         case .text:      return "T"
         case .image:     return "\u{21E7}\u{2318}P"
         case .component: return ""

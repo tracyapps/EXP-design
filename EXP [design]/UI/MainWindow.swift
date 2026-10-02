@@ -766,6 +766,9 @@ struct EditorMenuModel {
     var canDuplicateEffect: Bool
     var canCopyStyle: Bool
     var canPasteStyle: Bool
+    var canCopyPaintStyle: Bool
+    var canPastePaintStyle: Bool
+    var canPasteFullStyle: Bool
     var pageTransferChoices: [CanvasPageChoice]
     var selectedNodeIDs: Set<UUID>
     var selectedArtboardIDs: Set<UUID>
@@ -803,6 +806,8 @@ struct EditorMenuModel {
     var canConvertToPath: Bool
     var canOutlineStroke: Bool
     var canPathfinder: Bool
+    var canUnite: Bool
+    var canCutShapes: Bool
     var canRoundToPixel: Bool
     var canEyedropper: Bool
     var canAskSanaa: Bool
@@ -871,7 +876,10 @@ func makeEditorMenuModel(document: ExpDocument, app: AppState, scope: CanvasScop
         }
     }
     let selectedIDs = app.selectedNodeIDs
-    let selectedNodes = selectedIDs.compactMap { find($0, in: nodes) }
+    // The same index serves selection/appearance validation and vector commands;
+    // avoid a complete tree search for every icon in a large selection.
+    let vectorIndex = NodeTreeIndex(nodes)
+    let selectedNodes = selectedIDs.compactMap { vectorIndex.entries[$0]?.node }
     let singleNode = selectedIDs.count == 1 ? selectedNodes.first : nil
     let hasNodes = !selectedIDs.isEmpty
     let hasArtboards = !app.selectedArtboardIDs.isEmpty
@@ -957,6 +965,9 @@ func makeEditorMenuModel(document: ExpDocument, app: AppState, scope: CanvasScop
     }
     let canPathfinder = selectedIDs.count >= 2 && selectedNodes.count == selectedIDs.count
         && selectedNodes.allSatisfy { VectorPathGeometry.isClosedVector($0.content) }
+    let canUnite = (VectorOperationSelection.closed(in: vectorIndex, selected: selectedIDs,
+                                                   includingGroups: true)?.shapes.count ?? 0) >= 2
+    let canCutShapes = KnifeEditing.selectedRoots(vectorIndex, selected: selectedIDs) != nil
     let isSingleText: Bool = {
         guard let singleNode else { return false }
         if case .text = singleNode.content { return true }
@@ -1031,6 +1042,9 @@ func makeEditorMenuModel(document: ExpDocument, app: AppState, scope: CanvasScop
         canDuplicateEffect: singleNode?.effects.contains(where: { $0.id == app.selectedEffectID }) == true,
         canCopyStyle: hasNodes,
         canPasteStyle: hasNodes && app.copiedLayerStyle != nil,
+        canCopyPaintStyle: selectedNodes.contains { $0.layerPaintStyle != nil },
+        canPastePaintStyle: app.copiedPaintStyle != nil && selectedNodes.contains { $0.layerPaintStyle != nil },
+        canPasteFullStyle: hasNodes && app.copiedFullStyle != nil,
         pageTransferChoices: pageTransferChoices,
         selectedNodeIDs: selectedIDs,
         selectedArtboardIDs: app.selectedArtboardIDs,
@@ -1063,6 +1077,8 @@ func makeEditorMenuModel(document: ExpDocument, app: AppState, scope: CanvasScop
         canConvertToPath: hasConvertible,
         canOutlineStroke: hasOutlinedStroke,
         canPathfinder: canPathfinder,
+        canUnite: canUnite,
+        canCutShapes: canCutShapes,
         canRoundToPixel: hasNodes || hasArtboards,
         canEyedropper: hasNodes,
         canAskSanaa: scope == .document && (hasNodes || hasArtboards),
@@ -1146,6 +1162,7 @@ enum ToolShortcuts {
         "r": "rectangleToolAction:", "o": "ellipseToolAction:",
         "g": "polygonToolAction:", "l": "lineToolAction:",
         "f": "artboardToolAction:", "h": "panToolAction:",
+        "k": "knifeToolAction:",
     ]
 
     static func install() {
@@ -1267,6 +1284,7 @@ private struct InspectorSectionTitle: View {
 
 struct RightPanel: View {
     @ObservedObject var document: ExpDocument
+    @State private var treeReadCache = NodeTreeReadCache<CanvasTreeReadKey>()
     @Environment(AppState.self) private var app
     @Environment(\.undoManager) private var undoManager
     /// Noise/Dissolve "Advanced" accordion — remembered across effects, panel
@@ -1316,6 +1334,22 @@ struct RightPanel: View {
         case .pattern(let pid):
             return document.model.pattern(for: pid)?.children ?? []
         }
+    }
+
+    private var treeReadKey: CanvasTreeReadKey {
+        CanvasTreeReadKey(documentID: ObjectIdentifier(document),
+                          generation: document.resolveGeneration, scope: scope,
+                          pageID: app.activeCanvasPageID,
+                          stateID: app.activeComponentStateID)
+    }
+
+    private var indexedNodes: NodeTreeIndex {
+        treeReadCache.tree(for: treeReadKey, nodes: { scopedNodes })
+    }
+
+    private var selectionReads: NodeSelectionReadSnapshot {
+        treeReadCache.selection(for: treeReadKey, selectedIDs: app.selectedNodeIDs,
+                                nodes: { scopedNodes })
     }
 
     /// Mutate the scoped node list in one undo step (the single write funnel so
@@ -1372,14 +1406,7 @@ struct RightPanel: View {
 
     /// Find a node by id, searching INTO groups (so nested children resolve).
     private func findScopedNode(_ id: UUID) -> Node? {
-        func find(_ nodes: [Node]) -> Node? {
-            for n in nodes {
-                if n.id == id { return n }
-                if case .group(let k) = n.content, let f = find(k) { return f }
-            }
-            return nil
-        }
-        return find(scopedNodes)
+        indexedNodes.entries[id]?.node
     }
 
     /// Recursively mutate a node by id (into groups) in one undo step, so the
@@ -1722,8 +1749,14 @@ struct RightPanel: View {
 
             // Editable details for the current selection, in a ScrollView so a long
             // inspector stays fully reachable. Title + zoom stay pinned above.
+            ScrollViewReader { knifeScroll in
             ScrollView {
               VStack(alignment: .leading, spacing: 0) {
+            if app.tool == .knife || app.knifeLinePreview != nil {
+                knifeControls()
+                    .id("knife-controls")
+                Divider()
+            }
             if let node = selectedNode {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 6) {
@@ -1848,7 +1881,7 @@ struct RightPanel: View {
                 if case .instance = node.content {
                     instanceControls()
                 }
-                if inspectorCanConvertToPath || inspectorCanOutlineStroke {
+                if inspectorCanConvertToPath || inspectorCanOutlineStroke || inspectorHasSelectedFolder || inspectorCanUnite || inspectorCanCutShapes {
                     Divider()
                     vectorOperationsControls()
                 }
@@ -1878,7 +1911,7 @@ struct RightPanel: View {
                 flipControls(multiple: true)
                 // Font / fill / stroke applied to EVERY selected layer at once.
                 multiStyleControls()
-                if inspectorCanConvertToPath || inspectorCanOutlineStroke || inspectorCanPathfinder {
+                if inspectorCanConvertToPath || inspectorCanOutlineStroke || inspectorCanPathfinder || inspectorHasSelectedFolder || inspectorCanUnite || inspectorCanCutShapes {
                     Divider()
                     vectorOperationsControls()
                 }
@@ -1928,6 +1961,13 @@ struct RightPanel: View {
             }
               }
               .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .onChange(of: app.knifeLinePreview != nil) { _, active in
+                if active { knifeScroll.scrollTo("knife-controls",anchor:.top) }
+            }
+            .onChange(of: app.tool == .knife) { _, active in
+                if active { knifeScroll.scrollTo("knife-controls",anchor:.top) }
+            }
             }
         }
         .background(.background)
@@ -2655,64 +2695,11 @@ struct RightPanel: View {
     /// chain is unrotated (doc↔parent-local is then a pure translation), excluding
     /// nodes that have a selected ancestor (they'd transform twice via the parent).
     /// Mirrors the canvas so the panel and canvas agree.
-    private var selectionTransformIDs: [UUID] {
-        app.selectedNodeIDs.filter { id in
-            findScopedNode(id) != nil
-                && (scopedIsTopLevel(id) || scopedAncestorRotation(id) == 0)
-                && !hasSelectedAncestorScoped(id)
-        }
-    }
+    private var selectionTransformIDs: [UUID] { selectionReads.transformIDs }
 
-    /// The selected nodes lifted into DOCUMENT space (parent offset folded in), so the
-    /// union W/H — and the scale math — is uniform whether nodes are top-level or nested.
-    private var selectionDocNodes: [Node] {
-        selectionTransformIDs.compactMap { id in
-            guard var n = findScopedNode(id) else { return nil }
-            let off = scopedNodeOffset(id)
-            n.frame = n.frame.offsetBy(dx: off.x, dy: off.y)
-            return n
-        }
-    }
-
-    /// Union bounds of the selected nodes (document space) — drives multi-selection W/H.
-    private var multiSelectionBounds: CGRect? {
-        SelectionTransform.unionBounds(selectionDocNodes)
-    }
-
-    /// True if `id` is a top-level node in this scope.
-    private func scopedIsTopLevel(_ id: UUID) -> Bool {
-        scopedNodes.contains { $0.id == id }
-    }
-
-    /// Accumulated document-space offset of a node (sum of ancestor group origins).
-    private func scopedNodeOffset(_ id: UUID) -> CGPoint {
-        Self.scopedOffset(of: id, in: scopedNodes) ?? .zero
-    }
-
-    /// Total rotation (deg) of a node's ANCESTOR groups (0 = unrotated chain).
-    private func scopedAncestorRotation(_ id: UUID) -> Double {
-        func find(_ nodes: [Node], _ acc: Double) -> Double? {
-            for n in nodes {
-                if n.id == id { return acc }
-                if case .group(let k) = n.content, let r = find(k, acc + n.rotation) { return r }
-            }
-            return nil
-        }
-        return find(scopedNodes, 0) ?? 0
-    }
-
-    /// True if any ancestor group of `id` is itself selected.
-    private func hasSelectedAncestorScoped(_ id: UUID) -> Bool {
-        func walk(_ nodes: [Node], _ selectedAbove: Bool) -> Bool? {
-            for n in nodes {
-                if n.id == id { return selectedAbove }
-                if case .group(let kids) = n.content,
-                   let r = walk(kids, selectedAbove || app.selectedNodeIDs.contains(n.id)) { return r }
-            }
-            return nil
-        }
-        return walk(scopedNodes, false) ?? false
-    }
+    /// Union geometry is evaluated once for this selection/model revision, then
+    /// reused by every X/Y/W/H binding and layout pass.
+    private var multiSelectionBounds: CGRect? { selectionReads.bounds }
 
     /// Document-space offset of `id` within an arbitrary node array — for use inside a
     /// commit closure where the live array (not `scopedNodes`) is in hand.
@@ -2859,20 +2846,7 @@ struct RightPanel: View {
 
     // MARK: Multi-selection style editing (font / fill / stroke applied to ALL)
 
-    private var selectedResolvedNodes: [Node] {
-        let roots = app.selectedNodeIDs
-            .filter { !hasSelectedAncestorScoped($0) }
-            .compactMap { findScopedNode($0) }
-        return roots.flatMap(Self.flattenStyleTargets)
-    }
-
-    nonisolated private static func flattenStyleTargets(_ node: Node) -> [Node] {
-        var result = [node]
-        if case .group(let children) = node.content {
-            result.append(contentsOf: children.flatMap(flattenStyleTargets))
-        }
-        return result
-    }
+    private var selectedResolvedNodes: [Node] { selectionReads.styleNodes }
 
     nonisolated private static func mutateStyleTargets(_ node: inout Node, _ change: (inout Node) -> Void) {
         change(&node)
@@ -2886,15 +2860,14 @@ struct RightPanel: View {
 
     /// Apply a change to EVERY selected node (recursing into groups), one undo step.
     private func mutateAllSelected(_ action: String, _ change: @escaping (inout Node) -> Void) {
-        let ids = app.selectedNodeIDs.filter { !hasSelectedAncestorScoped($0) }
+        let ids = selectionReads.rootIDs
         commitScoped(action) { nodes in
-            for id in ids {
-                _ = Self.mutateNestedNode(id, in: &nodes) { node in
-                    Self.mutateStyleTargets(&node, change)
-                }
+            NodeTreeMutation.apply(ids, in: &nodes) { node in
+                Self.mutateStyleTargets(&node, change)
             }
         }
     }
+
     private func applyToAllText(_ action: String, _ change: @escaping (inout TextContent) -> Void) {
         mutateAllSelected(action) { node in
             guard case .text(var tc) = node.content else { return }
@@ -3178,7 +3151,7 @@ struct RightPanel: View {
     /// children as separately selected. That distinction matters to Pathfinder:
     /// operating on one child must never silently consume its whole group.
     private var inspectorSelectedNodes: [Node] {
-        app.selectedNodeIDs.compactMap(findScopedNode)
+        selectionReads.selectedNodes
     }
 
     private var inspectorCanConvertToPath: Bool {
@@ -3209,6 +3182,72 @@ struct RightPanel: View {
             && inspectorSelectedNodes.allSatisfy { VectorPathGeometry.isClosedVector($0.content) }
     }
 
+    private var inspectorCanUnite: Bool {
+        (VectorOperationSelection.closed(in: indexedNodes, selected: app.selectedNodeIDs,
+                                         includingGroups: true)?.shapes.count ?? 0) >= 2
+    }
+
+    private var inspectorHasSelectedFolder: Bool {
+        inspectorSelectedNodes.contains { if case .group = $0.content { return true }; return false }
+    }
+
+    private var inspectorCanCutShapes: Bool {
+        KnifeEditing.selectedRoots(indexedNodes, selected: app.selectedNodeIDs) != nil
+    }
+
+    private func knifeType(_ path: WritableKeyPath<KnifeSettings, Bool>) -> Binding<Bool> {
+        Binding(get: { app.knifeSettings[keyPath:path] }, set: { app.knifeSettings[keyPath:path] = $0 })
+    }
+
+    private func knifeLineValue(_ path: WritableKeyPath<KnifeLinePreview, Double>) -> Binding<Double> {
+        Binding(get: { app.knifeLinePreview?[keyPath:path] ?? 0 }, set: { value in
+            guard value.isFinite else { return }
+            app.knifeLinePreview?[keyPath:path] = value
+        })
+    }
+
+    @ViewBuilder private func knifeControls() -> some View {
+        VStack(alignment:.leading,spacing:8) {
+            InspectorSectionTitle(title:app.knifeLinePreview == nil ? "Knife" : "Cut with Line",icon:"contact.sensor")
+            if app.knifeLinePreview != nil {
+                HStack(spacing:6) {
+                    DimField(label:"X",value:knifeLineValue(\.x))
+                    DimField(label:"Y",value:knifeLineValue(\.y))
+                }
+                HStack {
+                    Text("Angle (°)").foregroundStyle(EXPColor.textSecondary)
+                    TextField("Angle",value:knifeLineValue(\.angle),format:.number.precision(.fractionLength(0...2)))
+                        .textFieldStyle(.exp).monospacedDigit().multilineTextAlignment(.trailing)
+                        .numericStepping(knifeLineValue(\.angle)).accessibilityLabel("Cut line angle in degrees")
+                }
+                Text("Drag the center to move; drag an end to rotate. Shift snaps rotation. ↑/↓ step fields; Shift ×10, Option ×0.1.")
+                    .font(.caption).foregroundStyle(EXPColor.textSecondary)
+                HStack(spacing:6) {
+                    vectorTextButton("Cancel",selector:"cancelKnifeLineAction:")
+                    vectorTextButton("Cut",selector:"applyKnifeLineAction:")
+                }
+                Text("Return on canvas cuts; Escape cancels. Nothing changes until Cut.")
+                    .font(.caption).foregroundStyle(EXPColor.textSecondary)
+            } else {
+                HStack {
+                    Toggle("Shapes",isOn:knifeType(\.shapes))
+                    Toggle("Lines",isOn:knifeType(\.lines))
+                }
+                HStack {
+                    Toggle("Paths",isOn:knifeType(\.paths))
+                    Toggle("Images",isOn:knifeType(\.images))
+                }
+                Picker("Cut",selection:Binding(get:{ app.knifeSettings.scope },set:{ app.knifeSettings.scope = $0 })) {
+                    ForEach(KnifeScope.allCases,id:\.self) { Text($0.label).tag($0) }
+                }
+                Text("Click to select. Draw across edges to cut along your stroke, without smoothing. Closed loops cut out a piece. Images and masks stay editable.")
+                    .font(.caption).foregroundStyle(EXPColor.textSecondary)
+            }
+        }
+        .font(.callout).toggleStyle(.checkbox).padding(12)
+        .frame(maxWidth:.infinity,alignment:.leading)
+    }
+
     @ViewBuilder private func vectorOperationsControls() -> some View {
         VStack(alignment: .leading, spacing: 8) {
             InspectorSectionTitle(title: "Vector", icon: "point.3.connected.trianglepath.dotted")
@@ -3225,17 +3264,37 @@ struct RightPanel: View {
                 }
             }
 
-            if inspectorCanPathfinder {
+            if inspectorCanCutShapes {
+                HStack(spacing: 6) {
+                    vectorTextButton("Knife", selector: "knifeToolAction:")
+                    vectorTextButton("Cut with Line…", selector: "cutWithLineAction:")
+                }
+                Text("Knife follows your stroke. Cut with Line opens a movable, rotatable preview.")
+                    .font(.caption).foregroundStyle(EXPColor.textSecondary)
+            }
+
+            if inspectorCanPathfinder || inspectorCanUnite || inspectorHasSelectedFolder {
                 Text("Pathfinder")
                     .font(.callout)
                     .foregroundStyle(EXPColor.textSecondary)
                 HStack(spacing: 6) {
                     vectorTextButton("Unite", selector: "pathfinderUniteAction:")
+                        .disabled(!inspectorCanUnite)
+                        .help("Unite includes nested folders. Folders must contain only visible, unlocked closed vectors, without folder backgrounds, effects or masks.")
                     vectorTextButton("Subtract", selector: "pathfinderSubtractAction:")
+                        .disabled(!inspectorCanPathfinder)
                 }
                 HStack(spacing: 6) {
                     vectorTextButton("Intersect", selector: "pathfinderIntersectAction:")
+                        .disabled(!inspectorCanPathfinder)
                     vectorTextButton("Exclude", selector: "pathfinderExcludeAction:")
+                        .disabled(!inspectorCanPathfinder)
+                }
+                if inspectorHasSelectedFolder {
+                    Text(inspectorCanUnite
+                         ? "Unite includes vector shapes in nested folders."
+                         : "Unite needs visible, unlocked closed vectors in folders without backgrounds, effects or masks.")
+                        .font(.caption).foregroundStyle(EXPColor.textSecondary)
                 }
             }
         }
@@ -4073,7 +4132,16 @@ struct RightPanel: View {
     private func textControls() -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Divider()
-            InspectorSectionTitle(title: "Type", icon: "textformat").padding(.top, 2)
+            HStack {
+                InspectorSectionTitle(title: "Type", icon: "textformat")
+                Spacer()
+                Button { sendCanvasAction("saveTypeStyleAction:") } label: {
+                    Image(systemName: "plus.circle").frame(width: 28, height: 28)
+                }
+                .buttonStyle(.plain)
+                .help("Save as Type Style in Design Language…")
+                .accessibilityLabel("Save as Type Style in Design Language")
+            }.padding(.top, 2)
 
             // Typeface — families rendered in their own face. Labeled "Font" so it
             // isn't mistaken for the semantic Content role (now its own sub-section

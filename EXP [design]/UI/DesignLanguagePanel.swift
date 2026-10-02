@@ -208,7 +208,7 @@ struct DesignLanguagePanel: View {
         Button("Generate from Color...") { seed = generatorSeed(); showingGenerate = true }
         Button("New Category...") { categoryDraft = ""; assignAfterCreate = nil; creatingCategory = true }
         Divider()
-        Button("Save Type Style from Selection") { saveTypeStyleFromSelection() }
+        Button("Save Type Style from Selection…") { saveTypeStyleFromSelection() }
             .disabled(selectedTextContent == nil)
     }
 
@@ -477,10 +477,7 @@ struct DesignLanguagePanel: View {
     }
 
     private func saveTypeStyleFromSelection() {
-        guard let sel = selectedTextContent else { return }
-        commit("Save Type Style") {
-            $0.saveTypeStyle(TypeStyle.capture(from: sel.content, name: sel.name))
-        }
+        sendCanvasAction("saveTypeStyleAction:")
     }
 
     /// Re-capture an existing style's VALUES from the selected text layer,

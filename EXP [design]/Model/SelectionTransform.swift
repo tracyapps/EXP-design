@@ -60,7 +60,21 @@ enum SelectionTransform {
             let absFrame = n.frame.offsetBy(dx: parentOrigin.x, dy: parentOrigin.y)
             var inner = absFrame
             if case .group(let kids) = n.content, !kids.isEmpty {
-                if n.autoLayout != nil || n.autoPadding != nil {
+                if n.isMask {
+                    var clip: CGRect?, content: CGRect?
+                    for k in kids where k.isVisible {
+                        let b = bounds(k, absFrame.origin)
+                        if k.isMaskShape { clip = clip?.union(b) ?? b }
+                        else { content = content?.union(b) ?? b }
+                    }
+                    if let clip, let content {
+                        let visible = clip.intersection(content)
+                        // An empty clip still needs a finite control surface for
+                        // editing; rotating CGRect.null would produce NaN bounds.
+                        inner = visible.isNull ? clip : visible
+                    }
+                    else { inner = content ?? clip ?? absFrame }
+                } else if n.autoLayout != nil || n.autoPadding != nil {
                     inner = absFrame
                 } else {
                     var u: CGRect?
@@ -184,7 +198,27 @@ enum SelectionTransform {
             var inner = absFrame.insetBy(dx: -strokeOutset(for: n.content),
                                          dy: -strokeOutset(for: n.content))
             if case .group(let kids) = n.content, !kids.isEmpty {
-                if n.autoLayout != nil || n.autoPadding != nil {
+                if n.isMask {
+                    var clip: CGRect?, content: CGRect?
+                    for child in kids where child.isVisible {
+                        // Clip silhouettes have no painted outline. Content strokes
+                        // can expand, but only the portion inside the clip is visible.
+                        if child.isMaskShape {
+                            let b = visualBounds(child).offsetBy(dx: absFrame.minX, dy: absFrame.minY)
+                            clip = clip?.union(b) ?? b
+                        } else {
+                            let b = bounds(child, absFrame.origin)
+                            content = content?.union(b) ?? b
+                        }
+                    }
+                    if let clip, let content {
+                        let visible = clip.intersection(content)
+                        // An empty clip still needs a finite control surface for
+                        // editing; rotating CGRect.null would produce NaN bounds.
+                        inner = visible.isNull ? clip : visible
+                    }
+                    else { inner = content ?? clip ?? absFrame }
+                } else if n.autoLayout != nil || n.autoPadding != nil {
                     inner = absFrame
                 } else {
                     var union: CGRect?

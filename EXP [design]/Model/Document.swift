@@ -2498,11 +2498,11 @@ enum BlendMode: String, Codable, CaseIterable, Sendable {
 
 // MARK: - Layer style (copy/paste appearance)
 
-/// The portable "look" of a layer — everything Copy Style carries from one node
+/// The effects channel copied from one node
 /// to another: its post-composite effects, how it blends with what's beneath it,
 /// and its whole-layer transparency. Appearance ONLY: it deliberately leaves
 /// geometry, fill/stroke, and content untouched (matching how every other tool
-/// treats "paste style"). Codable/Sendable so it could also ride a pasteboard
+/// treats "paste effects"). Codable/Sendable so it could also ride a pasteboard
 /// later if cross-document copy is wanted.
 struct LayerStyle: Codable, Sendable {
     var opacity: Double
@@ -2523,6 +2523,165 @@ extension Node {
         opacity = style.opacity
         blendMode = style.blendMode
         effects = style.effects.map { var e = $0; e.id = UUID(); return e }
+    }
+}
+
+// The three commands have separate session clipboards; none writes the system
+// pasteboard or changes the ordinary Copy/Paste contents.
+enum AppearanceCopyMode: CaseIterable, Sendable {
+    case effects, paint, all
+    var title: String {
+        switch self {
+        case .effects: return "Effects"
+        case .paint: return "Style"
+        case .all: return "Style & Effects"
+        }
+    }
+}
+
+struct NodeAppearanceStyle: Sendable {
+    var paint: LayerPaintStyle?
+    var effects: LayerStyle?
+}
+
+/// Only paint attributes supported by a target are applied. Missing attributes
+/// (e.g. a line's fill or an ellipse's corners) leave the target's values alone.
+struct LayerPaintStyle: Sendable {
+    var fill: Paint? = nil
+    var stroke: Paint = .black
+    var strokeWidth: CGFloat = 0
+    var strokeAlignment: StrokeAlignment = .center
+    var strokePattern: StrokePattern = .solid
+    var cornerRadius: CGFloat? = nil
+    var cornerRadii: CornerRadii? = nil
+    var strokeCap: StrokeLineCap? = nil
+    var strokeJoin: StrokeLineJoin? = nil
+    var strokeMiterLimit: CGFloat? = nil
+    var startMarker: StrokeMarker? = nil
+    var endMarker: StrokeMarker? = nil
+}
+
+extension Node {
+    var layerPaintStyle: LayerPaintStyle? {
+        switch content {
+        case .rectangle(let shape):
+            return LayerPaintStyle(fill: shape.fill, stroke: shape.stroke, strokeWidth: shape.strokeWidth, strokeAlignment: shape.strokeAlignment, strokePattern: shape.strokePattern, cornerRadius: shape.cornerRadius, cornerRadii: shape.cornerRadii)
+        case .ellipse(let shape):
+            return LayerPaintStyle(fill: shape.fill, stroke: shape.stroke, strokeWidth: shape.strokeWidth, strokeAlignment: shape.strokeAlignment, strokePattern: shape.strokePattern)
+        case .polygon(let shape):
+            return LayerPaintStyle(fill: shape.fill, stroke: shape.stroke, strokeWidth: shape.strokeWidth, strokeAlignment: shape.strokeAlignment, strokePattern: shape.strokePattern)
+        case .path(let shape):
+            return LayerPaintStyle(fill: shape.fill, stroke: shape.stroke, strokeWidth: shape.strokeWidth, strokeAlignment: shape.strokeAlignment, strokePattern: shape.strokePattern, strokeCap: shape.strokeCap, strokeJoin: shape.strokeJoin, strokeMiterLimit: shape.strokeMiterLimit, startMarker: shape.startMarker, endMarker: shape.endMarker)
+        case .line(let shape):
+            return LayerPaintStyle(stroke: shape.stroke, strokeWidth: shape.strokeWidth, strokePattern: shape.strokePattern, strokeCap: shape.strokeCap, startMarker: shape.startMarker, endMarker: shape.endMarker)
+        case .text(let text):
+            return LayerPaintStyle(fill: .solid(text.firstRun.color), stroke: .solid(text.strokeColor),
+                strokeWidth: text.strokeWidth, strokeAlignment: text.strokeAlignment == .outside ? .outside : .center)
+        case .group(let children):
+            if let padding = autoPadding {
+                return LayerPaintStyle(fill: padding.fill, stroke: padding.stroke ?? .clear,
+                    strokeWidth: padding.strokeWidth, strokeAlignment: padding.strokeAlignment,
+                    strokePattern: padding.strokePattern, cornerRadius: padding.cornerRadius)
+            }
+            return children.lazy.compactMap { $0.layerPaintStyle }.first
+        default: return nil
+        }
+    }
+
+    @discardableResult
+    mutating func applyPaintStyle(_ style: LayerPaintStyle) -> Bool {
+        switch content {
+        case .rectangle(var shape):
+            if let value = style.fill { shape.fill = value }
+            shape.stroke = style.stroke
+            shape.strokeWidth = style.strokeWidth
+            shape.strokeAlignment = style.strokeAlignment
+            shape.strokePattern = style.strokePattern
+            if let value = style.cornerRadius { shape.cornerRadius = value }
+            if style.cornerRadius != nil { shape.cornerRadii = style.cornerRadii }
+            content = .rectangle(shape)
+        case .ellipse(var shape):
+            if let value = style.fill { shape.fill = value }
+            shape.stroke = style.stroke
+            shape.strokeWidth = style.strokeWidth
+            shape.strokeAlignment = style.strokeAlignment
+            shape.strokePattern = style.strokePattern
+            content = .ellipse(shape)
+        case .polygon(var shape):
+            if let value = style.fill { shape.fill = value }
+            shape.stroke = style.stroke
+            shape.strokeWidth = style.strokeWidth
+            shape.strokeAlignment = style.strokeAlignment
+            shape.strokePattern = style.strokePattern
+            content = .polygon(shape)
+        case .path(var shape):
+            if let value = style.fill { shape.fill = value }
+            shape.stroke = style.stroke
+            shape.strokeWidth = style.strokeWidth
+            shape.strokeAlignment = style.strokeAlignment
+            shape.strokePattern = style.strokePattern
+            if let value = style.strokeCap { shape.strokeCap = value }
+            if let value = style.strokeJoin { shape.strokeJoin = value }
+            if let value = style.strokeMiterLimit { shape.strokeMiterLimit = value }
+            if let value = style.startMarker { shape.startMarker = value }
+            if let value = style.endMarker { shape.endMarker = value }
+            content = .path(shape)
+        case .line(var shape):
+            shape.stroke = style.stroke
+            shape.strokeWidth = style.strokeWidth
+            shape.strokePattern = style.strokePattern
+            if let value = style.strokeCap { shape.strokeCap = value }
+            if let value = style.startMarker { shape.startMarker = value }
+            if let value = style.endMarker { shape.endMarker = value }
+            content = .line(shape)
+        case .text(var text):
+            if case .solid(let color) = style.fill { text.applyToAllRuns { $0.color = color } }
+            // Live text supports a solid outline, with center/outside alignment.
+            // Keep unsupported gradient/pattern outlines intact rather than flattening.
+            if case .solid(let color) = style.stroke {
+                text.strokeColor = color; text.strokeWidth = style.strokeWidth
+                text.strokeAlignment = style.strokeAlignment == .center ? .center : .outside
+            }
+            content = .text(text)
+        case .group:
+            guard var padding = autoPadding else { return false }
+            padding.fill = style.fill; padding.stroke = style.stroke
+            padding.strokeWidth = style.strokeWidth; padding.strokeAlignment = style.strokeAlignment
+            padding.strokePattern = style.strokePattern
+            if let radius = style.cornerRadius { padding.cornerRadius = radius }
+            autoPadding = padding
+        default: return false
+        }
+        return true
+    }
+
+    /// Apply in one tree pass, including paint on nested artwork in ordinary
+    /// folders. Effects belong to each explicitly selected layer. Locked/hidden
+    /// branches are protected, and selecting a folder plus its child applies once.
+    static func pasteAppearance(_ style: NodeAppearanceStyle, to selected: Set<UUID>,
+                                in nodes: inout [Node]) -> Bool {
+        func visit(_ nodes: inout [Node], inheritedPaint: Bool) -> Bool {
+            var changed = false
+            for i in nodes.indices {
+                guard !nodes[i].isLocked, nodes[i].isVisible else { continue }
+                let picked = selected.contains(nodes[i].id)
+                let paintPicked = picked || inheritedPaint
+                if picked, let effects = style.effects {
+                    nodes[i].applyLayerStyle(effects); changed = true
+                }
+                if paintPicked, let paint = style.paint {
+                    changed = nodes[i].applyPaintStyle(paint) || changed
+                }
+                if case .group(var children) = nodes[i].content {
+                    let carry = paintPicked && nodes[i].autoPadding == nil && style.paint != nil
+                    if visit(&children, inheritedPaint: carry) {
+                        nodes[i].content = .group(children: children); changed = true
+                    }
+                }
+            }
+            return changed
+        }
+        return visit(&nodes, inheritedPaint: false)
     }
 }
 

@@ -1,0 +1,107 @@
+# EXP [design] v2.6 / build 17 release checklist
+
+Owner scope/acceptance, 2026-10-01: “excellent. all work great to me” and explicit
+request to make this a small release, update the roadmap page, package v2.6, and
+prepare the next development version. This closes the convenience bundle gate;
+previous Knife/Unite and full-wall performance acceptances remain recorded.
+
+Public v2.5/build 16 and older shipping artifacts are immutable. No appcast item
+for build 17 is deployed before its signed, notarized download exists.
+
+## Canonical values
+
+- Source: `/Users/tapps/_dev/apps/exp-design/EXP [design]`
+- Release: **2.6 / 17**, macOS 26.2+, universal arm64/x86_64
+- Archive: `/Users/tapps/Library/Developer/Xcode/Archives/2026-10-01/EXP design v2.6.xcarchive`
+- Export/app/ZIP: `/Users/tapps/_dev/apps/exp-design/releases/v2.6/`
+- ZIP: `EXP-design-v2.6.zip`
+- Sparkle: `/Users/tapps/_dev/apps/exp-design/sparkle-releases/`
+- Next development identity: **2.7 / 18**; scope remains owner-selected.
+
+## Accepted scope
+
+- [x] PERF-009/010/011/012: bulk artwork editing and complex-wall rendering.
+- [x] FEAT-066/067: freehand Knife, straight-line preview, mask/image cuts,
+      target/scope controls and nested-folder Unite.
+- [x] PERF-005: independent ruler pointer markers.
+- [x] FEAT-068: independent Effects / Style / Style & Effects clipboards and
+      ⇧⌘C/V / ⌥⌘C/V / ⌥⇧⌘C/V shortcuts.
+- [x] FEAT-034 remaining font surface: named type-style save from Properties.
+- [x] FEAT-019: notes export as GFM task lists.
+- [x] Release notes describe the scope and limits; owner authorizes release.
+
+Owner acceptance is recorded at face value. No formal VoiceOver/FKA, appearance
+matrix, or every ancillary stress-document scenario is inferred from that statement.
+Native AX names/command paths and source regression receipts remain the evidence
+for these changes. ARIA export contracts are unchanged and retested below.
+
+## Freeze and verification
+
+- [x] Fresh release regression battery (21 checks) and website build pass.
+- [x] App, extension and runtime configuration values agree at 2.6/17.
+- [x] Source/notes/checklist frozen in the release source commit before archive;
+      reviewed intended changes and excluded `.zcodeignore`.
+- [ ] Signed universal Release archive passes `verify_release_candidate.sh --local`.
+
+The owner-created `.zcodeignore` remains an unrelated local file; it is not part
+of the shipping source commit. Test documents/apps under `/tmp` are not shipped.
+
+## Notarization and immutable packaging
+
+- [ ] Developer ID app exported/notarized through Xcode Direct Distribution.
+- [ ] Export passes strict signatures, entitlements, Gatekeeper and staple checks.
+- [ ] Clean-copy ZIP and unzip round trip pass every release-candidate check.
+- [ ] SHA-256 receipt recorded; older ZIPs unchanged.
+
+Canonical checks:
+
+```sh
+scripts/verify_release_candidate.sh --local "ARCHIVE/Products/Applications/EXP [design].app" 2.6 17
+scripts/verify_release_candidate.sh "EXPORT/EXP [design].app" 2.6 17
+scripts/generate_sparkle_appcast.sh 2.6 17 "/Users/tapps/_dev/apps/exp-design/releases/v2.6/EXP-design-v2.6.zip"
+scripts/verify_sparkle_setup.sh 2.6 17
+```
+
+## Publish and website
+
+- [ ] Appcast generated from final ZIP bytes, EdDSA signature/size/build verified.
+- [ ] Release source/tag `v2.6` identifies build 17.
+- [ ] GitHub ZIP uploaded before the appcast-bearing production push.
+- [ ] Downloaded GitHub asset is byte-identical to the local immutable ZIP.
+- [ ] Public roadmap/download content reflects v2.6, completed tools and future queue.
+- [ ] Production build/deployment and live appcast/notes/asset checks pass.
+
+## Post-publication update proof
+
+- [ ] Owner tests the live v2.5 → v2.6 Sparkle update, install and relaunch.
+- [ ] Updated installation reads 2.6/17 and passes the release-candidate checks.
+
+This requires the owner's running installed app. Do not replace or quit that app
+for a release proof without a specific request; publishing is distinct from this
+post-publication check.
+
+## Next development cycle
+
+- [ ] After freezing the 2.6 artifact, set every development config to 2.7/18.
+- [ ] ROADMAP, AGENTS and CLAUDE identify the public release and open development
+      cycle consistently; deferred candidates preserved, no new scope invented.
+- [ ] Development baseline build and version/Sparkle checks pass; changes committed.
+- [ ] Immutable release tag/app/ZIP and public version continue to read 2.6/17.
+
+## Receipts
+
+Preparation started 2026-10-01; unchecked items are not completion claims.
+
+- All 21 source regression checks pass: backlog IDs, nested components, anchored
+  relationships, canvas pages, XD/Figma, semantic HTML contract/package, SVG
+  pattern/token import, effect export, CodePen, rendered HTML model/WebKit,
+  Storybook, appearance style, ruler overlay, vector editing, node-tree/canvas-path
+  performance and pattern-raster pixel/performance checks. Logs:
+  `/tmp/exp-v26-regressions/`; results: `results.json` in that folder.
+  The pattern check requires `/tmp/exp-wall-verification.design`; the first
+  no-argument invocation failed for the missing fixture, and the corrected
+  invocation passed with maximum pixel drift within 4/255.
+- Website build passes: `/tmp/exp-v26-website-build.log`.
+- `verify_sparkle_setup.sh 2.6 17` passes; build 17 is intentionally absent from
+  the appcast until notarized ZIP creation.
+

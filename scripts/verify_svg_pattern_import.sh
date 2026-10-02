@@ -8,7 +8,7 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-fixtures="${1:-$HOME/Dropbox/work/custom-work-tools/games/pencil-and-paper/designs/svg-backgrounds-export}"
+fixtures="${1:-$HOME/_dev/games/pencil-and-paper/designs/svg-backgrounds-export}"
 
 if [ ! -d "$fixtures" ]; then
   echo "verify_svg_pattern_import: fixtures not found at $fixtures — skipping"
