@@ -41,7 +41,7 @@ for these changes. ARIA export contracts are unchanged and retested below.
 - [x] App, extension and runtime configuration values agree at 2.6/17.
 - [x] Source/notes/checklist frozen in the release source commit before archive;
       reviewed intended changes and excluded `.zcodeignore`.
-- [ ] Signed universal Release archive passes `verify_release_candidate.sh --local`.
+- [x] Signed universal Release archive passes `verify_release_candidate.sh --local`.
 
 The owner-created `.zcodeignore` remains an unrelated local file; it is not part
 of the shipping source commit. Test documents/apps under `/tmp` are not shipped.
@@ -104,3 +104,17 @@ Preparation started 2026-10-01; unchecked items are not completion claims.
 - Website build passes: `/tmp/exp-v26-website-build.log`.
 - `verify_sparkle_setup.sh 2.6 17` passes; build 17 is intentionally absent from
   the appcast until notarized ZIP creation.
+
+- Archive succeeded from source commit `95557b1d12f2aba3e458e1a5b820367a34ecd995`;
+  `verify_release_candidate.sh --local` passes all 16 pre-notarization checks.
+  Logs: `/tmp/exp-v26-archive.log` and `/tmp/exp-v26-archive-check.log`.
+- First Apple notarization upload rejected before submission (2026-10-01):
+  HTTP 403, “A required agreement is missing or has expired.” Owner must review
+  and accept the pending Apple Developer agreement; no agreement accepted by the
+  agent, and no build-17 appcast or public release published while blocked.
+  Log: `/tmp/exp-v26-notary-upload.log`.
+- Developer ID export succeeds without account changes and passes all 16 local
+  checks: `/tmp/exp-v26-developer-id-export/EXP [design].app`, signed by
+  `Developer ID Application: tracy apps (65LD7TZAL3)` with hardened runtime.
+  This is a preparation copy, not a notarized shipping artifact; logs:
+  `/tmp/exp-v26-developer-id-export.log`, `/tmp/exp-v26-developer-id-check.log`.
