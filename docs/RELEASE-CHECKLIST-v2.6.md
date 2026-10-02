@@ -118,3 +118,11 @@ Preparation started 2026-10-01; unchecked items are not completion claims.
   `Developer ID Application: tracy apps (65LD7TZAL3)` with hardened runtime.
   This is a preparation copy, not a notarized shipping artifact; logs:
   `/tmp/exp-v26-developer-id-export.log`, `/tmp/exp-v26-developer-id-check.log`.
+- Manual-signing upload also receives the same Apple agreement HTTP 403:
+  `/tmp/exp-v26-manual-notary-upload.log`. The signed preparation app is preserved
+  at `/Users/tapps/_dev/apps/exp-design/releases/v2.6/pre-notarization/EXP [design].app`;
+  its fresh local check passes. Durable receipts and status:
+  `/Users/tapps/_dev/apps/exp-design/releases/v2.6/receipts/` and `README.md`.
+  No shipping ZIP/feed/tag/release/deployment exists yet. Development remains
+  2.6/17 so release helpers stay consistent; the accepted 2.7/18 transition
+  follows notarization and final-byte freeze.

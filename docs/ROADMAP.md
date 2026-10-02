@@ -3319,6 +3319,17 @@ font import → Phase 9, shadows → Phase 10._
 
 ## Progress Log
 
+- **2026-10-01 — v2.6 signed archive ready; Apple agreement blocks notarization.**
+  All 21 source regressions and the website build pass. Accepted source is frozen
+  at `95557b1`; universal Release archive and Developer ID export pass the 16
+  pre-notarization checks. Apple rejects both signing routes' upload with HTTP
+  403: a required developer agreement is missing or expired. Owner action is
+  required to review/accept that agreement; no legal acceptance performed by the
+  agent. Signed preparation app/receipts are preserved in `../releases/v2.6/`.
+  Public v2.5 remains unchanged. **NEXT:** retry notarization once the agreement
+  is accepted, validate/package/publish v2.6, then open v2.7/18. Full receipts and
+  remaining gates: `RELEASE-CHECKLIST-v2.6.md`.
+
 - **2026-10-01 — v2.6 accepted: a smoother canvas and everyday tools.**
   Owner verified the full performance/convenience bundle and requested a small
   release. Knife follows the drawn stroke; Unite collects nested vector folders;
