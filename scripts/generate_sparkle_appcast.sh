@@ -184,6 +184,7 @@ fi
   cd "$releases_dir"
   "$generate_appcast" \
   --versions "$build" \
+  --maximum-versions 0 \
   --maximum-deltas 0 \
   --download-url-prefix "$download_prefix" \
   --release-notes-url-prefix "$release_notes_prefix" \

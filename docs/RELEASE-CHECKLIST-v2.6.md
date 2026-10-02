@@ -48,10 +48,10 @@ of the shipping source commit. Test documents/apps under `/tmp` are not shipped.
 
 ## Notarization and immutable packaging
 
-- [ ] Developer ID app exported/notarized through Xcode Direct Distribution.
-- [ ] Export passes strict signatures, entitlements, Gatekeeper and staple checks.
-- [ ] Clean-copy ZIP and unzip round trip pass every release-candidate check.
-- [ ] SHA-256 receipt recorded; older ZIPs unchanged.
+- [x] Developer ID app exported/notarized through Xcode Direct Distribution.
+- [x] Export passes strict signatures, entitlements, Gatekeeper and staple checks.
+- [x] Clean-copy ZIP and unzip round trip pass every release-candidate check.
+- [x] SHA-256 receipt recorded; older ZIPs unchanged.
 
 Canonical checks:
 
@@ -64,7 +64,7 @@ scripts/verify_sparkle_setup.sh 2.6 17
 
 ## Publish and website
 
-- [ ] Appcast generated from final ZIP bytes, EdDSA signature/size/build verified.
+- [x] Appcast generated from final ZIP bytes, EdDSA signature/size/build verified.
 - [ ] Release source/tag `v2.6` identifies build 17.
 - [ ] GitHub ZIP uploaded before the appcast-bearing production push.
 - [ ] Downloaded GitHub asset is byte-identical to the local immutable ZIP.
@@ -126,3 +126,24 @@ Preparation started 2026-10-01; unchecked items are not completion claims.
   No shipping ZIP/feed/tag/release/deployment exists yet. Development remains
   2.6/17 so release helpers stay consistent; the accepted 2.7/18 transition
   follows notarization and final-byte freeze.
+
+### Agreement cleared; notarization and packaging complete — 2026-10-01
+
+- Owner accepted the pending Apple agreement; retry upload succeeds through
+  Xcode's Developer ID distribution (`/tmp/exp-v26-notary-retry.log`). Xcode
+  distribution record: `3707DC6A-27F5-4F87-BC75-AB124BDA4BA5`.
+- The first notarized-export attempt hit a transient Apple account service
+  timeout. Retry succeeds (`/tmp/exp-v26-notarized-export-retry.log`). Export,
+  clean copy and ZIP round trip each pass every production release check,
+  including Gatekeeper `Notarized Developer ID` and valid staple.
+- Immutable ZIP: **32,709,986 bytes**; SHA-256:
+  `7300281745f65d69445ded900e002e2dab56caf9a81753bab19ce6e24e5db468`.
+  Prior v2.5 ZIP SHA-256 still equals its recorded baseline.
+- Feed EdDSA independently verifies against `SUPublicEDKey` in the shipped app;
+  size, build 17, version 2.6, GitHub asset URL and notes URL agree. All three
+  prior appcast enclosures/versions/notes links remain identical. The generator's
+  default three-version pruning was caught before publication; added
+  `--maximum-versions 0` and regenerated from the preserved feed.
+- Durable logs/check results are in `../releases/v2.6/receipts/`. The retained
+  `pre-notarization/` app is historical preparation; the root app and ZIP are
+  the notarized shipping artifact.
