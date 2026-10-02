@@ -1310,7 +1310,7 @@ channels, Inspector type-style saving, and GFM notes task-list export. Owner acc
 all additions and explicitly requests packaging/publication on 2026-10-01.
 `RELEASE-CHECKLIST-v2.6.md` records the archive, notarization, immutable artifact,
 GitHub/Sparkle/site receipts. The notarized immutable build-17 ZIP is published
-on GitHub; production feed/roadmap rollout follows the release checklist.
+on GitHub, and the live Sparkle feed/roadmap deployment is verified.
 The separate owner v2.5→v2.6 in-app update proof remains pending.
 
 Deferred candidates (not part of v2.6): FEAT-057 design directions, FEAT-059 a11y
@@ -3336,13 +3336,26 @@ font import → Phase 9, shadows → Phase 10._
 
 ## Progress Log
 
+- **2026-10-01 — [internal] v2.6 publication verified; v2.7 baseline ready.**
+  Owner cleared the Apple agreement gate; Xcode upload/notarized export succeeded.
+  Shipping app and ZIP round trip pass all production release checks. ZIP SHA-256
+  `7300281745f65d69445ded900e002e2dab56caf9a81753bab19ce6e24e5db468`;
+  tag `v2.6` → `1436ca6`, GitHub asset 604755334, byte-identical download.
+  Preserved prior feed entries by disabling generator version pruning; independently
+  verified the EdDSA signature against the shipped public key. Production deploy
+  6800955024 succeeds; live feed/notes match checked-in bytes and native browser
+  shows the new roadmap release entry. v2.7/18 Debug build and Sparkle setup pass;
+  all configs agree, scope unselected, old artifacts unchanged. **NEXT:** separate
+  owner live-update/install proof, then owner chooses the next development scope.
+  Full receipts: `RELEASE-CHECKLIST-v2.6.md`.
+
 - **2026-10-01 — v2.6 released: a smoother canvas and everyday tools.**
   Busy design walls respond faster, the Knife follows your stroke, and Unite
   collects nested vector folders. Three appearance shortcuts copy effects, paint
   or both; saving type styles and exporting notes task lists complete the update.
   The accepted build 17 is notarized and published as an immutable download.
-  Website/updater publication follows the validated GitHub asset. Development
-  opens at v2.7/build 18, with scope still owner-selected. The separate live
+  Website and updater publication are verified against the shipped bytes.
+  Development opens at v2.7/build 18, with scope still owner-selected. The separate live
   v2.5→v2.6 update/install proof remains an owner post-publication check.
   Receipts: `RELEASE-CHECKLIST-v2.6.md`.
 

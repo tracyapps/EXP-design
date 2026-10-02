@@ -68,8 +68,8 @@ scripts/verify_sparkle_setup.sh 2.6 17
 - [x] Release source/tag `v2.6` identifies build 17.
 - [x] GitHub ZIP uploaded before the appcast-bearing production push.
 - [x] Downloaded GitHub asset is byte-identical to the local immutable ZIP.
-- [ ] Public roadmap/download content reflects v2.6, completed tools and future queue.
-- [ ] Production build/deployment and live appcast/notes/asset checks pass.
+- [x] Public roadmap/download content reflects v2.6, completed tools and future queue.
+- [x] Production build/deployment and live appcast/notes/asset checks pass.
 
 ## Post-publication update proof
 
@@ -162,3 +162,19 @@ Preparation started 2026-10-01; unchecked items are not completion claims.
   entry. `RELEASE-NOTES-v2.7.md` is an explicit unscoped development draft.
   Runtime configurations derive their version from the same Xcode settings.
   Log: `/tmp/exp-v27-baseline-build.log`.
+
+### Public rollout and next development baseline — 2026-10-01
+
+- Main push `e75739373f6bea08601a6f902595a832d23ba5a6` followed the verified
+  GitHub asset. Existing Vercel Git integration deployed production successfully:
+  GitHub deployment `6800955024`,
+  `https://exp-design-njuowbzn5-tracyapps-projects.vercel.app`.
+- `https://expdesign.app/appcast.xml` and `/EXP-design-v2.6.html` return the
+  exact checked-in bytes. Live feed contains builds 17/16/15/14; all older
+  enclosures remain unchanged. Production JavaScript and the native browser
+  show release 2.6, the new release roadmap entry and three v2.6 feature summaries.
+  Site public version remains 2.6 even with development source at 2.7/18.
+- Fresh final website build passes (`/tmp/exp-v26-final-website-build.log`).
+  Supporting deployment/live-site receipts are in `../releases/v2.6/receipts/`.
+- The in-app v2.5→v2.6 install/relaunch proof remains the separate owner check.
+  The owner's running app/documents were not replaced or quit for that proof.
