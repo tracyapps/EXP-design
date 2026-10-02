@@ -38,13 +38,14 @@ EXP [design]/
 ```
 
 ## Current status
-Public **v2.5/build 16** is released, notarized, and owner-verified.
-**v2.6/build 17 is accepted and in release preparation (2026-10-01).**
-All app/thumbnail/runtime configurations read 2.6/17. The owner explicitly
-accepted the performance, Knife/Unite and convenience bundle and authorized
-packaging/publication; see `docs/RELEASE-CHECKLIST-v2.6.md`. Immutable public
-v2.5 artifacts remain unchanged. After freezing v2.6, open **v2.7/build 18**
-with its scope intentionally unselected.
+Public **v2.6/build 17** is released and notarized (2026-10-01), with its
+performance, Knife/Unite and convenience bundle owner-verified. The separate
+live v2.5→v2.6 Sparkle install/relaunch proof remains pending; see
+`docs/RELEASE-CHECKLIST-v2.6.md` for executed release and publication receipts.
+**v2.7 development is OPEN** (`MARKETING_VERSION 2.7`,
+`CURRENT_PROJECT_VERSION 18`) across app, thumbnail and runtime configurations.
+Immutable v2.6 and older releases are unchanged. No new document-mutating slice
+starts until the owner selects v2.7 scope at ROADMAP's scoping gate.
 The core native editor, component states/behavior contract, semantic Handoff
 Package, agent-bridge spine, nested components, canvas pages, editable XD/Figma
 import, unified Handoff/panel IA, editable rendered HTML/CSS import, CodePen
@@ -98,9 +99,9 @@ explicit non-gating follow-ups.
 See ROADMAP.md for the authoritative checklist and newest Progress Log entry.
 **v2.5 is RELEASED AND COMPLETE (2026-09-24)** — receipts in
 `docs/RELEASE-CHECKLIST-v2.5.md`, including the v2.4→v2.5 Sparkle proof.
-**v2.6 is owner-accepted for release (2026-10-01)**; follow its checklist to
-archive, notarize, package and publish before changing the development identity.
-Queued candidates carry forward to the next owner scoping gate in ROADMAP.
+**v2.6 is RELEASED (2026-10-01)**; its separate live update proof remains open
+in `docs/RELEASE-CHECKLIST-v2.6.md`. **v2.7/build 18** is the development baseline.
+Queued candidates carry forward to ROADMAP → v2.7's owner scoping gate.
 Dropbox note: the
 folder is supposed to be excluded from sync (one machine only); a known
 ongoing Dropbox issue has been corrupting the owner's dev folders (ticket

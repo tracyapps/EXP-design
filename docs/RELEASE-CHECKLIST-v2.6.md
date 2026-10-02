@@ -65,9 +65,9 @@ scripts/verify_sparkle_setup.sh 2.6 17
 ## Publish and website
 
 - [x] Appcast generated from final ZIP bytes, EdDSA signature/size/build verified.
-- [ ] Release source/tag `v2.6` identifies build 17.
-- [ ] GitHub ZIP uploaded before the appcast-bearing production push.
-- [ ] Downloaded GitHub asset is byte-identical to the local immutable ZIP.
+- [x] Release source/tag `v2.6` identifies build 17.
+- [x] GitHub ZIP uploaded before the appcast-bearing production push.
+- [x] Downloaded GitHub asset is byte-identical to the local immutable ZIP.
 - [ ] Public roadmap/download content reflects v2.6, completed tools and future queue.
 - [ ] Production build/deployment and live appcast/notes/asset checks pass.
 
@@ -82,11 +82,11 @@ post-publication check.
 
 ## Next development cycle
 
-- [ ] After freezing the 2.6 artifact, set every development config to 2.7/18.
-- [ ] ROADMAP, AGENTS and CLAUDE identify the public release and open development
+- [x] After freezing the 2.6 artifact, set every development config to 2.7/18.
+- [x] ROADMAP, AGENTS and CLAUDE identify the public release and open development
       cycle consistently; deferred candidates preserved, no new scope invented.
-- [ ] Development baseline build and version/Sparkle checks pass; changes committed.
-- [ ] Immutable release tag/app/ZIP and public version continue to read 2.6/17.
+- [x] Development baseline build and version/Sparkle checks pass; changes committed.
+- [x] Immutable release tag/app/ZIP and public version continue to read 2.6/17.
 
 ## Receipts
 
@@ -147,3 +147,18 @@ Preparation started 2026-10-01; unchecked items are not completion claims.
 - Durable logs/check results are in `../releases/v2.6/receipts/`. The retained
   `pre-notarization/` app is historical preparation; the root app and ZIP are
   the notarized shipping artifact.
+
+- Release metadata/tag commit: `1436ca6cb438e12397ad7c29fda40531dbcbd961`,
+  with every Xcode version config still 2.6/17. Tag `v2.6` pushed before asset
+  publication. GitHub release:
+  `https://github.com/tracyapps/EXP-design/releases/tag/v2.6`; asset ID 604755334,
+  published 2026-10-02 03:56:48 UTC (2026-10-01 local). GitHub reports the same
+  byte length and SHA-256 as the immutable ZIP. No appcast-bearing main push
+  preceded this asset.
+- GitHub asset downloaded via `gh release download v2.6`; `cmp` matches the
+  local ZIP and downloaded SHA-256 equals the receipt above.
+- v2.7/18 Debug baseline build succeeds; built app and thumbnail Info.plists
+  read 2.7/18. `verify_sparkle_setup.sh 2.7 18` passes, with no build-18 appcast
+  entry. `RELEASE-NOTES-v2.7.md` is an explicit unscoped development draft.
+  Runtime configurations derive their version from the same Xcode settings.
+  Log: `/tmp/exp-v27-baseline-build.log`.

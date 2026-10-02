@@ -1286,7 +1286,22 @@ promote them into release gates.
 
 ---
 
-## v2.6 — release preparation (2026-10-01)
+## v2.7 — development open (2026-10-01)
+
+Development identity: **2.7 / build 18** across the app, thumbnail extension and
+bundled runtime configurations. Public v2.6/build 17 and older release artifacts,
+tags and updater entries are immutable. The website reads its public version
+from the appcast, so opening development does not change the published version.
+
+- [ ] **Owner scoping gate:** choose v2.7 scope before starting a new
+      document-mutating slice. No features are committed by backlog order.
+
+Candidates carried forward: FEAT-057 design directions, FEAT-059 accessibility
+fix guidance, FEAT-060 evaluation harness, SVG `clip-path` import, and other
+open backlog items. FEAT-052 stays deferred without a target release; BUG-034
+Stage 2 stays parked at the owner's lowest priority.
+
+## v2.6 — released (2026-10-01)
 
 **Owner-scoped small release: performance and everyday convenience tools.**
 Build 17 includes the accepted stress-document performance pass, freehand Knife
@@ -1294,7 +1309,9 @@ and precise Cut with Line preview, nested-folder Unite, three appearance copy/pa
 channels, Inspector type-style saving, and GFM notes task-list export. Owner accepts
 all additions and explicitly requests packaging/publication on 2026-10-01.
 `RELEASE-CHECKLIST-v2.6.md` records the archive, notarization, immutable artifact,
-GitHub/Sparkle/site receipts. Public v2.5/build 16 stays live until build 17 exists.
+GitHub/Sparkle/site receipts. The notarized immutable build-17 ZIP is published
+on GitHub; production feed/roadmap rollout follows the release checklist.
+The separate owner v2.5→v2.6 in-app update proof remains pending.
 
 Deferred candidates (not part of v2.6): FEAT-057 design directions, FEAT-059 a11y
 fix guidance, FEAT-060 evaluation harness, SVG `clip-path` import and the remaining
@@ -3319,7 +3336,17 @@ font import → Phase 9, shadows → Phase 10._
 
 ## Progress Log
 
-- **2026-10-01 — v2.6 signed archive ready; Apple agreement blocks notarization.**
+- **2026-10-01 — v2.6 released: a smoother canvas and everyday tools.**
+  Busy design walls respond faster, the Knife follows your stroke, and Unite
+  collects nested vector folders. Three appearance shortcuts copy effects, paint
+  or both; saving type styles and exporting notes task lists complete the update.
+  The accepted build 17 is notarized and published as an immutable download.
+  Website/updater publication follows the validated GitHub asset. Development
+  opens at v2.7/build 18, with scope still owner-selected. The separate live
+  v2.5→v2.6 update/install proof remains an owner post-publication check.
+  Receipts: `RELEASE-CHECKLIST-v2.6.md`.
+
+- **2026-10-01 — [internal] v2.6 signed archive ready; Apple agreement blocks notarization.**
   All 21 source regressions and the website build pass. Accepted source is frozen
   at `95557b1`; universal Release archive and Developer ID export pass the 16
   pre-notarization checks. Apple rejects both signing routes' upload with HTTP
