@@ -104,4 +104,3 @@ Preparation started 2026-10-01; unchecked items are not completion claims.
 - Website build passes: `/tmp/exp-v26-website-build.log`.
 - `verify_sparkle_setup.sh 2.6 17` passes; build 17 is intentionally absent from
   the appcast until notarized ZIP creation.
-
