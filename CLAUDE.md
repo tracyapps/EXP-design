@@ -128,10 +128,11 @@ EXP [design]/
 ```
 
 ## Current status
-Public **v2.6/build 17** is released and notarized (2026-10-01), with its
-performance, Knife/Unite and convenience bundle owner-verified. The separate
-live v2.5→v2.6 Sparkle install/relaunch proof remains pending; see
-`docs/RELEASE-CHECKLIST-v2.6.md` for executed release and publication receipts.
+Public **v2.6/build 17** is released, notarized and complete (2026-10-02).
+The performance, Knife/Unite and convenience bundle is owner-verified, including
+its live v2.5→v2.6 Sparkle update/relaunch. The installed app reads 2.6/17 and
+passes all 18 release-candidate checks; receipts in
+`docs/RELEASE-CHECKLIST-v2.6.md`.
 **v2.7 development is OPEN** (`MARKETING_VERSION 2.7`,
 `CURRENT_PROJECT_VERSION 18`) across app, thumbnail and runtime configurations.
 Immutable v2.6 and older releases are unchanged. No new document-mutating slice

@@ -71,14 +71,15 @@ scripts/verify_sparkle_setup.sh 2.6 17
 - [x] Public roadmap/download content reflects v2.6, completed tools and future queue.
 - [x] Production build/deployment and live appcast/notes/asset checks pass.
 
-## Post-publication update proof
+## Post-publication update proof — complete 2026-10-02
 
-- [ ] Owner tests the live v2.5 → v2.6 Sparkle update, install and relaunch.
-- [ ] Updated installation reads 2.6/17 and passes the release-candidate checks.
+- [x] Owner tests the live v2.5 → v2.6 Sparkle update, install and relaunch.
+- [x] Updated installation reads 2.6/17 and passes the release-candidate checks.
 
-This requires the owner's running installed app. Do not replace or quit that app
-for a release proof without a specific request; publishing is distinct from this
-post-publication check.
+Owner confirms 2026-10-02: “confirmed! worked like a charm.” This answers the
+requested live update/relaunch and 2.6/17 check. Read-only verification of
+`/Applications/design/EXP [design].app` passes every production release check;
+the owner's app and documents were not replaced or quit by the agent.
 
 ## Next development cycle
 
@@ -178,3 +179,13 @@ Preparation started 2026-10-01; unchecked items are not completion claims.
   Supporting deployment/live-site receipts are in `../releases/v2.6/receipts/`.
 - The in-app v2.5→v2.6 install/relaunch proof remains the separate owner check.
   The owner's running app/documents were not replaced or quit for that proof.
+
+### Owner update proof closes v2.6 — 2026-10-02
+
+- Owner explicitly confirms the live v2.5→v2.6 update and relaunch succeeded.
+- Updated installed app `/Applications/design/EXP [design].app` reads 2.6/17
+  and passes all 18 release-candidate checks, including universal app/helper,
+  entitlements, strict deep signature, Gatekeeper and valid notarization staple.
+  Receipt: `../releases/v2.6/receipts/installed-update-check-2026-10-02.log`.
+- Every release checklist item is complete. Public artifacts/tag/feed remain
+  unchanged; development stays 2.7/18 with scope awaiting the owner.

@@ -1301,7 +1301,7 @@ fix guidance, FEAT-060 evaluation harness, SVG `clip-path` import, and other
 open backlog items. FEAT-052 stays deferred without a target release; BUG-034
 Stage 2 stays parked at the owner's lowest priority.
 
-## v2.6 — released (2026-10-01)
+## v2.6 — released (2026-10-01); complete (2026-10-02)
 
 **Owner-scoped small release: performance and everyday convenience tools.**
 Build 17 includes the accepted stress-document performance pass, freehand Knife
@@ -1311,7 +1311,9 @@ all additions and explicitly requests packaging/publication on 2026-10-01.
 `RELEASE-CHECKLIST-v2.6.md` records the archive, notarization, immutable artifact,
 GitHub/Sparkle/site receipts. The notarized immutable build-17 ZIP is published
 on GitHub, and the live Sparkle feed/roadmap deployment is verified.
-The separate owner v2.5→v2.6 in-app update proof remains pending.
+Owner confirms the live v2.5→v2.6 update/relaunch on 2026-10-02; the updated
+installed app reads 2.6/17 and passes all 18 release-candidate checks. Release
+gates are complete; v2.7 remains at its owner scoping gate.
 
 Deferred candidates (not part of v2.6): FEAT-057 design directions, FEAT-059 a11y
 fix guidance, FEAT-060 evaluation harness, SVG `clip-path` import and the remaining
@@ -3335,6 +3337,13 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-10-02 — v2.6 complete: the live update works.**
+  Owner confirms the v2.5→v2.6 update and relaunch: “confirmed! worked like a
+  charm.” The installed app reads 2.6/build 17 and passes all 18 release checks,
+  closing the final release gate. The performance and convenience update is fully
+  released and owner-verified. Development remains v2.7/build 18, ready for the
+  owner's next scope decision. Receipts: `RELEASE-CHECKLIST-v2.6.md`.
 
 - **2026-10-01 — [internal] v2.6 publication verified; v2.7 baseline ready.**
   Owner cleared the Apple agreement gate; Xcode upload/notarized export succeeded.
