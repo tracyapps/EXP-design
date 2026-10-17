@@ -88,12 +88,31 @@ may additionally require Accessibility permission for the generated
 `native/EXPAccessibilityUITests-Runner.app`; its skipped-test message identifies
 that gap. Rerun and use the recorded result, rather than assuming a grant worked.
 
+**Runner identity matters:** System Settings → right-click the runner → Show in
+Finder reveals which copy has permission. On this Mac the enabled entry points to
+`output/a11y/2026-10-17T05-47-38-041Z/native/EXPAccessibilityUITests-Runner.app`;
+that exact runner passed its zoom/Tab/Shift-Tab focus test on October 17. A newly
+created ad-hoc runner is not automatically authorized by an older entry with the
+same visible name. A stable runner/signing identity is still needed for repeatable
+unattended focus checks without repeated grants. Do not add more identical-looking
+entries based only on the displayed name.
+
+The preflight checks the system AppleScript permission flag, then attempts real
+AppleScript commands. It no longer requires the legacy user-defaults domain: the
+owner enabled the setting through VoiceOver Utility, producing the system flag
+without that old preference. No attempt is made to read/write protected preference
+stores. The October 17 follow-up could read `last phrase` and quit through scripting
+(the returned phrase was `missing value`); editor traversal still fails at reader
+startup/cursor movement. This is not a spoken-output pass or evidence of another
+missing permission. Detailed receipts: `output/a11y/permission-recheck-20261017/`.
+
 The runner does not edit TCC, disable SIP, import VoiceOver preference packs,
 change global keyboard settings, or copy speech through the clipboard. It refuses
 to take over VoiceOver if it is already running. The real-reader smoke restores
 the previously focused app and stops the VoiceOver instance it started in its
-cleanup path; interruption/setup failures remain visible. Live-reader execution
-and teardown remain unverified until the machine permissions gate is passed.
+cleanup path; interruption/setup failures remain visible. Read/quit scripting
+commands have been exercised, but live spoken editor traversal remains unverified.
+The current startup failure needs investigation before this smoke can pass.
 
 ## Isolation and repeatability
 

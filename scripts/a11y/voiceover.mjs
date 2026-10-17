@@ -23,8 +23,10 @@ export async function voiceOverSmoke({ output, appPath, fixture, bundleID, inter
     if (!/^design\.tapps\.exp\.a11y-fixture\.[a-f0-9]{10}$/.test(bundleID || '')) throw Error('An isolated app identity is required.');
     if (await running('VoiceOver')) throw Error('VoiceOver is already in use; leave it running and rerun when it is free.');
     const enabledFile = '/private/var/db/Accessibility/.VoiceOverAppleScriptEnabled';
-    let enabled; try { enabled = await run('/usr/bin/defaults', ['read', 'com.apple.VoiceOver4/default', 'SCREnableAppleScript']); } catch { enabled = ''; }
-    if (!existsSync(enabledFile) || enabled !== '1') throw Error('Enable “Allow VoiceOver to be controlled with AppleScript” in VoiceOver Utility → General, and allow Accessibility/Automation for the terminal running this command. No settings were changed.');
+    // Current macOS sets this system flag through VoiceOver Utility without
+    // creating the older com.apple.VoiceOver4/default preference domain.
+    // Actual AppleScript calls below establish whether access is usable.
+    if (!existsSync(enabledFile)) throw Error('Enable “Allow VoiceOver to be controlled with AppleScript” in VoiceOver Utility → General, and allow Accessibility/Automation for the terminal running this command. No settings were changed.');
     previous = await apple('tell application "System Events" to get bundle identifier of first application process whose frontmost is true');
     await run('/usr/bin/open', ['-a', appPath, '--args', '-ApplePersistenceIgnoreState', 'YES', '-SUEnableAutomaticChecks', 'NO', '-SUAutomaticallyUpdate', 'NO']); opened = true;
     await run('/usr/bin/open', ['-a', appPath, fixture]);
@@ -47,7 +49,7 @@ export async function voiceOverSmoke({ output, appPath, fixture, bundleID, inter
     if (!/design canvas/i.test(all) || !/zoom|rectangle|select/i.test(all)) {
       result.status = 'failed'; result.detail = 'VoiceOver did not reach both the named canvas and a core editor control within 45 moves. Inspect transcript; this is not waived.';
     } else { result.status = 'passed'; result.detail = 'Real VoiceOver traversed named editor controls and the canvas. This smoke does not verify canvas editing, rotor, announcement timing or all settings.'; }
-  } catch (error) { result.status = started ? 'failed' : 'blocked'; result.detail = String(error.message); }
+  } catch (error) { result.status = started ? 'failed' : 'blocked'; result.detail = String(error.message) + (error.killed ? ` (command timed out or was interrupted; signal ${error.signal})` : ''); }
   finally {
     if (started) { try { await apple('tell application "VoiceOver" to quit', true); }
       catch { if (/^\d+$/.test(startedPid || '')) { try { await run('/bin/kill', ['-TERM', startedPid], true); } catch {} }

@@ -7224,6 +7224,14 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   https://playwright.dev/docs/accessibility-testing,
   https://support.apple.com/guide/safari/keyboard-shortcuts-and-gestures-cpsh003/mac,
   https://support.apple.com/guide/voiceover/cpvougen/mac.
+- October 17 permission follow-up: the exact runner enabled by the owner passes
+  native zoom/Tab/Shift-Tab assertions. New per-run ad-hoc copies do not inherit
+  that grant; stabilize runner path/signing identity before calling repeated focus
+  runs unattended. VoiceOver Utility's system flag is present; removed the obsolete
+  legacy-defaults requirement. Direct reader read/quit scripting works, but no
+  spoken phrase is captured and editor traversal fails at reader startup/cursor
+  movement. Investigate startup rather than requesting unsupported extra grants.
+  Receipts: `output/a11y/permission-recheck-20261017/`.
 - Handoff: `ACCESSIBILITY-VERIFICATION.md`.
 
 ### INFRA-008 — Optional support-the-developer page

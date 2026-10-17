@@ -3396,6 +3396,40 @@ font import → Phase 9, shadows → Phase 10._
 
 ## Progress Log
 
+- **2026-10-17 — Owner permissions confirmed; harness gaps isolated [internal].**
+  Owner enables VoiceOver scripting and the test runner in Accessibility. Native
+  System Settings inspection confirms the switch is on; Show in Finder resolves
+  it to the earlier `2026-10-17T05-47-38-041Z` runner, not the newly generated copy.
+  Retesting that exact authorized runner passes zoom/Tab/Shift-Tab focus assertions
+  (one test, zero skips/failures). Receipt:
+  `output/a11y/permission-recheck-20261017/authorized-runner-focus.xcresult` and
+  `authorized-runner-summary.json`; log `/tmp/exp-a11y-authorized-focus.log`.
+  Corrected the harness's obsolete legacy-defaults precondition: the real system
+  AppleScript flag is present after the owner's change, while the old domain is
+  absent. Direct VoiceOver scripting reads `last phrase` (returns `missing value`)
+  and quits successfully. Full editor traversal still fails on initial cursor
+  movement (timeout); starter/activation diagnostics also return application-not-
+  running. These are runtime/harness findings, not proof of another missing grant.
+  Probe-owned reader processes were stopped; no preferences/TCC/SIP changes.
+  Readiness reports are in `output/a11y/permission-recheck-20261017/`; syntax and
+  diff checks pass. No web/product changes, deployment or push. **NEXT:** stabilize
+  runner identity and investigate real-reader startup before full-speech claims;
+  BUG-069/native findings and human AT gates remain open.
+
+- **2026-10-17 — Accessibility permission recheck [internal].**
+  Owner requests a fresh check after changing macOS permissions. Ran
+  `npm run test:a11y -- --interactive --native-only`; receipt:
+  `output/a11y/2026-10-17T13-43-30-070Z/report.md`. Native named-control and
+  Open/Escape/Cmd-S checks pass; AX focus remains skipped because the generated
+  test runner is not trusted for Accessibility. Direct System Events frontmost-app
+  query succeeds. VoiceOver scripting flag/default are still absent, so the real
+  reader smoke remains blocked without starting VoiceOver. Its Automation grant
+  is therefore not established. The native audit test retains 25 findings in this
+  capture; this is not proof that the earlier 27-finding queue is resolved.
+  No web rerun or permission changes. Next: enable VoiceOver Utility's AppleScript
+  control option and grant Accessibility to the current generated test runner;
+  rerun and assess actual speech/focus behavior. Human AT gates remain open.
+
 - **2026-10-17 — Repeatable accessibility verification infrastructure [internal].**
   Owner approves native/web keyboard and real-VoiceOver automation. INFRA-009 adds
   `npm run test:a11y -- --interactive` with machine-readable/Markdown reports,
