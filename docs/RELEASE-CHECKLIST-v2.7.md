@@ -283,3 +283,8 @@ Four focused native UI tests pass, zero failures/skips; model/raster/save/legacy
 Evidence, precise geometry-fit definition and pending owner checks:
 `SOURCE-BOUNDS-VERIFICATION.md`. These focused results do not close physical
 multi-monitor, full 1x/2x/appearance/VoiceOver or signed-release gates.
+
+
+October 17 owner acceptance: "all of those passed. works well." closes the
+FEAT-071/BUG-071/BUG-072 pattern/component authoring and window-ordering review.
+The broader accessibility, hosted lifecycle and signed-release gates remain open.

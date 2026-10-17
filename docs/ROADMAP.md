@@ -1319,8 +1319,8 @@ from the appcast; a development plan does not change the published release.
       opening; editable pattern/component bounds and Fit to Artwork; peer tray
       ordering, reveal commands and Settings anchored to the active canvas display.
       Scope, receipts and owner review: `SOURCE-BOUNDS-VERIFICATION.md`.
-- [ ] Owner verify pattern/component authoring and physical multi-monitor window
-      ordering before another document-mutating slice.
+- [x] Owner verifies pattern/component authoring and physical multi-monitor window
+      ordering: "all of those passed. works well." (2026-10-17).
 - [ ] Full 1x/2x, light/dark, Large interface type and AT matrix; signed release
       payload audit remains a freeze gate. Visual acceptance alone does not close these.
 - [x] **INFRA-005 local release-signup foundation:** durable storage before success,
@@ -3408,6 +3408,17 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-10-17 — Owner accepts pattern/component and window-ordering slice [internal].**
+  Owner reports "all of those passed. works well." Close FEAT-071, BUG-071 and
+  BUG-072 and the sequential owner-verification gate for this slice. Source/build,
+  four native workflow passes and 86 pattern checks remain in
+  `SOURCE-BOUNDS-VERIFICATION.md`; owner's real-document/window acceptance is now
+  recorded separately. This does not replace the broader formal accessibility,
+  hosted privacy/account or signed-release gates. Recommended next bounded work:
+  launch card 3's default-off, content-free activation measurement, before the
+  first-use partner cohort; free account beta/feedback follows its shared privacy
+  and hosted-proof dependencies. No new production code or collection enabled.
 
 - **2026-10-17 — Pattern/component bounds and reachable windows, FEAT-071 / BUG-071 / BUG-072 [internal].**
   Owner selects first-pattern authoring, exact tile/source dimensions, artwork fit,

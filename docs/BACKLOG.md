@@ -38,7 +38,7 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: bug
 - Priority: P1
 - Area: chrome · panels
-- Status: needs-verify — implemented; physical multi-monitor owner check pending
+- Status: done — owner-verified 2026-10-17 ("all of those passed. works well.")
 - Repro/Detail: With palettes on a second display, Sanaa setup opens behind them;
   Window menu should reveal an existing panel without hiding it.
 - Root cause: all detached trays use floating window level, which outranks ordinary
@@ -51,13 +51,13 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   repeat on the owner's actual multi-display arrangement, including reactivation.
 - Sources: Apple NSWindow.Level explains that level outranks within-level ordering:
   https://developer.apple.com/documentation/appkit/nswindow/level-swift.struct.
-- Verification: `SOURCE-BOUNDS-VERIFICATION.md`; no claim of physical multi-monitor proof.
+- Verification: `SOURCE-BOUNDS-VERIFICATION.md`; owner accepts the requested multi-monitor/window checks on October 17.
 
 ### BUG-071 — Edit Pattern in the fill picker loses its action target
 - Type: bug
 - Priority: P1
 - Area: color · inspector · chrome
-- Status: needs-verify — implemented; owner test-document check pending
+- Status: done — owner-verified 2026-10-17 ("all of those passed. works well.")
 - Repro/Detail: Clicking Edit Pattern from a pattern-filled layer's paint popover
   can do nothing while the popover owns focus.
 - Root cause: nil-target responder dispatch depends on a focused canvas; the paint
@@ -3124,7 +3124,7 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: feature
 - Priority: P1
 - Area: color · model · canvas · inspector
-- Status: needs-verify — implemented; owner visual/real-document review pending
+- Status: done — owner-verified 2026-10-17 ("all of those passed. works well.")
 - Owner scope 2026-10-17: author the first pattern without SVG import; set exact
   pattern tile/component source dimensions and hug artwork; live tiling behind editor.
 - Implementation: New Pattern in empty/nonempty paint picker and Patterns panel,

@@ -1,8 +1,12 @@
 # Pattern/component authoring and window ordering — v2.7
 
 Owner scope: October 17, 2026. FEAT-071, BUG-071, BUG-072. Local development
-build 2.7/18; public releases and update artifacts are unchanged. Owner review
-remains required before the next document-mutating slice.
+build 2.7/18; public releases and update artifacts are unchanged.
+
+**Owner accepted October 17:** "all of those passed. works well." FEAT-071,
+BUG-071 and BUG-072 are closed; the sequential owner-verification gate is satisfied.
+The review steps below are retained for regression. This acceptance does not
+replace the separate formal accessibility or signed-release evidence gates.
 
 ## Observable changes
 
@@ -59,7 +63,7 @@ remains required before the next document-mutating slice.
   Receipt: `output/a11y/pattern-authoring-confirmed-20261017/native/results.xcresult`.
   Log: `/tmp/exp-pattern-authoring-confirmed-runtime.log`. Cropped component,
   pattern and Settings screenshots inspected. This proves local window interaction
-  and levels; the physical second-display placement remains an owner gate.
+  and levels; the physical second-display behavior is separately owner-accepted above.
 - `bash scripts/verify_backlog_ids.sh` and `git diff --check` pass.
 
 Native copies are re-identified and ad-hoc signed under `output/a11y/`, with no
@@ -72,7 +76,7 @@ stale focused-number-field display after Fit (now corrected) plus a test looking
 for a dock-only collapse button in a detached tray (now checks the real dialog).
 Those failures are not treated as passing evidence.
 
-## Owner review — running Xcode build
+## Owner review checklist — accepted October 17
 
 1. In a fresh document, select a rectangle, choose Fill → Pattern → New Pattern.
    Draw a small shape in the tile. Leave the main canvas visible behind the editor.
