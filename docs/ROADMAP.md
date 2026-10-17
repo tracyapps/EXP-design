@@ -3531,6 +3531,59 @@ font import → Phase 9, shadows → Phase 10._
   Paid features wait for Nov 6 offer decision; broader backlog does not silently
   enter this release.
 
+- **2026-10-13 — TikTok camera pass + actual Sanaa before/after.**
+  Owner requested stronger screenshot zooms, pullbacks and margin breaks, and
+  supplied the before/after of a real Sanaa bulk-formatting test. Updated the
+  portrait composition in `../brag-output-tiktok-2026-10-13-193539/`, retaining
+  Studio-authored rotations/sizing and archiving the prior portrait source under
+  `revisions/portrait-before-camera-pass/`. Nine feature beats now have varied
+  camera moves. Sanaa's existing 4.1s scene uses the supplied screenshots, aligned
+  on the reference card: before hold → 0.6s reveal → after hold. No invented
+  intermediate output or time-saving metric. Before, transition, after and all
+  camera-beat frames visually inspected. Combined gate passes with zero errors
+  (300 motion samples; 36/36 contrast checks); pullback diagnostic captured.
+  Final encode remains gated on preview
+  approval; no native app/documents/release changes.
+
+- **2026-10-13 — TikTok portrait adaptation of the approved brag direction.**
+  Owner accepted the edgy landscape preview and requested a TikTok version.
+  Created a separate 1080×1920 / 25-second composition in
+  `../brag-output-tiktok-2026-10-13-193539/`. Reflowed all eleven scenes with
+  stacked screenshots, larger phone-scale headings, visible accessibility and
+  multi-monitor details, and reserved right/bottom controls space. Kept the
+  feature sequence, music, short glitches and longer Sanaa bulk-edit beat.
+  All eleven portrait scene midpoints visually inspected. Final checks pass
+  with zero runtime/layout/motion/contrast errors (300 motion samples,
+  38/38 contrast checks). Earlier cuts retained;
+  final portrait MP4/poster await the required preview approval. No native app,
+  owner documents or release artifacts changed.
+
+- **2026-10-13 — EXP brag cut 02: faster, layered feature tour.**
+  Owner requested a more edgy version with 5–7 additional feature themes.
+  Prepared a separate 25-second, eleven-scene composition in
+  `../brag-output-2026-10-13-191701/`, retaining cut 01. Uses the owner's new
+  mockup screenshots for the canvas, accessibility, multi-monitor workspace,
+  components, tokens and editable patterns. Adds the code/design/code loop,
+  explicitly static Storybook libraries, and a longer Sanaa repetitive-work
+  beat based on today's owner-reported successful sizing/formatting task.
+  Short displacement/chromatic glitches, layered screenshots, heavier type,
+  punchier music and SFX. All eleven settled scenes visually inspected; final
+  browser gate has zero runtime/layout/motion/contrast errors (300 motion
+  samples, 39/39 contrast checks). Six lint warnings are deliberate image
+  copies for the tear transitions. Final MP4/poster remain pending the
+  required preview approval. No native app/document source or release changes.
+
+- **2026-10-13 — EXP brag film prepared for preview.**
+  Built a 20-second landscape Hyperframes composition in `../brag-output/`
+  using the public website's actual canvas, source-component editor and Sanaa
+  critique screenshots. Includes storyboard, composition brief, music/SFX,
+  canonical share caption and editable Studio preview. First browser gate passed
+  with zero runtime/layout/contrast errors (24/24 text checks); all four settled
+  scenes inspected. Final MP4/poster await the Hyperframes-required preview
+  approval. This is an editorial screenshot montage, not a live interaction or
+  performance recording. No app/document source or release artifacts changed;
+  v2.7 scope remains owner-selected.
+
 - **2026-10-02 — v2.6 complete: the live update works.**
   Owner confirms the v2.5→v2.6 update and relaunch: “confirmed! worked like a
   charm.” The installed app reads 2.6/build 17 and passes all 18 release checks,

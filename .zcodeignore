@@ -1,0 +1,95 @@
+.DS_Store
+build/
+DerivedData/
+# Xcode per-user state — must never be tracked. The old `*.xcuserdata/` pattern
+# did NOT match the real `xcuserdata/` directory (it holds `<user>.xcuserdatad/`),
+# so scheme/order churn kept surfacing in release diffs.
+xcuserdata/
+*.xcuserdatad/
+*.xcuserdata/
+# Linux/FUSE artifact for a file rewritten while a handle was open. Not created by
+# macOS; guards against accidentally committing one from a synced/mounted edit.
+.fuse_hidden*
+docs/*
+!docs/ARCHITECTURE.md
+!docs/BACKLOG.md
+!docs/HANDOFF-SCHEMA.md
+!docs/RELEASE-CHECKLIST.md
+!docs/RELEASE-CHECKLIST-v*.md
+!docs/ROADMAP.md
+!docs/V2-INTEROP-PLAN.md
+!docs/SEMANTIC-HTML-CONTRACT.md
+# The allowlist had drifted: these were already tracked (git keeps tracking a file
+# regardless of ignore rules), so the list did not match reality and a fresh clone
+# would have looked different from this working copy.
+!docs/DESIGN-ASSETS.md
+!docs/WORKING-AGREEMENT.md
+!docs/VISUAL-HANDOFF.md
+!docs/PERF-HANDOFF.md
+# The E0 import contract is a durable deliverable that CLAUDE.md and ROADMAP.md
+# both point at, so it belongs in the repo rather than in one working copy.
+!docs/HTML-IMPORT-CONTRACT.md
+!docs/WEB-SVG-FIDELITY-INVENTORY.md
+!docs/STORYBOOK-COMPATIBILITY-MATRIX.md
+!docs/ACCESSIBILITY-CONTROL-AUDIT.md
+# SANAA-PLAN is the authoritative Sanaa design, referenced by BACKLOG, ROADMAP,
+# AGENTS.md and CLAUDE.md. It was untracked until 2026-08-25, so a fresh clone
+# would have lost the plan every one of those files points at.
+!docs/SANAA-PLAN.md
+# Step-by-step fixtures for the BUG-053/054 export divergence. Written to be run
+# weeks after the investigation, so it has to survive in the repo, not a session.
+!docs/EXPORT-FIDELITY-TEST-FIXTURES.md
+# PERF-LOG.md and PERF-TODO.md stay untracked — deliberately local scratch. Say so
+# here so the next person does not "fix" it.
+
+# Per-directory agent settings are machine-local. Anchored patterns miss
+# nested ones (this was written as `.claude/...` first and did not match
+# `scripts/.claude/`), so match at any depth.
+**/.claude/settings.local.json
+
+# Blender Toolkit is unrelated machine-local helper state. It was accidentally
+# initialized at both the repository root and under scripts/ in earlier work.
+**/.blender-toolkit/
+
+# E0 spike artifacts. The fixtures are source and ARE tracked; everything the
+# runner generates from them is not.
+spike/html-import/fixture1-exp-export/
+spike/html-import/**/probe*.json
+spike/html-import/**/server-pass*.log
+
+# Browser acceptance logs/screenshots are reproducible local evidence, not
+# release source. Keep them on disk without letting `git add -A` publish them.
+.playwright-cli/
+output/playwright/
+
+# ===== ↑ 以上同步自 .gitignore（「从 .gitignore 同步」只重写以上部分）=====
+.git/
+.hg/
+.svn/
+node_modules/
+bower_components/
+jspm_packages/
+__pycache__/
+site-packages/
+venv/
+coverage/
+htmlcov/
+lcov-report/
+cmakefiles/
+cmake-build-*/
+bazel-*/
+pods/
+deriveddata/
+storybook-static/
+playwright-report/
+test-results/
+allure-results/
+allure-report/
+cdk.out/
+*.egg-info/
+*.dist-info/
+eggs/
+pip-wheel-metadata/
+wheels/
+# ----- ↑ 以上为 ZCode 默认排除规则（自定义规则请写在本行下方，不会被同步/恢复改动）-----
+# 自定义规则写在下方（本行提示可删除）
