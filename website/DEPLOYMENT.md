@@ -194,3 +194,27 @@ public profile destinations and hosted routing before pushing/promotion.
 
 Member-hub scope and phased dates: `docs/launch/ACCOUNTS-AND-PRIVACY-v2.7.md`.
 No account auth, hosted database, Discord invite or ticket backend is provisioned.
+
+
+## Optional free account foundation (FEAT-069)
+
+Account routes are implemented locally at `/account`, `/account/profile` and
+`/account/preferences`, with `/api/account` as the only public auth action endpoint.
+No account link is advertised in the homepage navigation yet. Better Auth 1.7.10
+is pinned at the repository root; there is no raw `/api/auth/*` catchall.
+
+Review/apply `migrations/003_free_accounts.sql` before starting a configured auth
+service. Required server-only configuration is `EXP_ACCOUNT_DATABASE_URL`
+(production: `sslmode=verify-full`), random `BETTER_AUTH_SECRET` (32+ characters),
+and exact HTTPS `ACCOUNT_PUBLIC_ORIGIN`. Code mail uses `RESEND_API_KEY` and
+`SIGNUP_FROM_EMAIL`; missing mail transport does not prevent existing sessions
+from logging out/deleting. `ACCOUNTS_ENABLED=true` opens registration; with valid
+configuration but this flag off, existing members retain account/privacy access.
+There is no automatic migration, hosting setup, list enrollment or deployment.
+
+Run `npm run test:accounts` or `npm run preview:accounts` from the repository root.
+The preview is at port 5191 with disposable PostgreSQL and captured synthetic mail;
+it sends nothing. Follow the full setup, retention, hosted/AT and remaining hub
+checklist in [the account handoff](../docs/launch/ACCOUNTS-AND-PRIVACY-v2.7.md).
+Never copy local fixture secrets/codes to hosted environments. Email-purpose
+linking, beta/community/news/tickets, email changes and native sign-in are later.

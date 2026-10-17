@@ -137,6 +137,23 @@ separate fresh emailed capability (15 minutes, hashed in PostgreSQL) and explici
 POST. Deleting the row removes its consent/contact/token fields; Resend sent mail,
 logs/backups and release-list contacts remain separate. New static support page
 loads local assets only and opens the owner's public Cash App/Venmo/PayPal profiles
-on user action; EXP collects no payment data there. Account/member-hub data remains
-planned and must be added to this map before enablement. Handoff:
+on user action; EXP collects no payment data there. Account data is added below; remaining member-hub flows stay planned. Handoff:
 [ACCOUNTS-AND-PRIVACY-v2.7.md](ACCOUNTS-AND-PRIVACY-v2.7.md).
+
+
+## October 17 account foundation data flow (local implementation)
+
+| Trigger | Data and recipients | Control / remaining proof |
+| --- | --- | --- |
+| Request email code | Email to account Function/private PostgreSQL challenge and Resend transactional email; account-code mail includes only the code/purpose/expiry | No user before code verification; five-minute HMAC-protected OTP, five attempts; DB IP limits plus per-address HMAC cooldown/hour cap. Actual hosted delivery/abuse proof remains |
+| Verify code / explicitly create account | Verified email, random UUID, private display name, account-creation version/time to dedicated account tables | Signed HttpOnly SameSite cookie; Secure on HTTPS; seven-day database sessions; account creation grants no release/news/Pro/beta permissions |
+| Read/update private profile/preferences | Current session subject, name/bio/HTTPS link, larger-account-text boolean | Server ownership, rejected submitted userId/role/visibility/email/marketing fields; private-only DB constraint; no native sync, public directory or uploads |
+| Session lifecycle | Library session token, expiry, IP and user-agent in private PostgreSQL; shared IP rate-limit keys and HMAC address mail-limit rows | Server DB access only; session credentials never returned in browser JSON; no cookie cache; logout/revoke checked. Retention and production cleanup/log policy remain open |
+| Delete account | Explicit DELETE confirmation + session authenticated within five minutes | Removes live user/profile/preferences/sessions/identity rows; pending challenges, abuse data, separate lists, sent mail, logs/backups follow separate retention/cleanup. Hosted deletion and restored-backup process remain open |
+
+No release-list contact or Pro-interest consent is linked by matching email alone.
+No analytics/entitlement/marketing system is attached to account creation. The local
+preview captures synthetic OTP mail to a private temporary file, then removes its
+database/mailbox on exit. No hosted account, migration, contact or email was changed.
+Setup, deferred email-change/inbox-loss recovery and acceptance boundaries:
+[account handoff](ACCOUNTS-AND-PRIVACY-v2.7.md#feat-069-first-account-slice--locally-verified-october-17).

@@ -1,0 +1,33 @@
+.account-main { background: var(--surface-window); }
+.account-shell .site-header { background: var(--surface-window); }
+.account-page { color: var(--text-primary); width: min(calc(100% - var(--site-gutter) * 2), 760px); margin: auto; padding: 136px 0 88px; font-size: 16px; }
+.account-page h1 { font-size: clamp(38px, 5vw, 62px); line-height: 1.08; letter-spacing: -.04em; margin: 16px 0 24px; overflow-wrap: anywhere; }
+.account-page h2 { font-size: 1.4em; line-height: 1.3; margin: 22px 0 14px; }
+.account-page p { color: var(--text-secondary); line-height: 1.65; }
+.account-page .account-lead { font-size: 1.25em; color: var(--text-primary); }
+.account-page .account-status { color: var(--text-primary); min-height: 1.65em; overflow-wrap: anywhere; }
+.account-page .account-status:empty { min-height: 0; margin-block: 0; }
+.account-card { padding: clamp(20px, 4vw, 32px); background: var(--surface-field); border: 1px solid var(--hairline); border-radius: 14px; margin: 24px 0; }
+.account-card fieldset { display: flex; flex-direction: column; gap: 12px; border: 0; padding: 0; margin: 0; min-width: 0; }
+.account-card legend { font-size: 1.2em; font-weight: 600; margin-bottom: 20px; }
+.account-card label { line-height: 1.5; }
+.account-card input:not([type=checkbox]):not([type=radio]), .account-card textarea { width: 100%; min-width: 0; min-height: 48px; font: inherit; padding: 10px 12px; border-radius: 6px; border: 1px solid var(--text-secondary); background: var(--surface-window); color: var(--text-primary); }
+.account-page button { min-height: 48px; font: inherit; padding: 12px 18px; border-radius: 6px; border: 1px solid var(--text-primary); background: var(--text-primary); color: var(--surface-window); cursor: pointer; }
+.account-page button:disabled { opacity: .6; cursor: default; }
+.account-page .account-secondary, .account-session-actions button { background: transparent; color: var(--text-primary); }
+.account-check { display: flex; gap: 12px; align-items: start; margin: 12px 0; }
+.account-card input:is([type=checkbox], [type=radio]) { width: 18px; height: 18px; flex: 0 0 18px; accent-color: var(--accent); margin-top: 3px; }
+.account-options, .account-session-actions, .account-nav { display: flex; flex-wrap: wrap; gap: 20px; }
+.account-options { margin-bottom: 12px; }
+.account-nav { padding: 16px 0; }
+.account-nav [aria-current=page] { color: var(--accent); }
+.account-session-actions { margin-top: 24px; }
+.account-page a { text-decoration: underline; text-underline-offset: 4px; }
+.account-page :is(a, button, input, textarea, summary):focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; }
+.account-delete summary { cursor: pointer; line-height: 1.5; }
+.account-large-text { font-size: 20px; }
+@media (max-width: 760px) { .account-page { padding-top: 106px; } }
+@media (prefers-color-scheme: light) {
+  .account-main { --surface-window: #f7f8f4; --surface-field: #ffffff; --text-primary: #192117; --text-secondary: #4d5949; --hairline: #c6cec1; --accent: #236b16; color-scheme: light; }
+}
+@media (prefers-color-scheme: dark) { .account-main { color-scheme: dark; } }

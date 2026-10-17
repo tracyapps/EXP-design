@@ -3,10 +3,13 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node --test tests/signup.test.mjs && bash scripts/verify_pro_interest.sh",
-    "test:interest": "bash scripts/verify_pro_interest.sh"
+    "test": "node --test tests/signup.test.mjs && bash scripts/verify_pro_interest.sh && bash scripts/verify_accounts.sh",
+    "test:interest": "bash scripts/verify_pro_interest.sh",
+    "test:accounts": "bash scripts/verify_accounts.sh",
+    "preview:accounts": "bash scripts/verify_accounts.sh --preview"
   },
   "dependencies": {
+    "better-auth": "1.7.10",
     "pg": "^8.16.3"
   }
 }

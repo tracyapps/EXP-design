@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import siteContent from "./generated/siteContent.json";
 import InterestPage from "./InterestPage.jsx";
+import AccountPage from "./AccountPage.jsx";
 import {
   findHelpArticle,
   helpArticles,
@@ -1501,7 +1502,7 @@ export default function App() {
   // rendered the target section. Re-run the scroll after mount, once the
   // section exists. (Same-page hash clicks scroll natively and skip this.)
   useEffect(() => {
-    if (["/confirm-interest", "/withdraw-interest", "/delete-interest"].includes(path)) return undefined;
+    if (path.startsWith("/account") || ["/confirm-interest", "/withdraw-interest", "/delete-interest"].includes(path)) return undefined;
     const hash = window.location.hash;
     if (!hash) return undefined;
     let raf = requestAnimationFrame(() => {
@@ -1511,6 +1512,14 @@ export default function App() {
     });
     return () => cancelAnimationFrame(raf);
   }, []);
+
+  if (["/account", "/account/profile", "/account/preferences"].includes(path)) {
+    return <div className="account-shell">
+      <Header progress={progress} actionLabel="get the free app" actionHref="/download" brandHref="/" />
+      <main className="account-main"><AccountPage path={path} /></main>
+      <Footer />
+    </div>;
+  }
 
   if (["/pro", "/confirm-interest", "/withdraw-interest", "/delete-interest"].includes(path)) {
     const mode = path === "/pro" ? "request" : path === "/confirm-interest" ? "confirm" : path === "/withdraw-interest" ? "withdraw" : "erase";

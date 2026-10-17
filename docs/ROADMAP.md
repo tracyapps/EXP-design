@@ -1321,7 +1321,13 @@ from the appcast; a development plan does not change the published release.
       beta/feedback, Pro interest, community profile, news, private tickets/replies,
       later Discord link and optional developer support; forums later. Staged
       account-before-billing plan: `launch/ACCOUNTS-AND-PRIVACY-v2.7.md`.
-      Auth/portal implementation remains planned; web hub has separate rollout gates.
+      First auth/private-profile/account-text preference slice is locally verified
+      2026-10-17; hosted enablement and remaining hub have separate rollout gates.
+- [x] **FEAT-069 first local account slice:** email-code sign-in, explicit registration,
+      private profile, larger account text, logout/all-session revocation, recent-auth
+      account deletion. 25 real-PostgreSQL account checks; no live enablement.
+- [ ] Hosted account inbox/origin/cookie/TLS/retention/AT proof; verified email-purpose
+      linking, beta participation, opt-in community/news and private ticket slices.
 - [ ] Reliable separate Pro-interest signup, permission/delivery/unsubscribe proof,
       data map and owner-reviewed privacy/EULA/refund/ownership decisions.
 - [ ] Minimal consented measurement of successful create/import → edit → output;
@@ -3385,6 +3391,40 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-10-17 — FEAT-069 free account foundation [internal].**
+  Owner requests the next portion. Pinned Better Auth 1.7.10 and implemented
+  optional web email-code sign-in with explicit registration consent, private
+  display name/bio/HTTPS link, persisted larger account text, logout/all-session
+  revocation and DELETE confirmation with authentication within five minutes.
+  Account creation does not enroll/link release/news/beta/Pro permissions or
+  create entitlements. No native app/document behavior changed. Single public
+  `/api/account` action endpoint rejects submitted identity/role/publication/email/
+  marketing fields; established library owns OTP/session/CSRF behavior. Shared
+  PostgreSQL rate limits plus address cooldown/hour cap run before code rotation.
+  Production origin/TLS/secret guards fail closed. Registration can pause while
+  existing members retain privacy/session actions. Library email-callback errors
+  were found to be swallowed; per-request failure handling now prevents false
+  code-delivery success, including concurrent requests. Migration 003 is generated
+  from the pinned library and reviewed; apply before configured auth startup,
+  never automatically. Initial local harness exposed schema-check startup ordering,
+  fixed by applying the disposable migration before creating the auth instance.
+  Fresh `npm test`: 15 release + 23 Pro-interest + 25 account tests pass (63 total),
+  including real PostgreSQL, atomic code races, expiry/attempts, cross-user denial,
+  session replay/revocation/deletion, paused registration, mail failure isolation,
+  and both streaming HTTP and pre-parsed Node request adaptation. Website build
+  passes; root dependency audit reports zero known vulnerabilities. Browser uses
+  actual service/isolated DB and captured synthetic mail, with dark/light/mobile
+  and large-text persistence checks; stale deletion is refused, fresh code sign-in
+  permits explicit deletion and leaves no session. Code-entry/post-login focus and
+  Enter submission checked. Formal VoiceOver/FKA and hosted proof remain.
+  Handoff/data map/deployment notes/backlog/agent pointers updated. Receipts:
+  `/tmp/exp-member-all-tests.log`, `/tmp/exp-member-build.log`, ignored
+  `output/playwright/exp-account-*.png`. No hosted setup/migration, external mail,
+  publishing/deployment or push. Owner retains review/push.
+  **NEXT:** hosted DB/region/TLS/inbox/retention/contact decisions and owner AT proof
+  before public enablement; next local slice is authenticated beta participation
+  and verified purpose-specific permission linking, then community/news/tickets.
 
 - **2026-10-16 — Member-hub scope, privacy erasure and optional support [internal].**
   Owner asks to continue and wants accounts before paid subscriptions. Follow-up

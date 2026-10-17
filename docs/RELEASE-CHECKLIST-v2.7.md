@@ -41,8 +41,12 @@ payment and license records live outside the repository; use sanitized summaries
 - [x] INFRA-008 standalone optional support page verified locally with no-JS fallback;
       no payment or hosted proof. Donation support grants no paid entitlements.
 - [x] FEAT-069 free member-hub scope/permissions phased before billing in
-      `launch/ACCOUNTS-AND-PRIVACY-v2.7.md`; implementation remains planned.
+      `launch/ACCOUNTS-AND-PRIVACY-v2.7.md`; first account slice locally verified.
       Its web rollout does not silently become a native-app launch blocker.
+- [x] FEAT-069 local email-code auth/private profile/account-text preferences,
+      logout/revocation and recent-auth deletion; 25 real PostgreSQL checks.
+- [ ] Hosted account lifecycle/inbox/transport/origin/bot/retention and owner AT
+      proof before public enablement; remaining hub slices are separately admitted.
 - [x] INFRA-006 local separate Pro request/confirm/withdraw with private PostgreSQL
       ledger; 16 real DB checks and browser flow pass. Enrollment disabled by default.
       Setup and remaining gates: `launch/PRO-INTEREST-v2.7.md`.
@@ -203,3 +207,18 @@ Browser captured-mail/real-DB deletion is verified; generic POST response is not
 called universal erasure. Support page checked with isolated clipboard boundary,
 JavaScript disabled, mobile width and light/dark screenshots; live providers and
 payments unverified. Auth/accounts/ticket/community implementation remains planned.
+
+
+October 17 FEAT-069 first account slice: `npm test` passes **63 total** (15 release,
+23 Pro-interest, 25 account on real isolated PostgreSQL); current website build
+passes and root production audit reports zero known vulnerabilities. Browser uses
+actual auth handlers/DB and captured synthetic mail for registration/sign-in,
+private profile and larger-text persistence; dark/desktop and light/mobile images
+inspected, no horizontal overflow; fresh browser is anonymous. Recent-auth deletion
+rejection is surfaced with a reauthentication instruction; fresh code sign-in then
+explicit deletion succeeds and leaves the browser anonymous. Code-entry/post-login
+focus and Enter submission checked. No hosted mail/routing/
+TLS/provider/retention or formal VoiceOver/FKA proof. Handoff:
+`launch/ACCOUNTS-AND-PRIVACY-v2.7.md`; migration 003 awaits authorized hosted apply.
+Receipts: `/tmp/exp-member-all-tests.log`, `/tmp/exp-member-build.log`, ignored
+`output/playwright/exp-account-*.png`. Native app remains unchanged; no push/deploy.

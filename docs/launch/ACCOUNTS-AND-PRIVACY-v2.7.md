@@ -4,7 +4,8 @@ October 16, 2026. Owner likes accounts before Pro/subscriptions and asks about
 sequencing. **Recommendation: finish the shared privacy/hosting foundation, then
 add a small optional free account area before billing.** Accounts do not depend
 on having a paid product. Their first useful job should determine their scope.
-No EXP account authentication/session system is implemented by this document.
+October 17 continuation: FEAT-069 now has a locally verified auth/private-profile/
+account-display preference slice. Hosted enablement and the rest of the hub remain open.
 
 ## Owner-selected member hub
 
@@ -68,16 +69,16 @@ Paid entitlements follow both account proof and the independent Nov 6 offer gate
 ## Architecture to preserve now
 
 - Use a stable random user ID from an established auth system. Email is verified,
-  changeable contact information, not the permanent account key. No user/profile
-  table is added until the auth schema/provider is chosen.
+  contact information, not the permanent account key. The local schema now uses
+  Better Auth UUIDs. Email-change UI is deferred; no unverified email mutation is exposed.
 - Keep account identity, email-purpose permission and paid entitlements separate.
   The existing `exp_pro_interest` row remains a consent record, not a login session.
   Future linking requires an authenticated subject and verified email ownership;
   matching an unverified email string never grants access or carries permissions.
 - Start with a web account. Evaluate Better Auth for the current Node/React +
-  PostgreSQL stack; it supports database-backed identities/sessions and email OTP.
-  This is a candidate, not an installed provider or a hosted-account decision.
-  Verify its serverless adapter/schema/rate-limit configuration before implementation.
+  PostgreSQL stack. Better Auth 1.7.10 is now pinned and locally exercised with
+  database sessions, email OTP and shared PostgreSQL rate limits. The Node adapter
+  is tested locally; hosted routing, transport and actual inbox proof remain gates.
 - Reuse Resend as email transport where appropriate, but use the auth library's
   session, recovery, rotation and challenge handling. Existing Pro confirmation,
   withdrawal and deletion capabilities are purpose-specific; they do not sign in.
@@ -93,6 +94,110 @@ Paid entitlements follow both account proof and the independent Nov 6 offer gate
 - Account creation does not enable usage analytics. Account-to-analytics linking
   would require a new explicit privacy/consent decision; current default-off
   measurement scope remains unchanged.
+
+## FEAT-069 first account slice — locally verified October 17
+
+Implemented routes: `/account`, `/account/profile`, `/account/preferences`, backed
+by the single Node endpoint `/api/account`. Better Auth 1.7.10 owns code generation,
+constant-time verification, atomic single-use consumption, signed HttpOnly cookies
+and database sessions. No password, OAuth, raw auth catchall, admin, account-email
+change, entitlement or native sign-in route is exposed. Same-origin JSON actions
+are allowlisted; submitted user IDs, roles, public visibility and marketing flags
+are rejected. The library updates only the authenticated session subject.
+
+- Email codes expire after five minutes, with five attempts. They are stored via
+  the library's custom hash option as HMAC-SHA256 using the server secret; the
+  database cannot trivially brute-force six-digit codes without that secret.
+- Registration requires an explicit checkbox and `free-account-v1`, recorded with
+  a server timestamp. Requesting a code creates no user. Ordinary sign-in with a
+  valid code cannot silently register a new account. Every profile stays private.
+- The profile stores display name (80 characters), optional bio (500) and HTTPS
+  website (300, no embedded credentials). Text is rendered through React escaping.
+  No avatars/uploads, community publication or public directory exists yet.
+- The first **working preference** is larger text in the web account area, persisted
+  in PostgreSQL and applied after save/reload. It does not alter native settings.
+  Release/news/beta/Pro permissions are deliberately not represented as working
+  account switches yet. No list records are created, migrated or changed.
+- Sign-out revokes the server session. Sign out everywhere revokes all sessions.
+  Cookie caching is disabled, so replaying an old cookie cannot retain access.
+  Sessions last at most seven days, with library refresh after one day.
+- Live account deletion requires typing DELETE and a session created within five
+  minutes by a fresh code. It removes the user/profile/preferences and cascaded
+  sessions/identity rows. Separate mailing lists, design files, provider mail/logs,
+  pending auth challenges, abuse records and backups have their own scope/retention.
+  Inbox loss and account-email changes need a separately designed recovery process;
+  passwordless access currently relies on continuing access to the verified inbox.
+- Shared database IP limits: up to five code-send/verify actions per endpoint per
+  minute and a general 60 requests/minute. Per-address HMAC key adds an atomic
+  60-second cooldown and five sends/hour **before code rotation**, across instances.
+  The Node adapter overwrites caller IP headers using Vercel's platform address or
+  the direct local connection. Actual hosted proxy/bot behavior still needs proof.
+- Better Auth absorbs email callback failures. Request-scoped AsyncLocalStorage
+  preserves failure and prevents a false “code sent” response, including concurrent
+  requests. Production transport requires a Resend message ID, with a five-second
+  timeout; actual inbox receipt remains unverified.
+
+### Setup and safe preview
+
+`npm run preview:accounts` starts `http://127.0.0.1:5191/account` with a disposable,
+socket-only PostgreSQL cluster. It prints the path to a mode-0600 temporary mailbox
+file containing **synthetic test codes**. It cannot send mail. Ctrl-C stops the
+server and removes that runner's database/mailbox. `npm run test:accounts` similarly
+owns and removes its own test cluster. Never point these runners at a hosted DB.
+
+Before any authorized hosted enablement:
+
+1. Choose the dedicated product PostgreSQL host/region and least-privilege server
+   role; keep account tables inaccessible to browser/public database clients.
+2. Review/apply `migrations/003_free_accounts.sql` manually, before starting the auth
+   service. It was generated from the pinned library, then wrapped in a transaction
+   with private-profile/length constraints, PUBLIC revocation and the mail-limit
+   table. No startup auto-migration or hosted migration was run. Migrations 001/002
+   remain unchanged; this slice does not depend on their data.
+3. Set server-only `EXP_ACCOUNT_DATABASE_URL` (production requires
+   `sslmode=verify-full`), `BETTER_AUTH_SECRET` (random, at least 32 characters),
+   exact HTTPS `ACCOUNT_PUBLIC_ORIGIN`, `RESEND_API_KEY` and `SIGNUP_FROM_EMAIL`.
+   Never prefix secrets with `VITE_`. Test CA/hostname verification and pool limits
+   on the chosen host; verified TLS is a requirement, not established by local sockets.
+4. `ACCOUNTS_ENABLED=true` opens registration. With valid account configuration and
+   registration paused, existing sessions/sign-in/privacy actions remain available.
+   Missing email transport does not disable an existing member's logout/deletion.
+   With no account configuration, the route returns 503 and the page says accounts
+   are unavailable. No public account link has been added to the homepage navigation.
+5. Verify actual Vercel Node handling/cookies/origin/IP limits, separate browser
+   isolation, provider failures, received codes, session expiry/revocation/deletion,
+   and all privacy/contact/retention choices before public registration. Do not
+   rotate the signing/HMAC secret casually: sessions and pending codes depend on it.
+6. Approve and operate retention/cleanup for expired challenges/sessions and abuse
+   rows, sent mail and hosting/provider logs/backups, including restored-backup
+   erasure. Code expiry is not a full retention/cleanup policy. Auth DB session
+   tokens are library-managed credentials and must be protected as secrets.
+
+### Acceptance evidence and next slice
+
+`npm test`: **15 release + 23 Pro-interest + 25 account checks pass** on fresh
+isolated PostgreSQL clusters. Account cases include pinned-schema matching,
+creation consent, five-attempt/expiry limits, eight simultaneous code redemptions,
+shared IP/address limits, delivery failure/concurrency, cross-user isolation,
+unsafe fields/links, secure production cookies, logout/replay, all-session revoke,
+recent-auth deletion, paused registration and real HTTP Node adaptation.
+`npm --prefix website run build` and root dependency audit pass. The unavailable-service browser fixture shows a
+retry/download path and no active signup form; it does not represent hosted proof.
+Browser evidence uses real service/database plus captured mail for registration,
+sign-in, private-profile saves, larger-text reload persistence and anonymous
+isolation. A stale deletion session was refused; signing in with a fresh code
+allowed explicit deletion and left the browser anonymous. Code-entry focus and
+post-login heading focus were checked with keyboard Enter submission. Dark/light
+mobile screenshots were inspected without horizontal overflow. This does not prove
+Resend receipt, hosted configuration or formal VoiceOver/full keyboard acceptance.
+Local receipts: `/tmp/exp-member-all-tests.log`, `/tmp/exp-member-build.log` and
+ignored `output/playwright/exp-account-*.png`.
+
+Next dependency: authenticated beta participation and purpose-specific permission
+linking, using verified identity without copying permissions merely because emails
+match. Community publication/news and private author/staff tickets follow their
+own gates. Hosted setup/retention/inbox and owner AT verification remain ahead of
+public enablement; native v2.7 release scope stays independent.
 
 ## Voluntary support page completed locally (INFRA-008)
 
@@ -149,7 +254,7 @@ completed legal/privacy launch gate.
 | Account deletion/recovery | Fresh authentication, revoked sessions, purpose-specific handling and any future lawful billing retention reviewed separately |
 
 No policies or account features were published. No hosting account, secrets,
-user account, production data or email was created/changed by this continuation.
+hosted user account, production data or email was created/changed by this continuation.
 
 ## References checked before design/implementation
 
@@ -162,7 +267,17 @@ user account, production data or email was created/changed by this continuation.
 [WCAG 2.1 error prevention for deletion](https://www.w3.org/WAI/WCAG21/Understanding/error-prevention-legal-financial-data.html),
 [WAI-ARIA 1.2 status](https://www.w3.org/TR/wai-aria-1.2/#status).
 
-The OTP source describes automatic registration unless configured otherwise;
-future implementation must deliberately separate account creation/consent from
-sign-in rather than inherit that default accidentally. Native OAuth/auth-library
-behavior is planning research here, not freshly executed proof.
+The OTP source describes automatic registration unless configured otherwise.
+The implemented database creation hook requires explicit current account consent
+and a registration intent, even after a valid code; ordinary sign-in cannot create
+an account. Native OAuth remains planning research; local web-auth evidence follows.
+
+October 17 implementation sources checked: [Better Auth installation](https://better-auth.com/docs/installation),
+[email OTP](https://better-auth.com/docs/plugins/email-otp),
+[session management](https://better-auth.com/docs/concepts/session-management),
+[Vercel trusted request headers](https://vercel.com/docs/headers/request-headers),
+[node-postgres TLS](https://node-postgres.com/features/ssl),
+[W3C native form labels](https://www.w3.org/WAI/tutorials/forms/labels/).
+Installed 1.7.10 source/types were also inspected for atomic verification, creation
+hooks, schema generation, rate-limit persistence, recent-auth deletion and swallowed
+mail failures; the executable tests establish those bounded local behaviors.

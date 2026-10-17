@@ -3030,14 +3030,17 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: feature
 - Priority: P1
 - Area: accounts · community · support
-- Status: planned
+- Status: first auth/profile/account-display slice locally verified 2026-10-17;
+  remaining hub and hosted/owner acceptance open
 - Owner scope 2026-10-16: profile, preferences, feedback/beta participation, Pro
   interest, community profile, news/updates, opening/responding to private tickets,
   a future Discord link and optional support-the-developer page. Forums later.
 - Sequence: privacy/hosting → established auth + profile/preferences → community/
   news → private ticket workflow. Full target and conditional dates in
   `launch/ACCOUNTS-AND-PRIVACY-v2.7.md`; website hub can roll out independently of
-  the native v2.7 release. No auth/session/account/ticket system is implemented yet.
+  the native v2.7 release. Better Auth 1.7.10 now implements optional email-code
+  accounts/private profile/larger web-account text and session/deletion lifecycle
+  locally. Tickets, public profiles, beta and email-purpose linking remain open.
 - Boundaries: local editor/exports/download remain account-free; public profiles
   opt in, email/tickets private; account identity, email purpose and entitlement
   stay separate. List confirmation does not create an account. Discord begins as
@@ -3045,7 +3048,19 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Acceptance: verified sign-in/logout/recovery/deletion; per-user and staff access
   isolation; explicit profile publication/unpublish; consent provenance; ticket
   ownership/replies; keyboard/VoiceOver + hosted lifecycle proof. Use an established
-  auth library; current Node/React/Postgres candidate is Better Auth, not installed.
+  auth library; Better Auth 1.7.10 is pinned with reviewed migration 003.
+- Local evidence: 25 account checks on real isolated PostgreSQL, including atomic
+  code redemption, consent, limits/delivery failure, cross-user denial, revocation
+  and recent-auth deletion. Browser + build receipts in the handoff. No hosted
+  auth/mail proof or formal VoiceOver/FKA acceptance. Native app is unchanged.
+- Accessibility sources checked before form/naming changes:
+  https://www.w3.org/WAI/tutorials/forms/labels/ (explicit native labels),
+  https://www.w3.org/TR/wai-aria-1.2/#status (polite status announcements),
+  https://www.w3.org/TR/wai-aria-1.2/#aria-current (current page),
+  https://www.w3.org/WAI/tutorials/forms/grouping/ (fieldset/legend),
+  https://www.w3.org/TR/html-aria/#el-details (native disclosure),
+  https://www.w3.org/WAI/WCAG21/Understanding/focus-order.html (focus after steps).
+  Native fieldset/legend, radio/checkbox, buttons and details are preserved.
 - Sources: OWASP authentication; Better Auth database/email OTP; RFC 8252 for later
   native sign-in. Exact links and research-versus-execution boundary in the handoff.
 
