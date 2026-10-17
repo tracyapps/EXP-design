@@ -75,6 +75,12 @@ payment and license records live outside the repository; use sanitized summaries
 
 ## Core workflow and human verification gate
 
+- [x] INFRA-009 repeatable web/native verification harness implemented and run.
+      72 web checks pass; native named-controls/Open/Escape/Cmd-S checks pass.
+      Native audit has 27 findings (BUG-069), AX focus and real VoiceOver are
+      permission-blocked, and 40 web contrast scans need review. This does not
+      close the human gates below. Run/setup: `ACCESSIBILITY-VERIFICATION.md`.
+
 - [ ] 10–20 eligible first-use task attempts summarized; assistance explicitly recorded;
       7-day windows mature before activation rates are finalized.
 - [ ] Create/import → edit → save/reopen → export/handoff completes with owned fixtures.
@@ -222,3 +228,22 @@ TLS/provider/retention or formal VoiceOver/FKA proof. Handoff:
 `launch/ACCOUNTS-AND-PRIVACY-v2.7.md`; migration 003 awaits authorized hosted apply.
 Receipts: `/tmp/exp-member-all-tests.log`, `/tmp/exp-member-build.log`, ignored
 `output/playwright/exp-account-*.png`. Native app remains unchanged; no push/deploy.
+
+
+October 17 INFRA-009 accessibility harness: final integrated run
+`npm run test:a11y -- --interactive` records **72 passing web checks** across
+Chromium/WebKit and two appearance/viewport variants each. Forty incomplete
+contrast scan entries contain 57 distinct rule/selector findings for human review.
+Native XCTest records **two passed, one failed audit test (27 findings), one skipped
+focus test**; real VoiceOver is separately blocked by its scripting setting.
+The command exits 1 because the audit findings remain failures. This does not
+close the human accessibility gates. Evidence:
+`output/a11y/2026-10-17T05-59-43-060Z/report.md`, `review.json`,
+`native/findings.md`, `native/summary.json` and `native/results.xcresult`.
+The native screenshots inspected are cropped to the disposable editor window.
+Fresh website build, 63 existing service tests, project plist validation, script
+syntax and backlog-ID guard pass; website dependency audit reports zero known
+vulnerabilities. Logs: `/tmp/exp-a11y-final.log`,
+`/tmp/exp-a11y-services-final.log`, `/tmp/exp-a11y-build-final.log`.
+Setup and repeat instructions: `ACCESSIBILITY-VERIFICATION.md`. Live VoiceOver
+traversal/cleanup awaits the OS permission gate; no push, deploy or provider sends.

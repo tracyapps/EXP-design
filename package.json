@@ -6,7 +6,8 @@
     "test": "node --test tests/signup.test.mjs && bash scripts/verify_pro_interest.sh && bash scripts/verify_accounts.sh",
     "test:interest": "bash scripts/verify_pro_interest.sh",
     "test:accounts": "bash scripts/verify_accounts.sh",
-    "preview:accounts": "bash scripts/verify_accounts.sh --preview"
+    "preview:accounts": "bash scripts/verify_accounts.sh --preview",
+    "test:a11y": "node scripts/a11y/run.mjs"
   },
   "dependencies": {
     "better-auth": "1.7.10",

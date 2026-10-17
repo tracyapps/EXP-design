@@ -78,3 +78,7 @@ docs/launch/*
 .env.*.local
 !docs/launch/PRO-INTEREST-v2.7.md
 !docs/launch/ACCOUNTS-AND-PRIVACY-v2.7.md
+
+# Reproducible accessibility receipts and disposable app/document fixtures.
+output/a11y/
+!docs/ACCESSIBILITY-VERIFICATION.md

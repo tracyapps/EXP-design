@@ -34,6 +34,31 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 
 ## 🐞 Bugs
 
+### BUG-069 — Triage native accessibility audit findings in the default editor
+- Type: bug
+- Priority: P1
+- Area: accessibility · chrome · inspector
+- Status: open — automated findings captured; human/VoiceOver triage pending
+- Repro/Detail: INFRA-009's real Xcode UI audit on an isolated v2.7/build 18
+  default editor fixture collected 27 findings in one pass: nine missing
+  descriptions, five missing actions, six contrast failures, three near-threshold
+  contrast warnings, two possibly untitled fields, one non-human-readable image
+  label and one parent/child mismatch. This is an audit queue, not 27 automatically
+  certified WCAG failures. Names include the default Grid size/subdivision fields,
+  `rectangle.3.group` empty-state image and several menus/structural groups.
+- Evidence: `output/a11y/2026-10-17T05-59-43-060Z/native/findings.md`,
+  `findings.json`, `attachments/manifest.json` and `results.xcresult`, with
+  individual element subtrees. All paths are local ignored verification receipts.
+- Acceptance: investigate each finding with actual control behavior and standards;
+  fix real defects and retest. Any platform/container false positive needs a
+  narrowly documented reason and human AT evidence; no blanket suppression.
+  Verify focus/VoiceOver after OS permissions are granted. Keep genuine source,
+  owner and runtime evidence separate; no document-mutating behavior is changed
+  merely to make an audit green.
+- Sources: Apple app accessibility audits and installed XCUIAutomation/AX APIs;
+  https://developer.apple.com/documentation/accessibility/performing-accessibility-audits-for-your-app
+  Exact matrix/setup/evidence boundaries: `ACCESSIBILITY-VERIFICATION.md`.
+
 ### BUG-068 — Eyedropper shortcut steals `i` while renaming or typing
 - Type: bug
 - Priority: P1
@@ -7164,6 +7189,42 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Owner verification 2026-08-16: 1% zoom-out is working.
 
 ## 🛠 Infrastructure
+
+### INFRA-009 — Repeatable keyboard, accessibility audit and real VoiceOver harness
+- Type: infra
+- Priority: P1
+- Area: verification · native UI · website · accessibility
+- Status: implemented and executed locally; native findings/setup gates remain open
+- Owner authorizes 2026-10-17: automate repeatable checks and narrow human review.
+- Implementation: `npm run test:a11y -- --interactive`, separate Xcode accessibility
+  scheme/UI-test target, isolated app identity/sandbox and local fixtures, real
+  PostgreSQL account/Pro services with captured mail, Chromium/WebKit key-event
+  journeys and whole-page axe 4.14.0 scans. Reports include screenshots, ARIA trees,
+  full scan JSON, deduplicated incomplete findings, XCTest/AX snapshots and indexed
+  native audit findings. Real VoiceOver uses Apple's scripting interface and actual
+  last phrases; setup is read-only, with no preference/TCC/SIP/clipboard changes.
+- Local evidence: 72 web checks pass across four bounded variants; 40 incomplete
+  contrast scan results stay needs-review. Native named controls and Open/Escape/
+  Cmd-S smoke pass; focus assertion is skipped for missing AX permission. All 27
+  visible native audit findings remain failures (BUG-069). Real VoiceOver is
+  blocked because the local AppleScript-control option is not enabled.
+- Regression discovered/fixed: the shared website version badge's overriding
+  accessible name omitted visible version/date text. Native link content now
+  supplies the accessible name; longer release detail remains as a title.
+- Dependency hygiene: added only pinned development axe adapter; compatible
+  website lockfile updates clear five existing transitive advisories. Both
+  website build and 63 existing service checks pass. No release/push/deploy.
+- Acceptance: reports never convert skipped/blocked/incomplete cases into passes;
+  preserve owner documents/settings; extend matrix by changed shared controls.
+  Full FKA/VoiceOver/canvas/export/Sanaa/real-display and hosted proof remain.
+- Sources checked before accessible-name/focus changes:
+  https://www.w3.org/WAI/WCAG21/Understanding/label-in-name.html (SC 2.5.3),
+  https://www.w3.org/WAI/WCAG21/Understanding/focus-order.html (SC 2.4.3),
+  https://www.w3.org/TR/wai-aria-1.2/#status,
+  https://playwright.dev/docs/accessibility-testing,
+  https://support.apple.com/guide/safari/keyboard-shortcuts-and-gestures-cpsh003/mac,
+  https://support.apple.com/guide/voiceover/cpvougen/mac.
+- Handoff: `ACCESSIBILITY-VERIFICATION.md`.
 
 ### INFRA-008 — Optional support-the-developer page
 - Type: feature

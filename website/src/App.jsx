@@ -205,7 +205,7 @@ function Header({
           <a
             className="version-pill"
             href="/download#download-signup"
-            aria-label={`current version ${release.version}${dateLong ? `, released ${dateLong}` : ""}`}
+            title={`current version ${release.version}${dateLong ? `, released ${dateLong}` : ""}`}
           >
             <span className="version-num">v{release.version}</span>
             {dateShort && <span className="version-date">{dateShort}</span>}

@@ -1304,6 +1304,10 @@ from the appcast; a development plan does not change the published release.
       12pt Regular/Medium; Barlow trial removed; bundle identity preserved.
 - [x] Owner accepts standard-width system 12pt Regular/Medium layer titles:
       “clean and clear” (2026-10-16). Condensed candidates superseded.
+- [x] **INFRA-009 repeatable verification harness:** web keyboard/axe matrix,
+      native UI-test target and guarded real VoiceOver smoke. Command/setup and
+      retained gaps: `ACCESSIBILITY-VERIFICATION.md`. Native audit findings are
+      queued as BUG-069; permissions/incomplete results are not passes.
 - [ ] Full 1x/2x, light/dark, Large interface type and AT matrix; signed release
       payload audit remains a freeze gate. Visual acceptance alone does not close these.
 - [x] **INFRA-005 local release-signup foundation:** durable storage before success,
@@ -3391,6 +3395,45 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-10-17 — Repeatable accessibility verification infrastructure [internal].**
+  Owner approves native/web keyboard and real-VoiceOver automation. INFRA-009 adds
+  `npm run test:a11y -- --interactive` with machine-readable/Markdown reports,
+  screenshots/ARIA trees/axe scan JSON, deduplicated incomplete results, a separate
+  Xcode UI-test target/scheme, public AX focus assertions and retained xcresult/
+  native element subtrees. Shipping scheme, native product source/identity and
+  immutable releases are unchanged. Native tests use a unique per-run sandboxed,
+  ad-hoc copy without networking/Codex access or .design associations; stale fixture
+  bundle selection was caught and fixed. Test runner copies are re-signed before
+  execution. Web tests own temporary PostgreSQL/captured mail; no provider sends.
+  72 web checks pass in Chromium/WebKit × dark desktop/light mobile+reduced motion,
+  including real keyboard account creation, profile/large text, deletion, invalid/
+  wrong/expired-code states and Pro confirm/withdraw. WebKit uses documented
+  Option-Tab. Forty contrast scan occurrences remain needs-review (glass/pseudo
+  element header and gradient footer), with selectors deduplicated for review.
+  The suite found and fixed the version badge's label-in-name mismatch (visible
+  v2.6/date omitted from its former accessible name); title retains long detail.
+  Native named controls and Open/Escape/Cmd-S smoke pass. Native zoom-focus test
+  requires AX permission and is correctly skipped/blocked; it is not FKA proof.
+  Apple's audit collects all findings in one pass: 27 naming/action/contrast/
+  structure findings retained as failures, queued for triage in BUG-069. Source
+  review must distinguish real defects from native container/platform warnings.
+  Real VoiceOver smoke records actual last phrases, not virtual speech, but this
+  Mac's AppleScript-control setting is absent; setup reported blocked without
+  changing preferences/TCC/SIP. Its live traversal/cleanup remain unverified.
+  Current Xcode is 26.6/macOS 26.6.2; installed SDK support was checked. Website
+  build and 63 service regressions pass; compatible lockfile updates clear five
+  existing website transitive advisories; current dependency audit is clean.
+  Handoff: `ACCESSIBILITY-VERIFICATION.md`; source tool logs in `/tmp/exp-a11y-*`,
+  per-run receipts under ignored `output/a11y/` with `latest.json` pointer.
+  Final integrated receipt: `output/a11y/2026-10-17T05-59-43-060Z/report.md`;
+  native `findings.md` indexes all 27 findings; `review.json` deduplicates the
+  web contrast review to 57 rule/selector findings across the 40 scan entries.
+  Exit 1 reflects the real native audit failure; two permission gates are blocked.
+  **NEXT:** enable owner's VoiceOver scripting/Automation and native AX permissions,
+  rerun; triage BUG-069 and shared web contrast; expand changed-core-control cases.
+  Human speech/rotor/FKA/complex canvas/Sanaa/export/1x/2x review remains a release
+  gate. Local commit only; owner retains review/push. No publishing/deployment.
 
 - **2026-10-17 — FEAT-069 free account foundation [internal].**
   Owner requests the next portion. Pinned Better Auth 1.7.10 and implemented

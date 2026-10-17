@@ -67,6 +67,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		89AA11000000000000000001 /* EXPAccessibilityUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = EXPAccessibilityUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		89BA6DFE2FD083870056C6DC /* EXP [design].app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "EXP [design].app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		89BA6E652FE720550056C6DC /* EXPThumbnail.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = EXPThumbnail.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		89BA6E672FE720550056C6DC /* QuickLookThumbnailing.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuickLookThumbnailing.framework; path = System/Library/Frameworks/QuickLookThumbnailing.framework; sourceTree = SDKROOT; };
@@ -103,6 +104,11 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		89AA11000000000000000002 /* EXPAccessibilityUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = EXPAccessibilityUITests;
+			sourceTree = "<group>";
+		};
 		89BA6E002FD083870056C6DC /* EXP [design] */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
@@ -132,6 +138,13 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		89AA11000000000000000003 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		89BA6DFB2FD083870056C6DC /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -169,6 +182,7 @@
 		89BA6DF52FD083870056C6DC = {
 			isa = PBXGroup;
 			children = (
+				89AA11000000000000000002 /* EXPAccessibilityUITests */,
 				89BA6E002FD083870056C6DC /* EXP [design] */,
 				89BA6E6B2FE720550056C6DC /* EXPThumbnail */,
 				89C000053002100000000005 /* exp-mcp */,
@@ -182,6 +196,7 @@
 		89BA6DFF2FD083870056C6DC /* Products */ = {
 			isa = PBXGroup;
 			children = (
+				89AA11000000000000000001 /* EXPAccessibilityUITests.xctest */,
 				89BA6DFE2FD083870056C6DC /* EXP [design].app */,
 				89BA6E652FE720550056C6DC /* EXPThumbnail.appex */,
 				89C000043002100000000004 /* exp-mcp */,
@@ -202,6 +217,26 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		89AA11000000000000000006 /* EXPAccessibilityUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 89AA11000000000000000009 /* Build configuration list for PBXNativeTarget "EXPAccessibilityUITests" */;
+			buildPhases = (
+				89AA11000000000000000004 /* Sources */,
+				89AA11000000000000000003 /* Frameworks */,
+				89AA11000000000000000005 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				89AA11000000000000000002 /* EXPAccessibilityUITests */,
+			);
+			name = EXPAccessibilityUITests;
+			productName = EXPAccessibilityUITests;
+			productReference = 89AA11000000000000000001 /* EXPAccessibilityUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 		89BA6DFD2FD083870056C6DC /* EXP [design] */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 89BA6E092FD083880056C6DC /* Build configuration list for PBXNativeTarget "EXP [design]" */;
@@ -335,6 +370,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
+				89AA11000000000000000006 /* EXPAccessibilityUITests */,
 				89BA6DFD2FD083870056C6DC /* EXP [design] */,
 				89BA6E642FE720550056C6DC /* EXPThumbnail */,
 				89C000073002100000000007 /* exp-mcp */,
@@ -344,6 +380,13 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		89AA11000000000000000005 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		89BA6DFC2FD083870056C6DC /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -361,6 +404,13 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		89AA11000000000000000004 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		89BA6DFA2FD083870056C6DC /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -411,6 +461,38 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		89AA11000000000000000007 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 65LD7TZAL3;
+				ENABLE_APP_SANDBOX = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = design.tapps.exp.AccessibilityUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 5.0;
+				TEST_TARGET_NAME = "EXP [design]";
+			};
+			name = Debug;
+		};
+		89AA11000000000000000008 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 65LD7TZAL3;
+				ENABLE_APP_SANDBOX = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = design.tapps.exp.AccessibilityUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_STRICT_CONCURRENCY = complete;
+				SWIFT_VERSION = 5.0;
+				TEST_TARGET_NAME = "EXP [design]";
+			};
+			name = Release;
+		};
 		89BA6E072FD083880056C6DC /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -738,6 +820,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		89AA11000000000000000009 /* Build configuration list for PBXNativeTarget "EXPAccessibilityUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				89AA11000000000000000007 /* Debug */,
+				89AA11000000000000000008 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		89BA6DF92FD083870056C6DC /* Build configuration list for PBXProject "EXP [design]" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
