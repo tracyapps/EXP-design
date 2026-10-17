@@ -1,0 +1,179 @@
+# EXP design v2.7 launch readiness checklist
+
+Opened October 16, 2026. **Only checked items have evidence; all other gates remain pending.**
+Internal RC review November 16; conditional release November 20; campaign December 1.
+Scope/owners/dependencies: [self-launch plan](SELF-LAUNCH-PLAN-v2.7.md).
+Public v2.6/build 17 and its receipts remain immutable. Development is 2.7/18;
+any release build-number change must be synchronized before packaging.
+
+Receipts should include date, source commit, environment, command/task, result,
+artifact path and owner acceptance where applicable. Private participant/contact,
+payment and license records live outside the repository; use sanitized summaries.
+
+## Distribution and ownership gate
+
+- [x] Current unsigned Debug build and appearance regression receipts recorded.
+- [ ] Full core fixture/first-use acceptance recorded.
+- [x] SF Compact resource inventory covers app, helpers, design export and site assets.
+- [x] Five app and 72 design-export SF binaries removed. Barlow trial resources
+      and registration superseded by the owner's system-font selection.
+- [x] Final standard-width system-font clean Debug build resource audit recorded;
+      no OTF/TTF/WOFF/WOFF2 files present.
+- [ ] Signed release app/archive contains no restricted font payload; run
+      `bash scripts/verify_font_distribution.sh "APP" website/dist "design/EXP [design] Design System"`.
+- [x] Owner accepts actual standard system layer titles as “clean and clear” (Oct 16).
+- [ ] Full revised layer typography matrix in light/dark and Large interface type
+      on both the 1x Cinema Display and a 2x display;
+      standard-width system 12pt Regular/Medium selected; condensed trials superseded;
+      document font records and saved files unaffected.
+- [ ] Existing bundle ID/helper identities retained; no migration introduced.
+- [ ] Seller identity, support contact, payment-provider eligibility and actual
+      ownership documented privately by owner; entity/IP questions resolved as needed.
+- [ ] Owner chooses repository license posture; third-party asset/dependency notices
+      and AI-assisted provenance inventory reviewed. No automatic open-source grant.
+- [ ] EULA, privacy, refund and support terms reflect actual app/site/provider behavior,
+      reviewed by owner and qualified advisers where needed; published only with approval.
+
+## Signup and privacy gate
+
+- [x] INFRA-005 local release-signup foundation and source data map recorded in
+      `launch/DATA-FLOW-AND-SIGNUP-v2.7.md`; 15 endpoint tests + browser fixtures pass.
+      This is partial evidence for the complete gates below.
+- [ ] Release updates, Pro interest and optional marketing have separate purposes;
+      existing release subscribers are not automatically converted to marketing.
+- [ ] Durable record precedes signup success; provider/storage failure and retry
+      cannot produce a false success or duplicate confirmed record.
+- [ ] Real confirmation delivery, spam-folder behavior, duplicate handling,
+      unsubscribe and deletion request verified with authorized test addresses.
+- [ ] Proposed price/model/version and permission time stored appropriately;
+      free download remains accessible without signup.
+- [ ] Abuse handling, server-side secrets and log redaction checked.
+- [ ] Actual data map includes website hosting/logs, Resend, Sparkle, Figma,
+      Sanaa/client providers, opt-in analytics and selected payment provider.
+- [ ] Analytics default off; no pre-consent queue; withdrawal clears queue/identifier
+      and stops transmission; deletion/retention instructions match hosted settings.
+- [ ] Captured network traffic demonstrates consent-off/withdrawal behavior;
+      fixed event allowlist excludes document content, paths, URLs, emails and prompts.
+- [ ] Successful output events occur after successful writes only; cancel/error paths,
+      retries/relaunch deduplication and offline behavior verified.
+- [ ] Website clicks, app activation, marketing signups and payment records use
+      distinct denominators; reports show opt-in coverage and limitations.
+
+## Core workflow and human verification gate
+
+- [ ] 10–20 eligible first-use task attempts summarized; assistance explicitly recorded;
+      7-day windows mature before activation rates are finalized.
+- [ ] Create/import → edit → save/reopen → export/handoff completes with owned fixtures.
+- [ ] VoiceOver and Full Keyboard Access pass for marketed core task, signup/consent
+      and any paid surfaces; traversal/names/states/focus and failure messages recorded.
+- [ ] Light/dark, Large interface type, Increase Contrast, Reduce Motion and Reduce
+      Transparency reviewed; blockers fixed and retested, limits stated precisely.
+- [ ] Real permitted Figma file re-imported; live API/error behavior and visual results
+      recorded separately from fixtures. Claims narrowed to tested coverage.
+- [ ] Current SVG clips, blur export, outline/underline and BUG-055 edge cases reproduced;
+      each fixed or disclosed at reliance point. Silent core data loss blocks release.
+- [ ] Optional SVG clip-path slice admitted only within cap, owner-verified before
+      another document mutation; unsupported constructs reported rather than guessed.
+- [ ] Stale color/palette/rich-text backlog statuses reconciled from evidence;
+      no invented completion claims or broad unrequested subsystem work.
+
+## Pro offer gate — select by November 6
+
+- [ ] Same candidate benefit shown with one-time and recurring price cards in
+      balanced order; preference/fairness/usefulness and specific intent recorded.
+- [ ] Owner chooses exact benefit, price/model, free boundary, refund term,
+      education/hardship access, device policy and update/cancellation contract.
+- [ ] Useful paid benefit specified and verified, or site explicitly remains
+      Pro-interest-only. A signup is not called a purchase or presale.
+- [ ] Any new paid feature fits the implementation cap and is owner-accepted;
+      shipped free file access/editing/exports preserved.
+
+Payments require all of the following; an interest-only launch does not:
+
+- [ ] Merchant-of-record approval and actual fees/terms reviewed by owner.
+- [ ] Server verifies signed webhooks; duplicate/reordered events handled idempotently;
+      credentials and signing secrets absent from clients and logs.
+- [ ] Sandbox purchase → receipt/key → activation → relaunch/offline → restore passes.
+- [ ] Refund/revocation, expired update eligibility, subscription cancellation if used,
+      second-device policy and server outage/grace behavior tested.
+- [ ] Signed entitlement separates perpetual app use from update eligibility;
+      eligible old-version recovery and security/free-fix policy verified.
+- [ ] Authorized live purchase/refund and delivery receipt complete before paid launch.
+
+## Freeze and release gate
+
+Run the focused check for each changed seam. At freeze use the v2.6 regression
+battery as a baseline, adding new meaningful telemetry/signup/license checks.
+
+- [ ] `bash scripts/verify_backlog_ids.sh` and `git diff --check` pass.
+- [ ] Native Debug/Release builds and `verify_appearance_style.sh` pass.
+- [ ] Existing nested-component, anchored-relationship, canvas-page, XD/Figma,
+      semantic HTML/package, SVG pattern/token, effect export, CodePen, rendered
+      HTML/WebKit, Storybook, ruler/vector and performance checks pass with fixtures.
+- [ ] Pattern-raster check runs with an explicit fixture (not the no-argument command);
+      real stress-document smoke test recorded without reopening accepted old work.
+- [ ] Website build and core browser/API flows pass; hosted delivery evidence separate.
+- [ ] Release notes describe only verified scope and honest limits; site sync does not
+      advertise the development version prematurely.
+- [ ] Version/build agree across app, thumbnail and runtimes; release source frozen.
+- [ ] Signed universal archive passes local release-candidate checks.
+- [ ] Notarized/stapled app and clean ZIP round trip pass production checks;
+      SHA-256/final byte length recorded, old artifacts unchanged.
+- [ ] Owner authorizes publication; immutable download exists before feed publication.
+- [ ] Appcast signature/size/build/URL verified; historical entries retained
+      (`--maximum-versions 0`, `--maximum-deltas 0`).
+- [ ] Public download/feed/notes/site match final artifacts after authorized deployment.
+- [ ] Owner completes real v2.6→v2.7 update/install/relaunch, retaining preferences,
+      recent docs, document access, file contents and free behavior.
+
+## Campaign gate and review
+
+- [ ] Final landscape/portrait preview approved before final render; captions and
+      accessible alternatives approved; no screenshot montage called live footage.
+- [ ] Marketing claims match receipts; macOS 26.2+ and Sanaa requirements visible.
+- [ ] One canonical CTA selected: try EXP, Pro interest, or buy verified Pro.
+- [ ] Owner authorizes actual messages/posts/placements; friend roles and support
+      windows confirmed. No emails sent under preparation-only authorization.
+- [ ] December 8/15 reviews report counts, correct denominators, refunds and support time.
+- [ ] January 14 review chooses next scope from matured evidence.
+
+## Session receipts
+
+October 16: report reconciled and plan/brief written. INFRA-004 implemented;
+unsigned Debug app+thumbnail+helpers build passes, identity remains 2.7/18.
+Logs: `/tmp/exp-v27-launch-font-build.log`, `/tmp/exp-v27-launch-appearance.log`,
+`/tmp/exp-v27-launch-website.log`, `/tmp/exp-v27-font-payloads.log`.
+Distribution guard passes new app/site/design trees and rejects a known SF
+filename fixture. No OTF/TTF files in new Debug app. Existing actor-isolation
+warnings in untouched importer/interop code are not repaired by this slice.
+Three-page collaborator DOCX rendered and visually reviewed. No owner typography,
+AT, hosted delivery, checkout, signed-release or upgrade proof is inferred.
+No release, commit or public campaign occurred.
+
+Barlow trial follow-up, October 16: `/tmp/exp-v27-barlow-build.log` succeeds;
+`/tmp/exp-barlow-registration.log` confirms actual bundled Light/Medium faces
+and process-scoped repeat registration. Apple font distribution guard passes.
+The earlier no-TTF Debug receipt describes the superseded system-font build;
+that superseded candidate intentionally included licensed Barlow TTFs and OFL.txt.
+Owner visual acceptance remains open.
+
+Standard-system-font follow-up, October 16: clean Debug app+extension/helpers build
+succeeds (`/tmp/exp-v27-standard-font-build.log`). No embedded font binaries in
+new app; `verify_font_distribution.sh` passes. Actual shared SwiftUI layer-label
+seam matches 12pt system Regular/Medium reference pixels at both 1x and 2x
+(`/tmp/exp-standard-layer-font-probe.log`). This is rendered-seam/source evidence;
+owner real-window/display acceptance and signed release audit remain pending.
+
+October 16 owner acceptance and signup follow-up: owner accepts standard system
+layer titles as “clean and clear”; complete matrix/AT/signed archive still pending.
+`node --test tests/signup.test.mjs`: 15/15, exit 0 (`/tmp/exp-signup-tests.log`);
+website build exit 0 (`/tmp/exp-signup-website-build.log`). Local Chromium CLI
+fixtures prove 503 stays failed with download link available, empty JSON HTTP 200
+is rejected, and `ok:true` redirects to intercepted release fixture. Snapshots:
+`.playwright-cli/page-2026-10-17T02-02-00-124Z.yml`,
+`.playwright-cli/page-2026-10-17T02-02-08-626Z.yml`,
+`.playwright-cli/page-2026-10-17T02-02-27-590Z.yml`. Times are UTC; owner date Oct 16.
+Expected browser resource error was the injected 503. The CLI default Chrome path
+was unavailable; existing cached Chromium was selected explicitly. No live Resend
+requests/sends, configuration changes or deployment. Concurrent provider creation,
+actual limits/delivery/unsubscribe/deletion and Pro confirmation remain unverified.

@@ -18,13 +18,9 @@
 //  mirror. Reduce-Transparency / Increase-Contrast are honoured by AppKit's own
 //  resolution plus the glass fallbacks (built in 17b).
 //
-//  ⚠ Two things to verify on-device (flagged, not assumed):
-//   1. SF Compact is now BUNDLED + registered at launch (UI/FontRegistration.swift),
-//      so layer names render condensed on every Mac. `EXPType.layerFont` still
-//      falls back to the system font defensively if registration ever fails.
-//   2. Live accent-override refresh — `EXPColor.accent` reads the override from
-//      UserDefaults on each access, so it updates on the next SwiftUI render.
-//      The Settings UI (17i) will post a change so live windows refresh promptly.
+//  Layer labels use standard-width system typography at 12 pt Regular/Medium.
+//  No font binaries are embedded. Owner display acceptance is recorded separately.
+//  Live accent-override refresh follows UserDefaults and SwiftUI rendering.
 //
 
 import SwiftUI
@@ -203,9 +199,8 @@ enum EXPColor {
 // MARK: - Type ==============================================================
 
 /// Type roles from `tokens/typography.css`. SF Pro is the system font (so
-/// `.system(...)` is exactly right); SF Compact is the condensed voice for layer
-/// names / dense labels — resolved at runtime with a graceful fallback. Weight
-/// philosophy: light/ultralight carry the brand; medium is the one emphasis.
+/// `.system(...)` is exactly right). Layer labels use standard width and regular
+/// weight for small-text readability, with medium for the active layer.
 enum EXPType {
     // Scale (pt)
     static let micro: CGFloat = 10, mini: CGFloat = 11, small: CGFloat = 12
@@ -217,21 +212,9 @@ enum EXPType {
     static let trCaps: CGFloat = 0.06   // panel titles
     static let trWide: CGFloat = 0.04   // section labels
 
-    // ---- SF Compact (condensed) resolution --------------------------------
-    @MainActor private static var compactChecked = false
-    @MainActor private static var compactAvailable = false
-    @MainActor static func hasSFCompact() -> Bool {
-        if !compactChecked {
-            compactAvailable = NSFontManager.shared.availableFontFamilies.contains("SF Compact Display")
-            compactChecked = true
-        }
-        return compactAvailable
-    }
-    /// Layer-name font: SF Compact Display (BUNDLED + registered at launch — see
-    /// FontRegistration.swift), else a defensive system fallback. Apply the weight
-    /// at the call site via `.fontWeight`.
-    @MainActor static func layerFont(size: CGFloat = small) -> Font {
-        hasSFCompact() ? .custom("SF Compact Display", size: size) : .system(size: size)
+    /// Standard-width macOS system font; supplied by the OS, never bundled.
+    @MainActor static func layerFont(size: CGFloat = small, weight: Font.Weight = .regular) -> Font {
+        .system(size: size, weight: weight)
     }
 }
 
@@ -261,10 +244,9 @@ extension View {
             .tracking(EXPType.tracking(EXPType.trWide, EXPType.mini))
             .foregroundStyle(EXPColor.textSecondary)
     }
-    /// Layer-name row text — SF Compact 12, medium when the layer is active.
+    /// Layer-name row text — system 12 Regular, Medium when active.
     @MainActor func expLayerName(active: Bool) -> some View {
-        self.font(EXPType.layerFont())
-            .fontWeight(active ? .medium : .light)
+        self.font(EXPType.layerFont(weight: active ? .medium : .regular))
     }
     /// Apply the persisted interface size through SwiftUI's native type-size
     /// environment rather than multiplying every font independently.

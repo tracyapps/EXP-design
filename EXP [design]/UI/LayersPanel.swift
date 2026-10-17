@@ -1847,7 +1847,7 @@ private struct LayerRow: View {
         } else {
             VStack(alignment: .leading, spacing: 1) {
                 Text(displayName)
-                    // SF Compact, medium when this layer is active (Session-133).
+                    // standard-width system font, medium when this layer is active (Session-133).
                     .expLayerName(active: isActive)
                     .foregroundStyle(node.isLocked ? EXPColor.textTertiary : EXPColor.textPrimary)
                     .lineLimit(1)
@@ -1952,7 +1952,7 @@ private struct LayerRow: View {
         app.centerOn(node.frame)
     }
 
-    /// This row's layer is the active/selected one (drives the SF-Compact
+    /// This row's layer is the active/selected one (drives the system-font
     /// medium weight + the thick left accent bar drawn by the outline row).
     private var isActive: Bool { app.selectedNodeIDs.contains(node.id) }
     private var typeIcon: String { nodeTypeIcon(node) }

@@ -1,18 +1,15 @@
-# Bundled fonts — license note
+# Application typography
 
-These are **Apple SF Compact Display** weights (Ultralight, Light, Regular,
-Medium, Semibold), embedded so EXP's condensed "layer name" voice renders the
-same on every Mac (SF Compact is not guaranteed system-installed; SF Pro / SF
-Mono are, and are NOT bundled).
+Layer titles and rename fields use the macOS system font through SwiftUI's
+`.system(size:weight:)` API: 12 pt, standard width, Regular for ordinary rows
+and Medium for the active row. The OS chooses the appropriate typeface and
+language fallback (SF Pro for the Latin UI). No font binaries are bundled or
+registered by EXP. Document font values are unchanged.
 
-⚠ **Apple's SF font license** permits using the system fonts to design and build
-UIs for Apple platforms, but **restricts redistributing the font files**.
-Embedding them in a shipping app is redistribution. This is fine for a personal
-build; **before distributing EXP**, either confirm an acceptable license path or
-swap the condensed voice to an open-licensed (SIL OFL) condensed face.
+Apple supports system fonts through its font APIs and prohibits embedding
+copies of downloadable Apple font files:
+https://developer.apple.com/documentation/technologyoverviews/fonts
 
-**Single switch-point:** `EXPType.layerFont(size:)` in `UI/DesignTokens.swift`.
-Change that one function (and remove these files + the registration call in
-`UI/FontRegistration.swift`) to move off the bundled Apple face.
-
-Source: `design/EXP [design] Design System/fonts/` (the design-system export).
+The SF Compact and Barlow trials were superseded by the owner's standard-width
+system-font selection on October 16, 2026. Inspect new signed release artifacts;
+historical release ZIPs remain immutable.

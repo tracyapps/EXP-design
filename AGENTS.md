@@ -45,8 +45,15 @@ passes all 18 release-candidate checks; receipts in
 `docs/RELEASE-CHECKLIST-v2.6.md`.
 **v2.7 development is OPEN** (`MARKETING_VERSION 2.7`,
 `CURRENT_PROJECT_VERSION 18`) across app, thumbnail and runtime configurations.
-Immutable v2.6 and older releases are unchanged. No new document-mutating slice
-starts until the owner selects v2.7 scope at ROADMAP's scoping gate.
+Immutable v2.6 and older releases are unchanged. Owner selected self-launch
+readiness on 2026-10-16. For v2.7 implementation, pricing, analytics or campaign
+work, read `docs/SELF-LAUNCH-PLAN-v2.7.md` and `docs/RELEASE-CHECKLIST-v2.7.md`
+first. Owner accepted standard system layer typography on 2026-10-16; full
+display/accessibility and signed-payload gates remain. For signup/privacy work,
+read `docs/launch/DATA-FLOW-AND-SIGNUP-v2.7.md`: INFRA-005 is locally checked,
+with separate Pro interest, confirmation and hosted proof next. Preserve bundle
+identity and sequential owner verification.
+Prices and paid features await the offer gate.
 The core native editor, component states/behavior contract, semantic Handoff
 Package, agent-bridge spine, nested components, canvas pages, editable XD/Figma
 import, unified Handoff/panel IA, editable rendered HTML/CSS import, CodePen
@@ -102,7 +109,7 @@ See ROADMAP.md for the authoritative checklist and newest Progress Log entry.
 `docs/RELEASE-CHECKLIST-v2.5.md`, including the v2.4→v2.5 Sparkle proof.
 **v2.6 is RELEASED AND COMPLETE (2026-10-02)**; live update proof and all release
 checks pass in `docs/RELEASE-CHECKLIST-v2.6.md`. **v2.7/build 18** is the development baseline.
-Queued candidates carry forward to ROADMAP → v2.7's owner scoping gate.
+Queued candidates follow ROADMAP → v2.7's launch-readiness boundaries.
 Dropbox note: the
 folder is supposed to be excluded from sync (one machine only); a known
 ongoing Dropbox issue has been corrupting the owner's dev folders (ticket

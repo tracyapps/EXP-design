@@ -64,3 +64,11 @@ spike/html-import/**/server-pass*.log
 # release source. Keep them on disk without letting `git add -A` publish them.
 .playwright-cli/
 output/playwright/
+# v2.7 self-launch source of truth and collaborator handoff.
+!docs/SELF-LAUNCH-PLAN-v2.7.md
+!docs/SELF-LAUNCH-SOURCES-2026-10-16.md
+!docs/MARKETING-BRIEF-v2.7.md
+!docs/launch/
+docs/launch/*
+!docs/launch/EXP-design-Marketing-Brief.docx
+!docs/launch/DATA-FLOW-AND-SIGNUP-v2.7.md

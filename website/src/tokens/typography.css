@@ -1,8 +1,7 @@
 /* ============================================================================
    EXP [design] — TYPOGRAPHY
-   SF Pro (UI/text) + SF Pro Display (large) + SF Compact (the condensed voice).
-   These ARE the macOS system fonts — on the target platform they're already
-   installed, so we reference them via the native stack rather than bundling
+   System UI typography, with native condensed width in the macOS app.
+   Use the platform font stack rather than bundling
    webfonts (Apple's license forbids redistribution). On non-Apple browsers the
    stack falls back to the platform UI font.  ⚠ See readme "Font substitution".
 
@@ -19,8 +18,7 @@
   --font-display: "SF Pro Display", "SF Pro", -apple-system, BlinkMacSystemFont,
                system-ui, sans-serif;
   /* The condensed voice — layer names, dense labels, ruler numerals. */
-  --font-condensed: "SF Compact Display", "SF Compact", "SF Pro Display",
-               -apple-system, system-ui, sans-serif;
+  --font-condensed: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   --font-mono: "SF Mono", ui-monospace, Menlo, monospace;
 
   /* ---- Weights (the airy end is the default) ---------------------------- */
@@ -76,7 +74,7 @@
   --type-artboard-size:   var(--t-small);
   --type-artboard-weight: var(--w-medium);
 
-  /* layer names — SF Compact light 12pt */
+  /* layer names — system UI light 12pt */
   --type-layer-size:   var(--t-small);
   --type-layer-weight: var(--w-light);
 

@@ -135,8 +135,15 @@ passes all 18 release-candidate checks; receipts in
 `docs/RELEASE-CHECKLIST-v2.6.md`.
 **v2.7 development is OPEN** (`MARKETING_VERSION 2.7`,
 `CURRENT_PROJECT_VERSION 18`) across app, thumbnail and runtime configurations.
-Immutable v2.6 and older releases are unchanged. No new document-mutating slice
-starts until the owner selects v2.7 scope at ROADMAP's scoping gate.
+Immutable v2.6 and older releases are unchanged. Owner selected self-launch
+readiness on 2026-10-16. For v2.7 implementation, pricing, analytics or campaign
+work, read `docs/SELF-LAUNCH-PLAN-v2.7.md` and `docs/RELEASE-CHECKLIST-v2.7.md`
+first. Owner accepted standard system layer typography on 2026-10-16; full
+display/accessibility and signed-payload gates remain. For signup/privacy work,
+read `docs/launch/DATA-FLOW-AND-SIGNUP-v2.7.md`: INFRA-005 is locally checked,
+with separate Pro interest, confirmation and hosted proof next. Preserve bundle
+identity and sequential owner verification.
+Prices and paid features await the offer gate.
 The native editor, Design Language, component states/behavior contract, semantic
 Handoff Package, agent bridge, nested components, canvas pages, XD/Figma import,
 rendered HTML/CSS import, CodePen handoff/import, static Storybook import, and the
@@ -146,7 +153,7 @@ five-family compatibility matrix are shipped. Documents save as **`.design`**
 Release receipts live in `docs/RELEASE-CHECKLIST-v2.5.md` and
 `docs/RELEASE-CHECKLIST-v2.6.md`. The older v2.3→v2.4 updater proof was
 superseded by owner decision; v2.5's live update proof is complete.
-Next development scope remains owner-selected; FEAT-057/059/060, SVG
+Next development scope follows the self-launch plan; FEAT-057/059/060, SVG
 `clip-path` import and other backlog entries remain candidates, not commitments.
 Do not infer the next release plan from backlog order.
 

@@ -1286,20 +1286,56 @@ promote them into release gates.
 
 ---
 
-## v2.7 — development open (2026-10-01)
+## v2.7 — self launch readiness (scope selected 2026-10-16)
 
-Development identity: **2.7 / build 18** across the app, thumbnail extension and
-bundled runtime configurations. Public v2.6/build 17 and older release artifacts,
-tags and updater entries are immutable. The website reads its public version
-from the appcast, so opening development does not change the published version.
+Development identity: **2.7 / build 18**. Public v2.6/build 17 and older artifacts,
+tags and updater entries remain immutable. The website derives its public version
+from the appcast; a development plan does not change the published release.
 
-- [ ] **Owner scoping gate:** choose v2.7 scope before starting a new
-      document-mutating slice. No features are committed by backlog order.
+- [x] **Owner direction:** self-launch / Pro signup, analytics, licensing and
+      remaining verification. Capacity 12–15 owner hours/week; test both one-time
+      and recurring pricing with prospective users before choosing.
+- [x] Report/roadmap reconciliation and execution plan written:
+      `SELF-LAUNCH-PLAN-v2.7.md`; primary corrections in
+      `SELF-LAUNCH-SOURCES-2026-10-16.md`; friend-facing brief in
+      `MARKETING-BRIEF-v2.7.md`. Font implementation is source checked; other work pending.
+- [x] **INFRA-004 first slice implemented/source checked:** removed restricted
+      Apple font resources and registration. Owner selected standard-width system
+      12pt Regular/Medium; Barlow trial removed; bundle identity preserved.
+- [x] Owner accepts standard-width system 12pt Regular/Medium layer titles:
+      “clean and clear” (2026-10-16). Condensed candidates superseded.
+- [ ] Full 1x/2x, light/dark, Large interface type and AT matrix; signed release
+      payload audit remains a freeze gate. Visual acceptance alone does not close these.
+- [x] **INFRA-005 local release-signup foundation:** durable storage before success,
+      read-only duplicate verification, preserved existing opt-outs, input/log guards;
+      15 endpoint checks and browser failure/success checks pass. Actual source data
+      map and dated provider handoff: `launch/DATA-FLOW-AND-SIGNUP-v2.7.md`.
+- [ ] Reliable separate Pro-interest signup, permission/delivery/unsubscribe proof,
+      data map and owner-reviewed privacy/EULA/refund/ownership decisions.
+- [ ] Minimal consented measurement of successful create/import → edit → output;
+      no document content, no pre-consent collection, verified withdrawal behavior.
+- [ ] 10–20 eligible first-use partner attempts; core-task VoiceOver/FKA and
+      appearance/accessibility verification; fix/retest observed blockers.
+- [ ] **Nov 6 offer gate:** test payment models with the same candidate benefit;
+      choose exact price/free boundary/entitlements or remain interest-only.
+      No paid feature or price is implied by selecting this release direction.
+- [ ] Bounded current fidelity triage and real Figma acceptance; optional SVG
+      clip-path slice only within cap and sequential owner verification.
+- [ ] If a paid offer is admitted: bounded feature, signed entitlements,
+      sandbox/live purchase/refund/restore/offline/update-eligibility proof.
+- [ ] Freeze/regressions/notarization and real v2.6→v2.7 continuity; full gates
+      and receipts live in `RELEASE-CHECKLIST-v2.7.md`.
+- [ ] Owner-approved public campaign and Dec 8/15 evidence reviews.
 
-Candidates carried forward: FEAT-057 design directions, FEAT-059 accessibility
-fix guidance, FEAT-060 evaluation harness, SVG `clip-path` import, and other
-open backlog items. FEAT-052 stays deferred without a target release; BUG-034
-Stage 2 stays parked at the owner's lowest priority.
+Internal targets: **Nov 16 RC review → Nov 20 conditional release → Dec 1
+campaign → Jan 14, 2027 90-day review.** Move dates when gates fail; never mark
+owner, AT, hosted delivery or checkout proof complete from source checks alone.
+Public sends, deployment, account agreements and final promo rendering remain
+separately authorized. Shipped free editing/exports stay available.
+
+FEAT-057/059/060, FEAT-033, broad color/typography/token work and full CSS mask
+support remain post-launch candidates. FEAT-052 remains deferred; BUG-034 Stage 2
+remains parked. Do not start a second document-mutating slice before acceptance.
 
 ## v2.6 — released (2026-10-01); complete (2026-10-02)
 
@@ -3337,6 +3373,136 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-10-16 — Release-signup foundation and privacy inventory [internal].**
+  Owner accepts standard-width SF Pro layer titles as “clean and clear” and asks
+  to continue tonight. Recorded acceptance without inferring the full appearance/
+  AT/display matrix or signed archive proof. INFRA-005 fixes the existing endpoint:
+  required durable Resend contact before success; optional owner notice afterward;
+  active repeats verify release topic/segment without writes; opt-outs/unrelated
+  contacts remain untouched; 409 alone is not success. Added strict payload/source/
+  purpose validation, bounded provider calls, no-store responses and redacted logs.
+  Browser requires `ok:true`; public download stays available independently.
+  Fifteen Node checks pass; baseline reproduced storage-disabled false success
+  and null-body crash. Local Chromium browser fixtures prove 503/empty-200 failures
+  stay on /download and valid success redirects to a fixture release destination.
+  Website build passes. No hosted email/contacts changed or deployment performed.
+  Source data map includes unpkg icon requests, hosting/Resend, Sparkle, Figma,
+  Sanaa, feedback URLs and local diagnostics; analytics/checkout remain planned.
+  Handoff: `launch/DATA-FLOW-AND-SIGNUP-v2.7.md`; setup: `website/DEPLOYMENT.md`.
+  Receipts: `/tmp/exp-signup-baseline.log`, `/tmp/exp-signup-tests.log`,
+  `/tmp/exp-signup-website-build.log`; browser snapshots `.playwright-cli/`.
+  **NEXT:** separate Pro-interest + mailbox confirmation/preferences design,
+  authorized provider setup/delivery/unsubscribe/deletion and concurrent-create/
+  rate-limit proof. Existing Resend config must be reviewed before deployment;
+  missing new required config fails closed. No paid offer, analytics or release.
+
+- **2026-10-16 — Owner selects standard-width system font for layer titles.**
+  Owner finds SF Pro cleanest/readable at 12pt in the native 1x comparison,
+  with Inter second and Barlow muddy. Verified current Apple Fonts guidance:
+  use system font APIs; do not embed downloadable SF font files. Changed shared
+  layer-title/rename seam to `.system(size:12, weight:.regular)` with Medium
+  for active rows; no width override. Removed Barlow trial resources, OFL and
+  process-registration code/call. Clean Debug app+extension/helpers build passes
+  with no font binaries; actual shared SwiftUI label seam matches standard system
+  Regular/Medium reference pixels at both 1x and 2x. Logs:
+  `/tmp/exp-v27-standard-font-build.log`, `/tmp/exp-standard-layer-font-probe.log`.
+  Document font/model and bundle identity unchanged.
+  **NEXT:** actual app visual acceptance on owner's 1x Cinema Display and 2x,
+  light/dark, Large interface type, long names and rename; signed archive audit
+  remains open. No publication, installed-app replacement or live relaunch.
+
+- **2026-10-16 — Non-Retina layer typography becomes an explicit acceptance case.**
+  Owner reports condensed/small text looks jagged on the older matte 30-inch
+  Apple Cinema Display, considers regular-width fonts despite shorter visible
+  names. Prepared native 1x samples of regular-width Barlow, Inter and SF Pro at
+  12/13 pt Regular, with current 12pt Semi Condensed Light as reference. App
+  typography unchanged in this exploration; no rendering bug or font choice
+  inferred. At 13pt measured x-height: Barlow 6.578pt, Inter 7.097pt, SF Pro
+  6.843pt. Recommendation for next owner-selected trial: regular-width Barlow,
+  13pt Regular / Medium selection, retain full names through suitable reveal UI.
+  No custom antialiasing/rasterization override found in inspected Layers view.
+  **NEXT:** choose a candidate from the 1x comparison; verify on actual 1x Cinema
+  and 2x display, light/dark, long names, rename and selected states. Native
+  specimen is a pixel-density comparison, not physical-display proof.
+
+- **2026-10-16 — Barlow runtime diagnosis; visual acceptance still open.**
+  Owner reports actual rows still resemble the prior font. Inspected the Xcode
+  running bundle: correct Light/Medium TTF hashes and OFL present. Read-only
+  Xcode debugger inspection confirms `EXPFonts.barlowAvailable = true` in PID
+  73406. Actual `expLayerName`/`layerFont` seam rendered through SwiftUI matches
+  an explicit native Barlow font (155.5pt test-string width; system 188.5pt);
+  sidebar List and pre-registration-cache probes also render Barlow correctly.
+  No reproducible font-resolution defect established; no speculative code fix.
+  Found installed `/Applications/design/EXP [design].app` (PID 71582) and Xcode
+  Debug copy running simultaneously, both with `stresstest.design` windows.
+  Temporarily marked ONLY the development NSWindow title `BARLOW DEV —
+  stresstest.design` to disambiguate comparison; title change does not rename
+  the document or touch file contents. App resumed after brief debugger reads;
+  neither process was quit. **NEXT:** owner compares the marked development
+  window; do not claim the supplied screenshot was conclusively the older copy.
+  Native probe evidence: `/tmp/exp-swiftui-font-probe.log`,
+  `/tmp/exp-swiftui-font-cold-probe.log`, `/tmp/exp-list-font-probe.png`.
+
+- **2026-10-16 — Barlow Semi Condensed layer-label trial built.**
+  Owner likes Barlow and requested a trial to judge x-height. Bundled unmodified
+  Light/Medium faces and complete OFL 1.1 license from Google Fonts; process-only
+  registration before views, explicit weights and standard system fallback.
+  Layer labels/rename remain 12 pt; document fonts and model are unchanged.
+  Fresh Debug app+helpers build succeeds; bundled-resource registration probe
+  confirms both PostScript faces/family and idempotence; forbidden Apple font
+  payload guard passes. Native-rendered specimen compares Barlow with rejected
+  SF Pro condensed and regular SF Pro. Barlow Light x-height 6.048 pt versus
+  original SF Compact Display Light 6.123 pt at 12 pt (~1.2% shorter).
+  Source/license hashes recorded in `Resources/Fonts/LICENSE-NOTE.md`.
+  **NEEDS OWNER VERIFY:** actual layer rows/rename, normal/selected weights,
+  light/dark, Large interface type, source editor and multi-window. No website
+  font rollout, system font installation, document mutation or publication.
+
+- **2026-10-16 — Owner rejects system condensed typography; font choice reopened.**
+  Supplied side-by-side shows the replacement on the left and prior SF Compact
+  Display on the right; owner dislikes the replacement and finds it harder to
+  read. INFRA-004 remains in progress despite green source/build/resource checks.
+  Rechecked Apple Fonts license §2B and current developer Fonts overview: no
+  bundling Apple's downloadable SF font files. OS-provided font APIs are a
+  separate supported route; SF Compact Display and SF Pro condensed differ.
+  Options under discussion: regular system width, OFL Barlow Semi Condensed or
+  Inter Tight, or explicit written Apple permission. No new font/code chosen
+  in this discussion. **NEXT:** compare realistic layer-row samples before
+  implementing another font; keep licensing and visual acceptance separate.
+
+- **2026-10-16 — INFRA-004 font distribution remediation implemented; needs owner verify.**
+  Replaced bundled SF Compact layer-label resolution with native system condensed
+  width; removed font registration, five app faces and 72 downloadable SF files
+  from the design-system export. Removed website guide webfont declarations
+  (references only; no font binaries were present there). Updated type fallbacks
+  and current architecture note; document model and bundle IDs unchanged.
+  Fresh unsigned Debug app+extension/helpers build succeeds at 2.7/18, with no
+  OTF/TTF payload in the new app. Appearance regression, website build and new
+  `verify_font_distribution.sh` pass; guard rejects a forbidden-filename fixture.
+  Compiler warnings remain in untouched importer/interop code; no broad cleanup.
+  **NEEDS OWNER VERIFY:** long/selected layer labels, light/dark, Large interface
+  type, source editor and multi-window. Signed archive, full AT and upgrade proof
+  remain release gates. No second document-mutating slice, commit or publication.
+  Brief's three Word pages rendered and visually reviewed. Source plan/checklist
+  and continuity pointers synchronized; existing promo work preserved.
+
+- **2026-10-16 — v2.7 scoped for self-launch readiness; execution plan prepared.**
+  Owner selects self-launch/Pro signup, analytics, licensing and verification,
+  confirms 12–15 hours/week and asks to test one-time versus recurring pricing.
+  Reconciled AutoClaw's October 16 sellability report with current roadmap,
+  v2.6 receipts, accessibility/interop inventories and inspected source seams.
+  Primary-source check confirms SF Compact distribution issue and rejects routine
+  bundle-ID rename; seller/entity/IP decisions remain conditional. Found signup
+  success can outlive failed/disabled durable contact storage and that existing
+  consent is for release notices. Added dependency-ordered self-launch plan,
+  pending v2.7 checklist, source memo and collaborator marketing brief.
+  Dates are internal gated targets, not public commitments. Existing October 13
+  roadmap edits and promo drafts preserved. No pricing lock, public send/deployment
+  or final video render occurred. First font slice is recorded above.
+  **NEXT:** owner typography acceptance, while preparing data-flow/policy drafts.
+  Paid features wait for Nov 6 offer decision; broader backlog does not silently
+  enter this release.
 
 - **2026-10-02 — v2.6 complete: the live update works.**
   Owner confirms the v2.5→v2.6 update and relaunch: “confirmed! worked like a

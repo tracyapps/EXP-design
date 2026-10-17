@@ -787,8 +787,8 @@ function SignupForm({
       });
       const result = await response.json().catch(() => ({}));
 
-      if (!response.ok) {
-        throw new Error(result.error ?? "signup failed");
+      if (!response.ok || result.ok !== true) {
+        throw new Error(result.error ?? "signup failed. Please try again.");
       }
 
       setStatus("success");

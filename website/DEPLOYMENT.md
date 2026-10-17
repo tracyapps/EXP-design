@@ -70,39 +70,59 @@ npm run build
 
 ## Email signup
 
-The tester signup form posts to `api/signup.js`, a small Vercel Function that
-sends a notification email through Resend. The same endpoint can also add the
-address to Resend Contacts for release broadcasts.
+The release signup form posts to `api/signup.js`. Signup success now requires a
+saved Resend contact in the release segment/topic. Owner notification email is
+optional and is sent only after persistence. Missing storage configuration returns
+503; there is no notification-only success mode.
 
-Set these Vercel environment variables:
+Required server-side Vercel environment variables:
 
 ```text
-RESEND_API_KEY=<your Resend API key>
-SIGNUP_TO_EMAIL=<where signup notifications should go>
+RESEND_API_KEY=<key with contact read/create and membership-read permissions>
+SIGNUP_STORE_CONTACTS=true
+RESEND_SIGNUP_SEGMENT_ID=<dedicated release segment id>
+RESEND_RELEASE_TOPIC_ID=<dedicated release topic id>
+```
+
+Optional owner notification (both values required; sender domain verified):
+
+```text
+SIGNUP_TO_EMAIL=<owner notification mailbox>
 SIGNUP_FROM_EMAIL=EXP [design] <hello@expdesign.app>
 ```
 
-Optional contact-list storage:
+Create/verify string contact properties `source`, `signed_up_at`,
+`signup_purpose`, `consent_version` before deploying. These store a request for
+release updates, not verified mailbox ownership. New records opt into the release
+topic only; review other topic defaults so this never grants marketing permission.
+Existing contacts are not rewritten. Only verified active release topic + segment
+membership yields repeat success. Opted-out/unrelated contacts require a later
+mailbox confirmation/preferences flow; do not resubscribe them from the dashboard
+merely to make the form succeed. Unknown membership beyond the first 100 results
+fails closed. A 409 is re-read and verified, never blindly accepted.
 
-```text
-SIGNUP_STORE_CONTACTS=true
-RESEND_SIGNUP_SEGMENT_ID=<optional Resend segment id>
-RESEND_RELEASE_TOPIC_ID=<optional Resend topic id>
-```
+Each provider call times out after five seconds. Rate-limit/provider failures are
+reported as signup failures; owner-notification failures after persistence do not
+invalidate the saved signup. Configure hosting abuse/rate controls and verify
+actual provider limits before promotion. Never put credentials in `VITE_*`, source
+files, browser code or command output. Do not pull/overwrite local env files just
+to run the mocked tests.
 
-If `SIGNUP_STORE_CONTACTS=true`, use a Resend API key that can create contacts.
-Without that flag, the form still emails each signup to `SIGNUP_TO_EMAIL`.
-
-For the cleanest production setup, verify `expdesign.app` in Resend first, then
-use an address on that domain for `SIGNUP_FROM_EMAIL`. For a quick test, Resend's
-`onboarding@resend.dev` sender can be used while the domain is being verified.
+Run `node --test tests/signup.test.mjs` from the repository root. Vite alone does
+not serve Vercel Functions; browser verification must use a local fixture or an
+authorized configured preview. Before deployment, follow the setup/migration and
+hosted evidence checklist in
+[`docs/launch/DATA-FLOW-AND-SIGNUP-v2.7.md`](../docs/launch/DATA-FLOW-AND-SIGNUP-v2.7.md).
+In particular, concurrent provider create/upsert behavior and real unsubscribe/
+confirmation/deletion are unverified. No automatic broadcasts are enabled.
 
 ## Release notifications
 
 The simplest release-notification workflow is:
 
 1. Publish a GitHub Release with build notes and assets.
-2. Use the Resend contact segment/topic created by the signup form.
+2. Use the dedicated release segment **and** release topic, with their actual
+   subscription preferences; include the provider unsubscribe/preferences link.
 3. Send a Resend Broadcast manually with the release notes and direct GitHub
    release links.
 

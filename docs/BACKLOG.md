@@ -7127,6 +7127,88 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 
 ## 🛠 Infrastructure
 
+### INFRA-005 — Reliable release signup before Pro-interest enrollment
+- Type: chore
+- Priority: P1
+- Area: website · privacy · launch readiness
+- Status: needs-verify
+- Detail: old endpoint could announce list success with disabled/failed contact
+  storage, treated 409 as saved, sent owner mail before persistence, and logged
+  addresses/provider details. Null payloads could throw.
+- Implementation: require release contact storage/segment/topic; read existing
+  contacts without altering opt-outs; verify existing topic and segment before
+  repeat success; validate conflict via read-back. New contact properties capture
+  release purpose/request time/version/source. Owner notification is optional and
+  follows persistence. Bounded calls, safe logs, input/source/purpose validation;
+  browser requires explicit `ok:true`. Free download link retained.
+- Verification: `node --test tests/signup.test.mjs` passes 15 checks; local Chromium
+  fixtures verify 503/empty-200 failure and valid-success redirect; website build
+  and diff guard pass. No live contacts, sends or deployment.
+- Acceptance remaining: authorized real contact/property/topic setup, rate-limit
+  and concurrent-create behavior, confirmation, unsubscribe/deletion receipts.
+  Separate Pro-interest permission/model/price/confirmation is the next slice.
+  No full signup/privacy release gate is closed by local mocks.
+- Handoff: `launch/DATA-FLOW-AND-SIGNUP-v2.7.md`; `website/DEPLOYMENT.md`.
+- API contract sources checked 2026-10-16:
+  https://resend.com/docs/api-reference/contacts/create-contact
+  https://resend.com/docs/api-reference/contacts/get-contact
+  https://resend.com/docs/api-reference/contacts/get-contact-topics
+  https://resend.com/docs/api-reference/contacts/list-contact-segments
+
+### INFRA-004 — Remove downloadable Apple font payloads from distribution
+- Type: chore
+- Priority: P1
+- Area: distribution · typography · licensing
+- Status: **needs-verify — owner visual acceptance 2026-10-16; full display/AT matrix and signed payload pending**
+- Detail: the app registered five embedded SF Compact faces; the design-system
+  export contained another 72 SF font binaries. Apple's downloadable font
+  agreements prohibit embedding/redistribution; native system font APIs avoid
+  that payload. Website guide font-face declarations referenced absent binaries.
+- Source: https://developer.apple.com/fonts/ — SF/SF Compact agreements §2B.
+- Implementation: system condensed `EXPType.layerFont`; remove registration,
+  five app resources and 72 design-export resources; remove stale webfont
+  declarations and align condensed CSS fallbacks. Existing document fonts and
+  bundle identities unchanged. Historical released ZIPs remain immutable.
+- Owner visual result 2026-10-16: system condensed replacement (left in supplied
+  comparison) is disliked and harder to read. Typography acceptance FAILED; do
+  not treat the source/build checks as closing this item. Original was SF Compact
+  Display; replacement is system SF Pro condensed, a different design. Explore
+  regular system width and OFL alternatives before another visual change.
+- Barlow candidate 2026-10-16: owner likes Barlow and requested a trial. Bundled
+  unmodified Barlow Semi Condensed Light/Medium with OFL.txt; process-scoped
+  registration and explicit faces for ordinary/selected labels, still 12 pt.
+  Native app builds; shipped resources register successfully in an isolated probe.
+  At 12 pt, Light x-height is 6.048 pt versus original SF Compact Display Light
+  6.123 pt (~1.2% shorter). Native font specimen rendered; owner acceptance pending.
+  Logs: `/tmp/exp-v27-barlow-build.log`, `/tmp/exp-barlow-registration.log`,
+  `/tmp/exp-barlow-specimen.log`. No website Barlow rollout in this trial.
+- Runtime follow-up 2026-10-16: owner reports unchanged-looking actual rows.
+  Running Xcode process confirms Barlow availability; actual SwiftUI seam and
+  native sidebar probes resolve Barlow. Two installed/debug EXP processes and
+  duplicate document-window titles found; development window temporarily marked
+  `BARLOW DEV` for comparison. No conclusive screenshot/process attribution and
+  no font-resolution fix claimed; visual acceptance remains pending.
+- Final font selection 2026-10-16: owner prefers standard SF Pro at 12pt for
+  readability on the 1x Cinema Display. Shared layer-title/rename seam now uses
+  standard-width system font Regular/Medium; Barlow resources and registration
+  removed. Apple recommends `.system`/native APIs for system fonts:
+  https://developer.apple.com/documentation/technologyoverviews/fonts
+  Clean Debug build passes with no embedded font binaries; actual SwiftUI label
+  seam matches 12pt Regular/Medium reference pixels at 1x/2x. Logs:
+  `/tmp/exp-v27-standard-font-build.log`, `/tmp/exp-standard-layer-font-probe.log`.
+  Owner subsequently accepts actual appearance as “clean and clear.” Full
+  display/appearance/AT matrix and signed release audit remain open.
+- Acceptance: Debug build passes without embedded font payloads; distribution
+  guard rejects known SF payload and passes new app/site/design trees. Owner
+  compares normal/selected long layer names, light/dark, Large interface type,
+  multi-window and source editor on both 1x (owner Cinema Display) and 2x screens;
+  signed release archive inspected before release.
+- Verification: `xcodebuild` Debug, `verify_appearance_style.sh`, website build,
+  `verify_font_distribution.sh`, backlog-ID guard and diff check pass. Logs:
+  `/tmp/exp-v27-launch-font-build.log`, `/tmp/exp-v27-launch-appearance.log`,
+  `/tmp/exp-v27-launch-website.log`, `/tmp/exp-v27-font-payloads.log`.
+  Unsigned Debug/source evidence is not signed archive, native visual or AT proof.
+
 ### INFRA-003 — Orphaned doc comment above `sendCanvasAction`
 - Type: chore
 - Priority: P3

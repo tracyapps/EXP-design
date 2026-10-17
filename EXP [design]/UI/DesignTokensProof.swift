@@ -4,7 +4,7 @@
 //
 //  Phase 17a PROOF STEP (DEBUG-only). A tiny self-contained view that exercises
 //  the token layer before mass adoption: a tokenized primary button + a panel
-//  section header + the text tiers + a layer-name row (to confirm SF Compact
+//  section header + the text tiers + a layer-name row (to confirm standard-width system font
 //  resolves) + the accent (which follows the system accent / override). Open the
 //  Xcode canvas preview and flip the appearance switch to verify light + dark.
 //
@@ -32,7 +32,7 @@ struct DesignTokensProof: View {
                 Text("tertiary — another long layer name…").font(.expLabel).foregroundStyle(EXPColor.textTertiary)
             }
 
-            // Layer-name rows (SF Compact; active = heavier + selection fill)
+            // Layer-name rows (standard-width system font; active = heavier + selection fill)
             VStack(spacing: 0) {
                 layerRow("a text layer.", active: false)
                 layerRow("layer name", active: true)

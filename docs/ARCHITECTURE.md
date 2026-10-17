@@ -93,7 +93,7 @@ ComponentInstance = sourceID + bounded overrides + per-layer visibility (referen
 ## 7. Design system (the Phase-17 layer) — `UI/`
 - `DesignTokens.swift` — the single source of truth: `EXPColor` (appearance-resolving,
   overridable accent + `accentForeground` auto-contrast), `EXPType`/`Font` (SF Pro +
-  bundled **SF Compact**, see `FontRegistration.swift`), `EXPMetric`, `EXPMotion`,
+  standard-width system layer labels at 12pt Regular/Medium; no bundled fonts), `EXPMetric`, `EXPMotion`,
   `EXPGlass` values, and `EXPFieldStyle`.
 - `GlassSurface.swift` — `expGlass(.thin/.medium/.thick)` (native macOS-26 Liquid
   Glass), `WindowGlassBackground` (behind-window, active-aware), `expTopEdge`, and
