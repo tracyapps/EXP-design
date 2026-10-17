@@ -172,3 +172,87 @@ do not manually repeat every combination for every small change.
 The installed VoiceOver.sdef dictionary and XCUIAutomation headers/Swift interface
 were inspected too. Actual VoiceOver speech is a pending execution gate, not a
 claim based on those declarations or successful AppleScript compilation.
+
+
+## v2.7 interface preferences — FEAT-070
+
+Settings → Accessibility separates unconditional accessibility semantics from
+personal presentation choices. Names, states, input instructions and meaningful
+control actions must work in every mode. Baseline legibility/contrast is not an
+optional preference; BUG-069's remaining contrast findings still need triage.
+
+- **Interface type size:** System default, Compact, Standard, Large (125%) or
+  Extra Large (150%). The existing preference key/values remain valid. Shared
+  `EXPType` fonts now scale explicitly; fixed numeric fields widen, layer rows
+  gain space for two lines, and dock headings scroll rather than overlap.
+  System default uses AppKit's public preferred body-font baseline. This does not
+  promise access to the per-app text-size overrides macOS offers some Apple apps.
+- **Larger click targets:** independent of text size. Shared field/button styles,
+  tool buttons, Inspector icon actions and layer-row controls gain larger targets.
+  This is not a claim that every legacy/custom control has a 44-point target.
+  Padding on a styled field must really focus the native editor; a larger painted
+  rectangle alone is not sufficient. Tool buttons scroll vertically if needed.
+- **Tool names and guidance:** Automatic with VoiceOver, Always show, or Keep
+  compact. Automatic reads `NSWorkspace.isVoiceOverEnabled` locally and observes
+  changes (enabled status, rather than inspecting reader processes); the explicit choices win for either reader state. It shows tool names,
+  inactive panel names and grid explanations. Other existing help remains available
+  through accessible hints, focus and hover; persistent guidance is not yet wired
+  into every Inspector section.
+
+VoiceOver does not imply that larger text or targets are wanted. Its status is
+never persisted as a user profile, sent to a provider, or used for analytics.
+No special Accessibility grant or private preference-store access is required
+for these public system reads. Artwork geometry, document type and exports are
+unchanged by interface preferences.
+
+Universal fixes in this slice: named 34 previously empty-title TextField
+constructors and ten Picker constructors across MainWindow and the color/paint
+editors (many already had additional explicit accessible names),
+named polygon stepping and layer/group disclosure controls, named Settings pickers,
+added grid/color input hints, restored spoken tool-shortcut hints previously
+overwritten by an empty hint, and hid the redundant Components empty-state illustration.
+The two default grid-field names and decorative-image behavior have runtime checks;
+other selected-object Inspector contexts still need their full human matrix.
+
+Focused policy checks: `bash scripts/verify_interface_accessibility.sh` compiles the
+actual preference/model source against an isolated UserDefaults suite. It covers
+legacy values, invalid-value fallback without erasure, override precedence,
+VoiceOver-on/off guidance decisions, geometry and persisted reload. Native UI cases
+cover real pointer interaction and changing Settings in an already-open editor.
+
+Sources reviewed before naming/policy work:
+[Apple VoiceOver guidance](https://developer.apple.com/design/human-interface-guidelines/voiceover),
+[public VoiceOver status](https://developer.apple.com/documentation/appkit/nsworkspace/isvoiceoverenabled),
+[AppKit preferred text styles](https://developer.apple.com/documentation/appkit/nsfont/textstyle),
+[Apple larger-text criteria](https://developer.apple.com/help/app-store-connect/manage-app-accessibility/larger-text-evaluation-criteria),
+[WCAG labels/instructions](https://www.w3.org/WAI/WCAG21/Understanding/labels-or-instructions.html),
+[WCAG non-text content](https://www.w3.org/WAI/WCAG21/Understanding/non-text-content.html).
+Installed AppKit/SwiftUI SDK declarations were checked as well. Web ARIA attributes
+are not applied to native SwiftUI/AppKit controls.
+
+VoiceOver harness correction: a previous loose `select` match also accepted
+“Properties selected button” or instructional “Select layers” text. The matcher now
+requires a named core control and its button role; two regression tests reject
+those false positives. Real canvas speech was captured, but that alone is not
+proof of traversal to the Select/Rectangle/Zoom buttons.
+
+
+October 17 FEAT-070 receipts: the combined native run at
+`output/a11y/2026-10-17T14-25-39-868Z/` has five passing workflow tests, one skipped
+AX focus test (new runner copy), and one failed audit test with 23 observations:
+nine missing descriptions, five missing actions, six contrast failures, two near-
+threshold contrast results and one parent/child mismatch. Grid-field missing-title
+and decorative-symbol-name findings are absent; no other category was suppressed.
+The real VoiceOver transcript contains actual canvas/editor speech, but the corrected
+core-control matcher fails the 45-move traversal gate. This is not permission proof
+of a missing grant and is not complete screen-reader acceptance.
+
+The final focused native rerun after the additional color/picker naming changes is
+`output/a11y/interface-final-20261017/native/results.xcresult`: all three preference,
+actual padded-target, and universal-name checks pass. The policy suite and two
+VoiceOver matcher regression tests pass. Final build logs:
+`/tmp/exp-interface-label-followup-build.log`, `/tmp/exp-interface-hints-build.log`.
+Cropped dark editor/Settings screenshots were visually inspected. A launch argument
+alone did not establish Light appearance; real light-mode/1x/2x, small-window,
+selected-object/color-popover, floating/source-editor and live reader on/off review
+remain required. This first slice does not complete the entire accessibility audit.

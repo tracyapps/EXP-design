@@ -34,8 +34,8 @@ struct EXPSegmented<Value: Hashable>: View {
     @Binding var selection: Value
     let segments: [Segment]
     @FocusState private var focusedValue: Value?
-    @ScaledMetric(relativeTo: .caption) private var segmentFontSize: CGFloat = 12
-    @ScaledMetric(relativeTo: .caption) private var segmentHeight: CGFloat = 20
+    private var segmentFontSize: CGFloat { EXPType.small }
+    private var segmentHeight: CGFloat { EXPInterfaceAccessibility.shared.targetHeight(20) }
 
     var body: some View {
         HStack(spacing: 2) {
@@ -135,7 +135,7 @@ struct EXPButtonStyle: ButtonStyle {
                 .font(.system(size: EXPType.base, weight: .medium))
                 .foregroundStyle(fg)
                 .padding(.horizontal, EXPMetric.lg)
-                .frame(height: EXPMetric.controlHLg)
+                .frame(minHeight: EXPMetric.controlHLg)
                 .background(bg(pressed: pressed),
                             in: RoundedRectangle(cornerRadius: EXPMetric.radiusButton, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: EXPMetric.radiusButton, style: .continuous)
@@ -191,8 +191,8 @@ struct EXPCompactButtonStyle: ButtonStyle {
         let configuration: ButtonStyleConfiguration
         let fillsWidth: Bool
         @State private var hovering = false
-        @ScaledMetric(relativeTo: .caption) private var controlHeight: CGFloat = EXPMetric.controlH
-        @ScaledMetric(relativeTo: .caption) private var fontSize: CGFloat = EXPType.mini
+        private var controlHeight: CGFloat { EXPMetric.controlH }
+        private var fontSize: CGFloat { EXPType.mini }
 
         var body: some View {
             configuration.label

@@ -300,7 +300,7 @@ struct PanelTray: Identifiable, Codable, Equatable {
 
 // MARK: - Dock column view
 
-private let dockHeaderH: CGFloat = 30
+private var dockHeaderH: CGFloat { max(30 * EXPType.scale, EXPMetric.controlH + 6) }
 private let dockDividerH: CGFloat = 6
 
 /// Renders one dock column from `app.workspace`.
@@ -496,16 +496,21 @@ private struct PanelGroupView: View {
 
     private var header: some View {
         HStack(spacing: 2) {
+            ScrollView(.horizontal) {
+            HStack(spacing: 2) {
             ForEach(group.panels) { pid in
                 PanelTab(
                     title: pid.title,
                     icon: pid.icon,
                     isActive: pid == group.activeID && !group.collapsed,
-                    showLabel: group.panels.count == 1 || pid == group.activeID
+                    showLabel: group.panels.count == 1 || pid == group.activeID || EXPInterfaceAccessibility.shared.showGuidance
                 ) {
                     app.setActivePanel(pid, inGroup: group.id, side: side)
                 }
             }
+            }
+            }
+            .accessibilityLabel("Panel headings")
             Spacer(minLength: 4)
             Button {
                 app.toggleGroupCollapsed(group.id, side: side)
@@ -513,11 +518,13 @@ private struct PanelGroupView: View {
                 Image(systemName: group.collapsed ? "chevron.right" : "chevron.down")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(EXPColor.textTertiary)
-                    .frame(width: 22, height: 22)
+                    .frame(width: EXPInterfaceAccessibility.shared.targetHeight(22),
+                           height: EXPInterfaceAccessibility.shared.targetHeight(22))
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .help(group.collapsed ? "Expand panel" : "Collapse panel")
+            .accessibilityLabel((group.collapsed ? "Expand " : "Collapse ") + group.activeID.title)
         }
         .padding(.horizontal, 6)
         .frame(height: dockHeaderH)
@@ -604,6 +611,7 @@ private struct PanelTab: View {
                         .tracking(EXPType.tracking(EXPType.trCaps, EXPType.base))
                 }
             }
+            .fixedSize(horizontal: true, vertical: false)
             .padding(.horizontal, EXPMetric.md)
             .frame(height: EXPMetric.controlH)
             .background(
@@ -879,6 +887,7 @@ struct ComponentsPanel: View {
                 VStack(spacing: 8) {
                     Image(systemName: "rectangle.3.group")
                         .font(.system(size: 26)).foregroundStyle(EXPColor.textTertiary)
+                        .accessibilityHidden(true)
                     Text("No components yet").font(.expLabel).foregroundStyle(EXPColor.textSecondary)
                     Text("Select layers, then Create Component — the source appears here.")
                         .font(.system(size: EXPType.mini)).foregroundStyle(EXPColor.textTertiary)

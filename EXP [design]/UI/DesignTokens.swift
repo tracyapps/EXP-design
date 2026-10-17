@@ -203,9 +203,17 @@ enum EXPColor {
 /// weight for small-text readability, with medium for the active layer.
 enum EXPType {
     // Scale (pt)
-    static let micro: CGFloat = 10, mini: CGFloat = 11, small: CGFloat = 12
-    static let base: CGFloat = 13, md: CGFloat = 15, lg: CGFloat = 18
-    static let xl: CGFloat = 22, xxl: CGFloat = 28, xxxl: CGFloat = 40, display: CGFloat = 64
+    static var scale: CGFloat { EXPInterfaceAccessibility.shared.textScale }
+    static var micro: CGFloat { 10 * scale }
+    static var mini: CGFloat { 11 * scale }
+    static var small: CGFloat { 12 * scale }
+    static var base: CGFloat { 13 * scale }
+    static var md: CGFloat { 15 * scale }
+    static var lg: CGFloat { 18 * scale }
+    static var xl: CGFloat { 22 * scale }
+    static var xxl: CGFloat { 28 * scale }
+    static var xxxl: CGFloat { 40 * scale }
+    static var display: CGFloat { 64 * scale }
 
     // Tracking (em → points helper)
     static func tracking(_ em: CGFloat, _ size: CGFloat) -> CGFloat { size * em }
@@ -213,8 +221,8 @@ enum EXPType {
     static let trWide: CGFloat = 0.04   // section labels
 
     /// Standard-width macOS system font; supplied by the OS, never bundled.
-    @MainActor static func layerFont(size: CGFloat = small, weight: Font.Weight = .regular) -> Font {
-        .system(size: size, weight: weight)
+    @MainActor static func layerFont(size: CGFloat? = nil, weight: Font.Weight = .regular) -> Font {
+        .system(size: size ?? small, weight: weight)
     }
 }
 
@@ -256,12 +264,14 @@ extension View {
 }
 
 private struct EXPInterfaceTypeSizeModifier: ViewModifier {
-    @AppStorage(AppPreferences.interfaceTypeSize) private var raw =
-        AppPreferences.defaultInterfaceTypeSize
+    @Environment(\.dynamicTypeSize) private var inheritedSize
+    @Environment(\.controlSize) private var inheritedControlSize
 
     func body(content: Content) -> some View {
-        let size = EXPInterfaceTypeSize(rawValue: raw) ?? .standard
-        content.dynamicTypeSize(size.dynamicTypeSize)
+        let preferences = EXPInterfaceAccessibility.shared
+        content
+            .dynamicTypeSize(preferences.typeSize == .system ? inheritedSize : preferences.typeSize.dynamicTypeSize)
+            .controlSize(preferences.largerTargets ? .large : inheritedControlSize)
     }
 }
 
@@ -292,8 +302,11 @@ enum EXPMetric {
     static let windowMinWidth: CGFloat = 900, windowMinHeight: CGFloat = 600
     static let titlebarHeight: CGFloat = 52, panelHeaderHeight: CGFloat = 38
     // control sizing
-    static let controlH: CGFloat = 24, controlHLg: CGFloat = 30
-    static let iconBtn: CGFloat = 24, hitTarget: CGFloat = 28, fieldWNumeric: CGFloat = 56
+    static var controlH: CGFloat { EXPInterfaceAccessibility.shared.targetHeight(24) }
+    static var controlHLg: CGFloat { EXPInterfaceAccessibility.shared.targetHeight(30) }
+    static var iconBtn: CGFloat { EXPInterfaceAccessibility.shared.targetHeight(24) }
+    static var hitTarget: CGFloat { EXPInterfaceAccessibility.shared.targetHeight(28) }
+    static var fieldWNumeric: CGFloat { 56 * EXPType.scale }
 }
 
 // MARK: - Motion ============================================================
@@ -354,21 +367,55 @@ extension EXPColor {
 /// `.textFieldStyle(.exp)`. (Focus shows the text cursor; the accent focus ring
 /// from the spec needs per-field @FocusState and can layer on later.)
 struct EXPFieldStyle: TextFieldStyle {
-    @ScaledMetric(relativeTo: .callout) private var fontSize: CGFloat = EXPType.small
-    @ScaledMetric(relativeTo: .callout) private var controlHeight: CGFloat = EXPMetric.controlH
-
     func _body(configuration: TextField<Self._Label>) -> some View {
+        EXPFieldChrome(configuration: configuration)
+    }
+}
+
+/// Padding belongs to the pointer target. Focus goes through AppKit so an outer
+/// caller-owned FocusState (rename, Inspector, etc.) is not replaced by the style.
+private struct EXPFieldChrome<Label: View>: View {
+    let configuration: TextField<Label>
+    var body: some View {
         configuration
-            .font(.system(size: fontSize))
+            .font(.system(size: EXPType.small))
             .foregroundStyle(EXPColor.textPrimary)
             .padding(.horizontal, 7)
-            .frame(minHeight: controlHeight)
+            .frame(minHeight: EXPMetric.controlH)
             .background(EXPColor.surfaceField,
                         in: RoundedRectangle(cornerRadius: EXPMetric.radiusField, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: EXPMetric.radiusField, style: .continuous)
                     .strokeBorder(EXPColor.borderStrong, lineWidth: EXPMetric.strokeHairline)
             )
+            .contentShape(Rectangle())
+            .simultaneousGesture(TapGesture().onEnded { focusPaddedEditor() })
+    }
+
+    private func focusPaddedEditor() {
+        // Preserve the caller's FocusState and an existing caret/selection.
+        // Only a real pointer event uses the padded target; accessibility focus
+        // continues through the native editable text field's own actions.
+        guard let window = NSApp.keyWindow, let root = window.contentView,
+              let event = NSApp.currentEvent,
+              [.leftMouseDown, .leftMouseUp].contains(event.type) else { return }
+        let point = window.convertPoint(fromScreen: NSEvent.mouseLocation)
+        func fields(in view: NSView) -> [NSTextField] {
+            if let field = view as? NSTextField, field.isEditable, field.isEnabled,
+               !field.isHiddenOrHasHiddenAncestor { return [field] }
+            return view.subviews.flatMap { fields(in: $0) }
+        }
+        let candidates = fields(in: root).filter { field in
+            let frame = field.convert(field.bounds, to: nil)
+            return frame.insetBy(dx: -7, dy: -max(0, (EXPMetric.controlH - frame.height) / 2)).contains(point)
+        }
+        let nearest = candidates.min { a, b in
+            let a = a.convert(a.bounds, to: nil), b = b.convert(b.bounds, to: nil)
+            return hypot(a.midX - point.x, a.midY - point.y) < hypot(b.midX - point.x, b.midY - point.y)
+        }
+        if let field = nearest, field.currentEditor() == nil {
+            window.makeFirstResponder(field)
+        }
     }
 }
 

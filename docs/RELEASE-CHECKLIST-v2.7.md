@@ -77,8 +77,9 @@ payment and license records live outside the repository; use sanitized summaries
 
 - [x] INFRA-009 repeatable web/native verification harness implemented and run.
       72 web checks pass; native named-controls/Open/Escape/Cmd-S checks pass.
-      Native audit has 27 findings (BUG-069), AX focus and real VoiceOver are
-      permission-blocked, and 40 web contrast scans need review. This does not
+      Native audit findings (BUG-069) and 40 web contrast scans need review.
+      AX focus passes with the exact authorized runner; new ad-hoc copies need a
+      stable authorization strategy. Real reader navigation still needs verification. This does not
       close the human gates below. Run/setup: `ACCESSIBILITY-VERIFICATION.md`.
 
 - [ ] 10–20 eligible first-use task attempts summarized; assistance explicitly recorded;
@@ -86,6 +87,9 @@ payment and license records live outside the repository; use sanitized summaries
 - [ ] Create/import → edit → save/reopen → export/handoff completes with owned fixtures.
 - [ ] VoiceOver and Full Keyboard Access pass for marketed core task, signup/consent
       and any paid surfaces; traversal/names/states/focus and failure messages recorded.
+- [ ] FEAT-070 accessibility preferences accepted across supported contexts;
+      default semantics available in every mode, explicit choices override Automatic,
+      actual larger targets work, and persistence/live updates are verified.
 - [ ] Light/dark, Large interface type, Increase Contrast, Reduce Motion and Reduce
       Transparency reviewed; blockers fixed and retested, limits stated precisely.
 - [ ] Real permitted Figma file re-imported; live API/error behavior and visual results
@@ -247,3 +251,16 @@ vulnerabilities. Logs: `/tmp/exp-a11y-final.log`,
 `/tmp/exp-a11y-services-final.log`, `/tmp/exp-a11y-build-final.log`.
 Setup and repeat instructions: `ACCESSIBILITY-VERIFICATION.md`. Live VoiceOver
 traversal/cleanup awaits the OS permission gate; no push, deploy or provider sends.
+
+
+October 17 FEAT-070: Settings → Accessibility provides independent interface text,
+larger shared targets and visible guidance. Public VoiceOver status controls only
+Automatic guidance; explicit choices remain authoritative. Shared text actually
+scales, control padding accepts clicks, and live Settings changes are verified.
+Policy/persistence checks and two VoiceOver matcher regressions pass; the final
+three-case focused UI run passes in `output/a11y/interface-final-20261017/`.
+Combined native run `output/a11y/2026-10-17T14-25-39-868Z/` has five workflow passes,
+one skipped focus test for the fresh runner and 23 retained audit observations.
+Strict real-reader traversal still fails despite captured speech. Dark snapshots
+inspected; full display/appearance/settings and selected-object/AT gates stay open.
+Build: `/tmp/exp-interface-hints-build.log`; scope: `ACCESSIBILITY-VERIFICATION.md`.

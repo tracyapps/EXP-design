@@ -217,7 +217,7 @@ struct PaintEditor: View {
 
     var body: some View {
         VStack(spacing: 10) {
-            Picker("", selection: modeBinding) {
+            Picker("Paint type", selection: modeBinding) {
                 Text("Solid").tag(Mode.solid)
                 Text("Linear").tag(Mode.linear)
                 Text("Radial").tag(Mode.radial)
@@ -269,10 +269,11 @@ struct PaintEditor: View {
                     .buttonStyle(.borderless)
                     .disabled(gradientBinding.wrappedValue.stops.count <= 2)
                     .help("Delete stop")
+                    .accessibilityLabel("Delete gradient stop")
             }
             HStack(spacing: 6) {
                 Text("Pos").foregroundStyle(EXPColor.textSecondary).font(.callout)
-                TextField("", value: stopPositionBinding(idx), format: .number.precision(.fractionLength(0)))
+                TextField("Gradient stop position, percent", value: stopPositionBinding(idx), format: .number.precision(.fractionLength(0)))
                     .textFieldStyle(.exp).frame(width: 52).multilineTextAlignment(.trailing)
                     .numericStepping(stopPositionBinding(idx), min: 0, max: 100)
                 Text("%").foregroundStyle(EXPColor.textSecondary)
@@ -284,7 +285,8 @@ struct PaintEditor: View {
             HStack(spacing: 6) {
                 Text("Angle").foregroundStyle(EXPColor.textSecondary).font(.callout)
                 Slider(value: angleBinding, in: 0...360)
-                TextField("", value: angleBinding, format: .number.precision(.fractionLength(0)))
+                    .accessibilityLabel("Gradient angle")
+                TextField("Gradient angle, degrees", value: angleBinding, format: .number.precision(.fractionLength(0)))
                     .textFieldStyle(.exp).frame(width: 48).multilineTextAlignment(.trailing)
                     // No min/max on purpose: clamping would stop the arrows dead at
                     // 0 and 360. Unclamped, stepping past either end falls through

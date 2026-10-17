@@ -1269,7 +1269,11 @@ private struct LayerOutlineRow: View {
     /// Fixed row height: every row is the same height and flush with its neighbours,
     /// so the drop thresholds are stable and the before/after insertion lines land at
     /// the exact same y (one line per gap, not two). A measured height jittered.
-    private var rowH: CGFloat { instance == nil ? 28 : 42 }
+    private var rowH: CGFloat {
+        let base: CGFloat = instance == nil ? 28 : 42
+        let wrapped: CGFloat = EXPType.scale > 1 ? (instance == nil ? 44 : 64) : base
+        return max(EXPInterfaceAccessibility.shared.targetHeight(base), wrapped)
+    }
     let onToggleVisible: (UUID) -> Void
     let onToggleLock: (UUID) -> Void
     let onRename: (UUID, String) -> Void
@@ -1626,7 +1630,7 @@ private struct LayerRow: View {
     @FocusState private var componentNameFocused: Bool
     @Environment(AppState.self) private var app
 
-    private let chevronW: CGFloat = 10
+    private var chevronW: CGFloat { EXPInterfaceAccessibility.shared.largerTargets ? 44 : 10 }
     private let indentStep: CGFloat = 12
 
     var body: some View {
@@ -1657,6 +1661,7 @@ private struct LayerRow: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel((isExpanded ? "Collapse " : "Expand ") + node.name)
                 Color.clear.frame(width: EXPMetric.xxs)
             } else {
                 Color.clear.frame(width: EXPMetric.xxs + chevronW + EXPMetric.xxs)
@@ -1665,7 +1670,9 @@ private struct LayerRow: View {
             // eye
             Button(action: onToggleVisible) {
                 Image(systemName: node.isVisible ? "eye.fill" : "eye.slash.fill")
-                    .font(.system(size: 11))
+                    .font(.system(size: EXPType.mini))
+                    .frame(minWidth: EXPInterfaceAccessibility.shared.largerTargets ? 44 : nil,
+                           minHeight: EXPInterfaceAccessibility.shared.largerTargets ? 44 : nil)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -1693,7 +1700,9 @@ private struct LayerRow: View {
             // lock — right edge
             Button(action: onToggleLock) {
                 Image(systemName: node.isLocked ? "lock.fill" : "lock.open.fill")
-                    .font(.system(size: 11))
+                    .font(.system(size: EXPType.mini))
+                    .frame(minWidth: EXPInterfaceAccessibility.shared.largerTargets ? 44 : nil,
+                           minHeight: EXPInterfaceAccessibility.shared.largerTargets ? 44 : nil)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -1850,7 +1859,8 @@ private struct LayerRow: View {
                     // standard-width system font, medium when this layer is active (Session-133).
                     .expLayerName(active: isActive)
                     .foregroundStyle(node.isLocked ? EXPColor.textTertiary : EXPColor.textPrimary)
-                    .lineLimit(1)
+                    .lineLimit(EXPType.scale > 1 ? 2 : 1)
+                    .help(displayName)
                     .truncationMode(.tail)
                     // Double-click always renames the INSTANCE/layer, never its source.
                     .onTapGesture(count: 2) { beginRename() }

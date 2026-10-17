@@ -42,7 +42,6 @@ enum AppPreferences {
     static let artboardSpacing     = "exp.pref.artboardSpacing"     // Double (points), default 160
     static let pencilFidelity      = "exp.pref.pencilFidelity"      // Double (points of allowed deviation), default 2
     static let requestedSettingsPane = "exp.settings.requestedPane" // String (SettingsPane raw); "" = none. Lets a window jump Settings to a pane.
-    static let interfaceTypeSize    = "exp.pref.interfaceTypeSize"  // EXPInterfaceTypeSize raw value
     static let tooltipVerbosity     = "exp.pref.tooltipVerbosity"   // EXPTooltipVerbosity raw value
 
     // Defaults (kept next to the keys so AppState and Settings agree).
@@ -58,21 +57,7 @@ enum AppPreferences {
     static let defaultPerformanceMode     = "balanced"
     static let defaultArtboardSpacing: Double = 160
     static let defaultPencilFidelity: Double = 2
-    static let defaultInterfaceTypeSize = EXPInterfaceTypeSize.standard.rawValue
     static let defaultTooltipVerbosity = EXPTooltipVerbosity.full.rawValue
-}
-
-/// User-controlled chrome type size. This rides SwiftUI's Dynamic Type
-/// environment so system accessibility sizing and the app preference compose.
-enum EXPInterfaceTypeSize: String, CaseIterable, Identifiable {
-    case compact, standard, large
-    var id: String { rawValue }
-    var label: String {
-        switch self { case .compact: "Compact"; case .standard: "Standard"; case .large: "Large" }
-    }
-    var dynamicTypeSize: DynamicTypeSize {
-        switch self { case .compact: .medium; case .standard: .large; case .large: .xxLarge }
-    }
 }
 
 /// Hover-help density. Shorter levels never alter accessible names or the full
@@ -109,13 +94,14 @@ extension AppPreferences {
 private enum SettingsScope { case app, document }
 
 private enum SettingsPane: String, CaseIterable, Identifiable {
-    case general, canvas, sanaa, designTokens, about   // app-wide
+    case general, accessibility, canvas, sanaa, designTokens, about   // app-wide
     case designLanguage                          // document-specific
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .general:        return "General"
+        case .accessibility:  return "Accessibility"
         case .canvas:         return "Canvas"
         case .sanaa:          return "Sanaa"
         case .designTokens:   return "Design Tokens"
@@ -128,6 +114,7 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
     var symbol: String {
         switch self {
         case .general:        return "gearshape"
+        case .accessibility:  return "accessibility"
         case .canvas:         return "squareshape.dashed.squareshape"
         case .sanaa:          return "hand.draw"
         case .designTokens:   return "textformat"
@@ -162,12 +149,18 @@ struct SettingsWindow: View {
             List(selection: $pane) {
                 Section("App") {
                     ForEach(SettingsPane.appPanes) { item in
-                        Label(item.title, systemImage: item.symbol).tag(item)
+                        Label(item.title, systemImage: item.symbol)
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .tag(item)
                     }
                 }
                 Section("Document") {
                     ForEach(SettingsPane.documentPanes) { item in
-                        Label(item.title, systemImage: item.symbol).tag(item)
+                        Label(item.title, systemImage: item.symbol)
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .tag(item)
                     }
                 }
             }
@@ -198,6 +191,7 @@ struct SettingsWindow: View {
     @ViewBuilder private var detail: some View {
         switch pane ?? .general {
         case .general:      GeneralSettingsPane()
+        case .accessibility: AccessibilitySettingsPane()
         case .canvas:       CanvasSettingsPane()
         case .sanaa:        SanaaSettingsPane()
         case .designTokens: DesignTokensSettingsPane()
@@ -231,6 +225,43 @@ struct SettingsWindow: View {
 }
 
 // MARK: - Panes
+
+private struct AccessibilitySettingsPane: View {
+    @AppStorage(AppPreferences.interfaceTypeSize) private var typeSize = AppPreferences.defaultInterfaceTypeSize
+    @AppStorage(AppPreferences.largerInterfaceTargets) private var largerTargets = false
+    @AppStorage(AppPreferences.interfaceGuidance) private var guidance = EXPInterfaceGuidance.automatic.rawValue
+
+    var body: some View {
+        let preferences = EXPInterfaceAccessibility.shared
+        VStack(alignment: .leading, spacing: 24) {
+            SettingsGroup("Text and controls", footnote: "Changes apply to the interface, never your document artwork. System default uses macOS’s preferred font; choose a larger size here for a predictable increase in EXP.") {
+                Picker("Interface type size", selection: $typeSize) {
+                    ForEach(EXPInterfaceTypeSize.allCases) { Text($0.label).tag($0.rawValue) }
+                }
+                .accessibilityLabel("Interface type size")
+                Toggle("Larger click targets", isOn: $largerTargets)
+                    .accessibilityHint("Enlarges shared buttons, fields, layer rows and drawing-tool buttons. The tool strip scrolls when needed.")
+                Text("Text size and click targets are independent. VoiceOver does not automatically enlarge either.")
+                    .font(.expLabel).foregroundStyle(EXPColor.textSecondary)
+            }
+            SettingsGroup("Visible guidance", footnote: "Shows tool names beside icons and grid instructions without hovering. Automatic follows the VoiceOver status reported by macOS. Your explicit choice always wins; accessible names and hints remain available in every mode.") {
+                Picker("Tool names and guidance", selection: $guidance) {
+                    ForEach(EXPInterfaceGuidance.allCases) { Text($0.label).tag($0.rawValue) }
+                }
+                .accessibilityLabel("Tool names and guidance")
+                Text(preferences.voiceOverEnabled ? "VoiceOver is enabled in macOS." : "VoiceOver is not enabled in macOS.")
+                    .font(.expLabel).foregroundStyle(EXPColor.textSecondary)
+                Text("VoiceOver status is read on this Mac and is not stored or sent anywhere.")
+                    .font(.expLabel).foregroundStyle(EXPColor.textSecondary)
+            }
+            SettingsGroup("macOS preferences", footnote: "EXP follows system appearance, reduced motion, reduced transparency and increased contrast in its supported interface surfaces. There is no single system preference that describes every person’s needs.") {
+                Text("Choose the combination that works for you. These settings can be changed at any time.")
+                    .font(.expLabel).foregroundStyle(EXPColor.textSecondary)
+            }
+        }
+    }
+}
+
 
 /// A titled block of related controls — keeps every pane visually consistent and
 /// is the unit a future design token can restyle once.
@@ -270,7 +301,7 @@ private struct GeneralSettingsPane: View {
         AppPreferences.defaultTooltipVerbosity
 
     private var interfaceTypeSize: Binding<EXPInterfaceTypeSize> {
-        Binding(get: { EXPInterfaceTypeSize(rawValue: interfaceTypeSizeRaw) ?? .standard },
+        Binding(get: { EXPInterfaceTypeSize(rawValue: interfaceTypeSizeRaw) ?? .system },
                 set: { interfaceTypeSizeRaw = $0.rawValue })
     }
     private var tooltipVerbosity: Binding<EXPTooltipVerbosity> {

@@ -49,6 +49,9 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Evidence: `output/a11y/2026-10-17T05-59-43-060Z/native/findings.md`,
   `findings.json`, `attachments/manifest.json` and `results.xcresult`, with
   individual element subtrees. All paths are local ignored verification receipts.
+- FEAT-070 first semantics slice: the two grid fields are now named and the
+  decorative `rectangle.3.group` illustration is hidden. Their focused native
+  checks pass; other audit categories remain open. Retain original receipts.
 - Acceptance: investigate each finding with actual control behavior and standards;
   fix real defects and retest. Any platform/container false positive needs a
   narrowly documented reason and human AT evidence; no blanket suppression.
@@ -3050,6 +3053,49 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   both fixed on the reported PNG document.
 
 ## ✨ Features
+
+### FEAT-070 — Independent interface accessibility preferences and universal names
+- Type: feature
+- Priority: P1
+- Area: accessibility · chrome · settings
+- Status: implemented and locally verified; owner visual/AT acceptance pending
+- Owner scope 2026-10-17: universal missing labels/hints; independent larger text,
+  larger click areas and visible guidance; follow public macOS preferences where
+  possible and detect VoiceOver without imposing the same visual layout on everyone.
+- Implementation: Settings → Accessibility; System/Compact/Standard/Large/Extra
+  Large type choices; larger shared targets; Automatic/Always/Keep compact guidance.
+  Explicit presentation choices override automatic reader-based guidance. Existing
+  preference keys migrate without reset; status stays local and is not persisted.
+  `EXPType` fonts are observable/scalable, numeric fields widen, panel headings and
+  tool strips scroll, layer rows can wrap. Public AppKit system-font/VoiceOver APIs;
+  no protected preference reads or permission grant needed.
+- Universal semantics: MainWindow numeric fields now have nonempty descriptive
+  titles, grid hints, named polygon stepping and layer/group disclosure, Settings
+  picker names; redundant Components illustration hidden. Default visuals remain
+  compact unless the system signal or an explicit choice selects guidance.
+- Local evidence: three focused native UI checks pass (actual expanded-field
+  pointer/editing behavior, Settings live update, grid names/decorative icon), plus
+  real-UserDefaults policy/precedence/persistence and two VoiceOver matcher tests.
+  Combined native run has five passing workflows and 23 retained audit observations;
+  AX focus is skipped for the new runner, strict reader traversal fails. Named
+  Inspector/color fields/pickers have a compile/source pass; selected-object and
+  color-popover AT remain pending. Tool-shortcut hints no longer get overwritten
+  by an empty string. Receipts: `output/a11y/interface-final-20261017/` and
+  `output/a11y/2026-10-17T14-25-39-868Z/`.
+- Acceptance: preserve documents/exports, standard size and existing explicit
+  preferences; actual enlarged field padding focuses without replacing caller
+  FocusState or disrupting text selection; Settings changes apply live. VoiceOver
+  does not automatically choose larger text/targets. Test automatic/explicit policy
+  combinations, persisted reload and names through real native controls.
+- Remaining: full 1x/2x/light/dark/small-window/selected-object/floating/source-editor
+  visual and real-reader matrix; individual legacy controls, remaining contrast/menu
+  findings and broader persistent helper coverage. This is not blanket AT closure.
+- Sources: https://developer.apple.com/design/human-interface-guidelines/voiceover,
+  https://developer.apple.com/documentation/appkit/nsworkspace/isvoiceoverenabled,
+  https://developer.apple.com/documentation/appkit/nsfont/textstyle,
+  https://www.w3.org/WAI/WCAG21/Understanding/labels-or-instructions.html,
+  https://www.w3.org/WAI/WCAG21/Understanding/non-text-content.html.
+  Scope and evidence: `ACCESSIBILITY-VERIFICATION.md` → FEAT-070.
 
 ### FEAT-069 — Optional free member hub before paid subscriptions
 - Type: feature

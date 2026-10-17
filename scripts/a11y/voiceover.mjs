@@ -5,6 +5,12 @@ import { existsSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
+// Require an actual core-control name and role. “Properties selected button”
+// and instructional text containing “Select layers” are not the Select tool.
+export function hasCoreEditorControl(phrase) {
+  return /\b(?:Zoom (?:in|out)|Rectangle|Select)(?:[, ]+selected)?[, ]+(?:toggle )?button\b/i.test(phrase);
+}
+
 // Real VoiceOver output, not an AX-tree simulation. Setup is read-only: never
 // imports preference packs, writes TCC/VoiceOver defaults or touches the clipboard.
 export async function voiceOverSmoke({ output, appPath, fixture, bundleID, interactive }) {
@@ -42,11 +48,11 @@ export async function voiceOverSmoke({ output, appPath, fixture, bundleID, inter
       const phrase = await apple('tell application "VoiceOver" to get content of last phrase');
       const item = await apple('tell application "VoiceOver" to get text under cursor of vo cursor');
       transcript.push({ index, phrase, item });
-      if (/design canvas/i.test(phrase) && transcript.some(t => /zoom|select|rectangle/i.test(t.phrase))) break;
+      if (/design canvas/i.test(phrase) && transcript.some(t => hasCoreEditorControl(t.phrase))) break;
       await apple('tell application "VoiceOver" to tell vo cursor to move right');
     }
     const all = transcript.map(t => t.phrase).join('\n');
-    if (!/design canvas/i.test(all) || !/zoom|rectangle|select/i.test(all)) {
+    if (!/design canvas/i.test(all) || !transcript.some(t => hasCoreEditorControl(t.phrase))) {
       result.status = 'failed'; result.detail = 'VoiceOver did not reach both the named canvas and a core editor control within 45 moves. Inspect transcript; this is not waived.';
     } else { result.status = 'passed'; result.detail = 'Real VoiceOver traversed named editor controls and the canvas. This smoke does not verify canvas editing, rotor, announcement timing or all settings.'; }
   } catch (error) { result.status = started ? 'failed' : 'blocked'; result.detail = String(error.message) + (error.killed ? ` (command timed out or was interrupted; signal ${error.signal})` : ''); }

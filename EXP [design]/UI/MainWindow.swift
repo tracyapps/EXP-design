@@ -72,7 +72,7 @@ struct MainWindow: View {
                 // Right dock column (Properties + Components by default).
                 if app.workspaceMode == .single, app.showRightPanel {
                     DockColumnView(document: document, side: .right)
-                        .frame(minWidth: 260, idealWidth: app.workspace.right.width, maxWidth: 460)
+                        .frame(minWidth: 260 * min(EXPType.scale, 1.25), idealWidth: app.workspace.right.width, maxWidth: 460)
                 }
             }
             }
@@ -666,10 +666,10 @@ struct TopSystemControls: View {
             Button { app.zoomOut() } label: { Image(systemName: "minus.magnifyingglass") }
                 .help("Zoom out (⌘-)")
                 .accessibilityLabel("Zoom out")
-            TextField("", value: zoomPercentBinding, format: .number.precision(.fractionLength(0)))
+            TextField("Zoom percentage", value: zoomPercentBinding, format: .number.precision(.fractionLength(0)))
                 .labelsHidden()
                 .textFieldStyle(.exp)
-                .frame(width: 46)
+                .frame(width: 46 * EXPType.scale)
                 .multilineTextAlignment(.trailing)
                 .monospacedDigit()
                 .numericStepping(zoomPercentBinding, min: 5)
@@ -1811,7 +1811,7 @@ struct RightPanel: View {
                     Text("R").foregroundStyle(EXPColor.textSecondary)
                         .frame(width: 14, alignment: .leading)
                         .accessibilityHidden(true)
-                    TextField("", value: nodeRotationBinding, format: .number.precision(.fractionLength(0)))
+                    TextField("Rotation", value: nodeRotationBinding, format: .number.precision(.fractionLength(0)))
                         .labelsHidden().textFieldStyle(.exp)
                         .multilineTextAlignment(.trailing).monospacedDigit()
                         .frame(width: 64)
@@ -1823,7 +1823,7 @@ struct RightPanel: View {
                     Spacer()
                     Text("Opacity").foregroundStyle(EXPColor.textSecondary)
                         .accessibilityHidden(true)
-                    TextField("", value: nodeOpacityBinding, format: .number.precision(.fractionLength(0)))
+                    TextField("Opacity", value: nodeOpacityBinding, format: .number.precision(.fractionLength(0)))
                         .labelsHidden().textFieldStyle(.exp)
                         .multilineTextAlignment(.trailing).monospacedDigit()
                         .frame(width: 48)
@@ -1838,7 +1838,7 @@ struct RightPanel: View {
                 .padding(.bottom, 8)
                 HStack(spacing: 6) {
                     Text("Blend").foregroundStyle(EXPColor.textSecondary)
-                    Picker("", selection: nodeBlendModeBinding) {
+                    Picker("Blend mode", selection: nodeBlendModeBinding) {
                         ForEach(BlendMode.allCases, id: \.self) { Text($0.label).tag($0) }
                     }
                     .labelsHidden()
@@ -1981,10 +1981,10 @@ struct RightPanel: View {
             HStack(spacing: 6) {
                 Text("Zoom").foregroundStyle(EXPColor.textSecondary)
                 Spacer()
-                TextField("", value: zoomPercentBinding, format: .number.precision(.fractionLength(0)))
+                TextField("Zoom percentage", value: zoomPercentBinding, format: .number.precision(.fractionLength(0)))
                     .labelsHidden()
                     .textFieldStyle(.exp)
-                    .frame(width: 52)
+                    .frame(width: 52 * EXPType.scale)
                     .multilineTextAlignment(.trailing)
                     .monospacedDigit()
                     .numericStepping(zoomPercentBinding, min: 5)
@@ -2517,7 +2517,7 @@ struct RightPanel: View {
                     ])
                     .frame(maxWidth: 170)
                     if al.distribution == .packed {
-                        TextField("", value: alGapBinding, format: .number.precision(.fractionLength(0)))
+                        TextField("Auto layout gap", value: alGapBinding, format: .number.precision(.fractionLength(0)))
                             .labelsHidden().textFieldStyle(.exp)
                             .multilineTextAlignment(.trailing).monospacedDigit()
                             .frame(width: 52).numericStepping(alGapBinding, min: 0)
@@ -2626,7 +2626,7 @@ struct RightPanel: View {
                           selectedGradientStopID: gradientStopSelection)
                 HStack(spacing: 8) {
                     Text("Corner").foregroundStyle(EXPColor.textSecondary)
-                    TextField("", value: apCornerBinding, format: .number.precision(.fractionLength(0)))
+                    TextField("Auto padding corner radius", value: apCornerBinding, format: .number.precision(.fractionLength(0)))
                         .labelsHidden().textFieldStyle(.exp)
                         .multilineTextAlignment(.trailing).monospacedDigit()
                         .frame(width: 52).numericStepping(apCornerBinding, min: 0)
@@ -2634,7 +2634,7 @@ struct RightPanel: View {
                     Spacer()
                     Text("Stroke").foregroundStyle(EXPColor.textSecondary)
                     PaintWell(label: "", paint: apStrokeBinding)
-                    TextField("", value: apStrokeWidthBinding, format: .number.precision(.fractionLength(0)))
+                    TextField("Auto padding stroke width", value: apStrokeWidthBinding, format: .number.precision(.fractionLength(0)))
                         .labelsHidden().textFieldStyle(.exp)
                         .multilineTextAlignment(.trailing).monospacedDigit()
                         .frame(width: 40).numericStepping(apStrokeWidthBinding, min: 0)
@@ -2668,7 +2668,7 @@ struct RightPanel: View {
         HStack(spacing: 2) {
             Text(label).foregroundStyle(EXPColor.textSecondary).font(.caption2)
                 .accessibilityHidden(true)
-            TextField("", value: apPadBinding(kp), format: .number.precision(.fractionLength(0)))
+            TextField(accessibilityLabel, value: apPadBinding(kp), format: .number.precision(.fractionLength(0)))
                 .labelsHidden().textFieldStyle(.exp)
                 .multilineTextAlignment(.trailing).monospacedDigit()
                 .frame(width: 40).numericStepping(apPadBinding(kp), min: 0)
@@ -3099,8 +3099,8 @@ struct RightPanel: View {
                 .help("Set the typeface on every selected text layer")
                 HStack(spacing: 8) {
                     Text("Size").foregroundStyle(EXPColor.textSecondary)
-                    TextField("", value: multiTextSizeBinding, format: .number.precision(.fractionLength(0)))
-                        .labelsHidden().textFieldStyle(.exp).frame(width: 56)
+                    TextField("Text size", value: multiTextSizeBinding, format: .number.precision(.fractionLength(0)))
+                        .labelsHidden().textFieldStyle(.exp).frame(width: 56 * EXPType.scale)
                         .multilineTextAlignment(.trailing).monospacedDigit()
                         .numericStepping(multiTextSizeBinding, min: 1)
                     Spacer()
@@ -3119,8 +3119,8 @@ struct RightPanel: View {
                 PaintWell(label: "Paint", paint: multiStrokeBinding)
                 HStack(spacing: 8) {
                     Text("Width").foregroundStyle(EXPColor.textSecondary)
-                    TextField("", value: multiStrokeWidthBinding, format: .number.precision(.fractionLength(0)))
-                        .labelsHidden().textFieldStyle(.exp).frame(width: 56)
+                    TextField("Stroke width", value: multiStrokeWidthBinding, format: .number.precision(.fractionLength(0)))
+                        .labelsHidden().textFieldStyle(.exp).frame(width: 56 * EXPType.scale)
                         .multilineTextAlignment(.trailing).monospacedDigit()
                         .numericStepping(multiStrokeWidthBinding, min: 0)
                     Spacer()
@@ -3395,13 +3395,20 @@ struct RightPanel: View {
             Toggle("Show grid", isOn: Binding(get: { app.showGrid }, set: { app.showGrid = $0 }))
             HStack(spacing: 8) {
                 Text("Size").foregroundStyle(EXPColor.textSecondary)
-                TextField("", value: gridSizeBinding, format: .number.precision(.fractionLength(0)))
-                    .textFieldStyle(.exp).frame(width: 52).multilineTextAlignment(.trailing)
+                TextField("Grid size", value: gridSizeBinding, format: .number.precision(.fractionLength(0)))
+                    .textFieldStyle(.exp).frame(width: 52 * EXPType.scale).multilineTextAlignment(.trailing)
                     .numericStepping(gridSizeBinding, min: 1)
+                    .accessibilityHint("Distance between grid lines, in document points.")
                 Text("Subdiv").foregroundStyle(EXPColor.textSecondary)
-                TextField("", value: gridSubdivBinding, format: .number.precision(.fractionLength(0)))
-                    .textFieldStyle(.exp).frame(width: 40).multilineTextAlignment(.trailing)
+                TextField("Grid subdivisions", value: gridSubdivBinding, format: .number.precision(.fractionLength(0)))
+                    .textFieldStyle(.exp).frame(width: 40 * EXPType.scale).multilineTextAlignment(.trailing)
                     .numericStepping(gridSubdivBinding, min: 1)
+                    .accessibilityHint("Number of smaller divisions inside each grid cell.")
+            }
+            if EXPInterfaceAccessibility.shared.showGuidance {
+                Text("Size is the distance between grid lines in points. Subdiv is the number of smaller divisions in each cell.")
+                    .font(.expLabel).foregroundStyle(EXPColor.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Toggle("Snap to grid", isOn: Binding(get: { app.snapToGrid }, set: { app.snapToGrid = $0 }))
             Toggle("Snap to whole pixels",
@@ -3447,13 +3454,14 @@ struct RightPanel: View {
             HStack(spacing: 6) {
                 Toggle("", isOn: lgBool(idx, \.visible)).labelsHidden().toggleStyle(.checkbox)
                     .accessibilityLabel("Show layout grid")
-                Picker("", selection: lgKind(idx)) {
+                Picker("Layout grid type", selection: lgKind(idx)) {
                     Text("Columns").tag(LayoutGrid.Kind.columns)
                     Text("Rows").tag(LayoutGrid.Kind.rows)
                     Text("Baseline").tag(LayoutGrid.Kind.baseline)
                 }.labelsHidden().frame(width: 96)
                     .accessibilityLabel("Layout grid type")
                 ColorWell(label: "", color: lgColor(idx))
+                    .accessibilityLabel("Layout grid color")
                 Spacer()
                 Button { removeLayoutGrid(grid.id) } label: { Image(systemName: "trash") }
                     .buttonStyle(.borderless).help("Remove layout grid")
@@ -3519,8 +3527,8 @@ struct RightPanel: View {
                                 set: { v in updateLayoutGrid(idx, action: "Layout Grid") { $0[keyPath: kp] = CGFloat(v) } })
         return HStack(spacing: 2) {
             Text(label).foregroundStyle(EXPColor.textSecondary)
-            TextField("", value: b, format: .number.precision(.fractionLength(0)))
-                .textFieldStyle(.exp).frame(width: 40).multilineTextAlignment(.trailing)
+            TextField(label, value: b, format: .number.precision(.fractionLength(0)))
+                .textFieldStyle(.exp).frame(width: 40 * EXPType.scale).multilineTextAlignment(.trailing)
                 .numericStepping(b, min: min)
                 .accessibilityLabel("Layout grid \(label.lowercased())")
         }
@@ -3530,8 +3538,8 @@ struct RightPanel: View {
                                 set: { v in updateLayoutGrid(idx, action: "Layout Grid") { $0[keyPath: kp] = Swift.max(1, Int(v)) } })
         return HStack(spacing: 2) {
             Text(label).foregroundStyle(EXPColor.textSecondary)
-            TextField("", value: b, format: .number.precision(.fractionLength(0)))
-                .textFieldStyle(.exp).frame(width: 40).multilineTextAlignment(.trailing)
+            TextField(label, value: b, format: .number.precision(.fractionLength(0)))
+                .textFieldStyle(.exp).frame(width: 40 * EXPType.scale).multilineTextAlignment(.trailing)
                 .numericStepping(b, min: 1)
                 .accessibilityLabel("Layout grid \(label.lowercased())")
         }
@@ -3612,7 +3620,7 @@ struct RightPanel: View {
                     .expFieldTip("Enable effect",
                                  "Temporarily turn the effect off without losing its settings.")
                     .accessibilityLabel("Enable \(kindName) effect")
-                Picker("", selection: effectKindBinding(idx)) {
+                Picker("Effect type", selection: effectKindBinding(idx)) {
                     Text("Drop").tag(Effect.Kind.dropShadow)
                     Text("Inner").tag(Effect.Kind.innerShadow)
                     Text("Blur").tag(Effect.Kind.layerBlur)
@@ -3703,7 +3711,7 @@ struct RightPanel: View {
                     // people ever need. The feTurbulence dials (Freq/Oct/Seed/
                     // Mono) live in the Advanced accordion below, which also
                     // stops labels from clipping at the default panel width.
-                    Picker("", selection: effectTurbulenceTypeBinding(idx)) {
+                    Picker("Noise type", selection: effectTurbulenceTypeBinding(idx)) {
                         Text("Fractal").tag(Effect.TurbulenceType.fractalNoise)
                         Text("Turbulent").tag(Effect.TurbulenceType.turbulence)
                     }.labelsHidden().frame(width: 82)
@@ -3716,7 +3724,7 @@ struct RightPanel: View {
                                       ? "How visible the grain is, 0–100%. 0 is invisible; 100 lays fully opaque noise over the fill."
                                       : "How much of the shape is eaten away, 0–100%. 0 is fully intact; 100 removes it completely.")
                     if effect.kind == .noise {
-                        Picker("", selection: effectBlendBinding(idx)) {
+                        Picker("Effect blend mode", selection: effectBlendBinding(idx)) {
                             ForEach(BlendMode.allCases, id: \.self) { Text($0.label).tag($0) }
                         }.labelsHidden().frame(minWidth: 72, maxWidth: 110)
                             .expFieldTip("Blend mode",
@@ -3890,8 +3898,8 @@ struct RightPanel: View {
         let b = effectNumBinding(idx, kp)
         return HStack(spacing: 2) {
             Text(label).foregroundStyle(EXPColor.textSecondary)
-            TextField("", value: b, format: .number.precision(.fractionLength(0...digits)))
-                .textFieldStyle(.exp).frame(width: 40).multilineTextAlignment(.trailing)
+            TextField(label, value: b, format: .number.precision(.fractionLength(0...digits)))
+                .textFieldStyle(.exp).frame(width: 40 * EXPType.scale).multilineTextAlignment(.trailing)
                 .numericStepping(b, min: min, max: max)
                 .accessibilityLabel(tip.isEmpty ? label : tip)
         }
@@ -3910,8 +3918,8 @@ struct RightPanel: View {
             } })
         return HStack(spacing: 2) {
             Text(label).foregroundStyle(EXPColor.textSecondary)
-            TextField("", value: b, format: .number.precision(.fractionLength(0)))
-                .textFieldStyle(.exp).frame(width: 40).multilineTextAlignment(.trailing)
+            TextField(label, value: b, format: .number.precision(.fractionLength(0)))
+                .textFieldStyle(.exp).frame(width: 40 * EXPType.scale).multilineTextAlignment(.trailing)
                 .numericStepping(b, min: min, max: max)
                 .accessibilityLabel(tip.isEmpty ? label : tip)
         }
@@ -3933,7 +3941,7 @@ struct RightPanel: View {
             Text(label)
                 .foregroundStyle(EXPColor.textSecondary)
                 .accessibilityHidden(true)
-            TextField("", value: b, format: .number.precision(.fractionLength(0...digits)))
+            TextField(label, value: b, format: .number.precision(.fractionLength(0...digits)))
                 .textFieldStyle(.exp)
                 .multilineTextAlignment(.trailing)
                 .monospacedDigit()
@@ -3960,7 +3968,7 @@ struct RightPanel: View {
             Text(label)
                 .foregroundStyle(EXPColor.textSecondary)
                 .accessibilityHidden(true)
-            TextField("", value: b, format: .number.precision(.fractionLength(0)))
+            TextField(label, value: b, format: .number.precision(.fractionLength(0)))
                 .textFieldStyle(.exp)
                 .multilineTextAlignment(.trailing)
                 .monospacedDigit()
@@ -3982,8 +3990,8 @@ struct RightPanel: View {
             } })
         return HStack(spacing: 2) {
             Text(label).foregroundStyle(EXPColor.textSecondary)
-            TextField("", value: b, format: .number.precision(.fractionLength(0)))
-                .textFieldStyle(.exp).frame(width: 40).multilineTextAlignment(.trailing)
+            TextField(label, value: b, format: .number.precision(.fractionLength(0)))
+                .textFieldStyle(.exp).frame(width: 40 * EXPType.scale).multilineTextAlignment(.trailing)
                 .numericStepping(b, min: 0, max: 100)
                 .accessibilityLabel(tip.isEmpty ? label : tip)
         }
@@ -4180,9 +4188,9 @@ struct RightPanel: View {
 
             HStack(spacing: 8) {
                 Text("Size").foregroundStyle(EXPColor.textSecondary).font(.callout)
-                TextField("", value: fontSizeBinding, format: .number.precision(.fractionLength(0)))
+                TextField("Font size", value: fontSizeBinding, format: .number.precision(.fractionLength(0)))
                     .textFieldStyle(.exp)
-                    .frame(width: 56)
+                    .frame(width: 56 * EXPType.scale)
                     .multilineTextAlignment(.trailing)
                     .numericStepping(fontSizeBinding, min: 1)
                 if fontSizeIsMixed {
@@ -4208,7 +4216,7 @@ struct RightPanel: View {
             }
             HStack(spacing: 6) {
                 Text("Line").foregroundStyle(EXPColor.textSecondary).font(.callout)
-                Picker("", selection: lineHeightUnitBinding) {
+                Picker("Line height unit", selection: lineHeightUnitBinding) {
                     Text("Auto").tag(LineHeightUnit.auto)
                     Text("×").tag(LineHeightUnit.multiple)
                     Text("px").tag(LineHeightUnit.px)
@@ -4216,8 +4224,8 @@ struct RightPanel: View {
                 }
                 .labelsHidden().frame(width: 76)
                 if (selectedTextContent?.lineHeightUnit ?? .auto) != .auto {
-                    TextField("", value: lineHeightBinding, format: .number.precision(.fractionLength(2)))
-                        .textFieldStyle(.exp).frame(width: 52).multilineTextAlignment(.trailing)
+                    TextField("Line height", value: lineHeightBinding, format: .number.precision(.fractionLength(2)))
+                        .textFieldStyle(.exp).frame(width: 52 * EXPType.scale).multilineTextAlignment(.trailing)
                         .numericStepping(lineHeightBinding, min: 0, step: lineHeightStep)
                 }
                 Spacer()
@@ -4225,8 +4233,8 @@ struct RightPanel: View {
             .help("Auto uses the selected font’s native line height. × is a font-size multiplier; px and em preserve fixed authored line boxes. Changing the unit converts the value so the text keeps the same line height — switching to Auto is the exception, since Auto is the font’s own value. Arrows step by 0.1 for × and em, 1 for px (Shift 10×, Option 0.1×).")
             HStack(spacing: 6) {
                 Text("Spacing").foregroundStyle(EXPColor.textSecondary).font(.callout)
-                TextField("", value: trackingBinding, format: .number.precision(.fractionLength(1)))
-                    .textFieldStyle(.exp).frame(width: 52).multilineTextAlignment(.trailing)
+                TextField("Tracking (character spacing)", value: trackingBinding, format: .number.precision(.fractionLength(1)))
+                    .textFieldStyle(.exp).frame(width: 52 * EXPType.scale).multilineTextAlignment(.trailing)
                     .numericStepping(trackingBinding)
                 Text("px").foregroundStyle(EXPColor.textSecondary).font(.caption2)
                 Spacer()
@@ -4251,10 +4259,10 @@ struct RightPanel: View {
             // exact stroke geometry matters.
             HStack(spacing: 6) {
                 Text("Stroke").foregroundStyle(EXPColor.textSecondary).font(.callout)
-                TextField("", value: textStrokeWidthBinding,
+                TextField("Text stroke width", value: textStrokeWidthBinding,
                           format: .number.precision(.fractionLength(1)))
                     .textFieldStyle(.exp)
-                    .frame(width: 52)
+                    .frame(width: 52 * EXPType.scale)
                     .multilineTextAlignment(.trailing)
                     .numericStepping(textStrokeWidthBinding, min: 0)
                     .accessibilityLabel("Text stroke width")
@@ -4290,7 +4298,7 @@ struct RightPanel: View {
                 Text("Content")
                     .foregroundStyle(EXPColor.textSecondary)
                     .font(.callout)
-                Picker("", selection: contentRoleBinding) {
+                Picker("Content role", selection: contentRoleBinding) {
                     ForEach(TextContentRole.allCases, id: \.self) { role in
                         Text(role.friendlyLabel).tag(role)
                     }
@@ -4512,9 +4520,9 @@ struct RightPanel: View {
             InspectorSectionTitle(title: "Stroke", icon: "pencil.line")
             HStack(spacing: 8) {
                 Text("Width").foregroundStyle(EXPColor.textSecondary).font(.callout)
-                TextField("", value: strokeWidthBinding, format: .number.precision(.fractionLength(0)))
+                TextField("Stroke width", value: strokeWidthBinding, format: .number.precision(.fractionLength(0)))
                     .textFieldStyle(.exp)
-                    .frame(width: 56)
+                    .frame(width: 56 * EXPType.scale)
                     .multilineTextAlignment(.trailing)
                     .numericStepping(strokeWidthBinding, min: 0)
                 Spacer()
@@ -5041,8 +5049,8 @@ struct RightPanel: View {
             if corner {
                 HStack(spacing: 8) {
                     Text("Corner").foregroundStyle(EXPColor.textSecondary).font(.callout)
-                    TextField("", value: cornerRadiusBinding, format: .number.precision(.fractionLength(0)))
-                        .textFieldStyle(.exp).frame(width: 56).multilineTextAlignment(.trailing)
+                    TextField("Corner radius", value: cornerRadiusBinding, format: .number.precision(.fractionLength(0)))
+                        .textFieldStyle(.exp).frame(width: 56 * EXPType.scale).multilineTextAlignment(.trailing)
                         .numericStepping(cornerRadiusBinding, min: 0)
                         .expFieldTip("Corner radius",
                                      "Rounds all four corners at once — the everyday control. Open Advanced below to set each corner separately.")
@@ -5085,8 +5093,8 @@ struct RightPanel: View {
             PaintWell(label: "Paint", paint: shapeStrokeBinding)
             HStack(spacing: 8) {
                 Text("Width").foregroundStyle(EXPColor.textSecondary).font(.callout)
-                TextField("", value: strokeWidthShapeBinding, format: .number.precision(.fractionLength(0)))
-                    .textFieldStyle(.exp).frame(width: 56).multilineTextAlignment(.trailing)
+                TextField("Stroke width", value: strokeWidthShapeBinding, format: .number.precision(.fractionLength(0)))
+                    .textFieldStyle(.exp).frame(width: 56 * EXPType.scale).multilineTextAlignment(.trailing)
                     .numericStepping(strokeWidthShapeBinding, min: 0)
                 Spacer()
             }
@@ -5111,7 +5119,7 @@ struct RightPanel: View {
     private func cornerField(_ label: String, _ kp: WritableKeyPath<CornerRadii, CGFloat>, tip: String) -> some View {
         HStack(spacing: 2) {
             Text(label).foregroundStyle(EXPColor.textSecondary).font(.caption2)
-            TextField("", value: cornerRadiiBinding(kp), format: .number.precision(.fractionLength(0)))
+            TextField(tip, value: cornerRadiiBinding(kp), format: .number.precision(.fractionLength(0)))
                 .labelsHidden().textFieldStyle(.exp)
                 .multilineTextAlignment(.trailing).monospacedDigit()
                 .frame(width: 44).numericStepping(cornerRadiiBinding(kp), min: 0)
@@ -5271,10 +5279,10 @@ struct RightPanel: View {
     @ViewBuilder private func polygonControls() -> some View {
         HStack(spacing: 8) {
             Text("Sides").foregroundStyle(EXPColor.textSecondary)
-            TextField("", value: polygonSidesBinding, format: .number.precision(.fractionLength(0)))
-                .textFieldStyle(.exp).frame(width: 48).multilineTextAlignment(.trailing)
+            TextField("Polygon sides", value: polygonSidesBinding, format: .number.precision(.fractionLength(0)))
+                .textFieldStyle(.exp).frame(width: 48 * EXPType.scale).multilineTextAlignment(.trailing)
                 .numericStepping(polygonSidesBinding, min: 3, max: 25)
-            Stepper("", value: polygonSidesBinding, in: 3...25, step: 1).labelsHidden()
+            Stepper("Polygon sides", value: polygonSidesBinding, in: 3...25, step: 1).labelsHidden()
             Spacer()
         }
         .font(.callout)
@@ -5336,7 +5344,7 @@ extension RightPanel {
                         Spacer()
                         Text("R").foregroundStyle(EXPColor.textSecondary)
                             .accessibilityHidden(true)
-                        TextField("", value: pointRotationBinding, format: .number.precision(.fractionLength(0)))
+                        TextField("Point rotation", value: pointRotationBinding, format: .number.precision(.fractionLength(0)))
                             .labelsHidden().textFieldStyle(.exp)
                             .multilineTextAlignment(.trailing).monospacedDigit()
                             .frame(width: 56)
@@ -5362,8 +5370,8 @@ extension RightPanel {
                 PaintWell(label: "Paint", paint: pathStrokeBinding)
                 HStack(spacing: 8) {
                     Text("Width").foregroundStyle(EXPColor.textSecondary).font(.callout)
-                    TextField("", value: pathStrokeWidthBinding, format: .number.precision(.fractionLength(0)))
-                        .textFieldStyle(.exp).frame(width: 56).multilineTextAlignment(.trailing)
+                    TextField("Path stroke width", value: pathStrokeWidthBinding, format: .number.precision(.fractionLength(0)))
+                        .textFieldStyle(.exp).frame(width: 56 * EXPType.scale).multilineTextAlignment(.trailing)
                         .numericStepping(pathStrokeWidthBinding, min: 0)
                     Spacer()
                 }
@@ -5477,8 +5485,9 @@ private struct InspectorIconButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .font(.system(size: 12))
-                .frame(width: 26, height: 22)
+                .font(.system(size: EXPType.small))
+                .frame(width: EXPInterfaceAccessibility.shared.targetHeight(26),
+                       height: EXPInterfaceAccessibility.shared.targetHeight(22))
                 .background(active ? EXPColor.accentSubtle : (hovering ? EXPColor.rowHover : Color.clear),
                             in: RoundedRectangle(cornerRadius: EXPMetric.radiusTool, style: .continuous))
                 .foregroundStyle(active ? EXPColor.accent : EXPColor.textSecondary)

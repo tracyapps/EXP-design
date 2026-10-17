@@ -43,25 +43,29 @@ struct ToolsStrip: View {
     }
 
     var body: some View {
-        VStack(spacing: EXPMetric.xs) {
-            ForEach(Array(toolGroups.enumerated()), id: \.offset) { idx, group in
-                if idx > 0 {
-                    Rectangle()
-                        .fill(EXPColor.hairline)
-                        .frame(width: 22, height: EXPMetric.strokeHairline)
-                        .padding(.vertical, EXPMetric.xs)
-                }
-                ForEach(group, id: \.self) { tool in
-                    ToolButton(tool: tool, isActive: app.tool == tool) { select(tool) }
+        ScrollView(.vertical) {
+            VStack(spacing: EXPMetric.xs) {
+                ForEach(Array(toolGroups.enumerated()), id: \.offset) { idx, group in
+                    if idx > 0 {
+                        Rectangle()
+                            .fill(EXPColor.hairline)
+                            .frame(width: 22, height: EXPMetric.strokeHairline)
+                            .padding(.vertical, EXPMetric.xs)
+                    }
+                    ForEach(group, id: \.self) { tool in
+                        ToolButton(tool: tool, isActive: app.tool == tool) { select(tool) }
+                    }
                 }
             }
-            Spacer()
+            .padding(.vertical, EXPMetric.md)
         }
-        .padding(.vertical, EXPMetric.md)
-        .frame(width: EXPMetric.toolsStripWidth)
+        .scrollIndicators(.hidden)
+        .frame(width: EXPInterfaceAccessibility.shared.showGuidance
+               ? 150 * EXPType.scale
+               : max(EXPMetric.toolsStripWidth, EXPMetric.controlHLg + 14))
         .frame(maxHeight: .infinity)
-        .expGlass(.thin, cornerRadius: 0)            // thin liquid-glass rail
-        .overlay(alignment: .trailing) {             // hairline against the canvas
+        .expGlass(.thin, cornerRadius: 0)
+        .overlay(alignment: .trailing) {
             Rectangle().fill(EXPColor.hairline).frame(width: EXPMetric.strokeHairline)
         }
     }
@@ -73,13 +77,28 @@ private struct ToolButton: View {
     let action: () -> Void
     @State private var hovering = false
 
+    private var accessibleHint: String {
+        var parts: [String] = []
+        if tool == .knife {
+            parts.append("Click to select; draw across artwork to cut along your stroke. Choose types and layer scope in Properties. Object, Path, Cut with Line opens an editable straight cut preview.")
+        }
+        if !tool.shortcutKey.isEmpty { parts.append("Keyboard shortcut: \(tool.shortcutKey).") }
+        return parts.joined(separator: " ")
+    }
+
     var body: some View {
         Button(action: action) {
-            Image(systemName: tool.symbolName)
-                // Light idle, medium when active — medium is the brand's one
-                // emphasis weight (not semibold).
-                .font(.system(size: EXPType.md, weight: isActive ? .medium : .regular))
-                .frame(width: EXPMetric.controlHLg, height: EXPMetric.controlHLg)
+            HStack(spacing: 8) {
+                Image(systemName: tool.symbolName)
+                    .font(.system(size: EXPType.md, weight: isActive ? .medium : .regular))
+                    .frame(width: EXPMetric.controlHLg, height: EXPMetric.controlHLg)
+                if EXPInterfaceAccessibility.shared.showGuidance {
+                    Text(tool.label).font(.expLabel)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                }
+            }
+                .frame(maxWidth: EXPInterfaceAccessibility.shared.showGuidance ? .infinity : nil)
                 .background(
                     RoundedRectangle(cornerRadius: EXPMetric.radiusTool, style: .continuous)
                         .fill(isActive ? EXPColor.accentSubtle
@@ -90,14 +109,13 @@ private struct ToolButton: View {
                 .contentShape(RoundedRectangle(cornerRadius: EXPMetric.radiusTool, style: .continuous))
         }
         .buttonStyle(.plain)
+        .padding(.horizontal, EXPInterfaceAccessibility.shared.showGuidance ? 6 : 0)
         .onHover { hovering = $0 }
         .animation(EXPMotion.fast, value: hovering)
         .animation(EXPMotion.fast, value: isActive)
         .expTooltip(label: tool.label, shortcut: tool.shortcutKey)   // design tooltip + keycap
         .accessibilityLabel(tool.label)
-        .accessibilityHint(tool == .knife
-                          ? "Click to select; draw across artwork to cut along your stroke. Choose types and layer scope in Properties. Object, Path, Cut with Line opens an editable straight cut preview."
-                          : "")
+.accessibilityHint(accessibleHint)
         .accessibilityAddTraits(isActive ? [.isSelected] : [])
     }
 }

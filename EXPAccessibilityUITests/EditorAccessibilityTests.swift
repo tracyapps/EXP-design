@@ -28,6 +28,11 @@ final class EditorAccessibilityTests: XCTestCase {
         app = XCUIApplication(url: URL(fileURLWithPath: path))
         app.launchArguments = ["-ApplePersistenceIgnoreState", "YES", "-NSQuitAlwaysKeepsWindows", "NO",
                                "-SUEnableAutomaticChecks", "NO", "-SUAutomaticallyUpdate", "NO"]
+        if name.contains("testLargerControlsAndVisibleGuidance") {
+            app.launchArguments += ["-exp.pref.interfaceTypeSize", "extraLarge",
+                                    "-exp.pref.largerInterfaceTargets", "YES",
+                                    "-exp.pref.interfaceGuidance", "always"]
+        }
         app.launch()
         app.typeKey(.escape, modifierFlags: []) // Dismiss a first-launch file chooser.
         app.open(fixture)
@@ -56,6 +61,47 @@ final class EditorAccessibilityTests: XCTestCase {
         }
         XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Design canvas")).firstMatch.exists)
         XCTAssertTrue(app.textFields["Zoom percentage"].firstMatch.exists)
+    }
+
+    func testSettingsAccessibilityChoicesApplyLive() {
+        app.typeKey(",", modifierFlags: .command)
+        let navigation = app.staticTexts["Accessibility"].firstMatch
+        XCTAssertTrue(navigation.waitForExistence(timeout: 5))
+        navigation.click()
+        let larger = app.checkBoxes["Larger click targets"].firstMatch
+        XCTAssertTrue(larger.waitForExistence(timeout: 5))
+        larger.click()
+        let rectangle = app.buttons["Rectangle"].firstMatch
+        let changed = NSPredicate { _, _ in rectangle.exists && rectangle.frame.height >= 44 }
+        expectation(for: changed, evaluatedWith: nil)
+        waitForExpectations(timeout: 5)
+        // Restore the fixture's preference so other tests retain their baseline.
+        larger.click()
+        XCTAssertTrue(app.popUpButtons["Tool names and guidance"].firstMatch.exists)
+    }
+
+    func testUniversalNamesAndDecorativeImages() {
+        for name in ["Grid size", "Grid subdivisions"] {
+            XCTAssertTrue(app.textFields[name].firstMatch.waitForExistence(timeout: 5), "Missing field name: \(name)")
+        }
+        XCTAssertFalse(app.images["rectangle.3.group"].exists, "Decorative empty-state image must not become a spoken symbol name")
+    }
+
+    func testLargerControlsAndVisibleGuidance() {
+        let rectangle = app.buttons["Rectangle"].firstMatch
+        XCTAssertTrue(rectangle.waitForExistence(timeout: 5))
+        XCTAssertGreaterThanOrEqual(rectangle.frame.height, 44)
+        XCTAssertGreaterThan(rectangle.frame.width, 100, "Tool name should be visible beside its icon")
+        let grid = app.textFields["Grid size"].firstMatch
+        // AppKit exposes the inner text editor's bounds, not the surrounding
+        // styled hit target. Exercise the added padding with a real pointer.
+        grid.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0))
+            .withOffset(CGVector(dx: 0, dy: -4)).click()
+        app.typeKey("a", modifierFlags: .command)
+        app.typeText("75")
+        app.typeKey(.return, modifierFlags: [])
+        XCTAssertEqual(String(describing: grid.value ?? ""), "75", "Clicking the enlarged field padding must focus its editor")
+        XCTAssertTrue(app.staticTexts["Size is the distance between grid lines in points. Subdiv is the number of smaller divisions in each cell."].exists)
     }
 
     private func focusedElement() throws -> AXUIElement {

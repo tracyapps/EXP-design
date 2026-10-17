@@ -44,7 +44,7 @@ struct GradientStopEditor: View {
             HStack(spacing: 8) {
                 Text("Position").font(.callout).foregroundStyle(EXPColor.textSecondary)
                 Spacer(minLength: 8)
-                TextField("", value: $positionPercent,
+                TextField("Gradient stop position, percent", value: $positionPercent,
                           format: .number.precision(.fractionLength(1)))
                     .textFieldStyle(.exp)
                     .frame(width: 56)
@@ -140,7 +140,7 @@ struct ColorPopover: View {
 
     var body: some View {
         VStack(spacing: 10) {
-            Picker("", selection: $pmodel) {
+            Picker("Color model", selection: $pmodel) {
                 ForEach(PickerModel.allCases) { Text($0.rawValue).tag($0) }
             }
             .labelsHidden()
@@ -156,21 +156,23 @@ struct ColorPopover: View {
             }
 
             HStack(spacing: 6) {
-                Picker("", selection: $format) {
+                Picker("Color format", selection: $format) {
                     ForEach(ColorFormat.allCases) { Text($0.rawValue).tag($0) }
                 }
                 .labelsHidden()
                 .frame(width: 84)
                 .onChange(of: format) { _, _ in refreshCode() }
 
-                TextField("", text: $code)
+                TextField("\(format.rawValue) color code", text: $code)
                     .textFieldStyle(.exp)
                     .font(.system(.callout, design: .monospaced))
                     .onSubmit(commitCode)
+                    .accessibilityHint("Enter a color in the selected format, then press Return to apply it.")
 
                 Button(action: copyCode) { Image(systemName: "doc.on.doc") }
                     .buttonStyle(.borderless)
                     .help("Copy \(format.rawValue)")
+                    .accessibilityLabel("Copy \(format.rawValue) color code")
             }
 
             ContrastStrip(color: color)

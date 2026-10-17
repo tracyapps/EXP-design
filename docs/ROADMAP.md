@@ -1308,6 +1308,11 @@ from the appcast; a development plan does not change the published release.
       native UI-test target and guarded real VoiceOver smoke. Command/setup and
       retained gaps: `ACCESSIBILITY-VERIFICATION.md`. Native audit findings are
       queued as BUG-069; permissions/incomplete results are not passes.
+- [x] **FEAT-070 first interface accessibility slice implemented:** unconditional
+      names/hints plus independent text size, larger shared click targets and
+      optional persistent guidance in Settings → Accessibility. Automatic guidance
+      follows local public VoiceOver status; explicit choices win. Existing type
+      preferences preserved. Verification/scope: `ACCESSIBILITY-VERIFICATION.md`.
 - [ ] Full 1x/2x, light/dark, Large interface type and AT matrix; signed release
       payload audit remains a freeze gate. Visual acceptance alone does not close these.
 - [x] **INFRA-005 local release-signup foundation:** durable storage before success,
@@ -3395,6 +3400,37 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-10-17 — FEAT-070 interface accessibility preferences [internal].**
+  Owner requests universal names/help plus personal interface adaptations. Added
+  Settings → Accessibility with independent System/Compact/Standard/Large/Extra
+  Large text, larger shared click targets, and Automatic/Always/Keep compact visible
+  guidance. Automatic reads/observes public macOS VoiceOver enabled status locally;
+  explicit choices win, and reader status never selects text/target size or gets
+  persisted/sent. AppKit preferred body is 13 pt on this Mac (system baseline 13);
+  this is not a claim of access to Apple's private per-app text overrides.
+  Shared type tokens now scale, controls/rows grow, numeric fields widen, and tool
+  strips/panel headings scroll. Default compact metrics and old explicit type keys
+  are preserved. Fixed 34 empty TextField titles and ten empty Picker titles across
+  Inspector/color/paint code, polygon and layer/panel disclosure names, grid/color
+  hints, and the redundant Components illustration. Restored tool-shortcut hints
+  that an empty hint had overwritten. No document/model/renderer/export changes.
+  A real pointer test caught inert added field padding; AppKit focus routing now
+  makes the padding focus the native editor while preserving caller FocusState.
+  Three focused native UI cases pass, including live Settings changes; isolated
+  UserDefaults policy/migration/persistence checks and two reader-matcher regression
+  tests pass. Cropped dark editor/Settings screenshots inspected. Combined native
+  run: five workflow passes, one AX skip for the fresh runner, one audit failure
+  retaining 23 observations. The old loose reader match falsely accepted 'selected';
+  tightened it to actual named button roles. Actual reader speech is captured, but
+  the 45-move core-tool traversal still fails and remains a gate. No false green.
+  Receipts: `output/a11y/2026-10-17T14-25-39-868Z/` and final focused
+  `output/a11y/interface-final-20261017/`; final app build in
+  `/tmp/exp-interface-hints-build.log`. Handoff: `ACCESSIBILITY-VERIFICATION.md`.
+  **NEXT:** owner review of the preference combinations, remaining contrast/menu/
+  structural findings, stable authorized runner, real VoiceOver navigation and full
+  1x/2x/light/dark/small-window/selected-object/floating/source-editor coverage.
+  No push, deploy, permission changes or distribution artifact changes.
 
 - **2026-10-17 — Owner permissions confirmed; harness gaps isolated [internal].**
   Owner enables VoiceOver scripting and the test runner in Accessibility. Native
