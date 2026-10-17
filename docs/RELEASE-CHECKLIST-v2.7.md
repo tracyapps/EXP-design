@@ -273,3 +273,13 @@ Properties uses bounded, reflowing inset/layout controls and compact native
 Pathfinder icons. Focused receipts/scope: `ACCESSIBILITY-VERIFICATION.md` and
 `output/a11y/panel-fit-confirmed-20261017/native/results.xcresult`.
 These source/runtime refinements do not mark the full visual/AT release gates done.
+
+
+October 17 FEAT-071 / BUG-071 / BUG-072: first-pattern authoring, direct fill
+editor opening, editable pattern/component dimensions and artwork fit; ordinary
+peer ordering for detached trays, reveal commands and canvas-display Settings.
+Four focused native UI tests pass, zero failures/skips; model/raster/save/legacy,
+86 SVG pattern checks and nested component checks pass. Build includes thumbnail.
+Evidence, precise geometry-fit definition and pending owner checks:
+`SOURCE-BOUNDS-VERIFICATION.md`. These focused results do not close physical
+multi-monitor, full 1x/2x/appearance/VoiceOver or signed-release gates.

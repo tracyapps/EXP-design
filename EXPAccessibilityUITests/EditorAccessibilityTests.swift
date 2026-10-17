@@ -33,6 +33,10 @@ final class EditorAccessibilityTests: XCTestCase {
                                "frame": [[30, 30], [180, 80]],
                                "content": ["group": ["children": [shape(0), shape(90)]]]]]
         }
+        if name.contains("testPattern") || name.contains("testComponentBounds") {
+            model["nodes"] = [["id": UUID().uuidString, "name": "Pattern host", "frame": [[30, 30], [80, 60]],
+                               "content": ["rectangle": ["_0": [:]]]]]
+        }
         try JSONSerialization.data(withJSONObject: model).write(to: fixture)
         app = XCUIApplication(url: URL(fileURLWithPath: path))
         app.launchArguments = ["-ApplePersistenceIgnoreState", "YES", "-NSQuitAlwaysKeepsWindows", "NO",
@@ -53,6 +57,9 @@ final class EditorAccessibilityTests: XCTestCase {
                                     "-exp.pref.largerInterfaceTargets", name.contains("LargerTargets") ? "YES" : "NO",
                                     "-exp.pref.interfaceGuidance", "never",
                                     "-exp.pref.toolbarLabels", "iconsOnly"]
+        }
+        if name.contains("testSettingsCanOpenWithDetachedPanels") {
+            app.launchArguments += ["-exp.sanaa.enabled", "YES"]
         }
         app.launch()
         app.typeKey(.escape, modifierFlags: []) // Dismiss a first-launch file chooser.
@@ -208,6 +215,95 @@ final class EditorAccessibilityTests: XCTestCase {
         }
         XCTAssertLessThanOrEqual(app.buttons["Align bottom edges"].firstMatch.frame.maxX, right)
         XCTAssertFalse(app.staticTexts["Unite needs visible, unlocked closed vectors in folders without backgrounds, effects or masks."].exists)
+    }
+
+    private func collapseOtherRightPanels() {
+        for name in ["Collapse Handoff", "Collapse Design Language", "Collapse Components"] {
+            let button = app.buttons[name].firstMatch
+            if button.exists { button.click() }
+        }
+    }
+
+    private func replace(_ field: XCUIElement, with value: String) {
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.click(); app.typeKey("a", modifierFlags: .command)
+        app.typeText(value); app.typeKey(.return, modifierFlags: [])
+    }
+
+    func testPatternCreationFromEmptyFillAndReopen() {
+        collapseOtherRightPanels()
+        app.staticTexts["Pattern host"].firstMatch.click()
+        app.buttons["Edit fill"].firstMatch.click()
+        let mode = app.radioButtons["Pattern"].firstMatch
+        XCTAssertTrue(mode.waitForExistence(timeout: 5)); mode.click()
+        let create = app.buttons["New Pattern…"].firstMatch
+        XCTAssertTrue(create.waitForExistence(timeout: 5)); create.click()
+        let editor = app.windows["Edit Pattern"].firstMatch
+        XCTAssertTrue(editor.waitForExistence(timeout: 8))
+        replace(editor.textFields["Pattern tile width"].firstMatch, with: "160")
+        XCTAssertEqual(String(describing: editor.textFields["Pattern tile width"].firstMatch.value ?? ""), "160")
+        app.typeKey("w", modifierFlags: .command)
+        app.buttons["Edit fill"].firstMatch.click()
+        let edit = app.buttons["Edit this pattern's tile"].firstMatch
+        XCTAssertTrue(edit.waitForExistence(timeout: 5)); edit.click()
+        XCTAssertTrue(app.windows["Edit Pattern"].firstMatch.waitForExistence(timeout: 8))
+        XCTAssertEqual(String(describing: app.textFields["Pattern tile width"].firstMatch.value ?? ""), "160")
+        app.typeKey("s", modifierFlags: .command)
+    }
+
+    func testPatternLibraryCreatesFirstTile() {
+        let tab = app.buttons["Patterns"].firstMatch
+        XCTAssertTrue(tab.waitForExistence(timeout: 5)); tab.click()
+        let create = app.buttons["New Pattern…"].firstMatch
+        XCTAssertTrue(create.waitForExistence(timeout: 5)); create.click()
+        XCTAssertTrue(app.windows["Edit Pattern"].firstMatch.waitForExistence(timeout: 8))
+        XCTAssertTrue(app.textFields["Pattern tile width"].firstMatch.exists)
+    }
+
+    func testComponentBoundsResizeAndFit() {
+        app.staticTexts["Pattern host"].firstMatch.click()
+        app.menuBars.menuBarItems["Object"].click()
+        app.menuItems["Create Component"].firstMatch.click()
+        XCTAssertTrue(app.staticTexts["Instance"].firstMatch.waitForExistence(timeout: 5))
+        app.menuBars.menuBarItems["Object"].click()
+        app.menuItems["Edit Component"].firstMatch.click()
+        let editor = app.windows["Edit Component"].firstMatch
+        XCTAssertTrue(editor.waitForExistence(timeout: 8))
+        replace(editor.textFields["Component bounds width"].firstMatch, with: "140")
+        XCTAssertEqual(String(describing: editor.textFields["Component bounds width"].firstMatch.value ?? ""), "140")
+        editor.buttons["Fit to Artwork"].firstMatch.click()
+        XCTAssertEqual(String(describing: editor.textFields["Component bounds width"].firstMatch.value ?? ""), "80")
+        app.typeKey("s", modifierFlags: .command)
+    }
+
+    func testSettingsCanOpenWithDetachedPanels() {
+        app.menuButtons["Workspace mode"].firstMatch.click()
+        app.menuItems["Multi-Window"].firstMatch.click()
+        app.menuBars.menuBarItems["Window"].click()
+        app.menuItems["Sanaa"].firstMatch.click()
+        let settingsButton = app.buttons["Agent settings"].firstMatch
+        XCTAssertTrue(settingsButton.waitForExistence(timeout: 8)); settingsButton.click()
+        let general = app.staticTexts["General"].firstMatch
+        XCTAssertTrue(general.waitForExistence(timeout: 8))
+        general.click()
+        XCTAssertTrue(app.popUpButtons["Drawing toolbar labels"].firstMatch.isHittable)
+        let identity = ProcessInfo.processInfo.environment["EXP_A11Y_BUNDLE_ID"]!
+        let pid = NSRunningApplication.runningApplications(withBundleIdentifier: identity).first!.processIdentifier
+        let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+        let peers = windows.filter { info in
+            guard (info[kCGWindowOwnerPID as String] as? Int) == Int(pid),
+                  let box = info[kCGWindowBounds as String] as? [String: Any],
+                  let width = box["Width"] as? Double, let height = box["Height"] as? Double else { return false }
+            return width > 200 && height > 150
+        }
+        XCTAssertGreaterThanOrEqual(peers.count, 3, "Settings, canvas and detached panels must be visible")
+        for info in peers { XCTAssertEqual(info[kCGWindowLayer as String] as? Int, 0, "Peer windows must use normal ordering") }
+        app.menuBars.menuBarItems["Window"].click()
+        app.menuItems["Properties"].firstMatch.click()
+        let properties = app.dialogs["Properties"].firstMatch
+        XCTAssertTrue(properties.waitForExistence(timeout: 5), "Menu must reveal the existing panel, not hide it")
+        XCTAssertTrue(properties.staticTexts["Properties"].firstMatch.isHittable)
+        XCTAssertTrue(properties.textFields["Grid size"].firstMatch.isHittable, "Raised panel must accept interaction above Settings")
     }
 
     private func focusedElement() throws -> AXUIElement {

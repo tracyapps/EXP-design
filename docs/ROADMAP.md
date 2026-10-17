@@ -1314,6 +1314,13 @@ from the appcast; a development plan does not change the published release.
       Drawing toolbar labels live in General, with explicit icons/text/VoiceOver
       choices. Properties notes, inset fields and Pathfinder refinement: BUG-070.
       Existing preference choices are preserved. Verification/scope: `ACCESSIBILITY-VERIFICATION.md`.
+- [x] **FEAT-071 / BUG-071 / BUG-072 authoring and window fixes implemented:**
+      create the first pattern from its empty library/fill picker; direct fill-editor
+      opening; editable pattern/component bounds and Fit to Artwork; peer tray
+      ordering, reveal commands and Settings anchored to the active canvas display.
+      Scope, receipts and owner review: `SOURCE-BOUNDS-VERIFICATION.md`.
+- [ ] Owner verify pattern/component authoring and physical multi-monitor window
+      ordering before another document-mutating slice.
 - [ ] Full 1x/2x, light/dark, Large interface type and AT matrix; signed release
       payload audit remains a freeze gate. Visual acceptance alone does not close these.
 - [x] **INFRA-005 local release-signup foundation:** durable storage before success,
@@ -3401,6 +3408,35 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-10-17 — Pattern/component bounds and reachable windows, FEAT-071 / BUG-071 / BUG-072 [internal].**
+  Owner selects first-pattern authoring, exact tile/source dimensions, artwork fit,
+  live tiling and detached-panel/Sanaa window ordering. New Pattern now works in
+  empty/nonempty fill pickers and the Patterns panel; Object/context routes also
+  create a blank tile. Fill editing passes the actual pattern/document instead of
+  relying on a canvas responder while a popover holds focus. Both source editors
+  expose dimensions and Fit to Artwork; components also expose X/Y, patterns have
+  draggable tile bounds. ViewBox ratios retain artwork scale as the repeat changes.
+  Fits use existing stroked/rotated/masked selection geometry (not soft effects),
+  filter hidden descendants/empty groups and use the active component state.
+  Explicit component bounds persist and override automatic managed-root hugging;
+  old files retain automatic behavior and Follow layout bounds restores it.
+  Detached trays use normal peer ordering; Settings tracks the active canvas display;
+  Window menu reveals existing trays without hiding them or re-parenting glue groups.
+  Four focused native workflows pass, zero failures/skips, including Sanaa settings,
+  real window-layer checks and interactive raised Properties. Receipt:
+  `output/a11y/pattern-authoring-confirmed-20261017/native/results.xcresult`.
+  The prior run caught a real focused-number-field stale display after Fit; fixed
+  and covered by the final pass. Earlier component shortcut/dock-collapse queries
+  were harness errors and their failure receipts remain. Actual model/raster/legacy
+  persistence checks, 86/86 SVG pattern checks and nested component graph checks pass;
+  app/thumbnail/test build, backlog guard and diff whitespace pass. Cropped component,
+  pattern and Settings screenshots inspected. Build: `/tmp/exp-pattern-authoring-build.log`;
+  existing stand-alone Sendable and XCTest setup isolation warnings remain.
+  Full scope/commands and owner checklist: `SOURCE-BOUNDS-VERIFICATION.md`.
+  Owner verification still needed for live tiling/handles/undo on real imported
+  tiles, physical multi-monitor placement/glued behavior and 1x/2x/appearance/AT.
+  Local commit only; owner reviews/pushes later. No release/deployment changes.
 
 - **2026-10-17 — Settings clarity and bounded Properties controls, BUG-070 [internal].**
   Owner reports duplicate type size, unclear Follow/Visible guidance, Auto Padding

@@ -232,9 +232,11 @@ struct MainWindow: View {
         var name: String = "Untitled"
         var ext: String = ""
         var edited: Bool = false
+        @ObservationIgnored weak var window: NSWindow?
         /// Change-guarded so it can be called on the chatty `didUpdate` signal
         /// without thrashing @Observable (only real changes re-render).
         func update(from window: NSWindow) {
+            self.window = window
             let newName: String, newExt: String
             if let url = window.representedURL {
                 newName = url.deletingPathExtension().lastPathComponent
@@ -259,6 +261,9 @@ struct MainWindow: View {
             let v = WindowTrackingView()
             v.onResolve = { window in
                 configure(window)
+                if window.isMainWindow || PanelHub.shared.activeEditorWindow == nil {
+                    PanelHub.shared.activeEditorWindow = window
+                }
                 context.coordinator.attach(window, chrome: chrome)
             }
             return v
@@ -393,6 +398,7 @@ struct MainWindow: View {
     /// Make the shared panels target this document, then bring the tray windows
     /// in line with the current mode + arrangement.
     private func activate() {
+        if let window = windowChrome.window { PanelHub.shared.activeEditorWindow = window }
         PanelHub.shared.setActive(app: app, document: document, fileURL: fileURL,
                                   undoManager: undoManager)
         PanelWindowManager.shared.reconcile()
@@ -785,6 +791,7 @@ struct EditorMenuModel {
 
     var canCreateComponent: Bool
     var canNewEmptyComponent: Bool
+    var canFitSourceBounds: Bool
     var canEditComponent: Bool
     /// FEAT-062 Stage E — a single selected layer whose FILL is a pattern.
     var canEditPattern: Bool
@@ -922,19 +929,6 @@ func makeEditorMenuModel(document: ExpDocument, app: AppState, scope: CanvasScop
             ? "Delete Pattern \"\(pattern.name)\""
             : "Delete Pattern \"\(pattern.name)\" (used by \(uses) layer\(uses == 1 ? "" : "s"))"
     }()
-    let canEditPattern: Bool = {
-        guard selectedNodes.count == 1, let node = selectedNodes.first else { return false }
-        let paint: Paint?
-        switch node.content {
-        case .rectangle(let shape): paint = shape.fill
-        case .ellipse(let shape):   paint = shape.fill
-        case .polygon(let shape):   paint = shape.fill
-        case .path(let shape):      paint = shape.fill
-        default:                    paint = nil
-        }
-        guard let ref = paint?.patternValue else { return false }
-        return model.pattern(for: ref.patternID) != nil
-    }()
     /// The source behind the first selected instance — Delete Component names it
     /// in the menu title so it can never read as "delete the selected layer."
     let instanceSource = selectedNodes.compactMap { node -> ComponentSource? in
@@ -1059,8 +1053,9 @@ func makeEditorMenuModel(document: ExpDocument, app: AppState, scope: CanvasScop
         canMoveAutoLayoutItem: selectedItemInAutoLayout,
         canCreateComponent: hasNodes,
         canNewEmptyComponent: true,
+        canFitSourceBounds: scope != .document && document.model.sourceArtworkBounds(nodes) != nil,
         canEditComponent: hasInstance,
-        canEditPattern: canEditPattern,
+        canEditPattern: patternCommandTarget != nil,
         canActOnPattern: patternCommandTarget != nil,
         deletePatternTitle: deletePatternTitle,
         canDuplicateComponent: source != nil || hasInstance,

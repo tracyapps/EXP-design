@@ -34,6 +34,40 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 
 ## 🐞 Bugs
 
+### BUG-072 — Detached palettes obscure Sanaa setup and cannot be raised predictably
+- Type: bug
+- Priority: P1
+- Area: chrome · panels
+- Status: needs-verify — implemented; physical multi-monitor owner check pending
+- Repro/Detail: With palettes on a second display, Sanaa setup opens behind them;
+  Window menu should reveal an existing panel without hiding it.
+- Root cause: all detached trays use floating window level, which outranks ordinary
+  Settings/source windows regardless of front ordering. Settings follows whichever
+  palette requested it; the menu uses a show/hide toggle for already-visible trays.
+- Fix: normal-level peer trays, stable glue links; explicit reveal/raise in the
+  multi-window menu. Settings uses the active canvas display when presented.
+- Acceptance: Sanaa setup and source editors are reachable above trays; choosing
+  Window → Properties raises the existing tray; glued groups still move together;
+  repeat on the owner's actual multi-display arrangement, including reactivation.
+- Sources: Apple NSWindow.Level explains that level outranks within-level ordering:
+  https://developer.apple.com/documentation/appkit/nswindow/level-swift.struct.
+- Verification: `SOURCE-BOUNDS-VERIFICATION.md`; no claim of physical multi-monitor proof.
+
+### BUG-071 — Edit Pattern in the fill picker loses its action target
+- Type: bug
+- Priority: P1
+- Area: color · inspector · chrome
+- Status: needs-verify — implemented; owner test-document check pending
+- Repro/Detail: Clicking Edit Pattern from a pattern-filled layer's paint popover
+  can do nothing while the popover owns focus.
+- Root cause: nil-target responder dispatch depends on a focused canvas; the paint
+  popover already knows both the document and the actual paint's pattern identifier.
+- Fix: document-bound library callbacks create/edit/change anchoring using the exact
+  pattern. The pattern editor's anchoring picker commits against its own document.
+- Acceptance: open the right tile from a fill popover, close/reopen it, retain edits;
+  do not route edits to another selection or document.
+- Verification: `SOURCE-BOUNDS-VERIFICATION.md`.
+
 ### BUG-070 — Properties overflows its default width with Auto Padding enabled
 - Type: bug
 - Priority: P1
@@ -3085,6 +3119,34 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   both fixed on the reported PNG document.
 
 ## ✨ Features
+
+### FEAT-071 — First-pattern creation and editable pattern/component bounds
+- Type: feature
+- Priority: P1
+- Area: color · model · canvas · inspector
+- Status: needs-verify — implemented; owner visual/real-document review pending
+- Owner scope 2026-10-17: author the first pattern without SVG import; set exact
+  pattern tile/component source dimensions and hug artwork; live tiling behind editor.
+- Implementation: New Pattern in empty/nonempty paint picker and Patterns panel,
+  plus Object/context command. Blank 100×100 tile opens immediately; creation from
+  a paint picker applies it to that paint. Editors expose W/H, component X/Y and
+  Fit to Artwork; pattern bounds handles resize the repeat without stretching art.
+  Imported viewBox scaling, anchoring, transforms and hidden content are preserved.
+- Components: manual bounds persist and override managed-root hugging; existing
+  files decode with the original automatic behavior. Follow layout bounds restores
+  managed-root behavior when available. Fit uses the currently edited state.
+- Fit definition: existing selection geometry, including strokes, rotation and
+  masks; hidden descendants/empty unpainted groups do not enlarge the fit. Managed
+  container frames follow existing layout conventions. Soft shadows/effects are
+  excluded, matching the inspector's geometry dimensions.
+- Acceptance: first-tile creation, fill-editor reopening, numeric dimensions,
+  handles, live repeat update, undo/redo and save/reopen on real imported patterns;
+  component fixed bounds survive resolution/save while old auto-layout behavior stays.
+- Accessibility: explicit native control names/hints; standard buttons/text fields,
+  horizontal reflow for large type. Apple guidance rechecked for meaningful names:
+  https://developer.apple.com/design/human-interface-guidelines/voiceover.
+  Real VoiceOver traversal/full appearance matrix remain separate gates.
+- Verification: `SOURCE-BOUNDS-VERIFICATION.md`; command parity is in the same change.
 
 ### FEAT-070 — Independent interface accessibility preferences and universal names
 - Type: feature

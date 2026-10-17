@@ -384,3 +384,70 @@ enum SelectionTransform {
         return n
     }
 }
+
+
+// MARK: - Explicit authoring bounds (patterns and component sources)
+extension Document {
+    /// Use the same stroked/rotated/masked geometry as selection, after resolving
+    /// instance sizes and layout. Hidden descendants do not enlarge the result.
+    func sourceArtworkBounds(_ nodes: [Node]) -> CGRect? {
+        func visible(_ nodes: [Node]) -> [Node] {
+            nodes.filter(\.isVisible).compactMap { node in
+                var node = node
+                if case .group(let children) = node.content {
+                    let children = visible(children)
+                    guard !children.isEmpty || node.autoPadding != nil else { return nil }
+                    node.content = .group(children: children)
+                }
+                return node
+            }
+        }
+        return SelectionTransform.unionPaintedBounds(visible(reflowed(nodes)))
+    }
+
+    func resizingPattern(_ id: UUID, to size: CGSize) -> Document {
+        guard size.width.isFinite, size.height.isFinite, size.width > 0.01, size.height > 0.01,
+              let index = patterns.firstIndex(where: { $0.id == id }) else { return self }
+        var copy = self
+        let old = copy.patterns[index]
+        // Keep imported viewBox mapping at its existing scale. Changing the
+        // repeat interval crops/adds space, rather than stretching the artwork.
+        if var box = old.viewBox, old.tileSize.width > 0, old.tileSize.height > 0 {
+            box.size = CGSize(width: box.width * size.width / old.tileSize.width,
+                              height: box.height * size.height / old.tileSize.height)
+            copy.patterns[index].viewBox = box
+        }
+        copy.patterns[index].tileSize = size
+        return copy
+    }
+
+    func fittingPatternToArtwork(_ id: UUID) -> Document {
+        guard let index = patterns.firstIndex(where: { $0.id == id }),
+              let bounds = sourceArtworkBounds(patterns[index].children),
+              bounds.width > 0.01, bounds.height > 0.01 else { return self }
+        var copy = self
+        let old = patterns[index]
+        let reference = old.viewBox ?? CGRect(origin: .zero, size: old.tileSize)
+        guard reference.width > 0, reference.height > 0 else { return self }
+        copy.patterns[index].tileSize = CGSize(width: old.tileSize.width * bounds.width / reference.width,
+                                              height: old.tileSize.height * bounds.height / reference.height)
+        copy.patterns[index].viewBox = bounds
+        return copy
+    }
+
+    func resizingComponent(_ id: UUID, to bounds: CGRect) -> Document {
+        guard [bounds.minX, bounds.minY, bounds.width, bounds.height].allSatisfy(\.isFinite),
+              bounds.width > 0.01, bounds.height > 0.01,
+              let index = sources.firstIndex(where: { $0.id == id }) else { return self }
+        var copy = self
+        copy.sources[index].origin = bounds.origin
+        copy.sources[index].size = bounds.size
+        copy.sources[index].hasExplicitBounds = true
+        return copy
+    }
+
+    func fittingComponentToArtwork(_ id: UUID, children: [Node]? = nil) -> Document {
+        guard let source = source(for: id), let bounds = sourceArtworkBounds(children ?? source.children) else { return self }
+        return resizingComponent(id, to: bounds)
+    }
+}

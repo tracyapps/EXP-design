@@ -33,6 +33,7 @@ struct PaintWell: View {
             }
             .buttonStyle(.plain)
             .help("Edit \(label.lowercased())")
+            .accessibilityLabel(label.isEmpty ? "Edit paint" : "Edit \(label.lowercased())")
             .popover(isPresented: $showing, arrowEdge: .leading) {
                 PaintEditor(paint: $paint, supportsOpacity: supportsOpacity,
                             gradientSize: gradientSize,
@@ -104,6 +105,9 @@ final class PatternPreviewStore {
 struct PatternLibrary {
     var sources: () -> [PatternSource]
     var image: (PatternRef) -> CGImage?
+    var create: (@MainActor () -> UUID?)? = nil
+    var edit: (@MainActor (UUID) -> Void)? = nil
+    var setUnits: (@MainActor (UUID, PatternUnits, CGSize?) -> Void)? = nil
 
     static let empty = PatternLibrary(sources: { [] }, image: { _ in nil })
 }
@@ -122,9 +126,23 @@ extension EnvironmentValues {
 extension View {
     /// Provide the pattern library — previews and the list — below this point.
     func expPatternPreviews(_ document: ExpDocument) -> some View {
-        environment(\.patternLibrary, PatternLibrary(
+        modifier(EXPPatternLibraryProvider(document: document))
+    }
+}
+
+private struct EXPPatternLibraryProvider: ViewModifier {
+    @ObservedObject var document: ExpDocument
+    @Environment(\.undoManager) private var undoManager
+    func body(content: Content) -> some View {
+        content.environment(\.patternLibrary, PatternLibrary(
             sources: { document.model.patterns },
-            image: { ref in PatternPreviewStore.shared.image(for: ref, document: document) }))
+            image: { PatternPreviewStore.shared.image(for: $0, document: document) },
+            create: { PatternAuthoring.create(document: document, undoManager: undoManager) },
+            edit: { SourceEditorWindowManager.shared.open(patternID: $0, document: document, undoManager: undoManager) },
+            setUnits: { id, units, size in
+                document.setModel(document.model.settingPatternUnits(id, to: units, reference: size ?? .zero),
+                                  undoManager: undoManager, actionName: "Set Pattern Anchoring")
+            }))
     }
 }
 
@@ -408,11 +426,7 @@ struct PaintEditor: View {
             },
             set: { units in
                 guard let id = paint.patternValue?.patternID else { return }
-                let selector = Selector((units == .objectBoundingBox
-                    ? "setPatternUnitsShapeAction:" : "setPatternUnitsDocumentAction:"))
-                let item = NSMenuItem(title: "", action: selector, keyEquivalent: "")
-                item.representedObject = id
-                NSApp.sendAction(selector, to: nil, from: item)
+                patternLibrary.setUnits?(id, units, gradientSize)
             })
     }
 
@@ -430,10 +444,6 @@ struct PaintEditor: View {
                 Text("No patterns in this document yet.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
-                Text("Placing an SVG that uses a pattern fill adds its tiles to the Patterns panel.")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-                    .fixedSize(horizontal: false, vertical: true)
             } else {
                 LazyVGrid(columns: patternGrid, spacing: 6) {
                     ForEach(available) { source in
@@ -454,7 +464,7 @@ struct PaintEditor: View {
                 }
                 if paint.isPattern {
                     Button("Edit Pattern…") {
-                        NSApp.sendAction(Selector(("editPatternAction:")), to: nil, from: nil)
+                        if let id = paint.patternValue?.patternID { patternLibrary.edit?(id) }
                     }
                     .accessibilityLabel("Edit this pattern's tile")
                     anchoringControl
@@ -468,6 +478,15 @@ struct PaintEditor: View {
                         .foregroundStyle(.secondary)
                 }
             }
+            Button("New Pattern…") {
+                guard let id = patternLibrary.create?(),
+                      let pattern = patternLibrary.sources().first(where: { $0.id == id }) else { return }
+                paint = .pattern(pattern.reference)
+                choosingPattern = false
+                patternLibrary.edit?(id)
+            }
+            .disabled(patternLibrary.create == nil)
+            .accessibilityHint("Creates a blank reusable tile, applies it to this paint and opens its editor.")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

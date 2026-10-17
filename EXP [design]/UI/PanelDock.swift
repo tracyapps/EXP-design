@@ -669,16 +669,19 @@ struct PatternsPanel: View {
     private var patterns: [PatternSource] { document.model.patterns }
 
     var body: some View {
-        Group {
+        VStack(alignment: .leading, spacing: 0) {
+            Button("New Pattern…") {
+                let id = PatternAuthoring.create(document: document, undoManager: undoManager)
+                SourceEditorWindowManager.shared.open(patternID: id, document: document, undoManager: undoManager)
+            }
+            .buttonStyle(.expCompact()).padding(10)
             if patterns.isEmpty {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("No patterns yet")
                         .font(.system(size: EXPType.base, weight: .medium))
                         .foregroundStyle(EXPColor.textSecondary)
-                    // Says how one is MADE, because an empty library with no next
-                    // step is a dead end — and placing an SVG that uses <pattern>
-                    // is currently the only route until convert-to-pattern lands.
-                    Text("Placing an SVG that uses a pattern fill adds its tiles here.")
+                    // Keep the first authoring step available in an empty library.
+                    Text("Create a blank tile, or select artwork and choose Object → Create Pattern.")
                         .font(.system(size: EXPType.mini))
                         .foregroundStyle(EXPColor.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -1906,12 +1909,19 @@ struct WindowMenuItems: View {
 
     var body: some View {
         Divider()
-        // Per-panel show/hide (works in both modes).
+        // Detached windows reveal/raise; docked panels retain show/hide.
         ForEach(availablePanels, id: \.self) { panel in
-            Toggle(isOn: toggleBinding(panel)) {
-                Label(panel.title, systemImage: panel.icon)
+            if menu?.mode == .multiWindow {
+                Button {
+                    if menu?.shownPanels.contains(panel) == true {
+                        PanelWindowManager.shared.focusPanel(panel)
+                    } else { menu?.toggle(panel) }
+                } label: { Label(panel.title, systemImage: panel.icon) }
+                .disabled(menu == nil)
+            } else {
+                Toggle(isOn: toggleBinding(panel)) { Label(panel.title, systemImage: panel.icon) }
+                    .disabled(menu == nil)
             }
-            .disabled(menu == nil)
         }
         Divider()
         // Single-window dock column visibility — label flips Show ⇄ Hide.

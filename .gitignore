@@ -82,3 +82,6 @@ docs/launch/*
 # Reproducible accessibility receipts and disposable app/document fixtures.
 output/a11y/
 !docs/ACCESSIBILITY-VERIFICATION.md
+
+# Pattern/component authoring evidence and owner review checklist
+!docs/SOURCE-BOUNDS-VERIFICATION.md

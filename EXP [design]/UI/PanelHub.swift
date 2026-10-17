@@ -40,6 +40,7 @@ final class PanelHub {
     /// never keep a closed document alive.
     weak var activeApp: AppState?
     weak var activeDocument: ExpDocument?
+    weak var activeEditorWindow: NSWindow?
     var activeFileURL: URL?
     @ObservationIgnored var activeUndo: UndoManager?
 

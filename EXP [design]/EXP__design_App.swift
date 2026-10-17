@@ -344,6 +344,10 @@ private struct ObjectCommandItems: View {
             // FEAT-062 Stage E. No keyboard shortcut: like Edit Component it is an
             // inherently contextual, low-frequency action, and the Object menu's
             // conventional shortcuts are already spoken for.
+            Button("New Empty Pattern…") { sendEditorAction("newEmptyPatternAction:") }
+                .disabled(menu == nil)
+            Button("Fit Source to Artwork") { sendEditorAction("fitSourceToArtworkAction:") }
+                .disabled(menu?.canFitSourceBounds != true)
             Button("Create Pattern") { sendEditorAction("createPatternAction:") }
                 .disabled(menu?.canCreateComponent != true)
             Button("Edit Pattern…") { sendEditorAction("editPatternAction:") }

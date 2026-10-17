@@ -173,6 +173,7 @@ struct SettingsWindow: View {
         // Roomy default so panes have space to grow into; the user can resize.
         .frame(minWidth: 720, idealWidth: 820, minHeight: 460, idealHeight: 560)
         .expInterfaceTypeSize()
+        .background(EXPSettingsWindowPositioner())
         // Another window (e.g. the Design Language panel) can request a pane by
         // writing this key; jump to it whether Settings was just opened or is open.
         .onAppear { applyRequestedPane() }

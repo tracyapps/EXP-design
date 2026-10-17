@@ -316,3 +316,15 @@ After the final migration fix, the two native live-Settings/independent-toolbar
 checks pass again with no failures/skips in
 `output/a11y/panel-settings-final-20261017/native/results.xcresult`.
 Final cropped General/compact Properties/larger-target screenshots inspected.
+
+
+## Pattern/source authoring and detached windows — October 17
+
+FEAT-071 adds explicitly named native bounds fields and first-pattern buttons;
+BUG-071 fixes fill-popover action targeting. BUG-072 restores reachable Settings
+and selectable peer panels, with normal window levels and reveal commands.
+The four focused native tests pass with no failures or skips; these are workflow
+checks, not a new blanket accessibility-audit pass. Real reader traversal, large
+text/full appearance and physical multi-display behavior remain owner gates.
+Receipts, earlier failures/repairs and repeat checklist:
+`SOURCE-BOUNDS-VERIFICATION.md`.

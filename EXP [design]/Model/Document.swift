@@ -1441,7 +1441,7 @@ struct Document: Codable, Sendable {
     /// with instance sizes. Resolving instances here would recurse on every
     /// layout for no difference in result.
     func sourceUsesManagedBounds(_ source: ComponentSource) -> Bool {
-        managedRootBounds(in: AutoLayoutEngine.reflowed(source.children)) != nil
+        !source.hasExplicitBounds && managedRootBounds(in: AutoLayoutEngine.reflowed(source.children)) != nil
     }
 
     func managedRootBounds(in children: [Node]) -> CGRect? {
@@ -3719,6 +3719,9 @@ struct ComponentSource: Identifiable, Codable, Sendable {
     /// instance renders. Defaults to .zero so older files (size-only) keep working.
     var origin: CGPoint = .zero
     var size: CGSize
+    /// Explicit editor bounds override managed-root hugging. Legacy sources
+    /// retain their existing automatic layout behavior until manually resized.
+    var hasExplicitBounds: Bool = false
     var children: [Node]
 
     /// Accessibility semantics (Phase 19a). Day one this is the component's
@@ -3754,12 +3757,17 @@ struct ComponentSource: Identifiable, Codable, Sendable {
         self.anchoredRelationships = anchoredRelationships
     }
 
+    enum CodingKeys: String, CodingKey {
+        case id, name, origin, size, children, a11y, states, anchoredRelationships, hasExplicitBounds
+    }
+
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
         name = try c.decode(String.self, forKey: .name)
         origin = try c.decodeIfPresent(CGPoint.self, forKey: .origin) ?? .zero
         size = try c.decode(CGSize.self, forKey: .size)
+        hasExplicitBounds = try c.decodeIfPresent(Bool.self, forKey: .hasExplicitBounds) ?? false
         children = try c.decode([Node].self, forKey: .children)
         a11y = try c.decodeIfPresent(A11ySemantics.self, forKey: .a11y) ?? A11ySemantics()
         states = try c.decodeIfPresent([ComponentState].self, forKey: .states) ?? []

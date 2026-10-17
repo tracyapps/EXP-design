@@ -23,6 +23,133 @@ import SwiftUI
 import AppKit
 
 @MainActor
+enum PatternAuthoring {
+    static func create(document: ExpDocument, undoManager: UndoManager?) -> UUID {
+        let pattern = PatternSource(name: "Pattern \(document.model.patterns.count + 1)",
+                                    children: [], tileSize: CGSize(width: 100, height: 100))
+        var model = document.model
+        model.patterns.append(pattern)
+        document.setModel(model, undoManager: undoManager, actionName: "New Pattern")
+        return pattern.id
+    }
+}
+
+@MainActor
+enum SourceBoundsAuthoring {
+    static func fit(scope: CanvasScope, document: ExpDocument, undoManager: UndoManager?, children: [Node]? = nil) {
+        let model: Document
+        switch scope {
+        case .source(let id): model = document.model.fittingComponentToArtwork(id, children: children)
+        case .pattern(let id): model = document.model.fittingPatternToArtwork(id)
+        case .document: return
+        }
+        document.setModel(model, undoManager: undoManager, actionName: "Fit Source to Artwork")
+    }
+}
+
+private struct SourceBoundsControls: View {
+    @ObservedObject var document: ExpDocument
+    let scope: CanvasScope
+    @Environment(AppState.self) private var app
+    @Environment(\.undoManager) private var undoManager
+
+    private var component: ComponentSource? {
+        if case .source(let id) = scope { return document.model.source(for: id) }; return nil
+    }
+    private var pattern: PatternSource? {
+        if case .pattern(let id) = scope { return document.model.pattern(for: id) }; return nil
+    }
+    private var bounds: CGRect { component?.bounds ?? CGRect(origin: .zero, size: pattern?.tileSize ?? .zero) }
+    private var factor: Double { pattern?.units == .objectBoundingBox ? 100 : 1 }
+    private var artwork: [Node] {
+        if let component, let id = app.activeComponentStateID,
+           let state = component.states.first(where: { $0.id == id }) {
+            return ComponentStateEditing.applied(component.children, state: state)
+        }
+        return component?.children ?? pattern?.children ?? []
+    }
+
+    var body: some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: 12) {
+                if component != nil {
+                    field("X", name: "Component bounds X", key: \.origin.x)
+                    field("Y", name: "Component bounds Y", key: \.origin.y)
+                }
+                field(factor == 100 ? "W (%)" : "W", name: pattern == nil ? "Component bounds width" : "Pattern tile width", key: \.size.width)
+                field(factor == 100 ? "H (%)" : "H", name: pattern == nil ? "Component bounds height" : "Pattern tile height", key: \.size.height)
+                Button("Fit to Artwork") { SourceBoundsAuthoring.fit(scope: scope, document: document, undoManager: undoManager, children: artwork) }
+                    .buttonStyle(.expCompact())
+                    .disabled(document.model.sourceArtworkBounds(artwork) == nil)
+                    .accessibilityHint("Fits the shared source bounds to visible artwork, including strokes. All uses update.")
+                if let component, document.model.managedRootBounds(in: document.model.reflowed(component.children)) != nil {
+                    Toggle("Follow layout bounds", isOn: Binding(
+                        get: { !component.hasExplicitBounds },
+                        set: { follows in
+                            guard let index = document.model.sources.firstIndex(where: { $0.id == component.id }) else { return }
+                            var model = document.model
+                            model.sources[index].hasExplicitBounds = !follows
+                            if follows, let box = model.managedRootBounds(in: model.reflowed(component.children)) {
+                                model.sources[index].origin = box.origin; model.sources[index].size = box.size
+                            }
+                            document.setModel(model, undoManager: undoManager, actionName: "Set Component Bounds Mode")
+                        }))
+                }
+            }
+            .padding(.horizontal, 10).padding(.vertical, 6)
+        }
+        .scrollIndicators(.hidden)
+    }
+
+    private func field(_ label: String, name: String, key: WritableKeyPath<CGRect, CGFloat>) -> some View {
+        HStack(spacing: 4) {
+            Text(label).font(.expLabel).foregroundStyle(EXPColor.textSecondary)
+            SourceBoundsNumberField(name: name, value: Double(bounds[keyPath: key]) * factor,
+                                    minimum: (key == \.size.width || key == \.size.height) ? 0.02 * factor : nil) { value in
+                var rect = bounds
+                rect[keyPath: key] = value / factor
+                let model: Document
+                switch scope {
+                case .source(let id): model = document.model.resizingComponent(id, to: rect)
+                case .pattern(let id): model = document.model.resizingPattern(id, to: rect.size)
+                case .document: return
+                }
+                document.setModel(model, undoManager: undoManager, actionName: "Resize Source Bounds")
+            }
+            .frame(width: 72 * EXPType.scale)
+        }
+    }
+}
+
+private struct SourceBoundsNumberField: View {
+    let name: String
+    let value: Double
+    let minimum: Double?
+    let commit: (Double) -> Void
+    @State private var draft = ""
+    @State private var original = ""
+    @FocusState private var focused: Bool
+    var body: some View {
+        TextField(name, text: $draft).textFieldStyle(.exp).monospacedDigit()
+            .multilineTextAlignment(.trailing)
+            .focused($focused).onSubmit(apply)
+            .onChange(of: focused) { _, focus in if !focus { apply(); sync() } }
+            .onAppear { sync() }
+            .onChange(of: value) { _, _ in sync() }
+            .accessibilityLabel(name)
+            .accessibilityHint("Enter a number and press Return. Width and height must be greater than zero.")
+    }
+    private func sync() { draft = value.formatted(.number.grouping(.never).precision(.fractionLength(0...6))); original = draft }
+    private func apply() {
+        guard draft != original else { return }
+        guard let parsed = try? Double(draft, format: .number), parsed.isFinite,
+              minimum.map({ parsed >= $0 }) ?? true else { sync(); return }
+        commit(parsed)
+        original = draft
+    }
+}
+
+@MainActor
 final class SourceEditorWindowManager {
     static let shared = SourceEditorWindowManager()
 
@@ -48,6 +175,7 @@ final class SourceEditorWindowManager {
         let window = NSWindow(contentViewController: hosting)
         window.styleMask = [NSWindow.StyleMask.titled, .closable, .miniaturizable, .resizable]
         window.title = "Edit Component"
+        window.identifier = NSUserInterfaceItemIdentifier("exp.component.editor")
         window.isReleasedWhenClosed = false
         if let frame = SourceEditorWindowPreferences.windowFrame {
             window.setFrame(frame, display: false)
@@ -102,6 +230,7 @@ final class SourceEditorWindowManager {
         let window = NSWindow(contentViewController: hosting)
         window.styleMask = [NSWindow.StyleMask.titled, .closable, .miniaturizable, .resizable]
         window.title = "Edit Pattern"
+        window.identifier = NSUserInterfaceItemIdentifier("exp.pattern.editor")
         window.isReleasedWhenClosed = false
         if let frame = SourceEditorWindowPreferences.windowFrame {
             window.setFrame(frame, display: false)
@@ -380,6 +509,8 @@ struct SourceEditorView: View {
             }
             .padding(10)
 
+            SourceBoundsControls(document: document, scope: .source(sourceID))
+
             // ── States bar (v1.6 Chunk H): full width, below the name row.
             // Set into its own slightly-recessed strip (toolbar surface, with a
             // hairline above and below) so it reads as separate from the category
@@ -445,26 +576,8 @@ struct PatternEditorView: View {
         document.setModel(model, undoManager: undoManager, actionName: "Rename Pattern")
     }
 
-    private var tileDescription: String {
-        guard let pattern else { return "" }
-        let w = pattern.tileSize.width, h = pattern.tileSize.height
-        // FEAT-064: bounds-relative tiles are fractions, and a fraction reads as
-        // what it is ("25% of the shape") rather than as bogus points.
-        if pattern.units == .objectBoundingBox {
-            return "\(Int((w * 100).rounded()))% × \(Int((h * 100).rounded()))% of shape"
-        }
-        func trim(_ v: CGFloat) -> String {
-            let r = (v * 100).rounded() / 100
-            return r == r.rounded() ? String(Int(r)) : String(Double(r))
-        }
-        return "\(trim(w)) × \(trim(h))"
-    }
-
-    /// FEAT-064. Anchoring beside the tile size — the pattern's own header is
-    /// where its shared properties live. Routes through the canvas action with
-    /// this pattern in `representedObject`; in this window the responder
-    /// chain's canvas resolves the pattern from its scope, so the inspector,
-    /// this header and the context menu run ONE implementation.
+    /// Shared pattern properties commit against this editor's document even
+    /// while a header control, rather than the canvas, holds keyboard focus.
     private var anchoringPicker: some View {
         Picker("Anchoring", selection: anchoringBinding) {
             Text("Document").tag(PatternUnits.userSpaceOnUse)
@@ -481,11 +594,9 @@ struct PatternEditorView: View {
         Binding(
             get: { pattern?.units ?? .userSpaceOnUse },
             set: { units in
-                let selector = Selector((units == .objectBoundingBox
-                    ? "setPatternUnitsShapeAction:" : "setPatternUnitsDocumentAction:"))
-                let item = NSMenuItem(title: "", action: selector, keyEquivalent: "")
-                item.representedObject = patternID
-                NSApp.sendAction(selector, to: nil, from: item)
+                guard pattern?.units != units else { return }
+                document.setModel(document.model.settingPatternUnits(patternID, to: units, reference: .zero),
+                                  undoManager: undoManager, actionName: "Set Pattern Anchoring")
             })
     }
 
@@ -512,14 +623,6 @@ struct PatternEditorView: View {
                         .accessibilityLabel("Pattern name")
                 }
                 Spacer()
-                // The tile size is the REPEAT INTERVAL, and it is shown rather
-                // than edited here: changing it re-lattices every layer painted
-                // with this pattern, which belongs behind a deliberate control
-                // (FEAT-064), not a field you can tab into while drawing.
-                Text("Tile \(tileDescription)")
-                    .font(.system(size: EXPType.mini, weight: .medium))
-                    .foregroundStyle(EXPColor.textSecondary)
-                    .accessibilityLabel("Tile size \(tileDescription)")
                 anchoringPicker
                 Text("Edits apply everywhere this pattern is used")
                     .font(.system(size: EXPType.mini))
@@ -527,6 +630,7 @@ struct PatternEditorView: View {
                     .accessibilityLabel("Edits apply everywhere this pattern is used")
             }
             .padding(10)
+            SourceBoundsControls(document: document, scope: .pattern(patternID))
             Divider()
 
             ScopedEditorPanes(app: app, document: document, scope: .pattern(patternID))

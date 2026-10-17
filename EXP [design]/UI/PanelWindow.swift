@@ -157,12 +157,9 @@ final class PanelWindowManager {
         window.titlebarAppearsTransparent = true
         window.isReleasedWhenClosed = false
         window.isExcludedFromWindowsMenu = true            // we list panels ourselves
-        // These are palettes, not peer document windows. Floating level keeps every
-        // tray above ordinary windows on every attached display while EXP is active;
-        // hiding on deactivation prevents them from hovering over another app. When
-        // EXP is reactivated—whether by Command-Tab or by clicking its canvas—AppKit
-        // restores the trays together at the front, matching standard pro-app panels.
-        window.level = .floating
+        // Detached panels are peer windows. A higher level made Settings and
+        // source editors impossible to raise above trays on another display.
+        window.level = .normal
         window.hidesOnDeactivate = true
         window.standardWindowButton(.zoomButton)?.isHidden = true
 
@@ -315,7 +312,13 @@ final class PanelWindowManager {
     /// Bring the window hosting `panel` to the front (Window-menu "reveal").
     func focusPanel(_ panel: PanelID) {
         guard let tray = PanelHub.shared.trays.first(where: { $0.panels.contains(panel) }) else { return }
-        controllers[tray.id]?.window?.makeKeyAndOrderFront(nil)
+        guard let window = controllers[tray.id]?.window else { return }
+        // Keep the stable glue parent links; bring the group forward, then the
+        // requested member. Never re-parent a group just to change its ordering.
+        let root = window.parent ?? window
+        root.orderFront(nil)
+        for sibling in root.childWindows ?? [] { sibling.orderFront(nil) }
+        window.makeKeyAndOrderFront(nil)
     }
 
     /// A tray window closed. A USER close (its ✕) drops the tray from the hub so

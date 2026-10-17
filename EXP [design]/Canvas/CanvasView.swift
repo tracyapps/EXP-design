@@ -3141,8 +3141,14 @@ final class CanvasNSView: NSView {
     /// user-resizable rect (NOT auto-hugged to content), so elements can be moved /
     /// centered within it like an SVG viewBox. nil outside source scope.
     private func sourceBoundsRect() -> CGRect? {
-        guard let si = sourceIndex, let document else { return nil }
-        return document.model.sources[si].bounds
+        guard let document else { return nil }
+        switch scope {
+        case .source(let id): return document.model.source(for: id)?.bounds
+        case .pattern(let id):
+            guard let pattern = document.model.pattern(for: id) else { return nil }
+            return pattern.viewBox ?? CGRect(origin: .zero, size: pattern.tileSize)
+        case .document: return nil
+        }
     }
 
     /// The component STATE being edited in this window (source scope only;
@@ -9014,14 +9020,27 @@ final class CanvasNSView: NSView {
             needsDisplay = true
 
         case .resizeSource(let handle, let original):
-            guard let document, let si = sourceIndex else { return }
+            guard let document else { return }
             let cur = viewToDoc(p)
             var newRect = shift
                 ? Self.proportionalFrame(original, handle: handle, cursor: cur)
                 : Self.resizedFrame(original, handle: handle, cursor: cur)
             if snapToPixels { newRect = pxSnapRect(newRect) }
-            document.model.sources[si].origin = newRect.origin
-            document.model.sources[si].size = newRect.size
+            switch scope {
+            case .source(let id): document.model = document.model.resizingComponent(id, to: newRect)
+            case .pattern(let id):
+                guard let pattern = document.model.pattern(for: id) else { return }
+                let oldBounds = sourceBoundsRect() ?? original
+                let size = CGSize(width: pattern.tileSize.width * newRect.width / oldBounds.width,
+                                  height: pattern.tileSize.height * newRect.height / oldBounds.height)
+                var model = document.model.resizingPattern(id, to: size)
+                if let index = model.patterns.firstIndex(where: { $0.id == id }) {
+                    // A moved top/left handle changes the content-coordinate crop.
+                    model.patterns[index].viewBox = newRect
+                }
+                document.model = model
+            case .document: return
+            }
             didEdit = true
             needsDisplay = true
 
@@ -12830,6 +12849,19 @@ final class CanvasNSView: NSView {
 
     @objc func createComponentAction(_ sender: Any?) { createComponent() }
 
+    @objc func newEmptyPatternAction(_ sender: Any?) {
+        guard let document else { return }
+        let id = PatternAuthoring.create(document: document, undoManager: undoManager)
+        openPatternEditor(id)
+    }
+
+    @objc func fitSourceToArtworkAction(_ sender: Any?) {
+        guard let document else { return }
+        SourceBoundsAuthoring.fit(scope: scope, document: document, undoManager: undoManager,
+                                  children: currentNodes)
+        needsDisplay = true
+    }
+
     @objc func createPatternAction(_ sender: Any?) { createPattern() }
 
     /// FEAT-065c. Turn the selection into a reusable pattern tile and replace it
@@ -13302,15 +13334,7 @@ final class CanvasNSView: NSView {
     }
 
     @objc func editPatternAction(_ sender: Any?) {
-        // A menu item may carry the id directly (the Patterns list); otherwise
-        // fall back to the selection's fill.
-        if let item = sender as? NSMenuItem,
-           let id = item.representedObject as? UUID,
-           document?.model.pattern(for: id) != nil {
-            openPatternEditor(id)
-            return
-        }
-        guard let id = selectedPatternID else { return }
+        guard let id = patternTarget(for: sender) else { return }
         openPatternEditor(id)
     }
 
@@ -13394,6 +13418,12 @@ final class CanvasNSView: NSView {
     override func menu(for event: NSEvent) -> NSMenu? {
         let p = convert(event.locationInWindow, from: nil)
         let menu = NSMenu()
+
+        add(menu, "New Empty Pattern…", #selector(newEmptyPatternAction(_:)))
+        if isSourceScope {
+            add(menu, "Fit Source to Artwork", #selector(fitSourceToArtworkAction(_:)))
+        }
+        menu.addItem(.separator())
 
         // Right-click anywhere on the gradient line → a gradient menu (FEAT-045).
         // First, like the path-anchor case below, because it is chrome sitting on top
@@ -13850,8 +13880,10 @@ extension CanvasNSView: NSMenuItemValidation {
             return selectedItemInAutoLayout
         case #selector(editComponentAction(_:)), #selector(detachComponentAction(_:)):
             return selectionHasInstance
+        case #selector(newEmptyPatternAction(_:)): return document != nil
+        case #selector(fitSourceToArtworkAction(_:)): return isSourceScope && document?.model.sourceArtworkBounds(currentNodes) != nil
         case #selector(editPatternAction(_:)):
-            return selectedPatternID != nil
+            return patternTarget(for: item) != nil
         case #selector(setPatternUnitsDocumentAction(_:)),
              #selector(setPatternUnitsShapeAction(_:)):
             // The action no-ops when the pattern is already in the requested
