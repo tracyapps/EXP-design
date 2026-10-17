@@ -140,9 +140,9 @@ readiness on 2026-10-16. For v2.7 implementation, pricing, analytics or campaign
 work, read `docs/SELF-LAUNCH-PLAN-v2.7.md` and `docs/RELEASE-CHECKLIST-v2.7.md`
 first. Owner accepted standard system layer typography on 2026-10-16; full
 display/accessibility and signed-payload gates remain. For signup/privacy work,
-read `docs/launch/DATA-FLOW-AND-SIGNUP-v2.7.md`: INFRA-005 is locally checked,
-with separate Pro interest, confirmation and hosted proof next. Preserve bundle
-identity and sequential owner verification.
+read `docs/launch/PRO-INTEREST-v2.7.md` and the linked data map: INFRA-005/006
+are locally checked; hosted PostgreSQL/setup, delivery, privacy and abuse gates
+remain before enablement. Preserve bundle identity and sequential owner verification.
 Prices and paid features await the offer gate.
 The native editor, Design Language, component states/behavior contract, semantic
 Handoff Package, agent bridge, nested components, canvas pages, XD/Figma import,

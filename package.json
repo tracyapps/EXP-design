@@ -1,0 +1,12 @@
+{
+  "name": "exp-design-launch-services",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/signup.test.mjs && bash scripts/verify_pro_interest.sh",
+    "test:interest": "bash scripts/verify_pro_interest.sh"
+  },
+  "dependencies": {
+    "pg": "^8.16.3"
+  }
+}

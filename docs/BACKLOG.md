@@ -7127,6 +7127,34 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 
 ## 🛠 Infrastructure
 
+### INFRA-006 — Separate Pro-interest permission and single-use confirmation
+- Type: feature
+- Priority: P1
+- Area: website · privacy · launch readiness
+- Status: needs-verify
+- Implementation: `/pro` discovery form, unselected payment preference and
+  unchecked explicit Pro email permission; pending PostgreSQL record before mail;
+  hashed 256-bit tokens, atomic confirmation, 24h expiry, duplicate cooldown,
+  explicit POST confirmation/withdrawal. Pro records never enter the release list.
+  Enrollment defaults off. Withdrawal remains available while enrollment is paused.
+- Verification: 16 real PostgreSQL integration checks + 15 existing release checks
+  pass; browser exercises required consent and actual local request/confirm/withdraw
+  with captured mail; desktop/mobile visually reviewed. Production site build passes.
+- Remaining: hosted provider/role/TLS/pooling + serverless function build, inbox/link
+  behavior, cross-address abuse controls, deletion/retention/policy/contact details,
+  owner visual acceptance and formal VoiceOver/FKA. No live send, deployment or
+  public navigation promotion; no paid offer or analytics implementation.
+- Handoff: `launch/PRO-INTEREST-v2.7.md`. PostgreSQL chosen for atomic single-use
+  state; hosted vendor/account remains undecided. Runtime data stays private.
+- Official sources checked 2026-10-16 before semantics/query implementation:
+  https://www.postgresql.org/docs/current/sql-update.html
+  https://node-postgres.com/features/queries
+  https://resend.com/docs/api-reference/emails/send-email
+  https://www.w3.org/WAI/tutorials/forms/labels/
+  https://www.w3.org/TR/wai-aria-1.2/#status
+  https://www.w3.org/TR/html-aria/
+  https://www.w3.org/WAI/WCAG21/Understanding/labels-or-instructions.html
+
 ### INFRA-005 — Reliable release signup before Pro-interest enrollment
 - Type: chore
 - Priority: P1

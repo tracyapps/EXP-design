@@ -1,0 +1,37 @@
+.interest-page {
+  color: var(--text-primary);
+  width: min(calc(100% - var(--site-gutter) * 2), 1080px);
+  margin: 0 auto;
+  padding: 136px 0 88px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: clamp(28px, 6vw, 80px);
+  align-items: start;
+}
+.interest-page h1 { margin: 16px 0 24px; font-size: clamp(40px, 5vw, 68px); line-height: 1.04; letter-spacing: -.04em; }
+.interest-page h2 { margin: 0; font-size: 26px; line-height: 1.2; }
+.interest-page p { line-height: 1.6; color: var(--text-secondary); }
+.interest-page .interest-lead { font-size: 21px; color: var(--text-primary); }
+.interest-form { display: grid; gap: 14px; padding: clamp(22px, 3vw, 36px); border-radius: 18px; }
+.interest-form > p { margin: 0 0 8px; }
+.interest-form label { font-size: 14px; line-height: 1.5; }
+.interest-form input:not([type="checkbox"]):not(.signup-trap), .interest-form select {
+  min-width: 0; width: 100%; min-height: 48px; padding: 10px 12px;
+  color: var(--text-primary); background: var(--surface-field); border: 1px solid var(--hairline); border-radius: 8px; font: inherit;
+}
+.interest-permission { display: grid; grid-template-columns: 20px 1fr; gap: 10px; margin: 8px 0; }
+.interest-permission input { width: 18px; height: 18px; margin: 3px 0 0; accent-color: var(--accent); }
+.interest-page .interest-hint { font-size: 13px; }
+.interest-button { min-height: 48px; padding: 12px 20px; border: 1px solid var(--text-primary); border-radius: 8px; background: var(--text-primary); color: var(--surface-window); font: inherit; cursor: pointer; }
+.interest-button:disabled { opacity: .6; cursor: default; }
+.interest-page :is(input, select, button, a):focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; }
+.interest-page a { text-decoration: underline; text-underline-offset: 4px; }
+.interest-text-link { display: inline-block; margin-top: 18px; font-size: 14px; line-height: 1.6; }
+.interest-page .interest-message { min-height: 24px; margin: 0; font-size: 14px; color: var(--text-primary); }
+.interest-message.error { border-left: 3px solid var(--red); padding-left: 12px; }
+.interest-message.success { border-left: 3px solid var(--accent); padding-left: 12px; }
+.interest-action { display: block; max-width: 680px; min-height: 65vh; }
+.interest-action form { display: grid; gap: 18px; margin-top: 28px; }
+@media (max-width: 760px) {
+  .interest-page { grid-template-columns: 1fr; padding-top: 106px; }
+}

@@ -52,7 +52,7 @@ queue. The honeypot remains; it is not sufficient rate limiting.
 | Feedback (`UI/Feedback.swift`) | User-written title/detail plus app/OS/tool/selection/document counts placed in a GitHub issue URL | User reviews and chooses to open/submit; not an automatic private support channel | URL data reaches GitHub/browser history before issue publication; warn against confidential content in the final support flow |
 | Diagnostics (`UI/DiagnosticLog.swift`, canvas report action) | Machine/app info, selected document statistics/geometry and log tail in a saved report | User-selected report file; local rotating daily log keeps newest five files | Inspect actual report for sensitive names/paths before sending; no automatic upload proved by these sources |
 | Planned usage measurement | Fixed events/coarse versions and consented install identifier only | **Not implemented**; must default off, exclude content/paths/URLs/email/prompts and clear queue on withdrawal | Source + captured-network consent-off/withdrawal proof before launch |
-| Planned Pro/payment/license | Proposed model/price and purpose-specific interest; later checkout/entitlements | **Not implemented; provider and offer undecided** | Separate permission; owner offer gate Nov 6; live/sandbox lifecycle evidence before accepting money |
+| Pro-interest discovery / planned payment/license | Email, preference, permission timestamps and hashed tokens in private PostgreSQL; confirmation mail through Resend | **Pro request/confirm/withdraw implemented locally**, enrollment disabled by default; no release-list enrollment; paid offer/checkout/entitlements still unimplemented | See `PRO-INTEREST-v2.7.md` for real local DB/browser proof and hosted/provider/legal/abuse gates; owner offer gate Nov 6 |
 
 This is a bounded inventory of inspected entry points, not a claim that every
 network path or every bundled third-party dependency has been audited. Inspect
@@ -127,3 +127,7 @@ legal details or claim product compliance from this inventory.
 [topic defaults and global subscription behavior](https://resend.com/blog/unsubscribe-topics).
 These specify the interfaces used; they do not replace verification of this
 account's settings or undocumented concurrent create/upsert behavior.
+
+Follow-up: [Pro-interest implementation and setup](PRO-INTEREST-v2.7.md) adds a
+separate PostgreSQL confirmation ledger. The release-list behavior above remains
+unchanged. Its local completion does not establish the hosted confirmation gates.

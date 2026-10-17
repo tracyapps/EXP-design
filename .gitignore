@@ -72,3 +72,8 @@ output/playwright/
 docs/launch/*
 !docs/launch/EXP-design-Marketing-Brief.docx
 !docs/launch/DATA-FLOW-AND-SIGNUP-v2.7.md
+# Launch service dependencies and private environment overrides.
+/node_modules/
+.env.local
+.env.*.local
+!docs/launch/PRO-INTEREST-v2.7.md

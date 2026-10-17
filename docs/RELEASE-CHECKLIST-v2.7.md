@@ -36,6 +36,9 @@ payment and license records live outside the repository; use sanitized summaries
 
 ## Signup and privacy gate
 
+- [x] INFRA-006 local separate Pro request/confirm/withdraw with private PostgreSQL
+      ledger; 16 real DB checks and browser flow pass. Enrollment disabled by default.
+      Setup and remaining gates: `launch/PRO-INTEREST-v2.7.md`.
 - [x] INFRA-005 local release-signup foundation and source data map recorded in
       `launch/DATA-FLOW-AND-SIGNUP-v2.7.md`; 15 endpoint tests + browser fixtures pass.
       This is partial evidence for the complete gates below.
@@ -177,3 +180,11 @@ Expected browser resource error was the injected 503. The CLI default Chrome pat
 was unavailable; existing cached Chromium was selected explicitly. No live Resend
 requests/sends, configuration changes or deployment. Concurrent provider creation,
 actual limits/delivery/unsubscribe/deletion and Pro confirmation remain unverified.
+
+INFRA-006 follow-up October 16: `npm test` executes 15 release checks + 16 Pro
+PostgreSQL checks, all pass. Pro tests include eight concurrent requests and
+confirmations, expiry, withdrawal, replay, mail failure/retry and paused enrollment.
+Local browser uses real handlers/DB and captured test mail; unchecked consent blocks
+submission; record counts move 0 → 1 pending → 1 confirmed → 0 active. Desktop/mobile
+screenshots inspected; full AT pending. Website production build and root production
+dependency audit pass. No hosted function/DB/mail proof or privacy/abuse closure.

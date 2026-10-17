@@ -11,7 +11,7 @@ Import the existing GitHub repo and use these settings:
 ```text
 Root Directory: ./
 Framework Preset: Other
-Install Command: cd website && npm ci
+Install Command: npm ci && npm --prefix website ci
 Build Command: cd website && npm run build
 Output Directory: website/dist
 ```
@@ -150,3 +150,29 @@ Example:
 ```text
 - **2026-07-05 — Session 186 [site]:** Updated the public website...
 ```
+
+## Pro-interest confirmation (local implementation; disabled by default)
+
+The new `/pro`, `/confirm-interest` and `/withdraw-interest` pages use separate
+POST endpoints and a private PostgreSQL ledger. They never add Pro requests to
+the release Resend segment. Public navigation does not advertise this page yet.
+Root Node dependencies are now installed as well as website dependencies.
+
+Required server-only configuration before enablement:
+
+```text
+EXP_INTEREST_DATABASE_URL=<dedicated private PostgreSQL connection, verified TLS>
+INTEREST_PUBLIC_ORIGIN=https://expdesign.app
+PRO_INTEREST_ENABLED=true
+RESEND_API_KEY=<existing email-transport credential>
+SIGNUP_FROM_EMAIL=<verified sender>
+```
+
+Apply `migrations/001_pro_interest.sql` manually after review; no auto-migration
+runs during deployment. Leave enrollment disabled until hosted delivery, abuse,
+privacy/retention/deletion and accessibility gates pass. Pausing enrollment does
+not disable withdrawal while its database/origin configuration remains available.
+No hosted database, role or secret has been provisioned by the local work.
+
+Full setup, data contract, local preview and verification boundaries:
+[`PRO-INTEREST-v2.7.md`](../docs/launch/PRO-INTEREST-v2.7.md).

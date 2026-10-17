@@ -1310,6 +1310,9 @@ from the appcast; a development plan does not change the published release.
       read-only duplicate verification, preserved existing opt-outs, input/log guards;
       15 endpoint checks and browser failure/success checks pass. Actual source data
       map and dated provider handoff: `launch/DATA-FLOW-AND-SIGNUP-v2.7.md`.
+- [x] **INFRA-006 local Pro-interest flow:** request → captured confirmation mail →
+      explicit single-use confirmation → withdrawal. Private PostgreSQL ledger;
+      no release-list enrollment. Review/setup: `launch/PRO-INTEREST-v2.7.md`.
 - [ ] Reliable separate Pro-interest signup, permission/delivery/unsubscribe proof,
       data map and owner-reviewed privacy/EULA/refund/ownership decisions.
 - [ ] Minimal consented measurement of successful create/import → edit → output;
@@ -3373,6 +3376,30 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-10-16 — Prior slice committed; Pro-interest confirmation implemented [internal].**
+  Owner authorizes commit and next piece, reserving review/push. Committed prior
+  self-launch/font/release-signup work as `14cb859`; excluded unrelated Oct 13
+  video notes/drafts and `.zcodeignore`. INFRA-006 adds an unlinked `/pro` discovery
+  page and explicit confirmation/withdrawal pages. Unchecked purpose-specific
+  permission and unselected model; fixed discovery/consent version, no paid claim.
+  Private PostgreSQL ledger supplies atomic token consumption/dedup; Resend only
+  transports confirmation mail. Existing release signup remains unchanged.
+  Enrollment defaults off; withdrawal works while enrollment is paused.
+  Fifteen release-signup tests plus 16 real PostgreSQL checks pass; eight concurrent
+  requests/confirmations test dedup and one-time consumption. Browser actual local
+  handlers + isolated DB + captured mail prove native required consent and
+  pending → confirmed → withdrawn behavior. Desktop/mobile screenshot review caught
+  and fixed inherited dark-theme heading/label colors; no horizontal mobile overflow.
+  Root dependency audit and production website build pass. No hosted DB, secret,
+  email or deployment touched. No app/document changes in this slice.
+  Handoff: `launch/PRO-INTEREST-v2.7.md`; local check `npm test`; private preview
+  `bash scripts/preview_pro_interest.sh`. Receipts: `/tmp/exp-pro-interest-final-tests.log`,
+  `/tmp/exp-pro-interest-website-build.log`, ignored `output/playwright/pro-interest-*.png`.
+  **NEXT:** owner UI/storage review, choose dedicated hosted PostgreSQL provider;
+  authorized setup/delivery/link tests, abuse controls and privacy/contact/deletion/
+  retention work before enablement. Full AT, hosted serverless build and commercial
+  gates remain open. Owner pushes after review; no push occurred here.
 
 - **2026-10-16 — Release-signup foundation and privacy inventory [internal].**
   Owner accepts standard-width SF Pro layer titles as “clean and clear” and asks
