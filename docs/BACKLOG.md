@@ -3026,6 +3026,29 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 
 ## ✨ Features
 
+### FEAT-069 — Optional free member hub before paid subscriptions
+- Type: feature
+- Priority: P1
+- Area: accounts · community · support
+- Status: planned
+- Owner scope 2026-10-16: profile, preferences, feedback/beta participation, Pro
+  interest, community profile, news/updates, opening/responding to private tickets,
+  a future Discord link and optional support-the-developer page. Forums later.
+- Sequence: privacy/hosting → established auth + profile/preferences → community/
+  news → private ticket workflow. Full target and conditional dates in
+  `launch/ACCOUNTS-AND-PRIVACY-v2.7.md`; website hub can roll out independently of
+  the native v2.7 release. No auth/session/account/ticket system is implemented yet.
+- Boundaries: local editor/exports/download remain account-free; public profiles
+  opt in, email/tickets private; account identity, email purpose and entitlement
+  stay separate. List confirmation does not create an account. Discord begins as
+  a real owner-configured external link; no bot/SSO or invite fabricated.
+- Acceptance: verified sign-in/logout/recovery/deletion; per-user and staff access
+  isolation; explicit profile publication/unpublish; consent provenance; ticket
+  ownership/replies; keyboard/VoiceOver + hosted lifecycle proof. Use an established
+  auth library; current Node/React/Postgres candidate is Better Auth, not installed.
+- Sources: OWASP authentication; Better Auth database/email OTP; RFC 8252 for later
+  native sign-in. Exact links and research-versus-execution boundary in the handoff.
+
 ### FEAT-068 — Three independent appearance copy/paste commands
 - Type: feature
 - Priority: P2
@@ -7126,6 +7149,49 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Owner verification 2026-08-16: 1% zoom-out is working.
 
 ## 🛠 Infrastructure
+
+### INFRA-008 — Optional support-the-developer page
+- Type: feature
+- Priority: P2
+- Area: website · launch readiness
+- Status: needs-verify
+- Owner scope 2026-10-16: voluntary support like plugins.tapps.design/support,
+  independent of free accounts and paid Pro/subscriptions.
+- Implementation: static `/support.html`, clean deployment `/support` rewrite,
+  low-pressure footer link; existing public Cash App/Venmo/PayPal profiles and
+  visible handles. Optional copy controls; links usable with JavaScript disabled.
+  System light/dark styles. No checkout, account gate, payment tracking or paid
+  entitlement; copied plugin-specific “no Pro versions” promise is excluded.
+- Verification: local browser copy success/failure with isolated clipboard stub,
+  JavaScript-disabled provider links, 375px no overflow; light/mobile and dark/
+  desktop visual review. No actual payment/provider profile validation or deployment.
+- Remaining: owner copy/destination review, hosted route and formal AT proof.
+- Sources: owner-selected reference's local support.astro/support.ts/SupportOptions
+  inspected; live web reader unavailable. W3C labels/status and non-text contrast:
+  https://www.w3.org/WAI/tutorials/forms/labels/
+  https://www.w3.org/TR/wai-aria-1.2/#status
+  https://www.w3.org/WAI/WCAG21/Understanding/non-text-contrast.html
+
+### INFRA-007 — Fresh confirmation for Pro-interest record erasure
+- Type: feature
+- Priority: P1
+- Area: privacy · website · launch readiness
+- Status: needs-verify
+- Implementation: withdrawal capability requests a separate fresh mailbox link;
+  256-bit token stored hashed, expires in 15 minutes, explicit final POST performs
+  atomic live-record DELETE. Withdrawal token alone cannot erase. A new consent
+  cycle invalidates prior deletion capability; paused enrollment still permits
+  privacy operations. Migration 002 is required after 001, before handler upgrade.
+- Verification: 23 real PostgreSQL checks including seven erasure cases, plus 15
+  existing release tests pass. Browser request → captured mail → visit → explicit
+  deletion leaves row until button, then removes it; desktop/mobile reviewed.
+- Remaining: hosted schema/delivery/link/AT proof, provider/log/backup retention
+  and operating cleanup process. This does not erase unrelated release/account,
+  document, provider-email or backup data; no universal-erasure claim.
+- Handoff: `launch/ACCOUNTS-AND-PRIVACY-v2.7.md`.
+- Sources consulted for fresh expiring/single-use capability and review-before-delete:
+  https://cheatsheetseries.owasp.org/cheatsheets/Forgot_Password_Cheat_Sheet.html
+  https://www.w3.org/WAI/WCAG21/Understanding/error-prevention-legal-financial-data.html
 
 ### INFRA-006 — Separate Pro-interest permission and single-use confirmation
 - Type: feature

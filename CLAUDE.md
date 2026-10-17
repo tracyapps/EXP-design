@@ -139,7 +139,9 @@ Immutable v2.6 and older releases are unchanged. Owner selected self-launch
 readiness on 2026-10-16. For v2.7 implementation, pricing, analytics or campaign
 work, read `docs/SELF-LAUNCH-PLAN-v2.7.md` and `docs/RELEASE-CHECKLIST-v2.7.md`
 first. Owner accepted standard system layer typography on 2026-10-16; full
-display/accessibility and signed-payload gates remain. For signup/privacy work,
+display/accessibility and signed-payload gates remain. For account/community/privacy work, read
+`docs/launch/ACCOUNTS-AND-PRIVACY-v2.7.md`: owner selected the free member-hub
+scope; auth/portal implementation is planned. For signup/privacy work,
 read `docs/launch/PRO-INTEREST-v2.7.md` and the linked data map: INFRA-005/006
 are locally checked; hosted PostgreSQL/setup, delivery, privacy and abuse gates
 remain before enablement. Preserve bundle identity and sequential owner verification.

@@ -36,6 +36,13 @@ payment and license records live outside the repository; use sanitized summaries
 
 ## Signup and privacy gate
 
+- [x] INFRA-007 local live Pro-record deletion requires a fresh email confirmation;
+      15-minute single-use token, explicit POST and seven new DB cases verified.
+- [x] INFRA-008 standalone optional support page verified locally with no-JS fallback;
+      no payment or hosted proof. Donation support grants no paid entitlements.
+- [x] FEAT-069 free member-hub scope/permissions phased before billing in
+      `launch/ACCOUNTS-AND-PRIVACY-v2.7.md`; implementation remains planned.
+      Its web rollout does not silently become a native-app launch blocker.
 - [x] INFRA-006 local separate Pro request/confirm/withdraw with private PostgreSQL
       ledger; 16 real DB checks and browser flow pass. Enrollment disabled by default.
       Setup and remaining gates: `launch/PRO-INTEREST-v2.7.md`.
@@ -188,3 +195,11 @@ Local browser uses real handlers/DB and captured test mail; unchecked consent bl
 submission; record counts move 0 → 1 pending → 1 confirmed → 0 active. Desktop/mobile
 screenshots inspected; full AT pending. Website production build and root production
 dependency audit pass. No hosted function/DB/mail proof or privacy/abuse closure.
+
+October 16 continuation: 15 release-signup + 23 real PostgreSQL checks pass;
+seven added erasure tests cover fresh mailbox capability, atomic concurrent DELETE,
+expiry, request dedup, mail failure/retry, paused enrollment and stale-cycle tokens.
+Browser captured-mail/real-DB deletion is verified; generic POST response is not
+called universal erasure. Support page checked with isolated clipboard boundary,
+JavaScript disabled, mobile width and light/dark screenshots; live providers and
+payments unverified. Auth/accounts/ticket/community implementation remains planned.

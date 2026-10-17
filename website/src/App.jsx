@@ -1236,6 +1236,7 @@ function Footer() {
           <p className="footer-sitemap-heading">more</p>
           <a href="/#roadmap">roadmap</a>
           <a href="/download">download</a>
+          <a href="/support.html">support the developer</a>
         </div>
       </nav>
     </footer>
@@ -1500,7 +1501,7 @@ export default function App() {
   // rendered the target section. Re-run the scroll after mount, once the
   // section exists. (Same-page hash clicks scroll natively and skip this.)
   useEffect(() => {
-    if (["/confirm-interest", "/withdraw-interest"].includes(path)) return undefined;
+    if (["/confirm-interest", "/withdraw-interest", "/delete-interest"].includes(path)) return undefined;
     const hash = window.location.hash;
     if (!hash) return undefined;
     let raf = requestAnimationFrame(() => {
@@ -1511,8 +1512,8 @@ export default function App() {
     return () => cancelAnimationFrame(raf);
   }, []);
 
-  if (["/pro", "/confirm-interest", "/withdraw-interest"].includes(path)) {
-    const mode = path === "/pro" ? "request" : path === "/confirm-interest" ? "confirm" : "withdraw";
+  if (["/pro", "/confirm-interest", "/withdraw-interest", "/delete-interest"].includes(path)) {
+    const mode = path === "/pro" ? "request" : path === "/confirm-interest" ? "confirm" : path === "/withdraw-interest" ? "withdraw" : "erase";
     return <>
       <Header progress={progress} actionLabel="get the free app" actionHref="/download" brandHref="/" />
       <main><InterestPage mode={mode} /></main>

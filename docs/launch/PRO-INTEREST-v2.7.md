@@ -122,8 +122,8 @@ public receipts must exclude real addresses/tokens.
    Local captured mail does not establish these results.
 6. **Owner/Codex, Oct 21–23:** settle seller/support/privacy contact, hosted retention,
    deletion handling and privacy copy. Choose retention for expired requests and
-   withdrawn records, including mail/database backups and logs. No automated
-   cleanup job or erasure endpoint is included yet; launch remains gated on an
+   withdrawn records, including mail/database backups and logs. Fresh mailbox-confirmed live-record erasure is now implemented in migration 002
+   (see `ACCOUNTS-AND-PRIVACY-v2.7.md`). No automated cleanup job is included yet; launch remains gated on an
    operating deletion/retention process. Withdrawal stops eligibility; it is not
    an erasure claim. The page stays unlinked from public navigation meanwhile.
 7. Before any authorized Pro email send, query the current active cohort:
@@ -145,3 +145,9 @@ separate gates in `RELEASE-CHECKLIST-v2.7.md`.
 [WAI-ARIA 1.2 status](https://www.w3.org/TR/wai-aria-1.2/#status),
 [ARIA in HTML native checkbox](https://www.w3.org/TR/html-aria/),
 [WCAG 2.1 labels/instructions](https://www.w3.org/WAI/WCAG21/Understanding/labels-or-instructions.html).
+
+October 16 continuation: apply `002_pro_interest_erasure.sql` after 001 before
+handler upgrade. The withdrawal page requests a fresh 15-minute deletion email;
+`/delete-interest` requires an explicit button to delete only the live Pro-interest
+row. 23 real database checks and browser flow pass. Account/member-hub target and
+remaining privacy/hosting/retention work: [account foundation](ACCOUNTS-AND-PRIVACY-v2.7.md).

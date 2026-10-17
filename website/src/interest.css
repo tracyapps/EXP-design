@@ -35,3 +35,6 @@
 @media (max-width: 760px) {
   .interest-page { grid-template-columns: 1fr; padding-top: 106px; }
 }
+
+.interest-erasure { margin-top: 36px; padding-top: 28px; border-top: 1px solid var(--hairline); }
+.interest-erasure .interest-message { margin-top: 16px; }

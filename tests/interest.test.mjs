@@ -11,7 +11,7 @@ const connectionString = process.env.EXP_INTEREST_TEST_DATABASE_URL;
 const safe = connectionString && new URL(connectionString).searchParams.get('host')?.startsWith('/tmp/exp-interest-test.');
 if (!safe) throw new Error('Run bash scripts/verify_pro_interest.sh to create an isolated database.');
 const integration = test;
-let pool, store, handlers, mails;
+let pool, store, handlers, mails, erasureMails;
 const env = { PRO_INTEREST_ENABLED: 'true', EXP_INTEREST_DATABASE_URL: 'local-test',
   RESEND_API_KEY: 'test-only', SIGNUP_FROM_EMAIL: 'EXP <hello@example.test>',
   INTEREST_PUBLIC_ORIGIN: 'https://example.test', NODE_ENV: 'test' };
@@ -30,15 +30,17 @@ before(async () => {
   if (!safe) return;
   pool = new pg.Pool({ connectionString, max: 8 });
   await pool.query(await readFile(new URL('../migrations/001_pro_interest.sql', import.meta.url), 'utf8'));
+  await pool.query(await readFile(new URL('../migrations/002_pro_interest_erasure.sql', import.meta.url), 'utf8'));
   store = createInterestStore(pool);
 });
 after(async () => { if (pool) await pool.end(); });
 beforeEach(async () => {
   if (!safe) return;
   await pool.query('TRUNCATE exp_pro_interest');
-  mails = [];
+  mails = []; erasureMails = [];
   handlers = createInterestHandlers({ env, storeFactory: () => store,
-    mailer: async (config, email, links) => { mails.push({ email, ...links }); } });
+    mailer: async (config, email, links) => { mails.push({ email, ...links }); },
+    erasureMailer: async (config, email, links) => { erasureMails.push({ email, ...links }); } });
 });
 
 integration('request persists a pending record before mail; stores only token hashes', async () => {
@@ -194,4 +196,76 @@ integration('operational errors do not log database credentials, email or capabi
     const output = JSON.stringify({ result, logs });
     for (const value of privateValue.split(' ')) assert.ok(!output.includes(value));
   } finally { console.warn = originalWarn; }
+});
+
+integration('erasure request stores a fresh hash and leaves the Pro record until mailbox confirmation', async () => {
+  await call('request', validRequest());
+  await call('confirm', { token: tokenFrom(mails[0].confirm) });
+  const result = await call('requestErasure', { token: tokenFrom(mails[0].withdraw) });
+  assert.equal(result.status, 202);
+  assert.equal(erasureMails.length, 1);
+  const saved = await record();
+  assert.ok(saved.confirmed_at);
+  assert.equal(saved.erasure_hash, hashToken(tokenFrom(erasureMails[0].erase)));
+  assert.equal(new URL(erasureMails[0].erase).search, '');
+  assert.ok(saved.erasure_expires_at.getTime() - Date.now() <= 15 * 60 * 1000);
+  assert.equal((await call('erase', { token: tokenFrom(mails[0].withdraw) })).status, 400);
+});
+integration('erasure GET cannot delete; exactly one concurrent fresh-token POST removes the row', async () => {
+  await call('request', validRequest());
+  await call('requestErasure', { token: tokenFrom(mails[0].withdraw) });
+  const token = tokenFrom(erasureMails[0].erase);
+  assert.equal((await call('erase', { token }, 'GET')).status, 405);
+  assert.ok(await record());
+  const results = await Promise.all(Array.from({ length: 8 }, () => call('erase', { token })));
+  assert.equal(results.filter(result => result.status === 200).length, 1);
+  assert.equal(results.filter(result => result.status === 400).length, 7);
+  assert.equal(await record(), undefined);
+  assert.equal((await call('confirm', { token: tokenFrom(mails[0].confirm) })).status, 400);
+});
+integration('expired erasure token never reports deletion or removes the row', async () => {
+  await call('request', validRequest());
+  await call('requestErasure', { token: tokenFrom(mails[0].withdraw) });
+  await pool.query("UPDATE exp_pro_interest SET erasure_expires_at = now() - interval '1 second'");
+  assert.equal((await call('erase', { token: tokenFrom(erasureMails[0].erase) })).status, 400);
+  assert.ok(await record());
+});
+integration('concurrent erasure requests send one fresh message; unknown capability does not send', async () => {
+  await call('request', validRequest());
+  const payload = { token: tokenFrom(mails[0].withdraw) };
+  const results = await Promise.all(Array.from({ length: 8 }, () => call('requestErasure', payload)));
+  assert.ok(results.every(result => result.status === 202));
+  assert.equal(erasureMails.length, 1);
+  assert.equal((await call('requestErasure', { token: 'A'.repeat(43) })).status, 202);
+  assert.equal(erasureMails.length, 1);
+});
+integration('erasure mail failure leaves record intact and allows a fresh retry', async () => {
+  await call('request', validRequest());
+  const failed = createInterestHandlers({ env, storeFactory: () => store,
+    erasureMailer: async () => { throw new Error('private provider error'); } });
+  const payload = { token: tokenFrom(mails[0].withdraw) };
+  assert.equal((await call('requestErasure', payload, 'POST', 'https://example.test', failed)).status, 502);
+  assert.equal((await record()).erasure_hash, null);
+  assert.equal((await call('requestErasure', payload)).status, 202);
+  assert.equal(erasureMails.length, 1);
+});
+integration('pausing enrollment does not block deletion; completing deletion needs no email credential', async () => {
+  await call('request', validRequest());
+  const paused = createInterestHandlers({ env: { ...env, PRO_INTEREST_ENABLED: undefined }, storeFactory: () => store,
+    erasureMailer: async (config, email, links) => { erasureMails.push({ email, ...links }); } });
+  assert.equal((await call('requestErasure', { token: tokenFrom(mails[0].withdraw) }, 'POST', 'https://example.test', paused)).status, 202);
+  const noMail = createInterestHandlers({ env: { ...env, PRO_INTEREST_ENABLED: undefined, RESEND_API_KEY: undefined,
+    SIGNUP_FROM_EMAIL: undefined }, storeFactory: () => store });
+  assert.equal((await call('erase', { token: tokenFrom(erasureMails[0].erase) }, 'POST', 'https://example.test', noMail)).status, 200);
+  assert.equal(await record(), undefined);
+});
+integration('a new opt-in cycle invalidates deletion capability from the prior cycle', async () => {
+  await call('request', validRequest());
+  await call('requestErasure', { token: tokenFrom(mails[0].withdraw) });
+  const oldErasure = tokenFrom(erasureMails[0].erase);
+  await call('withdraw', { token: tokenFrom(mails[0].withdraw) });
+  await pool.query("UPDATE exp_pro_interest SET retry_after = now() - interval '1 second'");
+  await call('request', validRequest());
+  assert.equal((await call('erase', { token: oldErasure })).status, 400);
+  assert.ok(await record());
 });

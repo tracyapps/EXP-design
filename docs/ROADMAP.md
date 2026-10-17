@@ -1313,6 +1313,15 @@ from the appcast; a development plan does not change the published release.
 - [x] **INFRA-006 local Pro-interest flow:** request → captured confirmation mail →
       explicit single-use confirmation → withdrawal. Private PostgreSQL ledger;
       no release-list enrollment. Review/setup: `launch/PRO-INTEREST-v2.7.md`.
+- [x] **INFRA-007 local live-record erasure:** fresh mailbox challenge, explicit
+      deletion, 15-minute single-use token; 23 PostgreSQL + 15 release checks pass.
+- [x] **INFRA-008 local voluntary support page:** static/manual payment profiles,
+      copy fallback, system light/dark, account-free; owner/live review remains.
+- [x] **FEAT-069 member-hub target recorded:** owner selects profile/preferences,
+      beta/feedback, Pro interest, community profile, news, private tickets/replies,
+      later Discord link and optional developer support; forums later. Staged
+      account-before-billing plan: `launch/ACCOUNTS-AND-PRIVACY-v2.7.md`.
+      Auth/portal implementation remains planned; web hub has separate rollout gates.
 - [ ] Reliable separate Pro-interest signup, permission/delivery/unsubscribe proof,
       data map and owner-reviewed privacy/EULA/refund/ownership decisions.
 - [ ] Minimal consented measurement of successful create/import → edit → output;
@@ -3376,6 +3385,35 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-10-16 — Member-hub scope, privacy erasure and optional support [internal].**
+  Owner asks to continue and wants accounts before paid subscriptions. Follow-up
+  selects profile/preferences, beta/feedback, Pro interest, community profile,
+  news/updates, private tickets/replies, future Discord link and voluntary support;
+  forums later. FEAT-069 records full target and phased dates, with accounts optional
+  for local editor/exports/download. Recommend shared privacy/hosting first, then
+  established auth before billing. No EXP auth/session/portal system added tonight.
+  INFRA-007 adds fresh mailbox-confirmed erasure of the live Pro-interest record:
+  separate hashed token, 15-minute expiry, explicit atomic DELETE; old withdrawal
+  link cannot erase; re-opt-in invalidates old deletion token. Migration 002 is
+  separate and must precede updated handlers. Seven new real-DB cases pass;
+  total 23 PostgreSQL + 15 release checks. Local browser confirms record survives
+  email-link visit and disappears only after explicit deletion; scope copy excludes
+  unrelated release/account/files and provider/backup data. No full privacy closure.
+  INFRA-008 adds static, account-free `/support.html` and deployment `/support`
+  rewrite/footer link. Read owner-selected plugins support source; reused public
+  Cash App/Venmo/PayPal profiles and low-pressure pattern. EXP copy preserves free
+  shipped editor/exports and separates contributions from Pro/priority benefits.
+  Local copy success/failure, no-JS links, light/mobile and dark/desktop checked;
+  no payments, external messages, hosting changes or deployment performed.
+  Handoff: `launch/ACCOUNTS-AND-PRIVACY-v2.7.md`; source data map and deployment
+  notes updated. Receipts: `/tmp/exp-account-foundation-tests.log`,
+  `/tmp/exp-account-foundation-website.log`, ignored `output/playwright/` screenshots.
+  **NEXT:** chosen dedicated hosted database/auth setup; begin FEAT-069 auth/profile/
+  preference slice, then community/news and private ticket access. Actual inbox,
+  retention/deletion operations across backups, abuse controls and AT remain gates.
+  Owner retains review/push; no push occurred here. Owner's `067ff09` roadmap commit
+  was already present at session start and preserved.
 
 - **2026-10-16 — Prior slice committed; Pro-interest confirmation implemented [internal].**
   Owner authorizes commit and next piece, reserving review/push. Committed prior

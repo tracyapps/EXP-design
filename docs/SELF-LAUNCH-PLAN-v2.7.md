@@ -147,6 +147,26 @@ Acceptance: success/error/duplicate/retry paths, confirmed persistent record,
 separate unchecked permissions, working unsubscribe/deletion request, policy
 links and no misleading download/list success message. Backend secrets stay server-side.
 
+### 2a Free member hub — target selected Oct 16, staged before billing
+
+The owner wants profile/preferences, feedback and beta participation, Pro interest,
+community profiles, news/updates, private support tickets/replies, an eventual
+Discord link and voluntary developer support. Forums are later. FEAT-069 records
+this web-hub target; it does not make every area a native v2.7 release gate.
+
+Read [`launch/ACCOUNTS-AND-PRIVACY-v2.7.md`](launch/ACCOUNTS-AND-PRIVACY-v2.7.md)
+for exact areas/permissions and conditional dates: Oct 19–23 shared privacy/hosting;
+Oct 26–30 auth/profile/preferences; Nov 2–6 community/news and ticket design;
+Nov 9–13 private ticket workflow; Nov 16–20 hosted/lifecycle/AT verification.
+Move hub dates when gates fail, while protecting core app release/campaign checks.
+No account auth or ticket system is claimed implemented by this plan.
+
+Account creation does not subscribe people to email purposes or turn on analytics.
+Accounts, confirmed Pro interest, app activation and payments use distinct counts.
+Keep editing/exports/download and voluntary support account-free. The standalone
+support page and fresh-email-confirmed live Pro-record erasure are implemented
+locally (INFRA-008/007); actual hosted proof remains pending.
+
 ### 3 Consent and measurement — Oct 26–30
 
 Codex proposes a small app `UsageMetrics` service, wired through app startup,

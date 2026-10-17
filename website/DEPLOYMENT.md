@@ -176,3 +176,21 @@ No hosted database, role or secret has been provisioned by the local work.
 
 Full setup, data contract, local preview and verification boundaries:
 [`PRO-INTEREST-v2.7.md`](../docs/launch/PRO-INTEREST-v2.7.md).
+
+## Privacy erasure and optional support continuation
+
+Apply `migrations/002_pro_interest_erasure.sql` after 001 **before** upgrading the
+interest handlers; no hosted migration is automatic. Deletion uses a separate
+fresh email link and explicit POST; privacy operations remain available while
+enrollment is paused, with DB/origin configured. Erasure requests need mail
+credentials; completion does not. Live-record deletion does not erase provider
+mail/log/backup copies; owner-selected retention/cleanup remain required.
+
+The static `/support.html` page works without JavaScript and opens existing public
+payment profiles only on user action. `/support` rewrites there; `/support/` assets
+are excluded from SPA rewriting. The footer links to the static page directly.
+Copy/links do not create checkout sessions, users or paid entitlements. Review
+public profile destinations and hosted routing before pushing/promotion.
+
+Member-hub scope and phased dates: `docs/launch/ACCOUNTS-AND-PRIVACY-v2.7.md`.
+No account auth, hosted database, Discord invite or ticket backend is provisioned.

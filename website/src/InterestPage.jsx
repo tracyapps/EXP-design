@@ -23,20 +23,23 @@ export default function InterestPage({ mode = 'request' }) {
   const [website, setWebsite] = useState('');
   const [status, setStatus] = useState('idle');
   const [message, setMessage] = useState('');
+  const [erasureStatus, setErasureStatus] = useState('idle');
+  const [erasureMessage, setErasureMessage] = useState('');
   const busy = status === 'submitting';
   const done = status === 'success';
   const hasToken = /^[A-Za-z0-9_-]{43}$/.test(token);
   const withdrawing = mode === 'withdraw';
+  const deleting = mode === 'erase';
 
   useEffect(() => {
     document.title = mode === 'request' ? 'Help shape EXP Pro — EXP [design]' :
-      `${withdrawing ? 'Withdraw' : 'Confirm'} Pro interest — EXP [design]`;
+      `${deleting ? 'Delete' : withdrawing ? 'Withdraw' : 'Confirm'} Pro interest — EXP [design]`;
     if (mode !== 'request') {
       // Keep the capability in component memory only. No cookies/localStorage;
       // reopening the original email link restores it after a reload.
       window.history.replaceState(null, '', window.location.pathname);
     }
-  }, [mode, withdrawing]);
+  }, [mode, withdrawing, deleting]);
 
   async function submit(event) {
     event.preventDefault();
@@ -48,9 +51,9 @@ export default function InterestPage({ mode = 'request' }) {
         if (result.state !== 'pending') throw new Error('Could not verify the request. Please try again.');
         setMessage("Check your inbox for a confirmation link. If you already confirmed, you're all set. A new link can be requested after 10 minutes.");
       } else {
-        const result = await post(withdrawing ? '/api/withdraw-interest' : '/api/confirm-interest', { token });
-        if (result.state !== (withdrawing ? 'withdrawn' : 'confirmed')) throw new Error('Could not verify the result. Please try again.');
-        setMessage(withdrawing ? 'Your Pro interest has been withdrawn. Your release-update preference is unchanged.' :
+        const result = await post(deleting ? '/api/delete-interest' : withdrawing ? '/api/withdraw-interest' : '/api/confirm-interest', { token });
+        if (result.state !== (deleting ? 'erased' : withdrawing ? 'withdrawn' : 'confirmed')) throw new Error('Could not verify the result. Please try again.');
+        setMessage(deleting ? 'Your live Pro-interest signup record has been deleted.' : withdrawing ? 'Your Pro interest has been withdrawn. Your release-update preference is unchanged.' :
           "You're on the Pro-interest list. Thanks for helping shape what comes next. Your release-update preference is unchanged.");
       }
       setStatus('success');
@@ -60,21 +63,45 @@ export default function InterestPage({ mode = 'request' }) {
     }
   }
 
+  async function requestErasure() {
+    setErasureStatus('submitting'); setErasureMessage('Sending…');
+    try {
+      const result = await post('/api/request-interest-erasure', { token });
+      if (result.state !== 'erasure_pending') throw new Error('Could not verify the deletion request. Please try again.');
+      setErasureStatus('success');
+      setErasureMessage('Check your email for a fresh deletion link. If you just requested one, use that email or wait 10 minutes before trying again.');
+    } catch (error) {
+      setErasureStatus('error');
+      setErasureMessage(error.name === 'AbortError' ? 'That took too long. Please try again later.' : error.message);
+    }
+  }
+
   if (mode !== 'request') return (
     <section className="interest-page interest-action" aria-labelledby="interest-title">
       <p className="section-label">EXP Pro · proposed</p>
-      <h1 id="interest-title">{withdrawing ? 'Withdraw your interest.' : 'One more step.'}</h1>
-      <p>{withdrawing ? 'Stop emails about the proposed EXP Pro offer and feedback invitations.' : permission}</p>
-      <p>{withdrawing ? 'This also cancels an unconfirmed Pro request.' : 'Confirming joins only the Pro-interest list. No purchase, account or general marketing subscription.'}</p>
+      <h1 id="interest-title">{deleting ? 'Delete your Pro-interest record.' : withdrawing ? 'Withdraw your interest.' : 'One more step.'}</h1>
+      <p>{deleting ? 'Remove your email, payment-model preference and permission record from the live Pro-interest database.' : withdrawing ? 'Stop emails about the proposed EXP Pro offer and feedback invitations.' : permission}</p>
+      <p>{deleting ? 'This deletes only the Pro-interest signup record. Your release notifications and local design files are separate. Copies in sent email, provider logs and backups follow their own retention rules.' : withdrawing ? 'This also cancels an unconfirmed Pro request.' : 'Confirming joins only the Pro-interest list. No purchase, account or general marketing subscription.'}</p>
       <form onSubmit={submit}>
         <button className="interest-button" type="submit" disabled={busy || done || !hasToken}>
-          {busy ? 'Working…' : withdrawing ? 'withdraw Pro interest' : 'confirm Pro interest'}
+          {busy ? 'Working…' : deleting ? 'delete my Pro-interest record' : withdrawing ? 'withdraw Pro interest' : 'confirm Pro interest'}
         </button>
-        {!hasToken && (withdrawing
+        {!hasToken && (deleting
+          ? <p>Open the complete deletion link from your email. It expires after 15 minutes; you can request a fresh one from your original withdrawal page.</p>
+          : withdrawing
           ? <p>Open the complete withdrawal link from your confirmation email.</p>
           : <p>Open the complete link from your email. If it expired, <a href="/pro">request a new confirmation</a>.</p>)}
         <p className={`interest-message ${status}`} role="status">{message}</p>
       </form>
+      {withdrawing && <section className="interest-erasure" aria-labelledby="erasure-title">
+        <h2 id="erasure-title">Want the signup record deleted too?</h2>
+        <p>Withdrawal stops Pro-interest emails. Deletion also removes your live Pro-interest signup record. We'll send a fresh confirmation link to your email first.</p>
+        <button className="interest-button" type="button" onClick={requestErasure}
+          disabled={!hasToken || busy || erasureStatus === 'submitting' || erasureStatus === 'success'}>
+          {erasureStatus === 'submitting' ? 'Sending…' : 'email me a deletion link'}
+        </button>
+        <p className={`interest-message ${erasureStatus}`} role="status">{erasureMessage}</p>
+      </section>}
       <a className="interest-text-link" href="/download">get the free app</a>
     </section>
   );

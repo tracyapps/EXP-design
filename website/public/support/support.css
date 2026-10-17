@@ -1,0 +1,28 @@
+:root { color-scheme: dark; --bg:#18181b; --fg:#f4f4f5; --muted:#b7b7bf; --card:#252529; --border:#5d5d67; --accent:#72ff43; font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; background:var(--bg); color:var(--fg); }
+* { box-sizing:border-box; }
+body { margin:0; }
+a { color:inherit; text-underline-offset:4px; }
+header { max-width:1080px; margin:auto; padding:24px; display:flex; justify-content:space-between; align-items:center; gap:16px; font-size:14px; }
+.brand { display:flex; align-items:center; gap:8px; text-decoration:none; white-space:nowrap; }
+.brand span { color:var(--accent); }
+.brand img { border-radius:7px; }
+main { width:min(calc(100% - 40px),520px); margin:48px auto 80px; }
+h1 { margin:12px 0 24px; font-size:clamp(36px,6vw,50px); line-height:1.07; letter-spacing:-.035em; }
+p { color:var(--muted); }
+.lead { color:var(--fg); font-size:19px; }
+.eyebrow { color:var(--accent); text-transform:uppercase; letter-spacing:.08em; font-size:12px; }
+.support-options { list-style:none; padding:0; margin:28px 0 0; display:grid; gap:12px; }
+.support-options li { display:flex; align-items:center; gap:12px; background:var(--card); border:1px solid var(--border); border-radius:12px; }
+.support-options a { flex:1; min-width:0; padding:14px 18px; text-decoration:none; border-radius:12px; }
+.support-options a:hover { text-decoration:underline; }
+strong,.handle { display:block; }
+.handle { font-size:14px; color:var(--muted); overflow-wrap:anywhere; user-select:text; }
+button { min-width:52px; min-height:44px; margin-right:12px; padding:8px; border:1px solid var(--border); border-radius:6px; background:var(--bg); color:var(--fg); font:inherit; font-size:13px; cursor:pointer; }
+button[hidden] { display:none; }
+:is(a,button):focus-visible { outline:3px solid var(--accent); outline-offset:4px; }
+.status { min-height:1.65em; font-size:14px; margin:12px 0; }
+.small { font-size:13px; }
+.back { display:inline-flex; align-items:center; min-height:44px; margin-top:18px; }
+.sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+@media (prefers-color-scheme:light) { :root { color-scheme:light; --bg:#f6f6f8; --fg:#202024; --muted:#52525b; --card:#fff; --border:#8c8c97; --accent:#256900; } }
+@media (max-width:420px) { header { padding:16px; font-size:13px; } main { margin-top:32px; } }

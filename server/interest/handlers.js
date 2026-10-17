@@ -18,8 +18,8 @@ function payloadOf(request) {
 
 export function interestConfiguration(env, operation = 'request') {
   if (!env.EXP_INTEREST_DATABASE_URL || !env.INTEREST_PUBLIC_ORIGIN ||
-      (operation !== 'withdraw' && env.PRO_INTEREST_ENABLED !== 'true') ||
-      (operation === 'request' && (!env.RESEND_API_KEY || !env.SIGNUP_FROM_EMAIL))) return null;
+      (['request', 'confirm'].includes(operation) && env.PRO_INTEREST_ENABLED !== 'true') ||
+      (['request', 'requestErasure'].includes(operation) && (!env.RESEND_API_KEY || !env.SIGNUP_FROM_EMAIL))) return null;
   try {
     const origin = new URL(env.INTEREST_PUBLIC_ORIGIN);
     const local = env.NODE_ENV !== 'production' && ['localhost', '127.0.0.1'].includes(origin.hostname);
@@ -30,24 +30,31 @@ export function interestConfiguration(env, operation = 'request') {
   } catch { return null; }
 }
 
-async function sendConfirmation(config, email, links) {
+async function sendEmail(config, email, subject, text) {
   const response = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { authorization: `Bearer ${config.apiKey}`, 'content-type': 'application/json' },
     signal: AbortSignal.timeout(5000),
-    body: JSON.stringify({ from: config.from, to: email,
-      subject: 'Confirm your interest in EXP Pro',
-      // Fragments stay out of HTTP access logs. GET never changes permission;
-      // the destination requires an explicit button press and POST.
-      text: `You requested updates and a feedback invitation about the proposed EXP Pro offer.\n\nConfirm within 24 hours:\n${links.confirm}\n\nThis does not join the release list or a general marketing list. No payment is taken.\n\nCancel this request or withdraw Pro interest at any time:\n${links.withdraw}\n\nIf you did not request this, ignore this email. You will not be enrolled without confirmation.`,
-    }),
+    body: JSON.stringify({ from: config.from, to: email, subject, text }),
   });
   if (!response.ok) throw new Error('confirmation delivery failed');
   const sent = await response.json();
   if (typeof sent?.id !== 'string' || !sent.id) throw new Error('invalid delivery response');
 }
 
-export function createInterestHandlers({ env = process.env, storeFactory = configuredStore, mailer = sendConfirmation } = {}) {
+async function sendConfirmation(config, email, links) {
+  // Fragments stay out of HTTP access logs. GET never changes permission;
+  // the destination requires an explicit button press and POST.
+  await sendEmail(config, email, 'Confirm your interest in EXP Pro',
+    `You requested updates and a feedback invitation about the proposed EXP Pro offer.\n\nConfirm within 24 hours:\n${links.confirm}\n\nThis does not join the release list or a general marketing list. No payment is taken.\n\nCancel this request or withdraw Pro interest at any time:\n${links.withdraw}\n\nIf you did not request this, ignore this email. You will not be enrolled without confirmation.`);
+}
+
+async function sendErasure(config, email, links) {
+  await sendEmail(config, email, 'Confirm deletion of your EXP Pro-interest record',
+    `A request was made to delete your live EXP Pro-interest signup record.\n\nOpen this link within 15 minutes, then press the deletion button:\n${links.erase}\n\nThis removes your email, payment-model preference and permission record from the live Pro-interest database. Your release-list preference, any future account and local design files are separate. Sent email, provider logs and backups follow their own retention rules.\n\nIf you did not request deletion, ignore this message. Opening the link alone does not delete anything.`);
+}
+
+export function createInterestHandlers({ env = process.env, storeFactory = configuredStore, mailer = sendConfirmation, erasureMailer = sendErasure } = {}) {
   async function prepare(request, response, operation) {
     if (request.method !== 'POST') {
       response.setHeader('allow', 'POST');
@@ -106,6 +113,40 @@ export function createInterestHandlers({ env = process.env, storeFactory = confi
       } catch {
         console.warn('Pro interest confirmation unavailable');
         return sendJson(response, { error: 'Could not confirm right now. Please try again later.' }, 502);
+      }
+    },
+    async requestErasure(request, response) {
+      const prepared = await prepare(request, response, 'requestErasure'); if (!prepared) return;
+      const { config, payload } = prepared;
+      if (!validToken(payload.token)) return sendJson(response, { error: 'Open the complete withdrawal link from your confirmation email.' }, 400);
+      try {
+        const store = storeFactory(config.databaseURL);
+        const pending = await store.requestErasure(payload.token);
+        if (pending) {
+          try {
+            await erasureMailer(config, pending.email, { erase: `${config.origin}/delete-interest#${pending.token}` });
+          } catch {
+            await store.erasureDeliveryFailed(pending.token);
+            throw new Error('deletion mail unavailable');
+          }
+        }
+        return sendJson(response, { ok: true, state: 'erasure_pending' }, 202);
+      } catch {
+        console.warn('Pro interest deletion request unavailable');
+        return sendJson(response, { error: 'Could not send the deletion confirmation. Please try again later.' }, 502);
+      }
+    },
+    async erase(request, response) {
+      const prepared = await prepare(request, response, 'erase'); if (!prepared) return;
+      const { config, payload } = prepared;
+      if (!validToken(payload.token)) return sendJson(response, { error: 'This deletion link is invalid or expired.' }, 400);
+      try {
+        const erased = await storeFactory(config.databaseURL).erase(payload.token);
+        if (!erased) return sendJson(response, { error: 'This deletion link was used, replaced or expired. Request a fresh link from your withdrawal page.' }, 400);
+        return sendJson(response, { ok: true, state: 'erased' });
+      } catch {
+        console.warn('Pro interest deletion unavailable');
+        return sendJson(response, { error: 'Could not delete the record right now. Please try again later.' }, 502);
       }
     },
     async withdraw(request, response) {

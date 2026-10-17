@@ -131,3 +131,12 @@ account's settings or undocumented concurrent create/upsert behavior.
 Follow-up: [Pro-interest implementation and setup](PRO-INTEREST-v2.7.md) adds a
 separate PostgreSQL confirmation ledger. The release-list behavior above remains
 unchanged. Its local completion does not establish the hosted confirmation gates.
+
+October 16 further continuation: Pro-interest live-record erasure now uses a
+separate fresh emailed capability (15 minutes, hashed in PostgreSQL) and explicit
+POST. Deleting the row removes its consent/contact/token fields; Resend sent mail,
+logs/backups and release-list contacts remain separate. New static support page
+loads local assets only and opens the owner's public Cash App/Venmo/PayPal profiles
+on user action; EXP collects no payment data there. Account/member-hub data remains
+planned and must be added to this map before enablement. Handoff:
+[ACCOUNTS-AND-PRIVACY-v2.7.md](ACCOUNTS-AND-PRIVACY-v2.7.md).

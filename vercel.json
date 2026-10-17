@@ -5,7 +5,11 @@
   "outputDirectory": "website/dist",
   "rewrites": [
     {
-      "source": "/((?!assets/|api/|aria-roles(?:/|$)).*)",
+      "source": "/support",
+      "destination": "/support.html"
+    },
+    {
+      "source": "/((?!assets/|api/|support(?:\\.html|/|$)|aria-roles(?:/|$)).*)",
       "destination": "/"
     }
   ],
@@ -29,6 +33,23 @@
     },
     {
       "source": "/withdraw-interest",
+      "headers": [
+        {
+          "key": "Referrer-Policy",
+          "value": "no-referrer"
+        },
+        {
+          "key": "Cache-Control",
+          "value": "no-store"
+        },
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex"
+        }
+      ]
+    },
+    {
+      "source": "/delete-interest",
       "headers": [
         {
           "key": "Referrer-Policy",
