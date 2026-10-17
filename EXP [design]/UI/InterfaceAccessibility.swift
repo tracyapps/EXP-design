@@ -41,8 +41,8 @@ enum EXPInterfaceGuidance: String, CaseIterable, Identifiable {
     var label: String {
         switch self {
         case .automatic: "Automatic with VoiceOver"
-        case .always: "Always show"
-        case .never: "Keep compact"
+        case .always: "Show"
+        case .never: "Hide"
         }
     }
     func showsGuidance(voiceOver: Bool) -> Bool {
@@ -53,17 +53,17 @@ enum EXPInterfaceGuidance: String, CaseIterable, Identifiable {
 /// Drawing-toolbar text can be chosen without changing other visible guidance.
 /// This controls presentation only; tool accessibility names remain unconditional.
 enum EXPToolbarLabels: String, CaseIterable, Identifiable {
-    case followGuidance, iconsOnly, iconsAndText
+    case automatic, iconsOnly, iconsAndText
     var id: String { rawValue }
     var label: String {
         switch self {
-        case .followGuidance: "Follow guidance"
+        case .automatic: "Automatic with VoiceOver"
         case .iconsOnly: "Icons only"
         case .iconsAndText: "Icons and text"
         }
     }
-    func showsLabels(guidance: Bool) -> Bool {
-        switch self { case .followGuidance: guidance; case .iconsOnly: false; case .iconsAndText: true }
+    func showsLabels(voiceOver: Bool) -> Bool {
+        switch self { case .automatic: voiceOver; case .iconsOnly: false; case .iconsAndText: true }
     }
 }
 
@@ -76,7 +76,7 @@ final class EXPInterfaceAccessibility {
     private(set) var typeSize: EXPInterfaceTypeSize = .system
     private(set) var largerTargets = false
     private(set) var guidance: EXPInterfaceGuidance = .automatic
-    private(set) var toolbarLabels: EXPToolbarLabels = .followGuidance
+    private(set) var toolbarLabels: EXPToolbarLabels = .automatic
     private(set) var voiceOverEnabled = false
     private(set) var systemTextScale: CGFloat = 1
     @ObservationIgnored private let defaults: UserDefaults
@@ -87,6 +87,7 @@ final class EXPInterfaceAccessibility {
 
     init(defaults: UserDefaults = .standard, observeSystem: Bool = true) {
         self.defaults = defaults
+        migrateToolbarLabels()
         refresh()
         guard observeSystem else { return }
         voiceOverEnabled = NSWorkspace.shared.isVoiceOverEnabled
@@ -108,11 +109,28 @@ final class EXPInterfaceAccessibility {
         }
     }
 
+    private func migrateToolbarLabels() {
+        // Preserve the old combined setting once, then make the two choices
+        // independent. Seed a fresh install too, so a later help change cannot
+        // be mistaken for a legacy inherited default on the next launch.
+        // Unknown future values are never erased.
+        let storedToolbar = defaults.string(forKey: AppPreferences.toolbarLabels)
+        if storedToolbar == "followGuidance" || storedToolbar == nil {
+            let oldGuidance = EXPInterfaceGuidance(rawValue: defaults.string(forKey: AppPreferences.interfaceGuidance) ?? "") ?? .automatic
+            let migrated: EXPToolbarLabels = switch oldGuidance {
+            case .automatic: .automatic
+            case .always: .iconsAndText
+            case .never: .iconsOnly
+            }
+            defaults.set(migrated.rawValue, forKey: AppPreferences.toolbarLabels)
+        }
+    }
+
     func refresh() {
         typeSize = EXPInterfaceTypeSize(rawValue: defaults.string(forKey: AppPreferences.interfaceTypeSize) ?? "") ?? .system
         largerTargets = defaults.bool(forKey: AppPreferences.largerInterfaceTargets)
         guidance = EXPInterfaceGuidance(rawValue: defaults.string(forKey: AppPreferences.interfaceGuidance) ?? "") ?? .automatic
-        toolbarLabels = EXPToolbarLabels(rawValue: defaults.string(forKey: AppPreferences.toolbarLabels) ?? "") ?? .followGuidance
+        toolbarLabels = EXPToolbarLabels(rawValue: defaults.string(forKey: AppPreferences.toolbarLabels) ?? "") ?? .automatic
         // AppKit's public preferred font is the available system baseline. We do
         // not read protected/private text-size defaults or promise Apple's app-
         // specific text overrides are available to a third-party editor.
@@ -121,7 +139,7 @@ final class EXPInterfaceAccessibility {
 
     var textScale: CGFloat { typeSize.scale(system: systemTextScale) }
     var showGuidance: Bool { guidance.showsGuidance(voiceOver: voiceOverEnabled) }
-    var showToolbarLabels: Bool { toolbarLabels.showsLabels(guidance: showGuidance) }
+    var showToolbarLabels: Bool { toolbarLabels.showsLabels(voiceOver: voiceOverEnabled) }
     func targetHeight(_ compact: CGFloat) -> CGFloat {
         max(compact * textScale, largerTargets ? 44 : compact)
     }

@@ -230,7 +230,6 @@ private struct AccessibilitySettingsPane: View {
     @AppStorage(AppPreferences.interfaceTypeSize) private var typeSize = AppPreferences.defaultInterfaceTypeSize
     @AppStorage(AppPreferences.largerInterfaceTargets) private var largerTargets = false
     @AppStorage(AppPreferences.interfaceGuidance) private var guidance = EXPInterfaceGuidance.automatic.rawValue
-    @AppStorage(AppPreferences.toolbarLabels) private var toolbarLabels = EXPToolbarLabels.followGuidance.rawValue
 
     var body: some View {
         let preferences = EXPInterfaceAccessibility.shared
@@ -245,19 +244,12 @@ private struct AccessibilitySettingsPane: View {
                 Text("Text size and click targets are independent. VoiceOver does not automatically enlarge either.")
                     .font(.expLabel).foregroundStyle(EXPColor.textSecondary)
             }
-            SettingsGroup("Visible guidance", footnote: "Guidance shows panel names and grid instructions without hovering. Automatic follows VoiceOver. Toolbar labels can follow guidance or use your own choice independently; tooltips, keyboard shortcuts and accessible names remain available in every mode.") {
-                Picker("Guidance", selection: $guidance) {
+            SettingsGroup("Panel help", footnote: "Show extra explanations in Properties. This does not change text size or toolbar labels. Tooltips and VoiceOver names and hints remain available when help text is hidden.") {
+                Picker("Panel help text", selection: $guidance) {
                     ForEach(EXPInterfaceGuidance.allCases) { Text($0.label).tag($0.rawValue) }
                 }
-                .accessibilityLabel("Guidance")
-                Picker("Toolbar labels", selection: $toolbarLabels) {
-                    ForEach(EXPToolbarLabels.allCases) { Text($0.label).tag($0.rawValue) }
-                }
-                .accessibilityLabel("Toolbar labels")
-                .accessibilityHint("Choose whether drawing tools show text beside their icons, independently of other guidance.")
+                .accessibilityLabel("Panel help text")
                 Text(preferences.voiceOverEnabled ? "VoiceOver is enabled in macOS." : "VoiceOver is not enabled in macOS.")
-                    .font(.expLabel).foregroundStyle(EXPColor.textSecondary)
-                Text("VoiceOver status is read on this Mac and is not stored or sent anywhere.")
                     .font(.expLabel).foregroundStyle(EXPColor.textSecondary)
             }
             SettingsGroup("macOS preferences", footnote: "EXP follows system appearance, reduced motion, reduced transparency and increased contrast in its supported interface surfaces. There is no single system preference that describes every person’s needs.") {
@@ -299,17 +291,12 @@ struct SettingsGroup<Content: View>: View {
 }
 
 private struct GeneralSettingsPane: View {
+    @AppStorage(AppPreferences.toolbarLabels) private var toolbarLabels = EXPToolbarLabels.automatic.rawValue
     @AppStorage(AppPreferences.restoreLayout) private var restoreLayout =
         AppPreferences.defaultRestoreLayout
-    @AppStorage(AppPreferences.interfaceTypeSize) private var interfaceTypeSizeRaw =
-        AppPreferences.defaultInterfaceTypeSize
     @AppStorage(AppPreferences.tooltipVerbosity) private var tooltipVerbosityRaw =
         AppPreferences.defaultTooltipVerbosity
 
-    private var interfaceTypeSize: Binding<EXPInterfaceTypeSize> {
-        Binding(get: { EXPInterfaceTypeSize(rawValue: interfaceTypeSizeRaw) ?? .system },
-                set: { interfaceTypeSizeRaw = $0.rawValue })
-    }
     private var tooltipVerbosity: Binding<EXPTooltipVerbosity> {
         Binding(get: { EXPTooltipVerbosity(rawValue: tooltipVerbosityRaw) ?? .full },
                 set: { tooltipVerbosityRaw = $0.rawValue })
@@ -319,14 +306,12 @@ private struct GeneralSettingsPane: View {
         VStack(alignment: .leading, spacing: 24) {
             SettingsGroup("Interface",
                           footnote: "Tooltip detail only changes the hover bubble. Accessible names and full VoiceOver hints always remain available; hold Option while hovering to temporarily show the full explanation.") {
-                LabeledContent("Interface type size") {
-                    Picker("Interface type size", selection: interfaceTypeSize) {
-                        ForEach(EXPInterfaceTypeSize.allCases) { size in
-                            Text(size.label).tag(size)
-                        }
-                    }
-                    .labelsHidden()
+                Picker("Drawing toolbar labels", selection: $toolbarLabels) {
+                    ForEach(EXPToolbarLabels.allCases) { Text($0.label).tag($0.rawValue) }
                 }
+                .accessibilityLabel("Drawing toolbar labels")
+                Text("Automatic shows tool names when VoiceOver is on. Text size and panel help are in Accessibility.")
+                    .font(.expLabel).foregroundStyle(EXPColor.textSecondary)
                 LabeledContent("Tooltip detail") {
                     Picker("Tooltip detail", selection: tooltipVerbosity) {
                         ForEach(EXPTooltipVerbosity.allCases) { level in

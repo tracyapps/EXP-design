@@ -192,18 +192,24 @@ optional preference; BUG-069's remaining contrast findings still need triage.
   This is not a claim that every legacy/custom control has a 44-point target.
   Padding on a styled field must really focus the native editor; a larger painted
   rectangle alone is not sufficient. Tool buttons scroll vertically if needed.
-- **Guidance:** Automatic with VoiceOver, Always show, or Keep
-  compact. Automatic reads `NSWorkspace.isVoiceOverEnabled` locally and observes
-  changes (enabled status, rather than inspecting reader processes); the explicit choices win for either reader state. It shows tool names,
-  inactive panel names and grid explanations. Other existing help remains available
-  through accessible hints, focus and hover; persistent guidance is not yet wired
-  into every Inspector section.
-- **Toolbar labels:** Follow guidance (existing behavior), Icons only, or Icons
-  and text. This independent preference controls visible names in the left drawing
-  toolbar. Icons only overrides Always show/VoiceOver guidance without hiding grid
-  explanations or panel names, and larger targets remain independent. All modes
-  retain accessible tool names, shortcut hints and hover tooltips. Changes apply
-  live and persist across launches; unknown future values fall back without erasure.
+- **Panel help text (Accessibility):** Automatic with VoiceOver, Show, or Hide.
+  This controls extra Properties explanations for grids, vector/knife operations,
+  relationships, text outlines and advanced corners. It does not control font size,
+  toolbar labels or inactive panel-tab titles. Critical warnings, state/empty-state
+  messages, control labels and accessible hints remain unconditional. Compact type
+  size means smaller interface type; choose Hide here to remove extra explanations.
+- **Drawing toolbar labels (General):** Automatic with VoiceOver, Icons only, or
+  Icons and text. Automatic reads the reader status directly, independently of panel
+  help. The legacy Follow guidance value migrates once to the matching explicit
+  toolbar mode; existing settings keep their visual choice. Unknown future values
+  fall back without erasure. Text size now appears only in Accessibility.
+
+Properties widths are constrained to the viewport. Auto Padding uses flexible
+edge-marked fields (top/right/bottom/left position plus a complete accessible name),
+with a two-row fallback when needed. Corner and stroke are separate rows; auto-layout
+spacing and align-axis groups can reflow. Pathfinder uses compact native vector
+icons, named actions, hover explanations and 28-point targets (44 when requested).
+No new document operation, model, renderer, export or file format was introduced.
 
 VoiceOver does not imply that larger text or targets are wanted. Its status is
 never persisted as a user profile, sent to a provider, or used for analytics.
@@ -274,3 +280,39 @@ passes (`/tmp/exp-toolbar-labels-build.log`); cropped dark editor/Settings scree
 were inspected. This focused rerun does not close the earlier audit or reader gates.
 Apple's VoiceOver guidance was rechecked: invisible alternative names must remain
 available for key controls; hiding visual toolbar text does not remove those names.
+
+
+October 17 owner refinement — BUG-070 / FEAT-070: the corrected regression against
+preserved old code fails because Background stroke width extends 45.5pt beyond the
+usable right edge (`output/a11y/panel-fit-20261017/native/baseline-recheck.xcresult`).
+An initial baseline selected the artboard rather than the group and was corrected.
+An intermediate expanded run missed Auto Padding after top-down panel collapsing
+moved subsequent click targets; its screenshot shows the switch still off. The
+harness now collapses bottom-up and waits for the new layout controls. No finding
+was ignored or reclassified as a pass.
+
+Final focused matrix: all six tests pass, no skips or failures, in
+`output/a11y/panel-fit-confirmed-20261017/native/results.xcresult`.
+It exercises Auto Layout plus Auto Padding at Compact, Extra Large and larger-target
+sizes, all eight side fields, actual side-field editing, stroke/transform/gap
+bounds, compact named Pathfinder controls and align bounds; live Settings help
+Show/Hide, single placement of type/toolbar settings, toolbar switching, and the
+existing enlarged-target/accessible-name checks. Production policy tests cover
+legacy toolbar migration (including an unstored inherited default), independent
+VoiceOver policy, persistence and invalid-value preservation. Build logs:
+`/tmp/exp-panel-fit-final-build.log`, `/tmp/exp-panel-fit-tests-build.log`.
+This does not close the broader audit, real-reader or 1x/light/float visual gates.
+
+
+Final migration review added an explicit restart regression: after a fresh install,
+changing panel help must not change an automatic toolbar choice on a later launch.
+The regression failed before the fix (`/tmp/exp-toolbar-restart-regression.log`).
+Legacy conversion now runs only at initialization and seeds an independent fresh
+install default; subsequent refreshes only read the choices. The real UserDefaults
+restart/migration/persistence suite passes. Final build:
+`/tmp/exp-panel-migration-final-build.log`.
+
+After the final migration fix, the two native live-Settings/independent-toolbar
+checks pass again with no failures/skips in
+`output/a11y/panel-settings-final-20261017/native/results.xcresult`.
+Final cropped General/compact Properties/larger-target screenshots inspected.

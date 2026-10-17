@@ -264,3 +264,12 @@ one skipped focus test for the fresh runner and 23 retained audit observations.
 Strict real-reader traversal still fails despite captured speech. Dark snapshots
 inspected; full display/appearance/settings and selected-object/AT gates stay open.
 Build: `/tmp/exp-interface-hints-build.log`; scope: `ACCESSIBILITY-VERIFICATION.md`.
+
+
+October 17 owner refinement (BUG-070): duplicate type size removed from General;
+General now contains explicit Drawing toolbar labels, and Accessibility owns text,
+targets and Panel help text. Legacy presentation choices migrate without reset.
+Properties uses bounded, reflowing inset/layout controls and compact native
+Pathfinder icons. Focused receipts/scope: `ACCESSIBILITY-VERIFICATION.md` and
+`output/a11y/panel-fit-confirmed-20261017/native/results.xcresult`.
+These source/runtime refinements do not mark the full visual/AT release gates done.

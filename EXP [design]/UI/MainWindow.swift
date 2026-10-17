@@ -1749,6 +1749,7 @@ struct RightPanel: View {
 
             // Editable details for the current selection, in a ScrollView so a long
             // inspector stays fully reachable. Title + zoom stay pinned above.
+            GeometryReader { viewport in
             ScrollViewReader { knifeScroll in
             ScrollView {
               VStack(alignment: .leading, spacing: 0) {
@@ -1814,19 +1815,19 @@ struct RightPanel: View {
                     TextField("Rotation", value: nodeRotationBinding, format: .number.precision(.fractionLength(0)))
                         .labelsHidden().textFieldStyle(.exp)
                         .multilineTextAlignment(.trailing).monospacedDigit()
-                        .frame(width: 64)
+                        .frame(width: 52 * EXPType.scale)
                         .numericStepping(nodeRotationBinding)
                         .expFieldTip("Rotation", "Layer rotation in degrees. Values wrap through 0–359.")
                         .accessibilityLabel("Rotation")
                     Text("°").foregroundStyle(EXPColor.textSecondary)
                         .accessibilityHidden(true)
                     Spacer()
-                    Text("Opacity").foregroundStyle(EXPColor.textSecondary)
+                    Text("Opacity").foregroundStyle(EXPColor.textSecondary).fixedSize()
                         .accessibilityHidden(true)
                     TextField("Opacity", value: nodeOpacityBinding, format: .number.precision(.fractionLength(0)))
                         .labelsHidden().textFieldStyle(.exp)
                         .multilineTextAlignment(.trailing).monospacedDigit()
-                        .frame(width: 48)
+                        .frame(width: 48 * EXPType.scale)
                         .numericStepping(nodeOpacityBinding, min: 0, max: 100)
                         .expFieldTip("Opacity", "Layer opacity, from 0% transparent to 100% opaque.")
                         .accessibilityLabel("Layer opacity")
@@ -1960,13 +1961,14 @@ struct RightPanel: View {
                 uniformGridControls()
             }
               }
-              .frame(maxWidth: .infinity, alignment: .leading)
+              .frame(width: viewport.size.width, alignment: .leading)
             }
             .onChange(of: app.knifeLinePreview != nil) { _, active in
                 if active { knifeScroll.scrollTo("knife-controls",anchor:.top) }
             }
             .onChange(of: app.tool == .knife) { _, active in
                 if active { knifeScroll.scrollTo("knife-controls",anchor:.top) }
+            }
             }
             }
         }
@@ -2427,12 +2429,14 @@ struct RightPanel: View {
     /// which a whole-artboard list would not be.
     @ViewBuilder
     private func ungroupedNeighborhoodNote(_ node: Node) -> some View {
-        Label("Group this with the layers it connects to (\u{2318}G), then choose a target here. Connections are stored on the group, so the pieces travel together and the list stays short.",
-              systemImage: "square.on.square.dashed")
-            .font(.caption)
-            .foregroundStyle(EXPColor.textSecondary)
-            .labelStyle(.titleAndIcon)
-            .fixedSize(horizontal: false, vertical: true)
+        if EXPInterfaceAccessibility.shared.showGuidance {
+            Label("Group this with the layers it connects to (\u{2318}G), then choose a target here. Connections are stored on the group, so the pieces travel together and the list stays short.",
+                  systemImage: "square.on.square.dashed")
+                .font(.caption)
+                .foregroundStyle(EXPColor.textSecondary)
+                .labelStyle(.titleAndIcon)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     /// Shown when the selected layer itself has no role. Says the honest thing:
@@ -2440,12 +2444,14 @@ struct RightPanel: View {
     /// while anything roled INSIDE it is still offered above.
     @ViewBuilder
     private func unroledSelectionNote() -> some View {
-        Label("This layer has no role of its own, so it exports as a plain container and carries no connections. Give it a role by making it a component \u{2014} anything roled inside it can still be connected above.",
-              systemImage: "info.circle")
-            .font(.caption)
-            .foregroundStyle(EXPColor.textTertiary)
-            .labelStyle(.titleAndIcon)
-            .fixedSize(horizontal: false, vertical: true)
+        if EXPInterfaceAccessibility.shared.showGuidance {
+            Label("This layer has no role of its own, so it exports as a plain container and carries no connections. Give it a role by making it a component \u{2014} anything roled inside it can still be connected above.",
+                  systemImage: "info.circle")
+                .font(.caption)
+                .foregroundStyle(EXPColor.textTertiary)
+                .labelStyle(.titleAndIcon)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     // MARK: Auto Layout (stacking) bindings + controls
@@ -2510,20 +2516,9 @@ struct RightPanel: View {
                 ])
                 .help("Lay children out in a row or a column")
 
-                HStack(spacing: 6) {
-                    EXPSegmented(selection: alSpaceBetweenBinding, segments: [
-                        .init(value: false, label: "Gap"),
-                        .init(value: true, label: "Space Between"),
-                    ])
-                    .frame(maxWidth: 170)
-                    if al.distribution == .packed {
-                        TextField("Auto layout gap", value: alGapBinding, format: .number.precision(.fractionLength(0)))
-                            .labelsHidden().textFieldStyle(.exp)
-                            .multilineTextAlignment(.trailing).monospacedDigit()
-                            .frame(width: 52).numericStepping(alGapBinding, min: 0)
-                            .accessibilityLabel("Gap between items")
-                    }
-                    Spacer(minLength: 0)
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 6) { autoLayoutSpacingMode; autoLayoutGap }
+                    VStack(alignment: .leading, spacing: 6) { autoLayoutSpacingMode; autoLayoutGap }
                 }
 
                 HStack(spacing: 6) {
@@ -2540,6 +2535,23 @@ struct RightPanel: View {
         .font(.callout)
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
+    }
+
+    private var autoLayoutSpacingMode: some View {
+        EXPSegmented(selection: alSpaceBetweenBinding, segments: [
+            .init(value: false, label: "Gap"),
+            .init(value: true, label: "Space Between"),
+        ])
+    }
+
+    @ViewBuilder private var autoLayoutGap: some View {
+        if selectedAutoLayout?.distribution == .packed {
+            TextField("Auto layout gap", value: alGapBinding, format: .number.precision(.fractionLength(0)))
+                .labelsHidden().textFieldStyle(.exp)
+                .multilineTextAlignment(.trailing).monospacedDigit()
+                .frame(width: 52 * EXPType.scale).numericStepping(alGapBinding, min: 0)
+                .accessibilityLabel("Gap between items")
+        }
     }
 
     // MARK: Auto Padding (hug + background) bindings + controls
@@ -2607,20 +2619,12 @@ struct RightPanel: View {
                     .accessibilityLabel("Auto Padding")
             }
             if selectedAutoPadding != nil {
-                Text("Padding (content → background)").font(.caption2).foregroundStyle(EXPColor.textSecondary)
-                HStack(spacing: 4) {
-                    apPadField("T", "Top padding", \.paddingTop)
-                    apPadField("R", "Right padding", \.paddingRight)
-                    apPadField("B", "Bottom padding", \.paddingBottom)
-                    apPadField("L", "Left padding", \.paddingLeft)
-                }
-                Text("Margin (outside background)").font(.caption2).foregroundStyle(EXPColor.textSecondary)
-                HStack(spacing: 4) {
-                    apPadField("T", "Top margin", \.marginTop)
-                    apPadField("R", "Right margin", \.marginRight)
-                    apPadField("B", "Bottom margin", \.marginBottom)
-                    apPadField("L", "Left margin", \.marginLeft)
-                }
+                Text("Padding").font(.expLabel).foregroundStyle(EXPColor.textSecondary)
+                    .help("Space between the content and background")
+                apInsets(margin: false)
+                Text("Margin").font(.expLabel).foregroundStyle(EXPColor.textSecondary)
+                    .help("Space outside the background")
+                apInsets(margin: true)
                 PaintWell(label: "Fill", paint: apFillBinding,
                           gradientSize: selectedNode?.frame.size,
                           selectedGradientStopID: gradientStopSelection)
@@ -2631,9 +2635,11 @@ struct RightPanel: View {
                         .multilineTextAlignment(.trailing).monospacedDigit()
                         .frame(width: 52).numericStepping(apCornerBinding, min: 0)
                         .accessibilityLabel("Background corner radius")
-                    Spacer()
-                    Text("Stroke").foregroundStyle(EXPColor.textSecondary)
-                    PaintWell(label: "", paint: apStrokeBinding)
+                    Spacer(minLength: 0)
+                }
+                HStack(spacing: 8) {
+                    PaintWell(label: "Stroke", paint: apStrokeBinding)
+                        .accessibilityLabel("Background stroke paint")
                     TextField("Auto padding stroke width", value: apStrokeWidthBinding, format: .number.precision(.fractionLength(0)))
                         .labelsHidden().textFieldStyle(.exp)
                         .multilineTextAlignment(.trailing).monospacedDigit()
@@ -2645,14 +2651,12 @@ struct RightPanel: View {
                                  segments: StrokePattern.allCases.map { .init(value: $0, label: $0.label) })
                         .help("Use a solid, dashed, or dotted group background border")
                         .accessibilityLabel("Border pattern: solid, dash, or dot")
-                    HStack(spacing: 6) {
-                        Text("Position").foregroundStyle(EXPColor.textSecondary)
-                        EXPSegmented(selection: apStrokeAlignmentBinding, segments: [
+                    EXPSegmented(selection: apStrokeAlignmentBinding, segments: [
                             .init(value: .inside, label: "Inside"),
                             .init(value: .center, label: "Middle"),
                             .init(value: .outside, label: "Outside"),
                         ])
-                    }
+                    .accessibilityLabel("Background stroke position")
                     .help("Place the group background outline inside, centered on, or outside its edge")
                 }
             }
@@ -2663,17 +2667,26 @@ struct RightPanel: View {
     }
 
     @ViewBuilder
-    private func apPadField(_ label: String, _ accessibilityLabel: String,
-                            _ kp: WritableKeyPath<AutoPadding, CGFloat>) -> some View {
+    private func apInsets(margin: Bool) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 2) { apInsetPair(first: true, margin: margin); apInsetPair(first: false, margin: margin) }
+            VStack(spacing: 4) { apInsetPair(first: true, margin: margin); apInsetPair(first: false, margin: margin) }
+        }
+    }
+
+    private func apInsetPair(first: Bool, margin: Bool) -> some View {
         HStack(spacing: 2) {
-            Text(label).foregroundStyle(EXPColor.textSecondary).font(.caption2)
-                .accessibilityHidden(true)
-            TextField(accessibilityLabel, value: apPadBinding(kp), format: .number.precision(.fractionLength(0)))
-                .labelsHidden().textFieldStyle(.exp)
-                .multilineTextAlignment(.trailing).monospacedDigit()
-                .frame(width: 40).numericStepping(apPadBinding(kp), min: 0)
-                .expFieldTip(accessibilityLabel)
-                .accessibilityLabel(accessibilityLabel)
+            if first {
+                EXPEdgeField(name: margin ? "Top margin" : "Top padding", edge: .top,
+                             value: apPadBinding(margin ? \.marginTop : \.paddingTop))
+                EXPEdgeField(name: margin ? "Right margin" : "Right padding", edge: .right,
+                             value: apPadBinding(margin ? \.marginRight : \.paddingRight))
+            } else {
+                EXPEdgeField(name: margin ? "Bottom margin" : "Bottom padding", edge: .bottom,
+                             value: apPadBinding(margin ? \.marginBottom : \.paddingBottom))
+                EXPEdgeField(name: margin ? "Left margin" : "Left padding", edge: .left,
+                             value: apPadBinding(margin ? \.marginLeft : \.paddingLeft))
+            }
         }
     }
 
@@ -3220,13 +3233,13 @@ struct RightPanel: View {
                         .textFieldStyle(.exp).monospacedDigit().multilineTextAlignment(.trailing)
                         .numericStepping(knifeLineValue(\.angle)).accessibilityLabel("Cut line angle in degrees")
                 }
-                Text("Drag the center to move; drag an end to rotate. Shift snaps rotation. ↑/↓ step fields; Shift ×10, Option ×0.1.")
+                EXPPanelHelp("Drag the center to move; drag an end to rotate. Shift snaps rotation. ↑/↓ step fields; Shift ×10, Option ×0.1.")
                     .font(.caption).foregroundStyle(EXPColor.textSecondary)
                 HStack(spacing:6) {
                     vectorTextButton("Cancel",selector:"cancelKnifeLineAction:")
                     vectorTextButton("Cut",selector:"applyKnifeLineAction:")
                 }
-                Text("Return on canvas cuts; Escape cancels. Nothing changes until Cut.")
+                EXPPanelHelp("Return on canvas cuts; Escape cancels. Nothing changes until Cut.")
                     .font(.caption).foregroundStyle(EXPColor.textSecondary)
             } else {
                 HStack {
@@ -3240,7 +3253,7 @@ struct RightPanel: View {
                 Picker("Cut",selection:Binding(get:{ app.knifeSettings.scope },set:{ app.knifeSettings.scope = $0 })) {
                     ForEach(KnifeScope.allCases,id:\.self) { Text($0.label).tag($0) }
                 }
-                Text("Click to select. Draw across edges to cut along your stroke, without smoothing. Closed loops cut out a piece. Images and masks stay editable.")
+                EXPPanelHelp("Click to select. Draw across edges to cut along your stroke, without smoothing. Closed loops cut out a piece. Images and masks stay editable.")
                     .font(.caption).foregroundStyle(EXPColor.textSecondary)
             }
         }
@@ -3269,7 +3282,7 @@ struct RightPanel: View {
                     vectorTextButton("Knife", selector: "knifeToolAction:")
                     vectorTextButton("Cut with Line…", selector: "cutWithLineAction:")
                 }
-                Text("Knife follows your stroke. Cut with Line opens a movable, rotatable preview.")
+                EXPPanelHelp("Knife follows your stroke. Cut with Line opens a movable, rotatable preview.")
                     .font(.caption).foregroundStyle(EXPColor.textSecondary)
             }
 
@@ -3278,23 +3291,19 @@ struct RightPanel: View {
                     .font(.callout)
                     .foregroundStyle(EXPColor.textSecondary)
                 HStack(spacing: 6) {
-                    vectorTextButton("Unite", selector: "pathfinderUniteAction:")
-                        .disabled(!inspectorCanUnite)
-                        .help("Unite includes nested folders. Folders must contain only visible, unlocked closed vectors, without folder backgrounds, effects or masks.")
-                    vectorTextButton("Subtract", selector: "pathfinderSubtractAction:")
-                        .disabled(!inspectorCanPathfinder)
-                }
-                HStack(spacing: 6) {
-                    vectorTextButton("Intersect", selector: "pathfinderIntersectAction:")
-                        .disabled(!inspectorCanPathfinder)
-                    vectorTextButton("Exclude", selector: "pathfinderExcludeAction:")
-                        .disabled(!inspectorCanPathfinder)
+                    pathfinderButton(.unite, "Unite", "pathfinderUniteAction:", enabled: inspectorCanUnite,
+                                     help: "Combine the selected closed vectors into one shape. Folders must contain only visible, unlocked closed vectors without backgrounds, effects or masks.")
+                    pathfinderButton(.subtract, "Subtract", "pathfinderSubtractAction:", enabled: inspectorCanPathfinder,
+                                     help: "Remove the front shapes from the back shape.")
+                    pathfinderButton(.intersect, "Intersect", "pathfinderIntersectAction:", enabled: inspectorCanPathfinder,
+                                     help: "Keep only the area shared by the selected shapes.")
+                    pathfinderButton(.exclude, "Exclude", "pathfinderExcludeAction:", enabled: inspectorCanPathfinder,
+                                     help: "Keep the non-overlapping areas of the selected shapes.")
                 }
                 if inspectorHasSelectedFolder {
-                    Text(inspectorCanUnite
+                    EXPPanelHelp(inspectorCanUnite
                          ? "Unite includes vector shapes in nested folders."
                          : "Unite needs visible, unlocked closed vectors in folders without backgrounds, effects or masks.")
-                        .font(.caption).foregroundStyle(EXPColor.textSecondary)
                 }
             }
         }
@@ -3305,9 +3314,23 @@ struct RightPanel: View {
 
     private func vectorTextButton(_ title: String, selector: String) -> some View {
         Button(title) { sendCanvasAction(selector) }
-            .buttonStyle(.exp(.secondary))
-            .frame(maxWidth: .infinity)
+            .buttonStyle(.expCompact())
             .accessibilityHint("Applies \(title.lowercased()) to the current selection")
+    }
+
+    private func pathfinderButton(_ operation: EXPPathfinderIcon.Operation, _ title: String,
+                                  _ selector: String, enabled: Bool, help: String) -> some View {
+        Button { sendCanvasAction(selector) } label: {
+            EXPPathfinderIcon(operation: operation)
+                .frame(width: EXPInterfaceAccessibility.shared.targetHeight(28),
+                       height: EXPInterfaceAccessibility.shared.targetHeight(28))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(EXPColor.textSecondary)
+        .disabled(!enabled).opacity(enabled ? 1 : 0.4)
+        .expFieldTip(title, help)
+        .accessibilityLabel(title).accessibilityHint(help)
     }
 
     /// What the Align section is pointed at. The BUTTONS and the selectors behind
@@ -3337,17 +3360,19 @@ struct RightPanel: View {
                 }
             }
 
-            // Align edges/centers.
-            HStack(spacing: 4) {
-                alignOpButton("align.horizontal.left", "Align left edges", "alignLeftAction:", enabled: alignOK)
-                alignOpButton("align.horizontal.center", "Align horizontal centers", "alignHCenterAction:", enabled: alignOK)
-                alignOpButton("align.horizontal.right", "Align right edges", "alignRightAction:", enabled: alignOK)
-                Divider().frame(height: 18)
-                alignOpButton("align.vertical.top", "Align top edges", "alignTopAction:", enabled: alignOK)
-                alignOpButton("align.vertical.center", "Align vertical centers", "alignVCenterAction:", enabled: alignOK)
-                alignOpButton("align.vertical.bottom", "Align bottom edges", "alignBottomAction:", enabled: alignOK)
-                Spacer()
+            // Reflow the two axis groups when larger targets cannot fit in one row.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 4) {
+                    alignmentButtons(horizontal: true, enabled: alignOK)
+                    Divider().frame(height: 18)
+                    alignmentButtons(horizontal: false, enabled: alignOK)
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    alignmentButtons(horizontal: true, enabled: alignOK)
+                    alignmentButtons(horizontal: false, enabled: alignOK)
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             // Distribute on its own clearly-labeled row, away from the scope control.
             HStack(spacing: 6) {
@@ -3374,6 +3399,20 @@ struct RightPanel: View {
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func alignmentButtons(horizontal: Bool, enabled: Bool) -> some View {
+        HStack(spacing: 4) {
+            if horizontal {
+                alignOpButton("align.horizontal.left", "Align left edges", "alignLeftAction:", enabled: enabled)
+                alignOpButton("align.horizontal.center", "Align horizontal centers", "alignHCenterAction:", enabled: enabled)
+                alignOpButton("align.horizontal.right", "Align right edges", "alignRightAction:", enabled: enabled)
+            } else {
+                alignOpButton("align.vertical.top", "Align top edges", "alignTopAction:", enabled: enabled)
+                alignOpButton("align.vertical.center", "Align vertical centers", "alignVCenterAction:", enabled: enabled)
+                alignOpButton("align.vertical.bottom", "Align bottom edges", "alignBottomAction:", enabled: enabled)
+            }
+        }
     }
 
     private func alignOpButton(_ symbol: String, _ help: String, _ selector: String, enabled: Bool = true) -> some View {
@@ -4284,7 +4323,7 @@ struct RightPanel: View {
                     ])
                     Spacer()
                 }
-                Text("Stays editable text. In HTML handoff this exports as -webkit-text-stroke with paint-order; browsers before Chrome/Edge 123 draw it centred instead of behind the fill. Convert to Outlines for exact control.")
+                EXPPanelHelp("Stays editable text. In HTML handoff this exports as -webkit-text-stroke with paint-order; browsers before Chrome/Edge 123 draw it centred instead of behind the fill. Convert to Outlines for exact control.")
                     .font(.caption2)
                     .foregroundStyle(EXPColor.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -5083,7 +5122,7 @@ struct RightPanel: View {
                             cornerField("BL", \.bottomLeft, tip: "Bottom-left corner radius")
                             cornerField("BR", \.bottomRight, tip: "Bottom-right corner radius")
                         }
-                        Text("Matching all four snaps back to the single Corner field.")
+                        EXPPanelHelp("Matching all four snaps back to the single Corner field.")
                             .font(.caption2).foregroundStyle(EXPColor.textTertiary)
                     }
                 }

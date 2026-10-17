@@ -34,6 +34,38 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 
 ## 🐞 Bugs
 
+### BUG-070 — Properties overflows its default width with Auto Padding enabled
+- Type: bug
+- Priority: P1
+- Area: inspector · chrome · accessibility
+- Status: needs-verify — implementation and local runtime checks; owner visual review pending
+- Repro/Detail: Owner's October 17 screenshot: enable Auto Padding on a group at
+  default Properties width. Corner/stroke controls and other rows extend beyond the
+  right edge; Pathfinder text buttons are oversized and unevenly spaced.
+- Root cause: a fixed-width combined Corner/Stroke row (including a flexible paint
+  well) requires more than the dock width; the ScrollView content accepts that wider
+  intrinsic layout. Four fixed inset fields and larger align controls also lack reflow.
+- Fix: bound Properties to its viewport; separate Corner/Stroke; flexible edge-marked
+  padding/margin fields with full accessible names and a two-row fallback; responsive
+  auto-layout spacing and align groups. Replace Pathfinder text buttons with four
+  native vector glyphs in one compact row, unchanged responder-chain actions,
+  full names/tooltips/hints, 28-point targets and optional larger targets.
+- Regression: corrected native test run against the preserved old app reproduces
+  Background stroke width at x=1667.5 beyond the x=1622 usable edge:
+  `output/a11y/panel-fit-20261017/native/baseline-recheck.xcresult`.
+  An earlier baseline attempt selected an artboard and stopped before Auto Padding;
+  it was a harness selection error, not the geometry reproduction.
+- Acceptance: no clipped/overlapping controls at default/narrow Properties width in
+  Compact, Extra Large and larger-target modes, Auto Layout plus Auto Padding enabled;
+  side-field edits work; four distinct Pathfinder icons align and keep their names;
+  owner reviews 1x/2x/light/dark/floating panels. Do not hide overflow with clipping.
+- Sources: `DESIGN-ASSETS.md`; Apple VoiceOver alternative labels rechecked:
+  https://developer.apple.com/design/human-interface-guidelines/voiceover.
+  Six final focused native tests pass with no skips/failures (Compact, Extra Large,
+  larger targets, live Show/Hide and toolbar switching). Policy and build pass.
+  Receipt: `output/a11y/panel-fit-confirmed-20261017/native/results.xcresult`.
+  Verification receipts and remaining scope: `ACCESSIBILITY-VERIFICATION.md`.
+
 ### BUG-069 — Triage native accessibility audit findings in the default editor
 - Type: bug
 - Priority: P1
@@ -3063,10 +3095,13 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   larger click areas and visible guidance; follow public macOS preferences where
   possible and detect VoiceOver without imposing the same visual layout on everyone.
 - Implementation: Settings → Accessibility; System/Compact/Standard/Large/Extra
-  Large type choices; larger shared targets; Automatic/Always/Keep compact guidance.
-  Owner follow-up adds independent Toolbar labels: Follow guidance / Icons only /
-  Icons and text. Icons only preserves other guidance, larger targets, accessible
-  names and shortcut hints; existing users retain Follow guidance by default.
+  Large type choices; larger shared targets; explicit Panel help text (Automatic
+  with VoiceOver / Show / Hide) for extra Properties explanations. Text size appears
+  only here. General contains Drawing toolbar labels (Automatic with VoiceOver /
+  Icons only / Icons and text). The vague Follow guidance choice is removed;
+  legacy combined choices migrate to equivalent independent toolbar choices.
+  Inactive panel headings no longer change with Properties help. Compact type is
+  text size, while Hide suppresses optional panel notes; warnings/names/hints remain.
   Explicit presentation choices override automatic reader-based guidance. Existing
   preference keys migrate without reset; status stays local and is not persisted.
   `EXPType` fonts are observable/scalable, numeric fields widen, panel headings and

@@ -503,7 +503,7 @@ private struct PanelGroupView: View {
                     title: pid.title,
                     icon: pid.icon,
                     isActive: pid == group.activeID && !group.collapsed,
-                    showLabel: group.panels.count == 1 || pid == group.activeID || EXPInterfaceAccessibility.shared.showGuidance
+                    showLabel: group.panels.count == 1 || pid == group.activeID
                 ) {
                     app.setActivePanel(pid, inGroup: group.id, side: side)
                 }

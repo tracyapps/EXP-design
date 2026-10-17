@@ -22,8 +22,17 @@ final class EditorAccessibilityTests: XCTestCase {
             throw XCTSkip("Run npm run test:a11y -- --interactive; isolated app/fixtures are required.")
         }
         fixture = URL(fileURLWithPath: directory).appendingPathComponent("Keyboard Fixture.design")
-        let model: [String: Any] = ["artboards": [["id": UUID().uuidString, "name": "Keyboard Artboard",
+        var model: [String: Any] = ["artboards": [["id": UUID().uuidString, "name": "Keyboard Artboard",
             "frame": [[0, 0], [393, 852]]]], "nodes": []]
+        if name.contains("testAutoPaddingStaysInsidePanel") {
+            func shape(_ x: Int) -> [String: Any] {
+                ["id": UUID().uuidString, "name": "Vector", "frame": [[x, 20], [80, 60]],
+                 "content": ["rectangle": ["_0": [:]]]]
+            }
+            model["nodes"] = [["id": UUID().uuidString, "name": "Panel fixture",
+                               "frame": [[30, 30], [180, 80]],
+                               "content": ["group": ["children": [shape(0), shape(90)]]]]]
+        }
         try JSONSerialization.data(withJSONObject: model).write(to: fixture)
         app = XCUIApplication(url: URL(fileURLWithPath: path))
         app.launchArguments = ["-ApplePersistenceIgnoreState", "YES", "-NSQuitAlwaysKeepsWindows", "NO",
@@ -31,11 +40,18 @@ final class EditorAccessibilityTests: XCTestCase {
         if name.contains("testLargerControlsAndVisibleGuidance") {
             app.launchArguments += ["-exp.pref.interfaceTypeSize", "extraLarge",
                                     "-exp.pref.largerInterfaceTargets", "YES",
-                                    "-exp.pref.interfaceGuidance", "always"]
+                                    "-exp.pref.interfaceGuidance", "always",
+                                    "-exp.pref.toolbarLabels", "iconsAndText"]
         }
         if name.contains("testIconsOnlyToolbarPreservesGuidanceAndAccessibleNames") {
             app.launchArguments += ["-exp.pref.interfaceGuidance", "always",
                                     "-exp.pref.largerInterfaceTargets", "YES",
+                                    "-exp.pref.toolbarLabels", "iconsOnly"]
+        }
+        if name.contains("testAutoPaddingStaysInsidePanel") {
+            app.launchArguments += ["-exp.pref.interfaceTypeSize", name.contains("ExtraLarge") ? "extraLarge" : "compact",
+                                    "-exp.pref.largerInterfaceTargets", name.contains("LargerTargets") ? "YES" : "NO",
+                                    "-exp.pref.interfaceGuidance", "never",
                                     "-exp.pref.toolbarLabels", "iconsOnly"]
         }
         app.launch()
@@ -82,8 +98,23 @@ final class EditorAccessibilityTests: XCTestCase {
         waitForExpectations(timeout: 5)
         // Restore the fixture's preference so other tests retain their baseline.
         larger.click()
-        XCTAssertTrue(app.popUpButtons["Guidance"].firstMatch.exists)
-        let labels = app.popUpButtons["Toolbar labels"].firstMatch
+        let panelHelp = app.popUpButtons["Panel help text"].firstMatch
+        XCTAssertTrue(panelHelp.exists)
+        let explanation = app.staticTexts["Size is the distance between grid lines in points. Subdiv is the number of smaller divisions in each cell."].firstMatch
+        panelHelp.click()
+        app.menuItems["Show"].firstMatch.click()
+        XCTAssertTrue(explanation.waitForExistence(timeout: 5))
+        panelHelp.click()
+        app.menuItems["Hide"].firstMatch.click()
+        expectation(for: NSPredicate { _, _ in !explanation.exists }, evaluatedWith: nil)
+        waitForExpectations(timeout: 5)
+        panelHelp.click()
+        app.menuItems["Automatic with VoiceOver"].firstMatch.click()
+        XCTAssertTrue(app.popUpButtons["Interface type size"].firstMatch.exists)
+        XCTAssertFalse(app.popUpButtons["Drawing toolbar labels"].exists)
+        app.staticTexts["General"].firstMatch.click()
+        XCTAssertFalse(app.popUpButtons["Interface type size"].exists)
+        let labels = app.popUpButtons["Drawing toolbar labels"].firstMatch
         XCTAssertTrue(labels.exists)
         labels.click()
         app.menuItems["Icons and text"].firstMatch.click()
@@ -96,7 +127,7 @@ final class EditorAccessibilityTests: XCTestCase {
         expectation(for: compact, evaluatedWith: nil)
         waitForExpectations(timeout: 5)
         labels.click()
-        app.menuItems["Follow guidance"].firstMatch.click()
+        app.menuItems["Automatic with VoiceOver"].firstMatch.click()
     }
 
     func testIconsOnlyToolbarPreservesGuidanceAndAccessibleNames() {
@@ -130,6 +161,53 @@ final class EditorAccessibilityTests: XCTestCase {
         app.typeKey(.return, modifierFlags: [])
         XCTAssertEqual(String(describing: grid.value ?? ""), "75", "Clicking the enlarged field padding must focus its editor")
         XCTAssertTrue(app.staticTexts["Size is the distance between grid lines in points. Subdiv is the number of smaller divisions in each cell."].exists)
+    }
+
+    func testAutoPaddingStaysInsidePanelLargerTargets() { checkAutoPaddingPanel() }
+    func testAutoPaddingStaysInsidePanelExtraLarge() { checkAutoPaddingPanel() }
+    func testAutoPaddingStaysInsidePanel() { checkAutoPaddingPanel() }
+
+    private func checkAutoPaddingPanel() {
+        let canvas = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Design canvas")).firstMatch
+        XCTAssertTrue(canvas.waitForExistence(timeout: 5))
+        for name in ["Collapse Handoff", "Collapse Design Language", "Collapse Components"] {
+            let button = app.buttons[name].firstMatch
+            if button.exists { button.click() }
+        }
+        app.staticTexts["Panel fixture"].firstMatch.click()
+        let layout = app.checkBoxes["Auto Layout"].firstMatch
+        XCTAssertTrue(layout.waitForExistence(timeout: 5))
+        layout.click()
+        XCTAssertTrue(app.textFields["Gap between items"].firstMatch.waitForExistence(timeout: 5))
+        let padding = app.checkBoxes["Auto Padding"].firstMatch
+        XCTAssertTrue(padding.waitForExistence(timeout: 5))
+        padding.click()
+        let stroke = app.textFields["Background stroke width"].firstMatch
+        XCTAssertTrue(stroke.waitForExistence(timeout: 5))
+        let right = app.windows.firstMatch.frame.maxX - 8
+        for name in ["Top padding", "Right padding", "Bottom padding", "Left padding", "Top margin", "Right margin", "Bottom margin", "Left margin", "Background stroke width", "Gap between items", "Rotation", "Layer opacity"] {
+            let field = app.textFields[name].firstMatch
+            XCTAssertTrue(field.exists, "Missing field: \(name)")
+            XCTAssertGreaterThanOrEqual(field.frame.minX, app.buttons["Properties"].firstMatch.frame.minX - 6)
+            XCTAssertLessThanOrEqual(field.frame.maxX, right, "\(name) must remain inside the panel")
+        }
+        let top = app.textFields["Top padding"].firstMatch
+        top.click()
+        app.typeKey("a", modifierFlags: .command)
+        app.typeText("24")
+        app.typeKey(.return, modifierFlags: [])
+        XCTAssertEqual(String(describing: top.value ?? ""), "24")
+        let unite = app.buttons["Unite"].firstMatch
+        XCTAssertTrue(unite.exists)
+        for name in ["Unite", "Subtract", "Intersect", "Exclude"] {
+            let button = app.buttons[name].firstMatch
+            XCTAssertTrue(button.exists)
+            XCTAssertLessThanOrEqual(button.frame.height, self.name.contains("LargerTargets") ? 44 : (self.name.contains("ExtraLarge") ? 42 : 28))
+            XCTAssertLessThanOrEqual(button.frame.maxX, right)
+            XCTAssertEqual(button.frame.minY, unite.frame.minY, accuracy: 1)
+        }
+        XCTAssertLessThanOrEqual(app.buttons["Align bottom edges"].firstMatch.frame.maxX, right)
+        XCTAssertFalse(app.staticTexts["Unite needs visible, unlocked closed vectors in folders without backgrounds, effects or masks."].exists)
     }
 
     private func focusedElement() throws -> AXUIElement {

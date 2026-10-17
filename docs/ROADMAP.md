@@ -1310,9 +1310,10 @@ from the appcast; a development plan does not change the published release.
       queued as BUG-069; permissions/incomplete results are not passes.
 - [x] **FEAT-070 first interface accessibility slice implemented:** unconditional
       names/hints plus independent text size, larger shared click targets and
-      optional persistent guidance in Settings → Accessibility. Automatic guidance
-      follows local public VoiceOver status; explicit choices win. Existing type
-      preferences preserved. Verification/scope: `ACCESSIBILITY-VERIFICATION.md`.
+      Panel help text in Settings → Accessibility; type size appears only there.
+      Drawing toolbar labels live in General, with explicit icons/text/VoiceOver
+      choices. Properties notes, inset fields and Pathfinder refinement: BUG-070.
+      Existing preference choices are preserved. Verification/scope: `ACCESSIBILITY-VERIFICATION.md`.
 - [ ] Full 1x/2x, light/dark, Large interface type and AT matrix; signed release
       payload audit remains a freeze gate. Visual acceptance alone does not close these.
 - [x] **INFRA-005 local release-signup foundation:** durable storage before success,
@@ -3400,6 +3401,37 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-10-17 — Settings clarity and bounded Properties controls, BUG-070 [internal].**
+  Owner reports duplicate type size, unclear Follow/Visible guidance, Auto Padding
+  overflow and oversized Pathfinder buttons. Type size now lives only in
+  Accessibility, alongside Panel help text (Automatic with VoiceOver / Show / Hide).
+  General owns Drawing toolbar labels (Automatic with VoiceOver / Icons only /
+  Icons and text), independent of panel explanations. Legacy inherited choices
+  migrate to equivalent toolbar modes; unknown values remain stored. Help now
+  gates Properties teaching notes for grid, vectors/knife, relationships, advanced
+  corners and text outlines; warnings/names/hints remain. Inactive dock tabs no
+  longer depend on this setting. Compact type size is explicitly a font-size choice.
+  Traced overflow to the combined fixed-width Corner/Stroke row and unbounded
+  scroll content. Properties now takes the viewport width, Corner/Stroke split,
+  side fields flex/reflow with the owner's thick accent-edge indicators, and
+  layout-spacing/align groups reflow. Pathfinder has four native vector icons,
+  consistent spacing, compact targets, full names/tooltips and existing selectors.
+  No icon files are needed from the owner; no document/model/export behavior changed.
+  Corrected regression against preserved old app reproduces stroke field 45.5pt
+  beyond the usable edge: `output/a11y/panel-fit-20261017/native/baseline-recheck.xcresult`.
+  All six focused native checks pass, no failures/skips. Receipts:
+  `output/a11y/panel-fit-confirmed-20261017/native/results.xcresult`;
+  source policy/migration/persistence and backlog guards pass. Restart regression
+  caught and fixed fresh defaults being mistaken for inherited legacy settings;
+  conversion is initialization-only and seeds the independent toolbar default.
+  Two final live-Settings/toolbar native checks also pass after that fix:
+  `output/a11y/panel-settings-final-20261017/native/results.xcresult`.
+  Final cropped General/Properties/larger-target screenshots inspected.
+  Final build: `/tmp/exp-panel-migration-final-build.log`. Earlier build logs:
+  `/tmp/exp-panel-fit-final-build.log`, `/tmp/exp-panel-fit-tests-build.log`.
+  Remaining owner review: real 1x/2x/light/dark/floating-panel appearance and broader
+  accessibility audit/reader gates. Local commit only; no push/deploy/release edits.
 
 - **2026-10-17 — Independent drawing-toolbar labels [internal].**
   Owner accepts the accessibility settings direction and requests icons-only drawing
