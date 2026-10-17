@@ -1347,8 +1347,12 @@ from the appcast; a development plan does not change the published release.
       linking, beta participation, opt-in community/news and private ticket slices.
 - [ ] Reliable separate Pro-interest signup, permission/delivery/unsubscribe proof,
       data map and owner-reviewed privacy/EULA/refund/ownership decisions.
-- [ ] Minimal consented measurement of successful create/import → edit → output;
-      no document content, no pre-consent collection, verified withdrawal behavior.
+- [x] **INFRA-010 local native measurement:** default-off Privacy control, typed
+      create/import → edit → verified export/handoff milestones, bounded queue,
+      withdrawal/cancellation, private first-party collector and retention job.
+      Contract/limits: `launch/USAGE-METRICS-v2.7.md`; native Save remains uninstrumented.
+- [ ] Hosted measurement/privacy/log/abuse/retention verification and owner AT review;
+      configure the app endpoint and enable collection only after those receipts.
 - [ ] 10–20 eligible first-use partner attempts; core-task VoiceOver/FKA and
       appearance/accessibility verification; fix/retest observed blockers.
 - [ ] **Nov 6 offer gate:** test payment models with the same candidate benefit;
@@ -3408,6 +3412,40 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-10-17 — INFRA-010 optional native usage measurement [internal].**
+  Owner authorizes the analytics slice after accepting pattern/source/window work.
+  Added default-off Settings → Privacy, closed event/source/output vocabularies,
+  consent-only install identity, bounded persisted queue, withdrawal cancellation/
+  erasure, guarded stale request completions and capped/backed-off retries.
+  Successful new/imported work, subsequent committed edits, verified output and
+  active days use in-memory weak work pairing; no document identifier/content,
+  action labels, paths, email or account state enters the payload. Imports do not
+  count as subsequent edits; undo/redo is excluded; existing documents do not
+  reconstruct pre-consent creation. The canvas model-generation/cache paths stay
+  untouched. Native Save/Auto Save is deliberately uninstrumented: SwiftUI wrapper
+  preparation is not a disk-write receipt, and standard Save commands are preserved.
+  Added disabled-by-default first-party `/api/usage`, private migration 004,
+  atomic event/milestone dedup and per-install budget, plus private daily purge job.
+  No host/config/production database or public policy was changed; the app has no
+  collector endpoint. Hosted log/backup/region/retention/edge controls, owner AT and
+  packaged traffic proof remain before enablement. Local Swift lifecycle/allowlist/
+  retry/cancellation checks and 14 real-PostgreSQL collector cases pass; actual
+  URLSession→loopback HTTP→PostgreSQL verifies one request/six rows, no pre-consent/
+  post-withdrawal calls, cookies/auth or followed redirects. Existing 15 release
+  signup, interface policy and source-bounds/raster checks pass. App/thumbnail/test
+  build passes. Final native run has three passes, no failures/skips:
+  `output/a11y/usage-consent-receipts-20261017/native/results.xcresult`.
+  Consent persists/revokes across relaunch; an actual edit plus cancelled/completed
+  handoff records exactly one output and no invented creation; the ordinary build
+  is unavailable/off. Cropped Privacy screenshots and fresh website build pass.
+  Final combined `npm test`: all 77 signup/interest/account/usage cases pass,
+  plus Swift lifecycle/race and actual wire checks (`/tmp/exp-usage-services-regression.log`). Earlier
+  native failures were diagnosed as numeric checkbox/Touch Bar queries, inherited
+  consent and asynchronous cfprefsd snapshot reads; receipts retained and queries/
+  cleanup/receipt waits corrected. Full contract and gates:
+  `launch/USAGE-METRICS-v2.7.md`. Source logs: `/tmp/exp-usage-services.log`,
+  `/tmp/exp-usage-build.log`. Local only; no push/deploy or live collection.
 
 - **2026-10-17 — Owner accepts pattern/component and window-ordering slice [internal].**
   Owner reports "all of those passed. works well." Close FEAT-071, BUG-071 and

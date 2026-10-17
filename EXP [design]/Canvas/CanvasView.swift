@@ -3289,7 +3289,8 @@ final class CanvasNSView: NSView {
     ///   step, so an undo restores the layer and its connections together.
     private func commitNodes(_ newNodes: [Node], actionName: String,
                              appendingRootAnchors rootAnchors: [AnchoredRelationship] = [],
-                             removingAnchorsReferencing removedIDs: Set<UUID> = []) {
+                             removingAnchorsReferencing removedIDs: Set<UUID> = [],
+                             usage: UsageMutation = .edit) {
         guard let document else { return }
         // Editing a component STATE: split the edited tree into base + diff.
         // Appearance changes become the state's override-diff; geometry and
@@ -3316,7 +3317,7 @@ final class CanvasNSView: NSView {
                 Document.removingAnchors(referencing: removedIDs,
                                          in: &model.sources[si].children)
             }
-            document.setModel(model, undoManager: undoManager, actionName: actionName)
+            document.setModel(model, undoManager: undoManager, actionName: actionName, usage: usage)
             return
         }
         // Reflow auto-layout frames before committing, so any change (text growing,
@@ -3366,7 +3367,7 @@ final class CanvasNSView: NSView {
         // Editing a tile changes every layer painted with it. `setModel` bumps
         // `resolveGeneration`, which is what the canvas's pattern tile cache keys
         // on, so the rasterised tiles drop and rebuild on the next draw.
-        document.setModel(model, undoManager: undoManager, actionName: actionName)
+        document.setModel(model, undoManager: undoManager, actionName: actionName, usage: usage)
     }
 
     // MARK: Lookups
@@ -10335,7 +10336,7 @@ final class CanvasNSView: NSView {
             newIDs.append(node.id)
             x += img.size.width + gap
         }
-        commitNodes(nodes, actionName: images.count > 1 ? "Place Images" : "Place Image")
+        commitNodes(nodes, actionName: images.count > 1 ? "Place Images" : "Place Image", usage: .imported(.image))
         app.selectedArtboardID = nil
         app.selectedNodeIDs = Set(newIDs)
         app.tool = .select
@@ -10531,7 +10532,7 @@ final class CanvasNSView: NSView {
             // ones existing layers already point at.
             document?.model.patterns.append(contentsOf: importedPatterns)
         }
-        commitNodes(nodes, actionName: imported.count > 1 ? "Import SVGs" : "Import SVG")
+        commitNodes(nodes, actionName: imported.count > 1 ? "Import SVGs" : "Import SVG", usage: .imported(.svg))
         app.selectedArtboardID = nil
         app.selectedNodeIDs = Set(newIDs)
         app.tool = .select
@@ -10574,7 +10575,7 @@ final class CanvasNSView: NSView {
         group.frame.origin = CGPoint(x: center.x - size.width / 2, y: center.y - size.height / 2)
         var nodes = currentNodes
         nodes.append(group)
-        commitNodes(nodes, actionName: "Paste Vector")
+        commitNodes(nodes, actionName: "Paste Vector", usage: .imported(.pdf))
         app.selectedArtboardID = nil
         app.selectedNodeIDs = [group.id]
         app.tool = .select
@@ -10685,7 +10686,7 @@ final class CanvasNSView: NSView {
             where !model.designLanguage.typeStyles.contains(where: { $0.sameValues(as: style) }) {
             model.designLanguage.typeStyles.append(style)
         }
-        document.setModel(model, undoManager: undoManager, actionName: "Import Adobe XD")
+        document.setModel(model, undoManager: undoManager, actionName: "Import Adobe XD", usage: .imported(.xd))
         let firstImportedArtboard = payload.artboards.first
         app?.selectedArtboardID = firstImportedArtboard?.id
         app?.selectedNodeIDs = []
@@ -10801,7 +10802,7 @@ final class CanvasNSView: NSView {
         }
         switch progress.outcome {
         case .success(let result):
-            applyRenderedHTMLImport(result, actionName: "Import CodePen Export")
+            applyRenderedHTMLImport(result, actionName: "Import CodePen Export", usageSource: .codepen)
         case .failure(let message):
             let alert = NSAlert()
             alert.alertStyle = .warning
@@ -10866,7 +10867,7 @@ final class CanvasNSView: NSView {
         }
         switch progress.outcome {
         case .success(let result):
-            applyRenderedHTMLImport(result, actionName: "Import Storybook Build")
+            applyRenderedHTMLImport(result, actionName: "Import Storybook Build", usageSource: .storybook)
         case .failure(let message):
             let alert = NSAlert()
             alert.alertStyle = .warning
@@ -11004,7 +11005,7 @@ final class CanvasNSView: NSView {
     }
 
     private func applyRenderedHTMLImport(_ result: InteropImportResult,
-                                         actionName: String = "Import HTML/CSS") {
+                                         actionName: String = "Import HTML/CSS", usageSource: UsageSource = .html) {
         guard let document, let imported = result.payload.pages.first,
               !imported.artboards.isEmpty else { return }
         var page = imported
@@ -11031,7 +11032,7 @@ final class CanvasNSView: NSView {
         model.sources.append(contentsOf: result.payload.sources)
         model.codeBridges.append(contentsOf: result.codeBridges)
         document.setModel(model, undoManager: undoManager,
-                          actionName: actionName)
+                          actionName: actionName, usage: .imported(usageSource))
 
         let firstBoard = page.artboards[0]
         app?.selectedNodeIDs = []
@@ -11177,7 +11178,7 @@ final class CanvasNSView: NSView {
             where !model.designLanguage.typeStyles.contains(where: { $0.sameValues(as: style) }) {
             model.designLanguage.typeStyles.append(style)
         }
-        document.setModel(model, undoManager: undoManager, actionName: "Import Figma File")
+        document.setModel(model, undoManager: undoManager, actionName: "Import Figma File", usage: .imported(.figma))
 
         guard let firstPage = importedPages.first else { return }
         let firstBoard = firstPage.artboards.first
@@ -11247,7 +11248,7 @@ final class CanvasNSView: NSView {
         model.pages[pageIndex].artboards.append(contentsOf: laid.artboards)
         model.pages[pageIndex].nodes.append(contentsOf: laid.nodes)
         document.setModel(model, undoManager: undoManager,
-                          actionName: pages.count > 1 ? "Import PDF Pages" : "Import PDF")
+                          actionName: pages.count > 1 ? "Import PDF Pages" : "Import PDF", usage: .imported(.pdf))
         app?.selectedArtboardID = laid.artboards.first?.id
         app?.selectedNodeIDs = []
         needsDisplay = true
@@ -12199,7 +12200,9 @@ final class CanvasNSView: NSView {
         guard let document else { NSSound.beep(); return }
         let boards = selectedExportArtboards()
         guard !boards.isEmpty else { NSSound.beep(); return }
-        let panels = ExportPanels(model: document.model)
+        let panels = ExportPanels(model: document.model) { [weak document] kind in
+            if let document { UsageMetrics.shared.output(document, kind: kind) }
+        }
         exportPanels = panels
         if boards.count == 1 {
             panels.exportSelected(boards[0], in: window)
@@ -12212,7 +12215,9 @@ final class CanvasNSView: NSView {
 
     @objc func exportAllArtboards(_ sender: Any?) {
         guard let document, !currentArtboards.isEmpty else { NSSound.beep(); return }
-        let panels = ExportPanels(model: document.model)
+        let panels = ExportPanels(model: document.model) { [weak document] kind in
+            if let document { UsageMetrics.shared.output(document, kind: kind) }
+        }
         exportPanels = panels
         panels.exportAll(currentArtboards, in: window)
     }
@@ -12233,6 +12238,7 @@ final class CanvasNSView: NSView {
             do {
                 try HandoffPackageWriter(document: document.model,
                                          sourceURL: self.window?.representedURL).write(to: url)
+                UsageMetrics.shared.output(document, kind: .handoff)
             } catch {
                 let alert = NSAlert(error: error)
                 alert.messageText = "Handoff package export failed"
@@ -12274,6 +12280,7 @@ final class CanvasNSView: NSView {
                         at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
                     try artifact.data.write(to: target, options: .atomic)
                 }
+                if !bundle.artifacts.isEmpty { UsageMetrics.shared.output(document, kind: .html) }
             } catch {
                 self.presentExportError(error, title: "Semantic HTML export failed")
             }
@@ -12311,6 +12318,7 @@ final class CanvasNSView: NSView {
             guard NSWorkspace.shared.open(launcher) else {
                 throw CocoaError(.fileNoSuchFile)
             }
+            UsageMetrics.shared.output(document, kind: .codepenLauncher)
         } catch {
             presentExportError(error, title: "CodePen handoff failed")
         }
@@ -12330,6 +12338,7 @@ final class CanvasNSView: NSView {
             do {
                 let data = try DesignLanguageIO.exportDesignTokensJSON(document.model.designLanguage)
                 try data.write(to: url, options: .atomic)
+                UsageMetrics.shared.output(document, kind: .tokens)
             } catch {
                 self.presentExportError(error, title: "Design token export failed")
             }

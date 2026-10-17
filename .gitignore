@@ -85,3 +85,6 @@ output/a11y/
 
 # Pattern/component authoring evidence and owner review checklist
 !docs/SOURCE-BOUNDS-VERIFICATION.md
+
+# Usage consent/collector contract and hosted enablement gates
+!docs/launch/USAGE-METRICS-v2.7.md

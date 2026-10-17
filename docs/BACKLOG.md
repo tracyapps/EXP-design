@@ -7340,6 +7340,29 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 
 ## 🛠 Infrastructure
 
+### INFRA-010 — Default-off native usage measurement and first-party collector
+- Type: infra
+- Priority: P1
+- Area: native UI · launch services · privacy
+- Status: locally implemented; native/owner and hosted enablement evidence tracked separately
+- Scope: Settings → Privacy, content-free typed milestones for usable work, committed
+  edits, successful export/handoff and active days; same-session activation within
+  seven days. Independent of account/Pro/marketing permission. No pre-consent activity.
+- Implementation: bounded persistent queue, cancellation/clear/new identity on withdrawal,
+  guarded stale completions, capped retries, legacy/invalid consent fail-closed;
+  ephemeral cookie/credential-free no-redirect transport. API rejects extra metadata;
+  private PostgreSQL transactions/dedup, admission budget and operator retention job.
+- Native Save/Auto Save stays uninstrumented: SwiftUI wrapper creation is not a
+  successful write. Website events and aggregate storage remain outside this slice.
+- Acceptance: known payload only, no request/storage before consent or after withdrawal;
+  same-document/session order, cancelled/failed outputs excluded, restart/offline and
+  expiry checks; verified host logs/retention/edge controls before collection enablement.
+- Evidence/enablement checklist: `launch/USAGE-METRICS-v2.7.md`; 14 local DB/collector
+  cases and actual URLSession → HTTP → PostgreSQL check pass. Production disabled.
+- Sources: Apple privacy/VoiceOver naming and ephemeral URLSession documentation,
+  plus ReferenceFileDocument/standard Save group APIs, linked in the evidence doc.
+  Focused local checks do not close the full reader/appearance or hosted privacy gates.
+
 ### INFRA-009 — Repeatable keyboard, accessibility audit and real VoiceOver harness
 - Type: infra
 - Priority: P1

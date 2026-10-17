@@ -41,6 +41,10 @@ final class ExpDocument: ReferenceFileDocument {
 
     typealias Snapshot = Document
 
+    /// Session classification only; never stored in a .design file or transmitted
+    /// as a document identifier. Registration waits for the usable editor view.
+    private(set) var usageOrigin: UsageSource = .newDocument
+
     /// The live design data. @Published so SwiftUI + the canvas redraw on change.
     /// `didSet` bumps `resolveGeneration` on EVERY mutation — whether the model is
     /// replaced (setModel/undo) or edited in place (a live drag mutates `model.nodes`
@@ -87,12 +91,14 @@ final class ExpDocument: ReferenceFileDocument {
             doc.artboards = laid.artboards
             doc.nodes = laid.nodes
             model = doc
+            usageOrigin = .pdf
             return
         }
         var decoded = try JSONDecoder().decode(Document.self, from: data)
         Self.stripBackgroundBlurEffects(&decoded)
         Self.sanitizePDFImages(&decoded)
         model = decoded
+        usageOrigin = .openedDocument
     }
 
     /// SAFETY MIGRATION (2026-07-11): a bad PDF import could (a) store raw PDF
@@ -180,21 +186,33 @@ final class ExpDocument: ReferenceFileDocument {
     /// sizes and trivial to reason about. For a continuous gesture like dragging,
     /// the caller mutates `model` live and registers a single undo at the end via
     /// `registerUndo(restoring:)`, so one drag = one undo step.
-    func setModel(_ newModel: Document, undoManager: UndoManager?, actionName: String) {
+    @MainActor func setModel(_ newModel: Document, undoManager: UndoManager?, actionName: String,
+                  usage: UsageMutation = .edit) {
         let oldModel = model
         model = newModel
         undoManager?.registerUndo(withTarget: self) { document in
-            document.setModel(oldModel, undoManager: undoManager, actionName: actionName)
+            document.setModel(oldModel, undoManager: undoManager, actionName: actionName, usage: .none)
         }
         undoManager?.setActionName(actionName)
+        recordUsage(usage, undoManager: undoManager)
+    }
+
+    @MainActor private func recordUsage(_ usage: UsageMutation, undoManager: UndoManager?) {
+        guard undoManager?.isUndoing != true, undoManager?.isRedoing != true else { return }
+        switch usage {
+        case .edit: UsageMetrics.shared.edited(self)
+        case .imported(let source): UsageMetrics.shared.imported(self, source: source)
+        case .none: break
+        }
     }
 
     /// Register undo back to `baseline`, assuming `model` already holds the new
     /// state (used by drag, which updates `model` live for smooth feedback).
-    func registerUndo(restoring baseline: Document, undoManager: UndoManager?, actionName: String) {
+    @MainActor func registerUndo(restoring baseline: Document, undoManager: UndoManager?, actionName: String) {
         undoManager?.registerUndo(withTarget: self) { document in
-            document.setModel(baseline, undoManager: undoManager, actionName: actionName)
+            document.setModel(baseline, undoManager: undoManager, actionName: actionName, usage: .none)
         }
         undoManager?.setActionName(actionName)
+        recordUsage(.edit, undoManager: undoManager)
     }
 }

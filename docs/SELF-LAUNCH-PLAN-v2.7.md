@@ -169,6 +169,10 @@ locally (INFRA-008/007); actual hosted proof remains pending.
 
 ### 3 Consent and measurement — Oct 26–30
 
+October 17: INFRA-010's native/local collector slice is implemented and production
+collection is disabled. See `launch/USAGE-METRICS-v2.7.md` for evidence and hosted
+gates. Native Save/Auto Save and website events are not instrumented by this slice.
+
 Codex proposes a small app `UsageMetrics` service, wired through app startup,
 Settings and successful import/export/handoff boundaries in `ExpDocument.swift`,
 `ExportPanels.swift`, `HandoffPackageWriter.swift` and `HandoffPanel.swift` after

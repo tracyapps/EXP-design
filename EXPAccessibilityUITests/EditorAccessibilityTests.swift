@@ -33,7 +33,7 @@ final class EditorAccessibilityTests: XCTestCase {
                                "frame": [[30, 30], [180, 80]],
                                "content": ["group": ["children": [shape(0), shape(90)]]]]]
         }
-        if name.contains("testPattern") || name.contains("testComponentBounds") {
+        if name.contains("testPattern") || name.contains("testComponentBounds") || name.contains("testUsageConsentTracks") {
             model["nodes"] = [["id": UUID().uuidString, "name": "Pattern host", "frame": [[30, 30], [80, 60]],
                                "content": ["rectangle": ["_0": [:]]]]]
         }
@@ -57,6 +57,9 @@ final class EditorAccessibilityTests: XCTestCase {
                                     "-exp.pref.largerInterfaceTargets", name.contains("LargerTargets") ? "YES" : "NO",
                                     "-exp.pref.interfaceGuidance", "never",
                                     "-exp.pref.toolbarLabels", "iconsOnly"]
+        }
+        if name.contains("testUsageConsent") {
+            app.launchArguments += ["-EXPUsageLocalPreview", "YES"]
         }
         if name.contains("testSettingsCanOpenWithDetachedPanels") {
             app.launchArguments += ["-exp.sanaa.enabled", "YES"]
@@ -304,6 +307,86 @@ final class EditorAccessibilityTests: XCTestCase {
         XCTAssertTrue(properties.waitForExistence(timeout: 5), "Menu must reveal the existing panel, not hide it")
         XCTAssertTrue(properties.staticTexts["Properties"].firstMatch.isHittable)
         XCTAssertTrue(properties.textFields["Grid size"].firstMatch.isHittable, "Raised panel must accept interaction above Settings")
+    }
+
+    func testUsageConsentIsOptionalAndCanBeWithdrawn() {
+        app.typeKey(",", modifierFlags: .command)
+        let privacy = app.staticTexts["Privacy"].firstMatch
+        XCTAssertTrue(privacy.waitForExistence(timeout: 5)); privacy.click()
+        let consent = app.checkBoxes["Share basic usage data"].firstMatch
+        XCTAssertTrue(consent.waitForExistence(timeout: 5))
+        XCTAssertEqual(String(describing: consent.value ?? ""), "0")
+        consent.click(); XCTAssertEqual(String(describing: consent.value ?? ""), "1")
+        app.terminate(); app.launch()
+        app.typeKey(.escape, modifierFlags: [])
+        app.open(fixture)
+        app.typeKey(",", modifierFlags: .command)
+        app.staticTexts["Privacy"].firstMatch.click()
+        XCTAssertEqual(String(describing: consent.value ?? ""), "1")
+        consent.click(); XCTAssertEqual(String(describing: consent.value ?? ""), "0")
+    }
+
+    func testUsageUnavailableByDefault() {
+        app.typeKey(",", modifierFlags: .command)
+        app.staticTexts["Privacy"].firstMatch.click()
+        let consent = app.checkBoxes["Share basic usage data"].firstMatch
+        XCTAssertTrue(consent.waitForExistence(timeout: 5))
+        XCTAssertEqual(String(describing: consent.value ?? ""), "0")
+        XCTAssertFalse(consent.isEnabled)
+    }
+
+    func testUsageConsentTracksOnlyCompletedHandoff() throws {
+        app.typeKey(",", modifierFlags: .command)
+        app.staticTexts["Privacy"].firstMatch.click()
+        app.checkBoxes["Share basic usage data"].firstMatch.click()
+        app.typeKey("w", modifierFlags: .command)
+        app.staticTexts["Pattern host"].firstMatch.click()
+        app.menuBars.menuBarItems["Object"].click()
+        app.menuItems["Create Component"].firstMatch.click()
+        XCTAssertTrue(app.staticTexts["Instance"].firstMatch.waitForExistence(timeout: 5))
+        app.menuBars.menuBarItems["File"].click()
+        app.menuItems["Export Handoff Package…"].firstMatch.click()
+        XCTAssertTrue(app.sheets.firstMatch.waitForExistence(timeout: 5))
+        app.typeKey(.escape, modifierFlags: [])
+        app.menuBars.menuBarItems["File"].click()
+        app.menuItems["Export Handoff Package…"].firstMatch.click()
+        XCTAssertTrue(app.sheets.firstMatch.buttons["Save"].firstMatch.waitForExistence(timeout: 5))
+        app.typeKey("g", modifierFlags: [.command, .shift])
+        app.typeText(fixture.deletingLastPathComponent().path + "/UsageHandoff.exph")
+        app.typeKey(.return, modifierFlags: [])
+        app.sheets.firstMatch.buttons["Save"].firstMatch.click()
+        let output = fixture.deletingLastPathComponent().appendingPathComponent("UsageHandoff.exph/manifest.json")
+        expectation(for: NSPredicate { _, _ in FileManager.default.fileExists(atPath: output.path) }, evaluatedWith: nil)
+        waitForExpectations(timeout: 8)
+        app.terminate()
+        let identity = ProcessInfo.processInfo.environment["EXP_A11Y_BUNDLE_ID"]!
+        let prefs = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Containers/\(identity)/Data/Library/Preferences/\(identity).plist")
+        func savedEvents() -> [[String: Any]] {
+            guard let dictionary = NSDictionary(contentsOf: prefs),
+                  let data = dictionary["exp.usage.v1"] as? Data,
+                  let state = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                  let queue = state["queue"] as? [[String: Any]] else { return [] }
+            return queue.compactMap { $0["event"] as? [String: Any] }
+        }
+        // cfprefsd flushes asynchronously. Do not mistake an older on-disk
+        // preference snapshot for the just-completed app write.
+        expectation(for: NSPredicate { _, _ in savedEvents().contains { ($0["name"] as? String) == "output_completed" } }, evaluatedWith: nil)
+        waitForExpectations(timeout: 8)
+        let events = savedEvents()
+        XCTAssertEqual(events.filter { ($0["name"] as? String) == "output_completed" }.count, 1,
+                       "Cancelled handoff must not count; the successful write counts once")
+        XCTAssertEqual(events.filter { ($0["name"] as? String) == "work_edited" }.count, 1)
+        XCTAssertEqual(events.filter { ($0["name"] as? String) == "activation_completed" }.count, 0,
+                       "Opening a pre-existing document must not reconstruct a creation before consent")
+        // This test deliberately persisted consent across app termination for
+        // the receipt above. Restore off through the real UI for the next case.
+        app.launch(); app.typeKey(.escape, modifierFlags: [])
+        app.open(fixture); app.typeKey(",", modifierFlags: .command)
+        app.staticTexts["Privacy"].firstMatch.click()
+        let consent = app.checkBoxes["Share basic usage data"].firstMatch
+        XCTAssertEqual(String(describing: consent.value ?? ""), "1")
+        consent.click(); XCTAssertEqual(String(describing: consent.value ?? ""), "0")
     }
 
     private func focusedElement() throws -> AXUIElement {

@@ -51,7 +51,7 @@ queue. The honeypot remains; it is not sufficient rate limiting.
 | Sanaa / connected agent (`UI/SanaaRuntimeClient.swift`, `sanaa-runtime/main.swift`, `CodexAdapter.swift`) | Prompts and allowed design tool results can reach the connected agent/provider | Bundled helper; isolated Sanaa host state; existing Codex auth referenced by symlink; per-document tool permissions; conversation deletion command exists | Confirm actual provider/account terms, traffic, conversation deletion scope and retention; deleting local state does not prove provider deletion |
 | Feedback (`UI/Feedback.swift`) | User-written title/detail plus app/OS/tool/selection/document counts placed in a GitHub issue URL | User reviews and chooses to open/submit; not an automatic private support channel | URL data reaches GitHub/browser history before issue publication; warn against confidential content in the final support flow |
 | Diagnostics (`UI/DiagnosticLog.swift`, canvas report action) | Machine/app info, selected document statistics/geometry and log tail in a saved report | User-selected report file; local rotating daily log keeps newest five files | Inspect actual report for sensitive names/paths before sending; no automatic upload proved by these sources |
-| Planned usage measurement | Fixed events/coarse versions and consented install identifier only | **Not implemented**; must default off, exclude content/paths/URLs/email/prompts and clear queue on withdrawal | Source + captured-network consent-off/withdrawal proof before launch |
+| Planned usage measurement | Fixed events/coarse versions and consented install identifier only | **Locally implemented, disabled** (INFRA-010); fixed enum/day/coarse-version events and random consented install ID only. No account/document link; queue clears on withdrawal | Source + captured-network consent-off/withdrawal proof before launch |
 | Pro-interest discovery / planned payment/license | Email, preference, permission timestamps and hashed tokens in private PostgreSQL; confirmation mail through Resend | **Pro request/confirm/withdraw implemented locally**, enrollment disabled by default; no release-list enrollment; paid offer/checkout/entitlements still unimplemented | See `PRO-INTEREST-v2.7.md` for real local DB/browser proof and hosted/provider/legal/abuse gates; owner offer gate Nov 6 |
 
 This is a bounded inventory of inspected entry points, not a claim that every
@@ -157,3 +157,10 @@ preview captures synthetic OTP mail to a private temporary file, then removes it
 database/mailbox on exit. No hosted account, migration, contact or email was changed.
 Setup, deferred email-change/inbox-loss recovery and acceptance boundaries:
 [account handoff](ACCOUNTS-AND-PRIVACY-v2.7.md#feat-069-first-account-slice--locally-verified-october-17).
+
+
+October 17 INFRA-010: the native optional-usage flow, first-party collector,
+private schema and purge job are locally implemented, with production collection
+disabled. Data contract, actual wire/DB checks and distinct hosted log/backup/
+retention/abuse gates: `USAGE-METRICS-v2.7.md`. Native `.design` Save is not counted;
+only verified output writes are admitted. Website traffic is not silently joined.

@@ -94,7 +94,7 @@ extension AppPreferences {
 private enum SettingsScope { case app, document }
 
 private enum SettingsPane: String, CaseIterable, Identifiable {
-    case general, accessibility, canvas, sanaa, designTokens, about   // app-wide
+    case general, accessibility, privacy, canvas, sanaa, designTokens, about   // app-wide
     case designLanguage                          // document-specific
     var id: String { rawValue }
 
@@ -102,6 +102,7 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
         switch self {
         case .general:        return "General"
         case .accessibility:  return "Accessibility"
+        case .privacy:        return "Privacy"
         case .canvas:         return "Canvas"
         case .sanaa:          return "Sanaa"
         case .designTokens:   return "Design Tokens"
@@ -115,6 +116,7 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
         switch self {
         case .general:        return "gearshape"
         case .accessibility:  return "accessibility"
+        case .privacy:        return "hand.raised"
         case .canvas:         return "squareshape.dashed.squareshape"
         case .sanaa:          return "hand.draw"
         case .designTokens:   return "textformat"
@@ -193,6 +195,7 @@ struct SettingsWindow: View {
         switch pane ?? .general {
         case .general:      GeneralSettingsPane()
         case .accessibility: AccessibilitySettingsPane()
+        case .privacy:      UsagePrivacySettingsPane()
         case .canvas:       CanvasSettingsPane()
         case .sanaa:        SanaaSettingsPane()
         case .designTokens: DesignTokensSettingsPane()
@@ -226,6 +229,29 @@ struct SettingsWindow: View {
 }
 
 // MARK: - Panes
+
+private struct UsagePrivacySettingsPane: View {
+    private var metrics: UsageMetrics { .shared }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Optional usage data").font(.title2)
+            Toggle("Share basic usage data", isOn: Binding(
+                get: { metrics.isEnabled }, set: { metrics.setEnabled($0) }))
+                .disabled(!metrics.isAvailable && !metrics.isEnabled)
+                .accessibilityHint("Optional. Turn off to stop sharing and clear this Mac's pending usage data and random identifier.")
+            Text("Help identify where people get stuck: starting or importing work, making an edit, completing an export or handoff, and returning to edit on another day.")
+            Text("Includes event day, app version, macOS major version, fixed import/export categories and a random installation identifier. It does not include your documents, filenames, paths, text, images, prompts, email or account details.")
+            Text("Off by default. Earlier activity is never added. Turning this off cancels uploads and clears pending events and the random identifier on this Mac. Data already received is separate and expires under the server retention policy.")
+            Text("Pending events older than 7 days are discarded before sending. The server retention limit is 30 days when collection is enabled, with no account or marketing link. Sharing is optional and never required for editing, exporting or Pro access.")
+            if !metrics.isAvailable {
+                Text("Usage sharing is not enabled in this build. Nothing is sent. It will be available after the collection service and its retention settings are verified.")
+                    .foregroundStyle(EXPColor.textSecondary)
+            }
+        }
+        .font(.body)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+}
 
 private struct AccessibilitySettingsPane: View {
     @AppStorage(AppPreferences.interfaceTypeSize) private var typeSize = AppPreferences.defaultInterfaceTypeSize

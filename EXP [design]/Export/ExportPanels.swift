@@ -23,6 +23,7 @@ final class ExportPanels: NSObject {
 
     private let model: Document
     private let renderer: ExportRenderer
+    private let completed: (UsageOutput) -> Void
 
     private weak var savePanel: NSSavePanel?      // set only for the single-file flow
     private var formatPopup: NSPopUpButton?
@@ -85,9 +86,16 @@ final class ExportPanels: NSObject {
         UserDefaults.standard.set(Double(currentScale), forKey: DefaultsKey.scale)
     }
 
-    init(model: Document) {
+    init(model: Document, completed: @escaping (UsageOutput) -> Void = { _ in }) {
         self.model = model
         self.renderer = ExportRenderer(document: model)
+        self.completed = completed
+    }
+
+    private func reportFailure(_ error: Error, in window: NSWindow?) {
+        let alert = NSAlert(error: error)
+        alert.messageText = "Export failed"
+        if let window { alert.beginSheetModal(for: window) } else { alert.runModal() }
     }
 
     // MARK: Single artboard → Save panel + format popup
@@ -106,15 +114,14 @@ final class ExportPanels: NSObject {
             let format = self.singleFormats[min(self.formatIndex, self.singleFormats.count - 1)]
             let notes = self.notesCheckbox?.state == .on
             let transparentPNG = self.transparentPNGCheckbox?.state == .on
-            if let data = self.renderer.data(for: artboard, format: format,
-                                             scale: self.currentScale, includeNotes: notes,
-                                             transparentPNGBackground: transparentPNG) {
-                try? data.write(to: url)
-            }
-            // The single-file flow writes exactly the filename the owner typed —
-            // no `@Nx` suffix is appended over their choice. Only the folder flow,
-            // which names files itself, disambiguates by scale.
-            self.rememberChoices()
+            do {
+                guard let data = self.renderer.data(for: artboard, format: format,
+                    scale: self.currentScale, includeNotes: notes, transparentPNGBackground: transparentPNG)
+                else { throw CocoaError(.fileWriteUnknown) }
+                try data.write(to: url, options: .atomic)
+                self.rememberChoices()
+                if let kind = UsageOutput(rawValue: format.rawValue) { self.completed(kind) }
+            } catch { self.reportFailure(error, in: window) }
         }
         if let window {
             panel.beginSheetModal(for: window, completionHandler: complete)
@@ -145,10 +152,15 @@ final class ExportPanels: NSObject {
             // The trailing "All" item = PNG + PDF + SVG; otherwise the chosen format.
             let formats: [ExportFormat] = self.isAllSelected
                 ? [.png, .pdf, .svg] : [self.singleFormats[self.formatIndex]]
-            self.writeAll(artboards, to: dir, formats: formats, combinePDF: combine,
-                          includeNotes: notes, transparentPNG: transparentPNG,
-                          scale: self.currentScale)
-            self.rememberChoices()
+            do {
+                try self.writeAll(artboards, to: dir, formats: formats, combinePDF: combine,
+                                  includeNotes: notes, transparentPNG: transparentPNG,
+                                  scale: self.currentScale)
+                self.rememberChoices()
+                if !artboards.isEmpty {
+                    self.completed(formats.count == 1 ? UsageOutput(rawValue: formats[0].rawValue) ?? .batch : .batch)
+                }
+            } catch { self.reportFailure(error, in: window) }
         }
         if let window {
             panel.beginSheetModal(for: window, completionHandler: complete)
@@ -159,21 +171,21 @@ final class ExportPanels: NSObject {
 
     private func writeAll(_ artboards: [Artboard], to dir: URL,
                           formats: [ExportFormat], combinePDF: Bool, includeNotes: Bool,
-                          transparentPNG: Bool, scale: CGFloat) {
+                          transparentPNG: Bool, scale: CGFloat) throws {
         for format in formats {
             if format == .pdf && combinePDF {
-                if let data = renderer.multiPagePDFData(for: artboards, includeNotes: includeNotes) {
-                    try? data.write(to: dir.appendingPathComponent("Artboards.pdf"))
-                }
+                guard let data = renderer.multiPagePDFData(for: artboards, includeNotes: includeNotes)
+                else { throw CocoaError(.fileWriteUnknown) }
+                try data.write(to: dir.appendingPathComponent("Artboards.pdf"), options: .atomic)
             } else {
                 let suffix = Self.scaleSuffix(for: format, scale: scale)
                 for artboard in artboards {
                     let base = artboard.name.replacingOccurrences(of: "/", with: "-")
-                    if let data = renderer.data(for: artboard, format: format,
-                                                scale: scale, includeNotes: includeNotes,
-                                                transparentPNGBackground: transparentPNG) {
-                        try? data.write(to: dir.appendingPathComponent("\(base)\(suffix).\(format.ext)"))
-                    }
+                    guard let data = renderer.data(for: artboard, format: format,
+                                                   scale: scale, includeNotes: includeNotes,
+                                                   transparentPNGBackground: transparentPNG)
+                    else { throw CocoaError(.fileWriteUnknown) }
+                    try data.write(to: dir.appendingPathComponent("\(base)\(suffix).\(format.ext)"), options: .atomic)
                 }
             }
         }

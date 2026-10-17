@@ -98,6 +98,7 @@ struct MainWindow: View {
         .onAppear {
             app.activeCanvasPageID = document.model.pageID(resolving: app.activeCanvasPageID)
             activate()
+            UsageMetrics.shared.opened(document, source: document.usageOrigin)
         }
         .onDisappear { SourceEditorWindowManager.shared.closeAll(for: document) }
         .onChange(of: controlActiveState) { _, state in if state == .key { activate() } }

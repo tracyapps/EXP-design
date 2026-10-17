@@ -64,6 +64,9 @@ payment and license records live outside the repository; use sanitized summaries
 - [ ] Abuse handling, server-side secrets and log redaction checked.
 - [ ] Actual data map includes website hosting/logs, Resend, Sparkle, Figma,
       Sanaa/client providers, opt-in analytics and selected payment provider.
+- [x] INFRA-010 local native consent/event/collector foundation, bounded queue and
+      withdrawal cancellation; private DB dedup/retention and actual local wire checks.
+      Exact scope (native Save excluded) and host gates: `launch/USAGE-METRICS-v2.7.md`.
 - [ ] Analytics default off; no pre-consent queue; withdrawal clears queue/identifier
       and stops transmission; deletion/retention instructions match hosted settings.
 - [ ] Captured network traffic demonstrates consent-off/withdrawal behavior;
@@ -288,3 +291,17 @@ multi-monitor, full 1x/2x/appearance/VoiceOver or signed-release gates.
 October 17 owner acceptance: "all of those passed. works well." closes the
 FEAT-071/BUG-071/BUG-072 pattern/component authoring and window-ordering review.
 The broader accessibility, hosted lifecycle and signed-release gates remain open.
+
+
+October 17 INFRA-010: local native consent/relaunch/revocation, actual edit and
+cancelled/completed handoff, and ordinary-build unavailable state pass three native
+UI cases without skips/failures. Fourteen private PostgreSQL/collector cases and
+Swift lifecycle/retry/race checks pass, with actual local URLSession→HTTP→DB proof.
+Website build, 15 release-signup, interface policy and source-bounds/raster checks
+pass. Exact receipts/limits: `launch/USAGE-METRICS-v2.7.md`. Production has no app
+endpoint or enabled collector; hosted logs/backup/edge/daily retention, packaged
+traffic and full owner/AT gates stay open. Native Save/Auto Save is uninstrumented.
+
+Combined launch-service regression after INFRA-010: `npm test` passes all 77
+signup/interest/account/usage cases plus the Swift lifecycle/race and actual native
+wire→collector→DB checks. Log: `/tmp/exp-usage-services-regression.log`.
