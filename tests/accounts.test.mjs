@@ -1,7 +1,7 @@
 import { before, after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import http from 'node:http';
 import pg from 'pg';
 import { getMigrations } from 'better-auth/db/migration';
@@ -18,7 +18,8 @@ let failMail = false, ip = 0;
 let service;
 before(async () => {
   await pool.query(await readFile(new URL('../migrations/003_free_accounts.sql', import.meta.url), 'utf8'));
-  service = createAccountService({ pool, origin, secret, sendOTP: async mail => {
+  await pool.query(await readFile(new URL('../migrations/005_member_beta.sql', import.meta.url), 'utf8'));
+  service = createAccountService({ pool, origin, secret, betaEnabled: true, sendOTP: async mail => {
   if (failMail) throw new Error('Mail transport failure with private data');
   mailbox.push(mail);
 } });
@@ -62,6 +63,138 @@ test('anonymous session has no profile; private routes require authentication', 
   assert.deepEqual(result.body, { ok: true, registrationOpen: true, user: null });
   assert.equal(result.headers.get('cache-control'), 'no-store');
   assert.equal((await call({ action: 'save-profile', name: 'Nobody', bio: '', link: '' })).status, 401);
+});
+test('beta participation starts off and invitation permission requires its own explicit choice', async () => {
+  const cookie = await register('beta-choice@example.test');
+  const initial = await call({ action: 'beta' }, cookie);
+  assert.equal(initial.status, 200);
+  assert.deepEqual(initial.body.participation, { participating: false, inviteEmails: false, updatedAt: null });
+  assert.deepEqual(initial.body.feedback, []);
+  assert.equal((await call({ action: 'save-beta', participating: true, inviteEmails: false, permissionVersion: 'beta-participation-v1' }, cookie)).status, 200);
+  const joined = await call({ action: 'beta' }, cookie);
+  assert.equal(joined.body.participation.participating, true);
+  assert.equal(joined.body.participation.inviteEmails, false);
+  assert.ok(joined.body.participation.updatedAt);
+  assert.equal((await call({ action: 'save-beta', participating: false, inviteEmails: true, permissionVersion: 'beta-participation-v1' }, cookie)).status, 400);
+  assert.equal((await call({ action: 'save-beta', participating: true, inviteEmails: true, permissionVersion: 'old' }, cookie)).status, 400);
+});
+test('private feedback is durable, retry-safe and isolated by verified account ownership', async () => {
+  const alice = await register('beta-alice@example.test'), bob = await register('beta-bob@example.test');
+  const body = { action: 'submit-beta-feedback', id: randomUUID(), subject: 'Keyboard flow', message: '<script>literal text</script>' };
+  const replies = await Promise.all(Array.from({ length: 4 }, () => call(body, alice)));
+  assert.ok(replies.every(reply => reply.status === 200));
+  const saved = await call({ action: 'beta' }, alice);
+  assert.equal(saved.body.feedback.length, 1);
+  assert.equal(saved.body.feedback[0].message, body.message);
+  assert.equal(saved.body.feedback[0].status, 'received');
+  assert.deepEqual((await call({ action: 'beta' }, bob)).body.feedback, []);
+  assert.equal((await call({ ...body, message: 'Changed retry' }, alice)).status, 409);
+  assert.equal((await call(body, bob)).status, 409);
+  assert.equal((await call({ action: 'delete-beta-feedback', id: body.id }, bob)).status, 404);
+  assert.equal((await call({ action: 'delete-beta-feedback', id: body.id }, alice)).status, 200);
+  assert.deepEqual((await call({ action: 'beta' }, alice)).body.feedback, []);
+});
+test('beta actions reject anonymous, revoked, unverified and forged-ownership requests', async () => {
+  assert.equal((await call({ action: 'beta' })).status, 401);
+  const cookie = await register('beta-auth@example.test');
+  for (const extra of [{ userId: randomUUID() }, { status: 'resolved' }, { email: 'someone@example.test' }, { releaseEmails: true }]) {
+    assert.equal((await call({ action: 'save-beta', participating: true, inviteEmails: false, permissionVersion: 'beta-participation-v1', ...extra }, cookie)).status, 400);
+  }
+  await pool.query('UPDATE exp_member_user SET "emailVerified"=false WHERE email=$1', ['beta-auth@example.test']);
+  assert.equal((await call({ action: 'beta' }, cookie)).status, 401);
+  await pool.query('UPDATE exp_member_user SET "emailVerified"=true WHERE email=$1', ['beta-auth@example.test']);
+  await call({ action: 'sign-out-all' }, cookie);
+  assert.equal((await call({ action: 'submit-beta-feedback', id: randomUUID(), subject: 'No', message: 'Revoked' }, cookie)).status, 401);
+});
+test('feedback content is bounded and cannot create arbitrary status or attachment records', async () => {
+  const cookie = await register('beta-validation@example.test');
+  const body = { action: 'submit-beta-feedback', id: randomUUID(), subject: 'Valid', message: 'Valid' };
+  for (const extra of [{ subject: ' ' }, { message: '' }, { subject: 'x'.repeat(121) }, { message: 'x'.repeat(1501) }, { id: "' OR true" }, { status: 'reviewed' }, { attachment: 'file.design' }]) {
+    assert.equal((await call({ ...body, ...extra }, cookie)).status, 400);
+  }
+  assert.deepEqual((await call({ action: 'beta' }, cookie)).body.feedback, []);
+});
+test('beta choices survive service restart; withdrawal preserves feedback and other account preferences', async () => {
+  const cookie = await register('beta-withdraw@example.test');
+  await call({ action: 'save-preferences', largeText: true }, cookie);
+  await call({ action: 'save-beta', participating: true, inviteEmails: true, permissionVersion: 'beta-participation-v1' }, cookie);
+  await call({ action: 'submit-beta-feedback', id: randomUUID(), subject: 'Keep', message: 'My feedback' }, cookie);
+  const restarted = createAccountService({ pool, origin, secret, sendOTP: async () => {} });
+  const response = await restarted.handle(new Request(`${origin}/api/account`, { method: 'POST',
+    headers: { origin, 'content-type': 'application/json', cookie, 'x-exp-client-ip': '192.0.2.100' }, body: JSON.stringify({ action: 'beta' }) }));
+  const before = await response.json();
+  assert.equal(before.participation.inviteEmails, true);
+  assert.equal((await call({ action: 'save-beta', participating: false, inviteEmails: false, permissionVersion: 'old' }, cookie)).status, 200);
+  const after = (await call({ action: 'beta' }, cookie)).body;
+  assert.equal(after.participation.participating, false); assert.equal(after.participation.inviteEmails, false);
+  assert.equal(after.feedback.length, 1);
+  assert.equal((await call(undefined, cookie)).body.user.largeText, true);
+  assert.equal(mailbox.filter(mail => mail.email === 'beta-withdraw@example.test').length, 1, 'only the requested sign-in code was sent');
+});
+test('write quota is shared and cannot prevent withdrawal or deleting feedback', async () => {
+  const cookie = await register('beta-quota@example.test');
+  const userId = (await call(undefined, cookie)).body.user.id;
+  const id = randomUUID();
+  await call({ action: 'save-beta', participating: true, inviteEmails: true, permissionVersion: 'beta-participation-v1' }, cookie);
+  await call({ action: 'submit-beta-feedback', id, subject: 'Saved', message: 'Before quota' }, cookie);
+  await pool.query('UPDATE exp_member_beta_limit SET count=30 WHERE user_id=$1', [userId]);
+  assert.equal((await call({ action: 'submit-beta-feedback', id: randomUUID(), subject: 'Blocked', message: 'Quota' }, cookie)).status, 429);
+  assert.equal((await call({ action: 'submit-beta-feedback', id, subject: 'Saved', message: 'Before quota' }, cookie)).status, 200, 'committed retry still succeeds');
+  assert.equal((await call({ action: 'save-beta', participating: true, inviteEmails: false, permissionVersion: 'beta-participation-v1' }, cookie)).status, 200);
+  assert.equal((await call({ action: 'save-beta', participating: false, inviteEmails: false }, cookie)).status, 200);
+  assert.equal((await call({ action: 'delete-beta-feedback', id }, cookie)).status, 200);
+  assert.equal((await call({ action: 'save-beta', participating: true, inviteEmails: false, permissionVersion: 'beta-participation-v1' }, cookie)).status, 429);
+  await pool.query("UPDATE exp_member_beta_limit SET window_start=now()-interval '61 minutes' WHERE user_id=$1", [userId]);
+  assert.equal((await call({ action: 'save-beta', participating: true, inviteEmails: false, permissionVersion: 'beta-participation-v1' }, cookie)).status, 200);
+});
+test('feedback cap stays at fifty under concurrent submissions', async () => {
+  const cookie = await register('beta-cap@example.test');
+  const userId = (await call(undefined, cookie)).body.user.id;
+  await pool.query("INSERT INTO exp_member_beta_feedback(id,user_id,subject,message) SELECT gen_random_uuid(),$1,'Existing','Note' FROM generate_series(1,49)", [userId]);
+  const replies = await Promise.all(Array.from({ length: 4 }, () => call({ action: 'submit-beta-feedback', id: randomUUID(), subject: 'Last', message: 'Note' }, cookie)));
+  assert.equal(replies.filter(reply => reply.status === 200).length, 1);
+  assert.equal(replies.filter(reply => reply.status === 409).length, 3);
+  assert.equal((await call({ action: 'beta' }, cookie)).body.feedback.length, 50);
+});
+test('pausing beta admits no new choices or feedback while preserving withdrawal, reads and deletion', async () => {
+  const cookie = await register('beta-pause@example.test');
+  const id = randomUUID();
+  await call({ action: 'save-beta', participating: true, inviteEmails: true, permissionVersion: 'beta-participation-v1' }, cookie);
+  await call({ action: 'submit-beta-feedback', id, subject: 'Keep', message: 'Saved' }, cookie);
+  const paused = createAccountService({ pool, origin, secret, betaEnabled: false, sendOTP: async () => {} });
+  const post = async body => paused.handle(new Request(`${origin}/api/account`, { method: 'POST', headers: {
+    origin, 'content-type': 'application/json', cookie, 'x-exp-client-ip': '192.0.2.110' }, body: JSON.stringify(body) }));
+  assert.equal((await (await post({ action: 'beta' })).json()).betaOpen, false);
+  assert.equal((await post({ action: 'submit-beta-feedback', id: randomUUID(), subject: 'New', message: 'No' })).status, 503);
+  assert.equal((await post({ action: 'save-beta', participating: true, inviteEmails: false, permissionVersion: 'beta-participation-v1' })).status, 200);
+  assert.equal((await post({ action: 'save-beta', participating: true, inviteEmails: true, permissionVersion: 'beta-participation-v1' })).status, 503);
+  assert.equal((await post({ action: 'save-beta', participating: false, inviteEmails: false })).status, 200);
+  assert.equal((await post({ action: 'delete-beta-feedback', id })).status, 200);
+});
+test('storage failure cannot report feedback success; same request can retry after recovery', async () => {
+  const cookie = await register('beta-failure@example.test');
+  const body = { action: 'submit-beta-feedback', id: randomUUID(), subject: 'Retry', message: 'Private database error' };
+  await pool.query(`CREATE FUNCTION exp_beta_test_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'private database detail'; END $$;
+    CREATE TRIGGER exp_beta_test_failure BEFORE INSERT ON exp_member_beta_feedback FOR EACH ROW EXECUTE FUNCTION exp_beta_test_failure()`);
+  try {
+    const reply = await call(body, cookie);
+    assert.equal(reply.status, 503);
+    assert.doesNotMatch(JSON.stringify(reply.body), /private database detail|beta-failure/);
+    assert.deepEqual((await call({ action: 'beta' }, cookie)).body.feedback, []);
+  } finally { await pool.query('DROP TRIGGER exp_beta_test_failure ON exp_member_beta_feedback; DROP FUNCTION exp_beta_test_failure()'); }
+  assert.equal((await call(body, cookie)).status, 200);
+  assert.equal((await call({ action: 'beta' }, cookie)).body.feedback.length, 1);
+});
+test('account deletion cascades live beta choices, feedback and quota rows', async () => {
+  const cookie = await register('beta-delete@example.test');
+  const userId = (await call(undefined, cookie)).body.user.id;
+  await call({ action: 'save-beta', participating: true, inviteEmails: true, permissionVersion: 'beta-participation-v1' }, cookie);
+  await call({ action: 'submit-beta-feedback', id: randomUUID(), subject: 'Remove', message: 'Private' }, cookie);
+  assert.equal((await call({ action: 'delete-account', confirmation: 'DELETE' }, cookie)).status, 200);
+  for (const table of ['exp_member_beta', 'exp_member_beta_feedback', 'exp_member_beta_limit']) {
+    assert.equal((await pool.query(`SELECT count(*) FROM ${table} WHERE user_id=$1`, [userId])).rows[0].count, '0');
+  }
+  assert.equal((await call({ action: 'beta' }, cookie)).status, 401);
 });
 test('requesting a code does not create an account; code is not stored in cleartext', async () => {
   const otp = await code('pending@example.test');

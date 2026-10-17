@@ -15,7 +15,7 @@ export async function startFixture() {
   const databaseURL = process.env.EXP_A11Y_DATABASE_URL;
   if (!databaseURL || !new URL(databaseURL).searchParams.get('host')?.startsWith('/tmp/exp-a11y-pg.') || process.env.NODE_ENV === 'production') throw Error('Disposable accessibility runner required');
   const pool = new pg.Pool({ connectionString: databaseURL });
-  for (const name of ['001_pro_interest.sql', '002_pro_interest_erasure.sql', '003_free_accounts.sql']) {
+  for (const name of ['001_pro_interest.sql', '002_pro_interest_erasure.sql', '003_free_accounts.sql', '005_member_beta.sql']) {
     await pool.query(await readFile(new URL(`../../../migrations/${name}`, import.meta.url), 'utf8'));
   }
   const mail = [], errors = [], dist = path.resolve(fileURLToPath(new URL('../../dist/', import.meta.url)));
@@ -43,7 +43,7 @@ export async function startFixture() {
   });
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
   const origin = `http://127.0.0.1:${server.address().port}`;
-  const service = createAccountService({ pool, origin, secret: randomBytes(32).toString('hex'), sendOTP: async item => { mail.push({ kind: 'account', ...item }); } });
+  const service = createAccountService({ pool, origin, secret: randomBytes(32).toString('hex'), betaEnabled: true, sendOTP: async item => { mail.push({ kind: 'account', ...item }); } });
   account = createAccountNodeHandler({ handle: service.handle, origin, env: {} });
   const interest = createInterestHandlers({ env: { PRO_INTEREST_ENABLED: 'true', EXP_INTEREST_DATABASE_URL: databaseURL,
     RESEND_API_KEY: 'capture-only', SIGNUP_FROM_EMAIL: 'EXP <fixture@example.test>', INTEREST_PUBLIC_ORIGIN: origin },

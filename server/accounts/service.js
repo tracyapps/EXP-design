@@ -3,6 +3,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { betterAuth } from 'better-auth';
 import { emailOTP } from 'better-auth/plugins';
 import { APIError, createAuthMiddleware } from 'better-auth/api';
+import { betaActions, handleBeta } from './beta.js';
 
 export const accountConsentVersion = 'free-account-v1';
 const privateHeaders = { 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'X-Robots-Tag': 'noindex' };
@@ -15,7 +16,7 @@ const text = (value, max, required = false) => typeof value === 'string' && valu
 
 // Established library owns challenges, atomic OTP consumption, sessions and CSRF.
 // The single public endpoint does not expose password/OAuth/admin/plugin routes.
-export function createAccountService({ pool, origin, secret, sendOTP, registrationEnabled = true }) {
+export function createAccountService({ pool, origin, secret, sendOTP, registrationEnabled = true, betaEnabled = false }) {
   const delivery = new AsyncLocalStorage();
   const auth = betterAuth({
     appName: 'EXP [design]', baseURL: origin, basePath: '/api/auth', secret,
@@ -102,12 +103,23 @@ export function createAccountService({ pool, origin, secret, sendOTP, registrati
         action = body.action;
       }
       const allowed = {
-        session: [], 'send-code': ['email'],
+        ...betaActions, session: [], 'send-code': ['email'],
         'verify-code': ['email', 'otp', 'intent', 'name', 'accountConsent', 'consentVersion'],
         'save-profile': ['name', 'bio', 'link'], 'save-preferences': ['largeText'],
         'sign-out': [], 'sign-out-all': [], 'delete-account': ['confirmation']
       };
       if (typeof action !== 'string' || !Object.hasOwn(allowed, action) || Object.keys(body).some(k => k !== 'action' && !allowed[action].includes(k))) return json({ error: 'Invalid account action or field.' }, 400);
+      if (Object.hasOwn(betaActions, action)) {
+        // Same database-backed auth/abuse checks as the existing account actions.
+        const session = await auth.handler(new Request(`${origin}/api/auth/get-session`, { headers: request.headers }));
+        const member = (await session.json().catch(() => null))?.user;
+        const headers = new Headers();
+        for (const cookie of session.headers.getSetCookie()) headers.append('set-cookie', cookie);
+        if (!session.ok) return json({ error: session.status === 429 ? 'Please wait before trying again.' : 'Account service is unavailable. Please try later.' }, session.status, headers);
+        if (!member?.id || member.emailVerified !== true) return json({ error: 'Please sign in again.' }, 401, headers);
+        const response = await handleBeta({ pool, userId: member.id, body, enabled: betaEnabled });
+        return json(response.body, response.status, headers);
+      }
       let path, payload;
       if (action === 'session') { path = '/get-session'; }
       else if (['send-code', 'verify-code'].includes(action)) {

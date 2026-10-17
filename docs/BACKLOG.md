@@ -3205,7 +3205,7 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: feature
 - Priority: P1
 - Area: accounts · community · support
-- Status: first auth/profile/account-display slice locally verified 2026-10-17;
+- Status: auth/profile/account-display and beta/feedback slices locally verified 2026-10-17;
   remaining hub and hosted/owner acceptance open
 - Owner scope 2026-10-16: profile, preferences, feedback/beta participation, Pro
   interest, community profile, news/updates, opening/responding to private tickets,
@@ -3215,7 +3215,9 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   `launch/ACCOUNTS-AND-PRIVACY-v2.7.md`; website hub can roll out independently of
   the native v2.7 release. Better Auth 1.7.10 now implements optional email-code
   accounts/private profile/larger web-account text and session/deletion lifecycle
-  locally. Tickets, public profiles, beta and email-purpose linking remain open.
+  locally. Private beta participation/separate invitation permission and retry-safe
+  feedback/history/deletion are now locally verified too. Tickets, public profiles
+  and existing email-purpose linking remain open; no invitation sender is implemented.
 - Boundaries: local editor/exports/download remain account-free; public profiles
   opt in, email/tickets private; account identity, email purpose and entitlement
   stay separate. List confirmation does not create an account. Discord begins as
@@ -3228,6 +3230,12 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   code redemption, consent, limits/delivery failure, cross-user denial, revocation
   and recent-auth deletion. Browser + build receipts in the handoff. No hosted
   auth/mail proof or formal VoiceOver/FKA acceptance. Native app is unchanged.
+- Beta continuation evidence: 35 total account service checks (10 additions),
+  concurrent receipt dedup/cap enforcement, quota-independent withdrawal/deletion,
+  paused enrollment, private ownership, storage failure/retry and deletion cascade.
+  Four browser/keyboard variants; combined web suite 93 passes and 56 incomplete
+  scans for shared-site contrast review. Migration 005, limits, data/permission
+  boundaries and exact receipts in `launch/ACCOUNTS-AND-PRIVACY-v2.7.md`.
 - Accessibility sources checked before form/naming changes:
   https://www.w3.org/WAI/tutorials/forms/labels/ (explicit native labels),
   https://www.w3.org/TR/wai-aria-1.2/#status (polite status announcements),
@@ -3236,6 +3244,10 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   https://www.w3.org/TR/html-aria/#el-details (native disclosure),
   https://www.w3.org/WAI/WCAG21/Understanding/focus-order.html (focus after steps).
   Native fieldset/legend, radio/checkbox, buttons and details are preserved.
+  Rechecked these native label/group/status/disclosure semantics before beta UI
+  changes, plus https://www.w3.org/TR/html-aria/#el-input-checkbox and
+  https://www.w3.org/WAI/WCAG21/Understanding/status-messages.html (2026-10-17).
+  Reader usability and incomplete shared-site contrast scans remain unverified.
 - Sources: OWASP authentication; Better Auth database/email OTP; RFC 8252 for later
   native sign-in. Exact links and research-versus-execution boundary in the handoff.
 

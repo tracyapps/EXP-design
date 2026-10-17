@@ -26,6 +26,10 @@
 .account-page :is(a, button, input, textarea, summary):focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; }
 .account-delete summary { cursor: pointer; line-height: 1.5; }
 .account-large-text { font-size: 20px; }
+.account-feedback-list { list-style: none; padding: 0; margin: 0; }
+.account-feedback-list li { border-top: 1px solid var(--hairline); padding-block: 24px; overflow-wrap: anywhere; }
+.account-feedback-list h3 { font-size: 1.1em; margin: 0; }
+.account-feedback-message { white-space: pre-wrap; }
 @media (max-width: 760px) { .account-page { padding-top: 106px; } }
 @media (prefers-color-scheme: light) {
   .account-main { --surface-window: #f7f8f4; --surface-field: #ffffff; --text-primary: #192117; --text-secondary: #4d5949; --hairline: #c6cec1; --accent: #236b16; color-scheme: light; }

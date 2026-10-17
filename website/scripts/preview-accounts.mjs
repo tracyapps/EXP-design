@@ -12,8 +12,9 @@ const socket = databaseURL && new URL(databaseURL).searchParams.get('host');
 if (!socket?.startsWith('/tmp/exp-account-test.') || process.env.NODE_ENV === 'production') throw new Error('Use scripts/verify_accounts.sh --preview');
 const pool = new pg.Pool({ connectionString: databaseURL });
 await pool.query(await readFile(new URL('../../migrations/003_free_accounts.sql', import.meta.url), 'utf8'));
+await pool.query(await readFile(new URL('../../migrations/005_member_beta.sql', import.meta.url), 'utf8'));
 const origin = 'http://127.0.0.1:5191', mailbox = [];
-const service = createAccountService({ pool, origin, secret: randomBytes(32).toString('hex'), async sendOTP(mail) {
+const service = createAccountService({ pool, origin, secret: randomBytes(32).toString('hex'), betaEnabled: true, async sendOTP(mail) {
   mailbox.push(mail);
   await writeFile(`${socket}/mailbox.json`, JSON.stringify(mailbox), { mode: 0o600 });
 } });

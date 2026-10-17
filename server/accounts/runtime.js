@@ -40,7 +40,8 @@ export default async function accountEndpoint(request, response) {
   if (!runtime) {
     const pool = new pg.Pool({ connectionString: config.databaseURL, max: 2, connectionTimeoutMillis: 3000, statement_timeout: 5000, allowExitOnIdle: true });
     pool.on('error', () => console.error('Account database connection failed.'));
-    const service = createAccountService({ pool, ...config, registrationEnabled: env.ACCOUNTS_ENABLED === 'true', async sendOTP({ email, otp }) {
+    const service = createAccountService({ pool, ...config, registrationEnabled: env.ACCOUNTS_ENABLED === 'true',
+      betaEnabled: env.ACCOUNT_BETA_ENABLED === 'true', async sendOTP({ email, otp }) {
       if (!env.RESEND_API_KEY || !env.SIGNUP_FROM_EMAIL) throw new Error('Account mail unavailable');
       const result = await fetch('https://api.resend.com/emails', { method: 'POST',
         signal: AbortSignal.timeout(5000), headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },

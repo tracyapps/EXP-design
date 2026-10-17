@@ -1343,8 +1343,12 @@ from the appcast; a development plan does not change the published release.
 - [x] **FEAT-069 first local account slice:** email-code sign-in, explicit registration,
       private profile, larger account text, logout/all-session revocation, recent-auth
       account deletion. 25 real-PostgreSQL account checks; no live enablement.
+- [x] **FEAT-069 local beta/feedback slice:** private participation, separate beta
+      invitation choice, withdrawal, retry-safe text feedback/history and own-note
+      deletion. 35 account service checks and four browser/keyboard variants pass;
+      no invitation sends, staff workflow or hosted enablement.
 - [ ] Hosted account inbox/origin/cookie/TLS/retention/AT proof; verified email-purpose
-      linking, beta participation, opt-in community/news and private ticket slices.
+      linking, opt-in community/news and private ticket slices.
 - [ ] Reliable separate Pro-interest signup, permission/delivery/unsubscribe proof,
       data map and owner-reviewed privacy/EULA/refund/ownership decisions.
 - [x] **INFRA-010 local native measurement:** default-off Privacy control, typed
@@ -3412,6 +3416,36 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-10-17 — FEAT-069 private beta participation and feedback [internal].**
+  Added `/account/beta`: participation and beta invitation permission both default
+  off; verified session identity owns each choice/note, with current wording version
+  and server timestamp. No legacy email-purpose matching, list changes, invitations,
+  analytics enrollment or entitlements. Feedback works without joining: text-only,
+  120-character subject/1,500-character body, 50 saved-note limit, explicit live-note
+  deletion. “Received” means durable storage, never staff review/resolution. Same-id
+  retries return the committed receipt without duplication; concurrent writes/caps
+  serialize per member. A 30/hour member quota cannot block withdrawal/deletion;
+  existing account deletion cascades beta choices, notes and quota rows. Migration
+  005 is additive/private and was applied only to disposable local PostgreSQL.
+  Production opt-in/feedback is separately off unless `ACCOUNT_BETA_ENABLED=true`;
+  paused operation preserves reads/withdrawal/deletion. Missing account hosting
+  configuration still leaves public accounts unavailable.
+  **Evidence:** two new behavior tests first failed at the missing action seam
+  (`/tmp/exp-beta-gap.log`). `npm test` passes **87 service cases** (15 release,
+  23 Pro, 35 accounts, 14 usage) plus existing Swift/wire checks; current website
+  build passes. Four Chromium/WebKit dark-desktop/light-mobile keyboard journeys
+  cover saved choices, failed-post draft retention/same-id retry, literal-text
+  rendering, reload, withdrawal, delete confirmation/focus and larger account text.
+  Combined web suite: **93 passes, zero failures/blocked; 56 incomplete scan results**
+  (57 distinct shared-site contrast review findings, not contrast passes).
+  Receipts: `output/a11y/2026-10-17T21-55-59-798Z/report.md`,
+  `/tmp/exp-beta-all-services.log`, `/tmp/exp-beta-website-build-final.log`.
+  Light mobile saved-feedback and dark larger-text screenshots inspected; no
+  horizontal overflow. Actual Safari/VoiceOver, inbox/provider, hosted transport,
+  retention/log/backup and owner acceptance remain open. Native app unchanged.
+  Next: authenticated Pro-purpose linking without transferring email permissions
+  automatically; community/news and staff/author tickets retain separate gates.
 
 - **2026-10-17 — INFRA-010 optional native usage measurement [internal].**
   Owner authorizes the analytics slice after accepting pattern/source/window work.

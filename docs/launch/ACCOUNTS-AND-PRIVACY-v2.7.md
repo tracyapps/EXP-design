@@ -193,11 +193,96 @@ Resend receipt, hosted configuration or formal VoiceOver/full keyboard acceptanc
 Local receipts: `/tmp/exp-member-all-tests.log`, `/tmp/exp-member-build.log` and
 ignored `output/playwright/exp-account-*.png`.
 
-Next dependency: authenticated beta participation and purpose-specific permission
-linking, using verified identity without copying permissions merely because emails
-match. Community publication/news and private author/staff tickets follow their
-own gates. Hosted setup/retention/inbox and owner AT verification remain ahead of
-public enablement; native v2.7 release scope stays independent.
+The beta continuation below is now locally verified. Next dependency is existing
+Pro-purpose permission linking, using verified identity without copying permissions
+merely because emails match. Community publication/news and private author/staff
+tickets follow their own gates. Hosted setup/retention/inbox and owner AT verification
+remain ahead of public enablement; native v2.7 release scope stays independent.
+
+## FEAT-069 beta participation and feedback — local October 17 continuation
+
+`/account/beta` uses the same private `/api/account` endpoint and library-verified
+session. Participation and permission to email beta invitations/testing requests
+are **separate, unchecked choices**. Participation grants no beta place, Pro access,
+release/news permission or analytics enrollment. Only an explicit authenticated
+choice records `beta-participation-v1` and a database timestamp. No permission is
+inferred from a matching address in another system; no existing list records are
+read or written. **No invitation sender or staff interface exists in this slice.**
+Any future sender must check the current permission against the verified account
+identity immediately before sending and prove suppression/withdrawal/delivery.
+
+Members can submit private text feedback even without joining beta. The developer
+can access these records through the private server database, but there is no
+staff web route yet. Fields: subject up to 120 characters, body up to 1,500,
+random UUID receipt, server creation time, verified account UUID ownership. No
+files, links-as-attachments, device details or design contents are automatically
+attached. React renders user text literally. “Received” means committed storage;
+it makes no review/resolution claim. Replies and triage remain the ticket slice.
+
+Storage and lifecycle contract:
+
+- Additive `migrations/005_member_beta.sql`, after 003 in the **account** database;
+  private tables with PUBLIC access revoked and account-deletion cascades. No
+  dependency on or transfer from the Pro-interest ledger or usage collector.
+- One current choice receipt per account (booleans, wording version, latest server
+  timestamp). This is **not** a historical campaign-consent audit ledger; no sends
+  or campaign evidence are claimed. Records remain until changed/account deletion.
+- Up to 50 saved notes per account, with explicit per-note permanent live-store
+  deletion. Participation withdrawal also switches beta invitation permission off,
+  leaving feedback unchanged. Account deletion removes choices, notes and quota
+  rows with the existing recent-auth confirmation. No orphan live feedback remains.
+- Each submission carries one random receipt ID, retained across failed/uncertain
+  retries while the draft is unchanged. Same-owner, same-content retries return
+  success without new rows. Changed content or a foreign receipt conflicts with
+  a generic response. Reads/deletes are scoped to the verified session subject;
+  submitted user IDs, email/role/status/marketing fields and uploads are refused.
+- Transactions lock the account row to serialize per-member caps and close
+  account-deletion races. Thirty new notes/permission grants per member per
+  one-hour window; the counter is a single private row. Read/retry/delete/withdrawal
+  do not consume that quota. The library's shared IP request limit still applies;
+  the quota does not waive general abuse limits. Fifty-note capacity holds under
+  simultaneous writes. Storage errors roll back and never report success.
+- Production enrollment/submission requires `ACCOUNT_BETA_ENABLED=true`, independent
+  of account registration. The service defaults beta off; local fixture/preview
+  explicitly enables it. Pausing permits existing reads/withdrawals/deletions and
+  committed duplicate receipts, but refuses new enrollment/email grants or notes.
+  Apply migration 005 and verify privacy/retention/transport before enabling this
+  flag. Missing account configuration still returns the existing unavailable state.
+- Notes have no scheduled expiry yet; the 50-note cap is not a retention policy.
+  Hosted retention, operator access/audit, restored-backup deletion and provider
+  logs remain owner/operator gates. Live deletion does not erase copies already in
+  hosting logs/backups or sent mail. No data or email was sent to a live provider.
+
+The screen provides native labels/checkboxes/fieldset/legend, polite status,
+native delete disclosure, visible failure with preserved draft, saved history and
+focus after submission/deletion. Account larger-text preference is honored. W3C
+labels/grouping, ARIA in HTML checkbox/disclosure rules, WAI-ARIA 1.2 status and
+WCAG 2.1 status/focus guidance were rechecked before changes; URLs in FEAT-069.
+
+Fresh verification:
+
+- Two initial feature checks failed because beta actions were absent:
+  `/tmp/exp-beta-gap.log`. Implementation then passes 35 account service cases,
+  including 10 new beta cases, against disposable real PostgreSQL. These include
+  cross-user/anonymous/revoked/unverified refusal, malformed/extra fields, persisted
+  choices/restart, separate invitations, withdrawal, concurrent dedup/cap, quota
+  and paused operation, storage failure/retry and full deletion cascade.
+- `npm test`: **87 service cases pass** (15 signup, 23 Pro, 35 account, 14 usage),
+  plus existing native Swift lifecycle and actual local wire→collector→DB checks.
+  `/tmp/exp-beta-all-services.log`. Website build passes:
+  `/tmp/exp-beta-website-build-final.log`.
+- `npm run test:a11y -- --web-only`: **93 passes, zero failures/blocked**, with
+  56 incomplete scan results containing 57 distinct shared-site header/footer
+  contrast review findings. None is counted as a contrast pass. Chromium and
+  WebKit dark desktop/light mobile check keyboard choice/save/reload, failed POST
+  with preserved draft and same-ID retry, literal text, withdrawal without losing
+  feedback, explicit deletion/focus and larger account text without overflow.
+  Receipts: `output/a11y/2026-10-17T21-55-59-798Z/report.md`; light mobile saved-note
+  and dark large-text screenshots inspected. This does not prove actual
+  Safari/VoiceOver usability, live mail, hosted configuration or complete WCAG.
+
+Native editor and account-free workflows are unchanged. No deployment, hosted
+migration, invitation delivery, staff access workflow or public-enable gate closed.
 
 ## Voluntary support page completed locally (INFRA-008)
 

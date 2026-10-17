@@ -45,6 +45,9 @@ payment and license records live outside the repository; use sanitized summaries
       Its web rollout does not silently become a native-app launch blocker.
 - [x] FEAT-069 local email-code auth/private profile/account-text preferences,
       logout/revocation and recent-auth deletion; 25 real PostgreSQL checks.
+- [x] FEAT-069 local private beta/separate invitation choice, withdrawal and
+      retry-safe feedback/history/deletion; 35 total account service checks.
+      No invitation sender/staff workflow or hosted enablement is implied.
 - [ ] Hosted account lifecycle/inbox/transport/origin/bot/retention and owner AT
       proof before public enablement; remaining hub slices are separately admitted.
 - [x] INFRA-006 local separate Pro request/confirm/withdraw with private PostgreSQL
@@ -305,3 +308,17 @@ traffic and full owner/AT gates stay open. Native Save/Auto Save is uninstrument
 Combined launch-service regression after INFRA-010: `npm test` passes all 77
 signup/interest/account/usage cases plus the Swift lifecycle/race and actual native
 wire→collector→DB checks. Log: `/tmp/exp-usage-services-regression.log`.
+
+October 17 FEAT-069 beta continuation: `npm test` passes **87 service cases**
+(15 release, 23 Pro-interest, 35 accounts, 14 usage) plus the existing Swift
+lifecycle and actual wire→DB checks. Website build passes. Web suite passes
+**93 checks, zero failures/blocked**, with **56 incomplete scans / 57 distinct
+shared header/footer contrast review findings** left open. Four Chromium/WebKit
+dark-desktop/light-mobile journeys include beta choice persistence, failed-post
+draft retention and same-id retry, escaped feedback text, withdrawal, explicit
+deletion/focus and larger account text. Screenshots inspected without overflow.
+Receipts: `/tmp/exp-beta-all-services.log`, `/tmp/exp-beta-website-build-final.log`,
+`output/a11y/2026-10-17T21-55-59-798Z/report.md`. Native app unchanged. Migration
+005 remains local only; beta new-write flag defaults off. Hosted lifecycle,
+mailbox/provider, logs/backups/retention, staff workflow and real VoiceOver remain
+open; these results do not close public-enable or full AT gates.

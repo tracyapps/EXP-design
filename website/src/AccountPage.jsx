@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import './account.css';
+import BetaPage from './BetaPage.jsx';
 
 async function accountRequest(body) {
   const response = await fetch('/api/account', { method: body ? 'POST' : 'GET', credentials: 'same-origin',
@@ -72,10 +73,10 @@ export default function AccountPage({ path }) {
       setMessage(error.name === 'TimeoutError' ? 'That took too long. Please try again later.' : error.message);
     } finally { setBusy(false); }
   }
-  const section = path === '/account/profile' ? 'profile' : path === '/account/preferences' ? 'preferences' : 'home';
+  const section = path === '/account/profile' ? 'profile' : path === '/account/preferences' ? 'preferences' : path === '/account/beta' ? 'beta' : 'home';
   return <section className={`account-page${user?.largeText ? ' account-large-text' : ''}`} aria-labelledby="account-title">
     <p className="section-label">EXP [design] · free account</p>
-    <h1 id="account-title" tabIndex={-1} ref={headingRef}>{user ? section === 'profile' ? 'Your private profile.' : section === 'preferences' ? 'Your preferences.' : `Hello, ${user.name}.` : 'A place for you.'}</h1>
+    <h1 id="account-title" tabIndex={-1} ref={headingRef}>{user ? section === 'profile' ? 'Your private profile.' : section === 'preferences' ? 'Your preferences.' : section === 'beta' ? 'Help shape EXP.' : `Hello, ${user.name}.` : 'A place for you.'}</h1>
     <p className="account-lead">{user ? 'Your profile is private. You choose what comes next.' : 'An optional account, separate from your design files. The editor and shipped exports stay free to use without signing in.'}</p>
     <p className="account-status" role="status">{message}</p>
     {!ready && <p>Loading…</p>}
@@ -113,12 +114,13 @@ export default function AccountPage({ path }) {
         <a href="/account" aria-current={section === 'home' ? 'page' : undefined}>Overview</a>
         <a href="/account/profile" aria-current={section === 'profile' ? 'page' : undefined}>Private profile</a>
         <a href="/account/preferences" aria-current={section === 'preferences' ? 'page' : undefined}>Preferences</a>
+        <a href="/account/beta" aria-current={section === 'beta' ? 'page' : undefined}>Beta & feedback</a>
       </nav>
       {section === 'home' && <div className="account-card">
         <h2>Your account is ready.</h2>
         <p>Signed in as <strong>{user.email}</strong>. Edit your private profile or choose larger text for this account area.</p>
         <p><a href="/pro">Help shape EXP Pro</a> uses its own confirmation and permission. <a href="/support.html">Support the developer</a> is optional and account-free.</p>
-        <p>Beta participation, public community profiles, news preferences and private tickets are planned next. They are not available here yet.</p>
+        <p><a href="/account/beta">Choose beta participation or send private feedback</a>. Public community profiles, news preferences and ticket replies are planned next.</p>
       </div>}
       {section === 'profile' && <form className="account-card" onSubmit={e => { e.preventDefault(); act({ action: 'save-profile', ...profile }, 'Private profile saved.'); }}>
         <fieldset disabled={busy}><legend>Private profile</legend>
@@ -132,6 +134,7 @@ export default function AccountPage({ path }) {
           <button type="submit">Save private profile</button>
         </fieldset>
       </form>}
+      {section === 'beta' && <BetaPage key={user.id} request={accountRequest} onSignedOut={() => { receive(null); setSent(false); setMessage('Please sign in again.'); window.requestAnimationFrame(() => headingRef.current?.focus()); }} />}
       {section === 'preferences' && <form className="account-card" onSubmit={e => { e.preventDefault(); act({ action: 'save-preferences', largeText }, 'Account text preference saved.'); }}>
         <fieldset disabled={busy}><legend>Account display</legend>
           <label className="account-check"><input type="checkbox" checked={largeText} onChange={e => setLargeText(e.target.checked)} /><span>Use larger text in this account area</span></label>
@@ -139,7 +142,7 @@ export default function AccountPage({ path }) {
           <button type="submit">Save preferences</button>
         </fieldset>
         <h2>Email permissions stay separate.</h2>
-        <p>Creating this account did not enroll you in release, news, beta or Pro marketing. Existing list permissions are separate; this area does not yet display or change them.</p>
+        <p>Creating this account did not enroll you in release, news, beta or Pro marketing. <a href="/account/beta">Manage beta invitations</a> separately. Existing release/Pro list permissions are separate; this area does not yet display or change them.</p>
         <p><a href="/pro">Review the proposed Pro-interest invitation</a>. Use the withdrawal link in your Pro-interest email to stop those messages.</p>
       </form>}
       <div className="account-session-actions">
@@ -147,7 +150,7 @@ export default function AccountPage({ path }) {
         <button type="button" disabled={busy} onClick={() => act({ action: 'sign-out-all' }, 'Signed out everywhere.')}>Sign out everywhere</button>
       </div>
       {section === 'preferences' && <details className="account-card account-delete"><summary>Delete this free account</summary>
-        <p>This removes your live account, private profile, account preferences and sessions. It does not remove local design files, separate release/Pro list permissions, sent email, provider logs or backups.</p>
+        <p>This removes your live account, private profile, account preferences, beta choices, feedback and sessions. It does not remove local design files, separate release/Pro list permissions, sent email, provider logs or backups.</p>
         <p>Sign in with a fresh email code, then confirm within five minutes. This cannot be undone.</p>
         <form onSubmit={e => { e.preventDefault(); act({ action: 'delete-account', confirmation }, 'Your live free account has been deleted. Separate email permissions are unchanged.'); }}>
           <fieldset disabled={busy}><legend>Confirm account deletion</legend>

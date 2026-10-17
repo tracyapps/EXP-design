@@ -1513,7 +1513,7 @@ export default function App() {
     return () => cancelAnimationFrame(raf);
   }, []);
 
-  if (["/account", "/account/profile", "/account/preferences"].includes(path)) {
+  if (["/account", "/account/profile", "/account/preferences", "/account/beta"].includes(path)) {
     return <div className="account-shell">
       <Header progress={progress} actionLabel="get the free app" actionHref="/download" brandHref="/" />
       <main className="account-main"><AccountPage path={path} /></main>
