@@ -33,6 +33,11 @@ final class EditorAccessibilityTests: XCTestCase {
                                     "-exp.pref.largerInterfaceTargets", "YES",
                                     "-exp.pref.interfaceGuidance", "always"]
         }
+        if name.contains("testIconsOnlyToolbarPreservesGuidanceAndAccessibleNames") {
+            app.launchArguments += ["-exp.pref.interfaceGuidance", "always",
+                                    "-exp.pref.largerInterfaceTargets", "YES",
+                                    "-exp.pref.toolbarLabels", "iconsOnly"]
+        }
         app.launch()
         app.typeKey(.escape, modifierFlags: []) // Dismiss a first-launch file chooser.
         app.open(fixture)
@@ -77,7 +82,30 @@ final class EditorAccessibilityTests: XCTestCase {
         waitForExpectations(timeout: 5)
         // Restore the fixture's preference so other tests retain their baseline.
         larger.click()
-        XCTAssertTrue(app.popUpButtons["Tool names and guidance"].firstMatch.exists)
+        XCTAssertTrue(app.popUpButtons["Guidance"].firstMatch.exists)
+        let labels = app.popUpButtons["Toolbar labels"].firstMatch
+        XCTAssertTrue(labels.exists)
+        labels.click()
+        app.menuItems["Icons and text"].firstMatch.click()
+        let expanded = NSPredicate { _, _ in rectangle.exists && rectangle.frame.width > 100 }
+        expectation(for: expanded, evaluatedWith: nil)
+        waitForExpectations(timeout: 5)
+        labels.click()
+        app.menuItems["Icons only"].firstMatch.click()
+        let compact = NSPredicate { _, _ in rectangle.exists && rectangle.frame.width < 100 }
+        expectation(for: compact, evaluatedWith: nil)
+        waitForExpectations(timeout: 5)
+        labels.click()
+        app.menuItems["Follow guidance"].firstMatch.click()
+    }
+
+    func testIconsOnlyToolbarPreservesGuidanceAndAccessibleNames() {
+        let rectangle = app.buttons["Rectangle"].firstMatch
+        XCTAssertTrue(rectangle.waitForExistence(timeout: 5))
+        XCTAssertLessThan(rectangle.frame.width, 100, "Icons-only must override always-visible guidance")
+        XCTAssertGreaterThanOrEqual(rectangle.frame.height, 44, "Larger targets remain independent")
+        XCTAssertFalse(app.staticTexts["Rectangle"].exists)
+        XCTAssertTrue(app.staticTexts["Size is the distance between grid lines in points. Subdiv is the number of smaller divisions in each cell."].exists)
     }
 
     func testUniversalNamesAndDecorativeImages() {

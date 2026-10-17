@@ -60,7 +60,7 @@ struct ToolsStrip: View {
             .padding(.vertical, EXPMetric.md)
         }
         .scrollIndicators(.hidden)
-        .frame(width: EXPInterfaceAccessibility.shared.showGuidance
+        .frame(width: EXPInterfaceAccessibility.shared.showToolbarLabels
                ? 150 * EXPType.scale
                : max(EXPMetric.toolsStripWidth, EXPMetric.controlHLg + 14))
         .frame(maxHeight: .infinity)
@@ -92,13 +92,13 @@ private struct ToolButton: View {
                 Image(systemName: tool.symbolName)
                     .font(.system(size: EXPType.md, weight: isActive ? .medium : .regular))
                     .frame(width: EXPMetric.controlHLg, height: EXPMetric.controlHLg)
-                if EXPInterfaceAccessibility.shared.showGuidance {
+                if EXPInterfaceAccessibility.shared.showToolbarLabels {
                     Text(tool.label).font(.expLabel)
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
                 }
             }
-                .frame(maxWidth: EXPInterfaceAccessibility.shared.showGuidance ? .infinity : nil)
+                .frame(maxWidth: EXPInterfaceAccessibility.shared.showToolbarLabels ? .infinity : nil)
                 .background(
                     RoundedRectangle(cornerRadius: EXPMetric.radiusTool, style: .continuous)
                         .fill(isActive ? EXPColor.accentSubtle
@@ -109,13 +109,13 @@ private struct ToolButton: View {
                 .contentShape(RoundedRectangle(cornerRadius: EXPMetric.radiusTool, style: .continuous))
         }
         .buttonStyle(.plain)
-        .padding(.horizontal, EXPInterfaceAccessibility.shared.showGuidance ? 6 : 0)
+        .padding(.horizontal, EXPInterfaceAccessibility.shared.showToolbarLabels ? 6 : 0)
         .onHover { hovering = $0 }
         .animation(EXPMotion.fast, value: hovering)
         .animation(EXPMotion.fast, value: isActive)
         .expTooltip(label: tool.label, shortcut: tool.shortcutKey)   // design tooltip + keycap
         .accessibilityLabel(tool.label)
-.accessibilityHint(accessibleHint)
+        .accessibilityHint(accessibleHint)
         .accessibilityAddTraits(isActive ? [.isSelected] : [])
     }
 }

@@ -6,6 +6,7 @@ extension AppPreferences {
     static let interfaceTypeSize = "exp.pref.interfaceTypeSize"
     static let largerInterfaceTargets = "exp.pref.largerInterfaceTargets"
     static let interfaceGuidance = "exp.pref.interfaceGuidance"
+    static let toolbarLabels = "exp.pref.toolbarLabels"
     static let defaultInterfaceTypeSize = EXPInterfaceTypeSize.system.rawValue
 }
 
@@ -49,6 +50,23 @@ enum EXPInterfaceGuidance: String, CaseIterable, Identifiable {
     }
 }
 
+/// Drawing-toolbar text can be chosen without changing other visible guidance.
+/// This controls presentation only; tool accessibility names remain unconditional.
+enum EXPToolbarLabels: String, CaseIterable, Identifiable {
+    case followGuidance, iconsOnly, iconsAndText
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .followGuidance: "Follow guidance"
+        case .iconsOnly: "Icons only"
+        case .iconsAndText: "Icons and text"
+        }
+    }
+    func showsLabels(guidance: Bool) -> Bool {
+        switch self { case .followGuidance: guidance; case .iconsOnly: false; case .iconsAndText: true }
+    }
+}
+
 /// A local, observable presentation preference source shared by docked, floating,
 /// Settings and source-editor windows. It never writes document data or persists
 /// assistive-technology status. All public system reads are permission-free.
@@ -58,6 +76,7 @@ final class EXPInterfaceAccessibility {
     private(set) var typeSize: EXPInterfaceTypeSize = .system
     private(set) var largerTargets = false
     private(set) var guidance: EXPInterfaceGuidance = .automatic
+    private(set) var toolbarLabels: EXPToolbarLabels = .followGuidance
     private(set) var voiceOverEnabled = false
     private(set) var systemTextScale: CGFloat = 1
     @ObservationIgnored private let defaults: UserDefaults
@@ -93,6 +112,7 @@ final class EXPInterfaceAccessibility {
         typeSize = EXPInterfaceTypeSize(rawValue: defaults.string(forKey: AppPreferences.interfaceTypeSize) ?? "") ?? .system
         largerTargets = defaults.bool(forKey: AppPreferences.largerInterfaceTargets)
         guidance = EXPInterfaceGuidance(rawValue: defaults.string(forKey: AppPreferences.interfaceGuidance) ?? "") ?? .automatic
+        toolbarLabels = EXPToolbarLabels(rawValue: defaults.string(forKey: AppPreferences.toolbarLabels) ?? "") ?? .followGuidance
         // AppKit's public preferred font is the available system baseline. We do
         // not read protected/private text-size defaults or promise Apple's app-
         // specific text overrides are available to a third-party editor.
@@ -101,6 +121,7 @@ final class EXPInterfaceAccessibility {
 
     var textScale: CGFloat { typeSize.scale(system: systemTextScale) }
     var showGuidance: Bool { guidance.showsGuidance(voiceOver: voiceOverEnabled) }
+    var showToolbarLabels: Bool { toolbarLabels.showsLabels(guidance: showGuidance) }
     func targetHeight(_ compact: CGFloat) -> CGFloat {
         max(compact * textScale, largerTargets ? 44 : compact)
     }

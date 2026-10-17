@@ -3058,12 +3058,15 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: feature
 - Priority: P1
 - Area: accessibility · chrome · settings
-- Status: implemented and locally verified; owner visual/AT acceptance pending
+- Status: implemented and locally verified; owner accepts first visual direction; full AT acceptance pending
 - Owner scope 2026-10-17: universal missing labels/hints; independent larger text,
   larger click areas and visible guidance; follow public macOS preferences where
   possible and detect VoiceOver without imposing the same visual layout on everyone.
 - Implementation: Settings → Accessibility; System/Compact/Standard/Large/Extra
   Large type choices; larger shared targets; Automatic/Always/Keep compact guidance.
+  Owner follow-up adds independent Toolbar labels: Follow guidance / Icons only /
+  Icons and text. Icons only preserves other guidance, larger targets, accessible
+  names and shortcut hints; existing users retain Follow guidance by default.
   Explicit presentation choices override automatic reader-based guidance. Existing
   preference keys migrate without reset; status stays local and is not persisted.
   `EXPType` fonts are observable/scalable, numeric fields widen, panel headings and
@@ -3082,6 +3085,10 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   color-popover AT remain pending. Tool-shortcut hints no longer get overwritten
   by an empty string. Receipts: `output/a11y/interface-final-20261017/` and
   `output/a11y/2026-10-17T14-25-39-868Z/`.
+- Toolbar refinement evidence: three native checks pass, including live label-mode
+  switching and icons only with Always show plus larger targets; production policy
+  checks/build pass. Receipt: `output/a11y/toolbar-labels-20261017/native/results.xcresult`.
+  Rechecked Apple VoiceOver guidance below; hidden visual labels retain alternative names.
 - Acceptance: preserve documents/exports, standard size and existing explicit
   preferences; actual enlarged field padding focuses without replacing caller
   FocusState or disrupting text selection; Settings changes apply live. VoiceOver

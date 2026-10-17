@@ -230,6 +230,7 @@ private struct AccessibilitySettingsPane: View {
     @AppStorage(AppPreferences.interfaceTypeSize) private var typeSize = AppPreferences.defaultInterfaceTypeSize
     @AppStorage(AppPreferences.largerInterfaceTargets) private var largerTargets = false
     @AppStorage(AppPreferences.interfaceGuidance) private var guidance = EXPInterfaceGuidance.automatic.rawValue
+    @AppStorage(AppPreferences.toolbarLabels) private var toolbarLabels = EXPToolbarLabels.followGuidance.rawValue
 
     var body: some View {
         let preferences = EXPInterfaceAccessibility.shared
@@ -244,11 +245,16 @@ private struct AccessibilitySettingsPane: View {
                 Text("Text size and click targets are independent. VoiceOver does not automatically enlarge either.")
                     .font(.expLabel).foregroundStyle(EXPColor.textSecondary)
             }
-            SettingsGroup("Visible guidance", footnote: "Shows tool names beside icons and grid instructions without hovering. Automatic follows the VoiceOver status reported by macOS. Your explicit choice always wins; accessible names and hints remain available in every mode.") {
-                Picker("Tool names and guidance", selection: $guidance) {
+            SettingsGroup("Visible guidance", footnote: "Guidance shows panel names and grid instructions without hovering. Automatic follows VoiceOver. Toolbar labels can follow guidance or use your own choice independently; tooltips, keyboard shortcuts and accessible names remain available in every mode.") {
+                Picker("Guidance", selection: $guidance) {
                     ForEach(EXPInterfaceGuidance.allCases) { Text($0.label).tag($0.rawValue) }
                 }
-                .accessibilityLabel("Tool names and guidance")
+                .accessibilityLabel("Guidance")
+                Picker("Toolbar labels", selection: $toolbarLabels) {
+                    ForEach(EXPToolbarLabels.allCases) { Text($0.label).tag($0.rawValue) }
+                }
+                .accessibilityLabel("Toolbar labels")
+                .accessibilityHint("Choose whether drawing tools show text beside their icons, independently of other guidance.")
                 Text(preferences.voiceOverEnabled ? "VoiceOver is enabled in macOS." : "VoiceOver is not enabled in macOS.")
                     .font(.expLabel).foregroundStyle(EXPColor.textSecondary)
                 Text("VoiceOver status is read on this Mac and is not stored or sent anywhere.")

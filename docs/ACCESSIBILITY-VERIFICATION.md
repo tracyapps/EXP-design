@@ -192,12 +192,18 @@ optional preference; BUG-069's remaining contrast findings still need triage.
   This is not a claim that every legacy/custom control has a 44-point target.
   Padding on a styled field must really focus the native editor; a larger painted
   rectangle alone is not sufficient. Tool buttons scroll vertically if needed.
-- **Tool names and guidance:** Automatic with VoiceOver, Always show, or Keep
+- **Guidance:** Automatic with VoiceOver, Always show, or Keep
   compact. Automatic reads `NSWorkspace.isVoiceOverEnabled` locally and observes
   changes (enabled status, rather than inspecting reader processes); the explicit choices win for either reader state. It shows tool names,
   inactive panel names and grid explanations. Other existing help remains available
   through accessible hints, focus and hover; persistent guidance is not yet wired
   into every Inspector section.
+- **Toolbar labels:** Follow guidance (existing behavior), Icons only, or Icons
+  and text. This independent preference controls visible names in the left drawing
+  toolbar. Icons only overrides Always show/VoiceOver guidance without hiding grid
+  explanations or panel names, and larger targets remain independent. All modes
+  retain accessible tool names, shortcut hints and hover tooltips. Changes apply
+  live and persist across launches; unknown future values fall back without erasure.
 
 VoiceOver does not imply that larger text or targets are wanted. Its status is
 never persisted as a user profile, sent to a provider, or used for analytics.
@@ -256,3 +262,15 @@ Cropped dark editor/Settings screenshots were visually inspected. A launch argum
 alone did not establish Light appearance; real light-mode/1x/2x, small-window,
 selected-object/color-popover, floating/source-editor and live reader on/off review
 remain required. This first slice does not complete the entire accessibility audit.
+
+
+October 17 toolbar-label refinement: `output/a11y/toolbar-labels-20261017/native/results.xcresult`
+has three passing native tests and no failures/skips: icons only with Always show
+plus larger targets; existing enlarged controls/visible guidance; live Settings
+switching between Icons and text, Icons only and Follow guidance. The actual
+production preference/model policy check passes, including conflict precedence,
+persisted reload and non-destructive invalid-value fallback. Build-for-testing
+passes (`/tmp/exp-toolbar-labels-build.log`); cropped dark editor/Settings screenshots
+were inspected. This focused rerun does not close the earlier audit or reader gates.
+Apple's VoiceOver guidance was rechecked: invisible alternative names must remain
+available for key controls; hiding visual toolbar text does not remove those names.

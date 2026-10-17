@@ -3401,6 +3401,21 @@ font import → Phase 9, shadows → Phase 10._
 
 ## Progress Log
 
+- **2026-10-17 — Independent drawing-toolbar labels [internal].**
+  Owner accepts the accessibility settings direction and requests icons-only drawing
+  tools independently of other guidance. Settings → Accessibility → Toolbar labels
+  now offers Follow guidance (preserves existing behavior), Icons only and Icons and
+  text. Explicit labels override automatic/Always/Keep compact guidance without
+  changing panel/grid help, tooltips, shortcuts, accessible names or larger targets.
+  Choices apply live and persist; invalid values fall back without erasure.
+  Production-source policy checks, app/test build, backlog integrity and all three
+  focused native UI cases pass. Cropped dark editor/Settings screenshots inspected.
+  Receipt: `output/a11y/toolbar-labels-20261017/native/results.xcresult`; build:
+  `/tmp/exp-toolbar-labels-build.log`. Apple VoiceOver naming guidance rechecked.
+  No document/model/export changes. Existing audit/real-reader/1x/2x and appearance
+  gates remain open; this focused run does not replace them. Local commit only;
+  owner reviews and pushes later.
+
 - **2026-10-17 — FEAT-070 interface accessibility preferences [internal].**
   Owner requests universal names/help plus personal interface adaptations. Added
   Settings → Accessibility with independent System/Compact/Standard/Large/Extra
