@@ -1347,8 +1347,12 @@ from the appcast; a development plan does not change the published release.
       invitation choice, withdrawal, retry-safe text feedback/history and own-note
       deletion. 35 account service checks and four browser/keyboard variants pass;
       no invitation sends, staff workflow or hosted enablement.
+- [x] **FEAT-069 local Pro-purpose connection:** explicit email-capability plus
+      verified-account proof; live source status, withdrawal and disconnect. Separate
+      PostgreSQL databases tested; no email-match enrollment or entitlements.
 - [ ] Hosted account inbox/origin/cookie/TLS/retention/AT proof; verified email-purpose
-      linking, opt-in community/news and private ticket slices.
+      lifecycle, opt-in community/news and private ticket slices. Neon setup handoff:
+      `launch/NEON-ACCOUNT-SETUP-v2.7.md` (owner has Neon, no EXP database created yet).
 - [ ] Reliable separate Pro-interest signup, permission/delivery/unsubscribe proof,
       data map and owner-reviewed privacy/EULA/refund/ownership decisions.
 - [x] **INFRA-010 local native measurement:** default-off Privacy control, typed
@@ -3416,6 +3420,42 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-10-17 — FEAT-069 explicit Pro-purpose connection and Neon setup [internal].**
+  Owner asks what to configure for accounts and reports an existing Neon account,
+  with no EXP database yet. Verified Vercel project/domain metadata read-only:
+  `exp-design`, `expdesign.app`, Node 24.x. Environment listing denied HTTP 403;
+  no local Vercel CLI, so credential presence/values remain unknown. No hosted
+  settings, schema, deployment, emails or provider resources changed. Prepared
+  Neon/Vercel/Resend operator guide plus blank `.env.accounts.example`; first human
+  step is dedicated EXP Preview project, then account/Pro databases, migrations,
+  restricted roles, private environment values and authorized hosted inbox tests.
+  Added `/account/pro`: explicit action requires the Pro email's withdrawal
+  capability AND the server session's verified matching address. Signing in alone
+  does not search/link by email. Migration 006 stores only hashed reference/version/
+  timestamp in the account database. Existing Pro ledger remains authoritative;
+  connection never confirms/rejoins/rewrites preferences or grants paid access.
+  Account can review live status, withdraw (idempotent), disconnect independently,
+  and see unavailable after source erasure/replacement. Old links never follow a
+  fresh signup or claim to withdraw it. Account deletion cascades only the reference;
+  Pro erasure leaves an inactive reference removable from the account. Copy states
+  those boundaries. Raw email capability is memory-only and stripped from the URL.
+  New linking defaults off (`ACCOUNT_PRO_LINK_ENABLED`); existing review/withdraw/
+  disconnect survives a linking pause, and disconnect works during source outage.
+  **Evidence:** two feature tests initially fail on missing actions in
+  `/tmp/exp-pro-account-gap.log`; integrated `npm test` passes **97 service cases**
+  (15 signup, 23 Pro, 45 account, 14 usage), plus existing Swift/wire checks.
+  Account tests use separate actual PostgreSQL databases for identity and Pro.
+  Browser suite: **109 passes, zero failed/blocked; 68 incomplete scans** for
+  shared-site contrast review, not contrast passes. One first-run beta harness
+  failure was traced to omitting the focus check after its final allowed Tab; its
+  screenshot showed the target focused. Fixed the bounded helper and reran all
+  browser journeys. Evidence: `/tmp/exp-account-pro-all-tests-final.log`,
+  `output/a11y/2026-10-17T22-15-22-098Z/report.md`. Actual preview HTTP smoke covers
+  registration/captured mail/Pro confirmation/link/withdraw/account deletion:
+  `/tmp/exp-account-pro-preview-smoke.log`. Hosted Neon/TLS/roles, real inbox,
+  privacy/retention and VoiceOver remain open. Next local hub slice: opt-in community
+  publication/news; private staff/author ticket workflow follows its own gate.
 
 - **2026-10-17 — FEAT-069 private beta participation and feedback [internal].**
   Added `/account/beta`: participation and beta invitation permission both default

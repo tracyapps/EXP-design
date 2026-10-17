@@ -51,7 +51,7 @@ async function sendConfirmation(config, email, links) {
 
 async function sendErasure(config, email, links) {
   await sendEmail(config, email, 'Confirm deletion of your EXP Pro-interest record',
-    `A request was made to delete your live EXP Pro-interest signup record.\n\nOpen this link within 15 minutes, then press the deletion button:\n${links.erase}\n\nThis removes your email, payment-model preference and permission record from the live Pro-interest database. Your release-list preference, any future account and local design files are separate. Sent email, provider logs and backups follow their own retention rules.\n\nIf you did not request deletion, ignore this message. Opening the link alone does not delete anything.`);
+    `A request was made to delete your live EXP Pro-interest signup record.\n\nOpen this link within 15 minutes, then press the deletion button:\n${links.erase}\n\nThis removes your email, payment-model preference and permission record from the live Pro-interest database. Any free-account connection becomes inactive; disconnect it in your account to remove that saved reference. Your release-list preference, free account and local design files are separate. Sent email, provider logs and backups follow their own retention rules.\n\nIf you did not request deletion, ignore this message. Opening the link alone does not delete anything.`);
 }
 
 export function createInterestHandlers({ env = process.env, storeFactory = configuredStore, mailer = sendConfirmation, erasureMailer = sendErasure } = {}) {

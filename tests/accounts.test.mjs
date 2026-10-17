@@ -6,11 +6,15 @@ import http from 'node:http';
 import pg from 'pg';
 import { getMigrations } from 'better-auth/db/migration';
 import { createAccountService, accountConsentVersion } from '../server/accounts/service.js';
-import { accountConfiguration, createAccountNodeHandler } from '../server/accounts/runtime.js';
+import { accountConfiguration, accountInterestConfiguration, createAccountNodeHandler } from '../server/accounts/runtime.js';
+import { createInterestStore } from '../server/interest/store.js';
 
 const db = process.env.EXP_ACCOUNT_TEST_DATABASE_URL;
 if (!db || !new URL(db).searchParams.get('host')?.startsWith('/tmp/exp-account-test.')) throw new Error('Disposable local PostgreSQL required');
 const pool = new pg.Pool({ connectionString: db });
+const interestURL = new URL(db); interestURL.pathname = '/exp_interest';
+const interestPool = new pg.Pool({ connectionString: interestURL.href });
+const interest = createInterestStore(interestPool);
 const origin = 'https://accounts.example.test';
 const mailbox = [];
 const secret = randomBytes(32).toString('hex');
@@ -19,12 +23,15 @@ let service;
 before(async () => {
   await pool.query(await readFile(new URL('../migrations/003_free_accounts.sql', import.meta.url), 'utf8'));
   await pool.query(await readFile(new URL('../migrations/005_member_beta.sql', import.meta.url), 'utf8'));
-  service = createAccountService({ pool, origin, secret, betaEnabled: true, sendOTP: async mail => {
+  await pool.query(await readFile(new URL('../migrations/006_account_pro_link.sql', import.meta.url), 'utf8'));
+  await pool.query('CREATE DATABASE exp_interest');
+  for (const file of ['001_pro_interest.sql', '002_pro_interest_erasure.sql']) await interestPool.query(await readFile(new URL(`../migrations/${file}`, import.meta.url), 'utf8'));
+  service = createAccountService({ pool, origin, secret, betaEnabled: true, interestStore: interest, proLinkEnabled: true, sendOTP: async mail => {
   if (failMail) throw new Error('Mail transport failure with private data');
   mailbox.push(mail);
 } });
 });
-after(async () => { await pool.end(); });
+after(async () => { await Promise.all([pool.end(), interestPool.end()]); });
 
 async function call(body, cookie = '', options = {}) {
   const response = await service.handle(new Request(`${origin}${options.path || '/api/account'}`, {
@@ -51,6 +58,123 @@ async function resetCooldown(email) {
   // Only the disposable test DB; exercise subsequent flows without wall-clock sleeps.
   await pool.query("UPDATE exp_member_mail_limit SET sent_at = now() - interval '61 seconds'");
 }
+
+test('verified email alone never links Pro permission; explicit proof links without rewriting the source', async () => {
+  const email = 'pro-link@example.test', cookie = await register(email);
+  const pending = await interest.request(email, 'either'); await interest.confirm(pending.token);
+  const before = (await interestPool.query('SELECT * FROM exp_pro_interest WHERE email=$1', [email])).rows[0];
+  const state = await call({ action: 'pro-interest' }, cookie);
+  assert.equal(state.status, 200); assert.equal(state.body.state, 'unlinked');
+  assert.equal((await call({ action: 'link-pro-interest', token: pending.withdrawal }, cookie)).status, 200);
+  const linked = (await call({ action: 'pro-interest' }, cookie)).body;
+  assert.equal(linked.state, 'confirmed'); assert.equal(linked.model, 'either');
+  assert.ok(linked.confirmedAt); assert.ok(linked.linkedAt);
+  assert.doesNotMatch(JSON.stringify(linked), /token|hash|pro-link@example/);
+  assert.deepEqual((await interestPool.query('SELECT * FROM exp_pro_interest WHERE email=$1', [email])).rows[0], before);
+});
+test('a foreign Pro email capability cannot be connected to another verified account', async () => {
+  const alice = await register('pro-owner@example.test'), bob = await register('pro-foreign@example.test');
+  const pending = await interest.request('pro-owner@example.test', 'one_time'); await interest.confirm(pending.token);
+  assert.equal((await call({ action: 'link-pro-interest', token: pending.withdrawal }, bob)).status, 400);
+  assert.equal((await call({ action: 'link-pro-interest', token: pending.withdrawal }, alice)).status, 200);
+  assert.equal((await call({ action: 'pro-interest' }, bob)).body.state, 'unlinked');
+});
+test('pending, withdrawn, invented and confirmation-only capabilities cannot connect Pro interest', async () => {
+  const email = 'pro-invalid-proof@example.test', cookie = await register(email);
+  const pending = await interest.request(email, 'subscription');
+  for (const token of [pending.withdrawal, pending.token, randomBytes(32).toString('base64url'), 'bad']) {
+    assert.equal((await call({ action: 'link-pro-interest', token }, cookie)).status, 400);
+  }
+  await interest.confirm(pending.token); await interest.withdraw(pending.withdrawal);
+  assert.equal((await call({ action: 'link-pro-interest', token: pending.withdrawal }, cookie)).status, 400);
+  assert.equal((await call({ action: 'pro-interest' }, cookie)).body.state, 'unlinked');
+});
+test('connected withdrawal is idempotent and source truth follows external withdrawal/deletion', async () => {
+  const email = 'pro-withdraw@example.test', cookie = await register(email);
+  const pending = await interest.request(email, 'one_time'); await interest.confirm(pending.token);
+  await call({ action: 'link-pro-interest', token: pending.withdrawal }, cookie);
+  await call({ action: 'save-beta', participating: true, inviteEmails: true, permissionVersion: 'beta-participation-v1' }, cookie);
+  assert.equal((await call({ action: 'withdraw-pro-interest' }, cookie)).status, 200);
+  const first = (await interestPool.query('SELECT * FROM exp_pro_interest WHERE email=$1', [email])).rows[0];
+  assert.ok(first.withdrawn_at); assert.ok(first.confirmed_at); assert.equal(first.model_preference, 'one_time');
+  assert.equal((await call({ action: 'withdraw-pro-interest' }, cookie)).status, 200);
+  assert.deepEqual((await interestPool.query('SELECT * FROM exp_pro_interest WHERE email=$1', [email])).rows[0], first);
+  assert.equal((await call({ action: 'pro-interest' }, cookie)).body.state, 'withdrawn');
+  assert.equal((await call({ action: 'beta' }, cookie)).body.participation.inviteEmails, true);
+  const erasure = await interest.requestErasure(pending.withdrawal); await interest.erase(erasure.token);
+  assert.equal((await call({ action: 'pro-interest' }, cookie)).body.state, 'unavailable');
+  assert.equal((await call({ action: 'unlink-pro-interest' }, cookie)).status, 200);
+  assert.equal((await call({ action: 'pro-interest' }, cookie)).body.state, 'unlinked');
+});
+test('disconnect and account deletion remove only the account reference, never Pro permission', async () => {
+  const email = 'pro-delete-account@example.test', cookie = await register(email);
+  const pending = await interest.request(email, 'either'); await interest.confirm(pending.token);
+  const before = (await interestPool.query('SELECT * FROM exp_pro_interest WHERE email=$1', [email])).rows[0];
+  await call({ action: 'link-pro-interest', token: pending.withdrawal }, cookie);
+  await call({ action: 'unlink-pro-interest' }, cookie);
+  assert.deepEqual((await interestPool.query('SELECT * FROM exp_pro_interest WHERE email=$1', [email])).rows[0], before);
+  await call({ action: 'link-pro-interest', token: pending.withdrawal }, cookie);
+  const userId = (await call(undefined, cookie)).body.user.id;
+  assert.equal((await call({ action: 'delete-account', confirmation: 'DELETE' }, cookie)).status, 200);
+  assert.equal((await pool.query('SELECT * FROM exp_member_pro_link WHERE user_id=$1', [userId])).rowCount, 0);
+  assert.deepEqual((await interestPool.query('SELECT * FROM exp_pro_interest WHERE email=$1', [email])).rows[0], before);
+});
+test('old account references never follow a replacement Pro request just by email', async () => {
+  const email = 'pro-replaced@example.test', cookie = await register(email);
+  const pending = await interest.request(email, 'either'); await interest.confirm(pending.token);
+  await call({ action: 'link-pro-interest', token: pending.withdrawal }, cookie);
+  await interest.withdraw(pending.withdrawal);
+  await interestPool.query("UPDATE exp_pro_interest SET retry_after=now()-interval '1 second' WHERE email=$1", [email]);
+  const replacement = await interest.request(email, 'subscription'); await interest.confirm(replacement.token);
+  assert.equal((await call({ action: 'pro-interest' }, cookie)).body.state, 'unavailable');
+  assert.equal((await call({ action: 'withdraw-pro-interest' }, cookie)).status, 409);
+  assert.equal((await interestPool.query('SELECT withdrawn_at FROM exp_pro_interest WHERE email=$1', [email])).rows[0].withdrawn_at, null);
+  assert.equal((await call({ action: 'link-pro-interest', token: replacement.withdrawal }, cookie)).status, 200);
+  assert.equal((await call({ action: 'pro-interest' }, cookie)).body.model, 'subscription');
+});
+test('Pro actions enforce sessions, field allowlists and current origin', async () => {
+  assert.equal((await call({ action: 'pro-interest' })).status, 401);
+  const cookie = await register('pro-auth@example.test');
+  assert.equal((await call({ action: 'pro-interest', email: 'other@example.test' }, cookie)).status, 400);
+  assert.equal((await call({ action: 'withdraw-pro-interest', userId: randomUUID() }, cookie)).status, 400);
+  assert.equal((await call({ action: 'unlink-pro-interest' }, cookie, { headers: { origin: 'https://evil.example' } })).status, 403);
+  await call({ action: 'sign-out' }, cookie);
+  assert.equal((await call({ action: 'pro-interest' }, cookie)).status, 401);
+});
+test('pausing Pro connections preserves existing reads and withdrawal; missing source preserves disconnect', async () => {
+  const email = 'pro-paused@example.test', cookie = await register(email);
+  const pending = await interest.request(email, 'either'); await interest.confirm(pending.token);
+  await call({ action: 'link-pro-interest', token: pending.withdrawal }, cookie);
+  const paused = createAccountService({ pool, origin, secret, interestStore: interest, sendOTP: async () => {} });
+  const post = (instance, body) => instance.handle(new Request(`${origin}/api/account`, { method: 'POST', headers: {
+    origin, 'content-type': 'application/json', cookie, 'x-exp-client-ip': '192.0.2.115' }, body: JSON.stringify(body) }));
+  assert.equal((await (await post(paused, { action: 'pro-interest' })).json()).state, 'confirmed');
+  assert.equal((await post(paused, { action: 'link-pro-interest', token: pending.withdrawal })).status, 503);
+  assert.equal((await post(paused, { action: 'withdraw-pro-interest' })).status, 200);
+  const unconfigured = createAccountService({ pool, origin, secret, sendOTP: async () => {} });
+  assert.equal((await post(unconfigured, { action: 'pro-interest' })).status, 503);
+  assert.equal((await post(unconfigured, { action: 'unlink-pro-interest' })).status, 200);
+  assert.equal((await (await post(unconfigured, { action: 'pro-interest' })).json()).state, 'unlinked');
+});
+test('Pro-source failures surface as unavailable without claiming permission or leaking data', async () => {
+  const email = 'pro-outage@example.test', cookie = await register(email);
+  const pending = await interest.request(email, 'either'); await interest.confirm(pending.token);
+  await call({ action: 'link-pro-interest', token: pending.withdrawal }, cookie);
+  await interestPool.query('ALTER TABLE exp_pro_interest RENAME TO exp_pro_interest_unavailable');
+  try {
+    const response = await call({ action: 'pro-interest' }, cookie);
+    assert.equal(response.status, 503); assert.doesNotMatch(JSON.stringify(response.body), /pro-outage|exp_pro_interest|confirmed/);
+    assert.equal((await call({ action: 'withdraw-pro-interest' }, cookie)).status, 503);
+    assert.equal((await call({ action: 'unlink-pro-interest' }, cookie)).status, 200);
+  } finally { await interestPool.query('ALTER TABLE exp_pro_interest_unavailable RENAME TO exp_pro_interest'); }
+});
+test('Pro source configuration requires matching origin and verified TLS without breaking base account setup', () => {
+  const env = { NODE_ENV: 'production', EXP_INTEREST_DATABASE_URL: 'postgres://db/interest?sslmode=verify-full', INTEREST_PUBLIC_ORIGIN: origin };
+  assert.ok(accountInterestConfiguration(env, origin));
+  assert.equal(accountInterestConfiguration({ ...env, EXP_INTEREST_DATABASE_URL: 'not a url' }, origin), null);
+  assert.equal(accountInterestConfiguration({ ...env, EXP_INTEREST_DATABASE_URL: 'postgres://db/interest?sslmode=require' }, origin), null);
+  assert.equal(accountInterestConfiguration(env, 'https://another.example'), null);
+});
 
 test('reviewed migration matches the pinned auth schema', async () => {
   const migration = await getMigrations(service.options);

@@ -40,6 +40,9 @@ async function tabTo(page, locator, maximum = 35) {
     if (await locator.evaluate(el => el === document.activeElement)) return;
     await page.keyboard.press(tabKeys.get(page) || 'Tab');
   }
+  // The last allowed Tab can itself reach the target. Check before declaring
+  // failure (the additional account navigation exposed this boundary).
+  if (await locator.evaluate(el => el === document.activeElement)) return;
   throw Error(`Keyboard could not reach ${await locator.getAttribute('id') || await locator.textContent()}`);
 }
 async function type(page, locator, value) {
@@ -157,6 +160,43 @@ try {
         assert.ok(await page.getByRole('heading', { name: 'Your saved feedback' }).evaluate(el => el === document.activeElement));
         await page.reload(); await participation.waitFor();
         assert.equal(await participation.isChecked(), false); assert.equal(await invitations.isChecked(), false);
+      });
+      await check(`${variant.name}-account-pro-link-keyboard`, page, async () => {
+        await page.goto(`${fixture.origin}/account/pro`);
+        await page.getByText('No Pro-interest record is connected', { exact: false }).waitFor();
+        await scan(`${variant.name}-account-pro-unlinked`, page);
+        await page.goto(`${fixture.origin}/pro`);
+        await type(page, page.getByLabel('email (required)', { exact: true }), email);
+        await tabTo(page, page.getByLabel('which payment model would you consider? (required)'));
+        await page.keyboard.type('s'); await page.keyboard.press(tabKeys.get(page) || 'Tab');
+        await tabTo(page, page.getByRole('checkbox')); await page.keyboard.press('Space');
+        await tabTo(page, page.getByRole('button', { name: 'email me a confirmation' })); await page.keyboard.press('Enter');
+        await page.getByRole('status').filter({ hasText: 'Check your inbox' }).waitFor();
+        const mail = fixture.mail.findLast(item => item.kind === 'interest' && item.email === email); assert.ok(mail);
+        await page.goto(mail.confirm);
+        const confirm = page.getByRole('button', { name: 'confirm Pro interest' }); await confirm.waitFor();
+        await tabTo(page, confirm); await page.keyboard.press('Enter');
+        await page.getByRole('status').filter({ hasText: "You're on the Pro-interest list." }).waitFor();
+        await page.goto(`${fixture.origin}/account/pro`);
+        await page.getByText('No Pro-interest record is connected', { exact: false }).waitFor();
+        await page.goto(mail.withdraw);
+        const connectLink = page.getByRole('link', { name: 'Connect to my free account' }); await connectLink.waitFor();
+        await tabTo(page, connectLink); await page.keyboard.press('Enter');
+        const connect = page.getByRole('button', { name: 'Connect confirmed Pro interest' }); await connect.waitFor();
+        await page.waitForFunction(() => location.hash === '');
+        await tabTo(page, connect); await page.keyboard.press('Enter');
+        await page.getByRole('status').filter({ hasText: 'Your confirmed Pro-interest record is connected.' }).waitFor();
+        await page.reload();
+        await page.getByText('Pro-interest emails are on for your connected record.', { exact: true }).waitFor();
+        await scan(`${variant.name}-account-pro-confirmed`, page);
+        await page.screenshot({ path: path.join(output, `${variant.name}-account-pro-confirmed.png`), fullPage: true });
+        await tabTo(page, page.getByRole('button', { name: 'Withdraw Pro-interest emails', exact: true })); await page.keyboard.press('Enter');
+        await page.getByRole('status').filter({ hasText: 'Pro interest withdrawn.' }).waitFor();
+        await page.getByText('Pro-interest emails are off.', { exact: false }).waitFor();
+        await scan(`${variant.name}-account-pro-withdrawn`, page);
+        await tabTo(page, page.getByRole('button', { name: 'Disconnect account link' })); await page.keyboard.press('Enter');
+        await page.getByRole('status').filter({ hasText: 'Account connection removed.' }).waitFor();
+        assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
       });
       await check(`${variant.name}-preferences-and-delete-keyboard`, page, async () => {
         await page.goto(`${fixture.origin}/account/preferences`);

@@ -82,6 +82,7 @@ export default function InterestPage({ mode = 'request' }) {
       <h1 id="interest-title">{deleting ? 'Delete your Pro-interest record.' : withdrawing ? 'Withdraw your interest.' : 'One more step.'}</h1>
       <p>{deleting ? 'Remove your email, payment-model preference and permission record from the live Pro-interest database.' : withdrawing ? 'Stop emails about the proposed EXP Pro offer and feedback invitations.' : permission}</p>
       <p>{deleting ? 'This deletes only the Pro-interest signup record. Your release notifications and local design files are separate. Copies in sent email, provider logs and backups follow their own retention rules.' : withdrawing ? 'This also cancels an unconfirmed Pro request.' : 'Confirming joins only the Pro-interest list. No purchase, account or general marketing subscription.'}</p>
+      {deleting && <p>Any free-account connection becomes inactive. <a href="/account/pro">Disconnect it in your account</a> to remove that saved reference too.</p>}
       <form onSubmit={submit}>
         <button className="interest-button" type="submit" disabled={busy || done || !hasToken}>
           {busy ? 'Working…' : deleting ? 'delete my Pro-interest record' : withdrawing ? 'withdraw Pro interest' : 'confirm Pro interest'}
@@ -93,6 +94,11 @@ export default function InterestPage({ mode = 'request' }) {
           : <p>Open the complete link from your email. If it expired, <a href="/pro">request a new confirmation</a>.</p>)}
         <p className={`interest-message ${status}`} role="status">{message}</p>
       </form>
+      {withdrawing && hasToken && !done && <section className="interest-erasure" aria-labelledby="connect-account-title">
+        <h2 id="connect-account-title">Manage this from your free account</h2>
+        <p>A confirmed Pro-interest record can be connected to an EXP account with the same email. You’ll sign in and choose to connect it; your email permission stays unchanged.</p>
+        <a className="interest-text-link" href={`/account/pro#${token}`}>Connect to my free account</a>
+      </section>}
       {withdrawing && <section className="interest-erasure" aria-labelledby="erasure-title">
         <h2 id="erasure-title">Want the signup record deleted too?</h2>
         <p>Withdrawal stops Pro-interest emails. Deletion also removes your live Pro-interest signup record. We'll send a fresh confirmation link to your email first.</p>

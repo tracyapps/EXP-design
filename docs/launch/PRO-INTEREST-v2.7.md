@@ -6,6 +6,15 @@ send or deployment occurred. Public app remains v2.6/build 17.
 
 ## Behavior to review
 
+October 17 continuation: confirmed records can now be explicitly connected to
+`/account/pro` with both their email withdrawal capability and the same verified
+account email. Account creation alone never links/enrolls. Source permission is
+not copied or rewritten. Account can review/withdraw/disconnect; erasure or a new
+signup invalidates the old reference. Account deletion leaves Pro permission
+unchanged; Pro erasure leaves an inactive account reference removable by disconnect
+or account deletion. Full contract: `ACCOUNTS-AND-PRIVACY-v2.7.md`. New linking is
+default off; hosted setup in `NEON-ACCOUNT-SETUP-v2.7.md` remains pending.
+
 Open `/pro` in the local preview. It describes a **proposed** offer, preserves the
 free app/download and records a preference for one-time purchase, subscription or
 either depending on the benefit. This is discovery permission, not evidence of

@@ -2,6 +2,8 @@ import pg from 'pg';
 import { isIP } from 'node:net';
 import { toNodeHandler } from 'better-auth/node';
 import { createAccountService } from './service.js';
+import { interestConfiguration } from '../interest/handlers.js';
+import { configuredStore } from '../interest/store.js';
 
 export function accountConfiguration(env) {
   const origin = env.ACCOUNT_PUBLIC_ORIGIN;
@@ -12,6 +14,17 @@ export function accountConfiguration(env) {
   if (!['postgres:', 'postgresql:'].includes(database.protocol)) return null;
   if (env.NODE_ENV === 'production' && database.searchParams.get('sslmode') !== 'verify-full') return null;
   return { origin, secret: env.BETTER_AUTH_SECRET, databaseURL: env.EXP_ACCOUNT_DATABASE_URL };
+}
+
+export function accountInterestConfiguration(env, accountOrigin) {
+  const config = interestConfiguration(env, 'withdraw');
+  if (!config || config.origin !== accountOrigin) return null;
+  try {
+    const database = new URL(config.databaseURL);
+    if (!['postgres:', 'postgresql:'].includes(database.protocol) ||
+        (env.NODE_ENV === 'production' && database.searchParams.get('sslmode') !== 'verify-full')) return null;
+    return config;
+  } catch { return null; }
 }
 
 export function createAccountNodeHandler({ handle, origin, env = process.env }) {
@@ -40,7 +53,10 @@ export default async function accountEndpoint(request, response) {
   if (!runtime) {
     const pool = new pg.Pool({ connectionString: config.databaseURL, max: 2, connectionTimeoutMillis: 3000, statement_timeout: 5000, allowExitOnIdle: true });
     pool.on('error', () => console.error('Account database connection failed.'));
+    const interestConfig = accountInterestConfiguration(env, config.origin);
     const service = createAccountService({ pool, ...config, registrationEnabled: env.ACCOUNTS_ENABLED === 'true',
+      interestStore: interestConfig ? configuredStore(interestConfig.databaseURL) : null,
+      proLinkEnabled: env.ACCOUNT_PRO_LINK_ENABLED === 'true',
       betaEnabled: env.ACCOUNT_BETA_ENABLED === 'true', async sendOTP({ email, otp }) {
       if (!env.RESEND_API_KEY || !env.SIGNUP_FROM_EMAIL) throw new Error('Account mail unavailable');
       const result = await fetch('https://api.resend.com/emails', { method: 'POST',

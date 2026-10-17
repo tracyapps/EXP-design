@@ -48,6 +48,10 @@ payment and license records live outside the repository; use sanitized summaries
 - [x] FEAT-069 local private beta/separate invitation choice, withdrawal and
       retry-safe feedback/history/deletion; 35 total account service checks.
       No invitation sender/staff workflow or hosted enablement is implied.
+- [x] FEAT-069 explicit local Pro connection with dual proof, live source status,
+      withdrawal and disconnect; 45 account checks across separate real databases.
+- [x] Neon/Vercel setup handoff and blank environment reference prepared; existing
+      project/domain metadata confirmed. Environment access denied; no settings read.
 - [ ] Hosted account lifecycle/inbox/transport/origin/bot/retention and owner AT
       proof before public enablement; remaining hub slices are separately admitted.
 - [x] INFRA-006 local separate Pro request/confirm/withdraw with private PostgreSQL
@@ -322,3 +326,16 @@ Receipts: `/tmp/exp-beta-all-services.log`, `/tmp/exp-beta-website-build-final.l
 005 remains local only; beta new-write flag defaults off. Hosted lifecycle,
 mailbox/provider, logs/backups/retention, staff workflow and real VoiceOver remain
 open; these results do not close public-enable or full AT gates.
+
+October 17 FEAT-069 Pro connection/setup continuation: `npm test` passes **97 service
+cases** (15 signup, 23 Pro, 45 account, 14 usage), plus existing Swift/native-wire
+checks. Website build/browser matrix passes **109 checks**, zero failures/blocked,
+with **68 incomplete contrast scans** still needing shared-site review. Actual
+preview HTTP smoke passes registration, captured Pro mail, confirmation, explicit
+connection, withdrawal and account deletion. Receipts:
+`/tmp/exp-account-pro-all-tests-final.log`, `/tmp/exp-account-pro-preview-smoke.log`,
+`output/a11y/2026-10-17T22-15-22-098Z/report.md`. Initial web run retained at
+`output/a11y/2026-10-17T22-13-36-592Z/`: one bounded keyboard helper omitted its
+post-final-Tab focus check; target was focused in the failure screenshot. Helper
+fixed and full suite rerun. No hosted enablement, provider email or actual
+Safari/VoiceOver proof. Neon setup guide records remaining owner/operator steps.

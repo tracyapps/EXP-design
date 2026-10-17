@@ -7,6 +7,16 @@ provider configuration, retention settings, delivery or legal sufficiency.
 
 ## Tonight's completed slice
 
+October 17 account continuation: `/account/pro` now supports explicit connection
+to a confirmed Pro record using both the email capability and the same verified
+account email. Migration 006 stores account UUID/hashed reference/version/time in
+the private account database. Raw capability is memory-only and removed from the
+URL; the separate Pro database owns permission. Withdrawal updates that source
+row; unlink/account deletion removes only the reference. Pro erasure leaves an
+inactive reference removable from the account. No automatic email matching,
+analytics or entitlement link. Two real local databases and browser flows verified;
+hosted TLS/roles/inbox/log/backup gates remain. Setup: `NEON-ACCOUNT-SETUP-v2.7.md`.
+
 `api/signup.js` now requires contact storage and explicit release segment/topic
 configuration before accepting a signup. A saved contact precedes success;
 notification to the owner is optional and cannot establish list membership.

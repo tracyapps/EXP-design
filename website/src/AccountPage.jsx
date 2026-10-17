@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import './account.css';
 import BetaPage from './BetaPage.jsx';
+import AccountProPage from './AccountProPage.jsx';
 
 async function accountRequest(body) {
   const response = await fetch('/api/account', { method: body ? 'POST' : 'GET', credentials: 'same-origin',
@@ -33,6 +34,7 @@ export default function AccountPage({ path }) {
   const [profile, setProfile] = useState({ name: '', bio: '', link: '' });
   const [largeText, setLargeText] = useState(false);
   const [confirmation, setConfirmation] = useState('');
+  const [proToken, setProToken] = useState(() => path === '/account/pro' ? window.location.hash.slice(1) : '');
 
   function receive(next) {
     setUser(next);
@@ -42,6 +44,7 @@ export default function AccountPage({ path }) {
     } else { setProfile({ name: '', bio: '', link: '' }); setLargeText(false); }
   }
   useEffect(() => {
+    if (path === '/account/pro') window.history.replaceState(null, '', window.location.pathname);
     document.title = 'Your free account — EXP [design]';
     let active = true;
     accountRequest().then(result => {
@@ -60,6 +63,7 @@ export default function AccountPage({ path }) {
       else {
         if (['sign-out', 'sign-out-all', 'delete-account'].includes(body.action)) {
           receive(null);
+          setProToken('');
           setSent(false); setOTP(''); setConfirmation(''); setConsent(false);
         } else receive((await accountRequest()).user);
       }
@@ -73,12 +77,13 @@ export default function AccountPage({ path }) {
       setMessage(error.name === 'TimeoutError' ? 'That took too long. Please try again later.' : error.message);
     } finally { setBusy(false); }
   }
-  const section = path === '/account/profile' ? 'profile' : path === '/account/preferences' ? 'preferences' : path === '/account/beta' ? 'beta' : 'home';
+  const section = path === '/account/profile' ? 'profile' : path === '/account/preferences' ? 'preferences' : path === '/account/beta' ? 'beta' : path === '/account/pro' ? 'pro' : 'home';
   return <section className={`account-page${user?.largeText ? ' account-large-text' : ''}`} aria-labelledby="account-title">
     <p className="section-label">EXP [design] · free account</p>
-    <h1 id="account-title" tabIndex={-1} ref={headingRef}>{user ? section === 'profile' ? 'Your private profile.' : section === 'preferences' ? 'Your preferences.' : section === 'beta' ? 'Help shape EXP.' : `Hello, ${user.name}.` : 'A place for you.'}</h1>
+    <h1 id="account-title" tabIndex={-1} ref={headingRef}>{user ? section === 'profile' ? 'Your private profile.' : section === 'preferences' ? 'Your preferences.' : section === 'beta' ? 'Help shape EXP.' : section === 'pro' ? 'Your Pro interest.' : `Hello, ${user.name}.` : 'A place for you.'}</h1>
     <p className="account-lead">{user ? 'Your profile is private. You choose what comes next.' : 'An optional account, separate from your design files. The editor and shipped exports stay free to use without signing in.'}</p>
     <p className="account-status" role="status">{message}</p>
+    {!user && proToken && <p>Sign in with the email used for Pro interest, then choose whether to connect that record. Signing in does not subscribe you. Reopen the email link if this page is reloaded.</p>}
     {!ready && <p>Loading…</p>}
     {ready && !available && <p>Account registration is not available right now. <a href="/account">Check again</a> or <a href="/download">get the free app</a>.</p>}
     {ready && available && !user && <form className="account-card" onSubmit={event => {
@@ -115,6 +120,7 @@ export default function AccountPage({ path }) {
         <a href="/account/profile" aria-current={section === 'profile' ? 'page' : undefined}>Private profile</a>
         <a href="/account/preferences" aria-current={section === 'preferences' ? 'page' : undefined}>Preferences</a>
         <a href="/account/beta" aria-current={section === 'beta' ? 'page' : undefined}>Beta & feedback</a>
+        <a href="/account/pro" aria-current={section === 'pro' ? 'page' : undefined}>Pro interest</a>
       </nav>
       {section === 'home' && <div className="account-card">
         <h2>Your account is ready.</h2>
@@ -135,6 +141,7 @@ export default function AccountPage({ path }) {
         </fieldset>
       </form>}
       {section === 'beta' && <BetaPage key={user.id} request={accountRequest} onSignedOut={() => { receive(null); setSent(false); setMessage('Please sign in again.'); window.requestAnimationFrame(() => headingRef.current?.focus()); }} />}
+      {section === 'pro' && <AccountProPage key={user.id} request={accountRequest} token={proToken} clearToken={() => setProToken('')} onSignedOut={() => { receive(null); setProToken(''); setSent(false); setMessage('Please sign in again.'); window.requestAnimationFrame(() => headingRef.current?.focus()); }} />}
       {section === 'preferences' && <form className="account-card" onSubmit={e => { e.preventDefault(); act({ action: 'save-preferences', largeText }, 'Account text preference saved.'); }}>
         <fieldset disabled={busy}><legend>Account display</legend>
           <label className="account-check"><input type="checkbox" checked={largeText} onChange={e => setLargeText(e.target.checked)} /><span>Use larger text in this account area</span></label>
@@ -142,7 +149,7 @@ export default function AccountPage({ path }) {
           <button type="submit">Save preferences</button>
         </fieldset>
         <h2>Email permissions stay separate.</h2>
-        <p>Creating this account did not enroll you in release, news, beta or Pro marketing. <a href="/account/beta">Manage beta invitations</a> separately. Existing release/Pro list permissions are separate; this area does not yet display or change them.</p>
+        <p>Creating this account did not enroll you in release, news, beta or Pro marketing. <a href="/account/beta">Manage beta invitations</a> or <a href="/account/pro">connect your confirmed Pro interest</a>. Existing release-list permissions remain separate.</p>
         <p><a href="/pro">Review the proposed Pro-interest invitation</a>. Use the withdrawal link in your Pro-interest email to stop those messages.</p>
       </form>}
       <div className="account-session-actions">
@@ -150,7 +157,7 @@ export default function AccountPage({ path }) {
         <button type="button" disabled={busy} onClick={() => act({ action: 'sign-out-all' }, 'Signed out everywhere.')}>Sign out everywhere</button>
       </div>
       {section === 'preferences' && <details className="account-card account-delete"><summary>Delete this free account</summary>
-        <p>This removes your live account, private profile, account preferences, beta choices, feedback and sessions. It does not remove local design files, separate release/Pro list permissions, sent email, provider logs or backups.</p>
+        <p>This removes your live account, private profile, account preferences, beta choices, feedback, Pro account connection and sessions. It does not remove local design files, separate release/Pro list permissions, sent email, provider logs or backups.</p>
         <p>Sign in with a fresh email code, then confirm within five minutes. This cannot be undone.</p>
         <form onSubmit={e => { e.preventDefault(); act({ action: 'delete-account', confirmation }, 'Your live free account has been deleted. Separate email permissions are unchanged.'); }}>
           <fieldset disabled={busy}><legend>Confirm account deletion</legend>

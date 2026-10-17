@@ -8,6 +8,16 @@ export const validToken = token => typeof token === 'string' && /^[A-Za-z0-9_-]{
 // the token in the same write that establishes confirmed permission.
 export function createInterestStore(pool) {
   return {
+    async accountStatus(reference, verifiedEmail) {
+      const result = await pool.query(`SELECT model_preference, offer_version, consent_version, confirmed_at, withdrawn_at
+        FROM exp_pro_interest WHERE withdrawal_hash=$1 AND email=$2`, [reference, verifiedEmail]);
+      return result.rows[0] ?? null;
+    },
+    async withdrawAccount(reference, verifiedEmail) {
+      const result = await pool.query(`UPDATE exp_pro_interest SET withdrawn_at=COALESCE(withdrawn_at,now()), token_hash=NULL
+        WHERE withdrawal_hash=$1 AND email=$2 RETURNING email`, [reference, verifiedEmail]);
+      return result.rowCount === 1;
+    },
     async request(email, model) {
       const token = randomBytes(32).toString('base64url');
       const withdrawal = randomBytes(32).toString('base64url');

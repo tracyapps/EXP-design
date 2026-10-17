@@ -88,3 +88,4 @@ output/a11y/
 
 # Usage consent/collector contract and hosted enablement gates
 !docs/launch/USAGE-METRICS-v2.7.md
+!docs/launch/NEON-ACCOUNT-SETUP-v2.7.md

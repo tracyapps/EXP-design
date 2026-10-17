@@ -4,8 +4,10 @@ October 16, 2026. Owner likes accounts before Pro/subscriptions and asks about
 sequencing. **Recommendation: finish the shared privacy/hosting foundation, then
 add a small optional free account area before billing.** Accounts do not depend
 on having a paid product. Their first useful job should determine their scope.
-October 17 continuation: FEAT-069 now has a locally verified auth/private-profile/
-account-display preference slice. Hosted enablement and the rest of the hub remain open.
+October 17 continuation: auth/private-profile, account-display, beta/feedback and
+explicit Pro-interest connection slices are locally verified. Owner has an existing
+Neon account and no EXP database yet; follow [the Neon setup handoff](NEON-ACCOUNT-SETUP-v2.7.md).
+Hosted enablement and the rest of the hub remain open.
 
 ## Owner-selected member hub
 
@@ -193,11 +195,10 @@ Resend receipt, hosted configuration or formal VoiceOver/full keyboard acceptanc
 Local receipts: `/tmp/exp-member-all-tests.log`, `/tmp/exp-member-build.log` and
 ignored `output/playwright/exp-account-*.png`.
 
-The beta continuation below is now locally verified. Next dependency is existing
-Pro-purpose permission linking, using verified identity without copying permissions
-merely because emails match. Community publication/news and private author/staff
-tickets follow their own gates. Hosted setup/retention/inbox and owner AT verification
-remain ahead of public enablement; native v2.7 release scope stays independent.
+The beta and explicit Pro-connection continuations below are locally verified.
+Community publication/news and private author/staff tickets follow their own gates.
+Hosted setup/retention/inbox and owner AT verification remain ahead of public
+enablement; native v2.7 release scope stays independent.
 
 ## FEAT-069 beta participation and feedback — local October 17 continuation
 
@@ -283,6 +284,64 @@ Fresh verification:
 
 Native editor and account-free workflows are unchanged. No deployment, hosted
 migration, invitation delivery, staff access workflow or public-enable gate closed.
+
+## Explicit Pro connection — local October 17 continuation
+
+`/account/pro` lets a member connect an existing **confirmed** Pro-interest record,
+review its live permission/payment-model preference, withdraw or disconnect. This
+does not implement checkout, paid access or native sign-in.
+
+Proof is an explicit Connect action with **both** the withdrawal capability from
+the existing Pro email and the same address verified by the account session. A
+matching email alone triggers no lookup or automatic connection. Foreign,
+invented, unconfirmed, withdrawn and confirmation-only capabilities are refused.
+The withdrawal page offers a link to the account route; the fragment is stripped
+and retained only in component memory through sign-in. Reload requires reopening
+the email. A GET, sign-in or viewing the page cannot connect or change permission.
+
+Migration 006 adds only `exp_member_pro_link` in the account database: account UUID,
+hashed Pro reference, link wording version and server time. No raw capability is
+stored. The Pro database stays the permission authority. Connection does not
+reconfirm, rejoin, relabel consent, update the preferred model, or touch other
+email purposes/analytics. Every source read/withdrawal checks both hashed reference
+and the session's verified email. Source outages return errors, not invented
+permission. Erased/replaced records show unavailable; an old connection never
+automatically follows a fresh signup with the same email.
+
+Withdrawal is idempotent in the source database. It does not grant anything, so a
+failure after its source commit can safely be retried. Account and Pro writes are
+not presented as a distributed transaction. An obsolete reference cannot claim
+to withdraw a replacement source record. Disconnect removes only the account
+reference; free-account deletion cascades that reference, leaving separate Pro
+permission unchanged. Pro record erasure makes the reference inactive but cannot
+cross-database cascade it: disconnect or account deletion removes it. The email
+and deletion screen now disclose that boundary. Logs/backups remain separate.
+
+Production requires optional `EXP_INTEREST_DATABASE_URL` with verified TLS and
+`INTEREST_PUBLIC_ORIGIN` matching the account origin. Invalid optional Pro config
+does not break basic account configuration. `ACCOUNT_PRO_LINK_ENABLED` defaults
+off. A linking pause preserves current reads/withdrawal; source outage/config loss
+still permits account-side disconnect. Schema/role/transport setup is in
+`NEON-ACCOUNT-SETUP-v2.7.md`; only disposable local migrations were applied.
+
+Verification: 45 account cases across **two real isolated PostgreSQL databases**,
+with dual proof, unchanged source rows, source lifecycle/outage, authorization,
+paused linking, withdrawal retry, unlink and deletion boundary checks. Combined
+`npm test`: 97 service cases plus existing Swift/wire checks pass. Final website
+build passes (`/tmp/exp-account-pro-build-final.log`). Four actual
+Chromium/WebKit dark-desktop/light-mobile keyboard journeys verify independent
+signup/confirmation, no automatic link, email-to-account fragment removal, explicit
+connection, reload, withdrawal and disconnect. Combined web suite: 109 passes,
+zero failures/blocked; 68 incomplete shared-site contrast scans still need review.
+Receipts: `/tmp/exp-account-pro-all-tests-final.log`,
+`output/a11y/2026-10-17T22-15-22-098Z/report.md`; actual standalone preview HTTP smoke:
+`/tmp/exp-account-pro-preview-smoke.log`. W3C native label/button/link/status rules
+rechecked before UI changes; these do not prove human VoiceOver usability.
+
+The initial combined browser run had one beta helper failure after its last
+allowed Tab; the screenshot showed the intended button focused. Added the missing
+post-final-Tab focus check without increasing the Tab budget and reran every
+variant. Initial receipt retained at `output/a11y/2026-10-17T22-13-36-592Z/`.
 
 ## Voluntary support page completed locally (INFRA-008)
 
