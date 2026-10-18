@@ -3434,6 +3434,36 @@ font import → Phase 9, shadows → Phase 10._
 
 ## Progress Log
 
+- **2026-10-17 — Hosted account schemas, restricted roles and owner support [internal].**
+  Owner authorizes hosted migrations/support setup after pushing `13317af`, then
+  corrects account identity versus sender identity. Existing EXPdesign/production
+  branch in Ohio has 003/005/006/008; applied only missing community migration 007.
+  Exactly one support grant now belongs to the explicitly identified verified
+  owner account, zero to the sender address. Private email/UUID omitted from repo.
+  Neon denied demoting console-created runtime roles (`neon_superuser` revoke);
+  the failed transaction was explicitly rolled back. Created ordinary SQL logins
+  `exp_account_app` / `exp_interest_app` with explicit, separate database/table
+  grants. Catalog shows no admin attributes/memberships; the account login cannot
+  write staff grants/read Pro ledger; the interest login cannot read account tables.
+  Preserved original roles rather than deleting/resetting them. Generated credentials
+  stayed out of chat/repo/logs; temporary rows and memory copies were cleared.
+  Updated only two purpose-specific Production database Secret values, with pooled
+  host and verified TLS; auth secret and sender unchanged. Redeployed reviewed
+  source `13317af` as READY `dpl_DdRdCE7AdHUWnCiT86mXsQe9yqQf`. Actual API calls
+  followed by pg_stat_activity show each new login connected to its correct DB.
+  GET account 200/null/no-store; public news 200; anonymous support 401; synthetic
+  nonexistent Pro confirmation 400 after DB lookup, with no matched row or email.
+  An operator SET LOCAL ROLE probe was denied and rolled back, not counted as pass.
+  Brave blocks EXP-page automation as an extension-UI conflict; Neon/Vercel work.
+  Signed-in browser author/staff/AT proof is not inferred. Existing news/ticket
+  flags were inspected false and preserved; no community publication enabled,
+  real ticket/profile/email created, list permission changed or public campaign.
+  Receipt/setup/remaining gates: `launch/HOSTED-HUB-SETUP-2026-10-17.md` and local
+  `output/a11y/hosted-hub-setup-20261017/verification.json`. Next: owner reviews
+  the support inbox; finish isolated hosted author/staff lifecycle, retention/
+  backup-erasure and accessibility proof before enabling new writes. Local docs
+  commit only; no additional source push.
+
 - **2026-10-17 — FEAT-069 news and private author/staff tickets [internal].**
   Owner authorizes the next news/updates and private ticket/reply slices. Added
   account-free curated `/news` with a shipped v2.6 post, separate development-news

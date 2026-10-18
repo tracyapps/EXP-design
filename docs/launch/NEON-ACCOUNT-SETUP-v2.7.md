@@ -1,10 +1,13 @@
 # EXP accounts: Neon + Vercel setup
 
-October 17, 2026. Owner has an existing Neon account and no EXP database yet.
-This began as the setup handoff. Update Oct 17: the owner connected Neon/Vercel,
-corrected the auth secret/TLS URL settings and verified real email-code account
-creation/sign-in. Do not recreate that working project. Project names, restricted
-runtime-role grants, retention and full hosted lifecycle proof remain unverified.
+October 17, 2026. The existing EXPdesign project is connected and production
+account creation/sign-in was owner-verified. Missing migration 007 is now applied;
+003/005/006/008 were already present. New SQL-created restricted logins
+`exp_account_app` / `exp_interest_app` now serve the production functions, and the
+owner's verified account has explicit support access. Do not recreate the working
+project or rerun applied migrations. Full hosted lifecycle, private author/staff
+workflow, retention and AT checks remain open. Exact operational evidence and
+limits: [hosted setup receipt](HOSTED-HUB-SETUP-2026-10-17.md).
 
 **For a new isolated test environment:** create a dedicated **EXP Preview** PostgreSQL project in your
 existing [Neon console](https://console.neon.tech/). Choose a US region suitable
@@ -24,12 +27,12 @@ installing an integration or changing the app's authentication architecture.
 
 | Item | Current evidence / action |
 | --- | --- |
-| Vercel website | Connector confirms `exp-design`, Node 24.x and `expdesign.app`. No production changes made. |
+| Vercel website | Production redeployed at source `13317af` with restricted per-purpose database connections; see dated receipt. |
 | Account pages / API | In source: `/account`, `/account/profile`, `/account/preferences`, `/account/beta`, `/account/pro`; `/api/account`. Existing SPA rewrites cover these pages; `/api/*` is excluded from SPA rewrite. No separate membership plugin required. |
-| Database | Create EXP-only Neon preview project; schema and restricted runtime credentials still needed. |
+| Database | Existing EXPdesign production, Ohio; account/interest databases and required schemas present. Restricted application logins verified. Isolate any future Preview testing. |
 | Authentication | Pinned Better Auth 1.7.10: private database sessions and single-use email codes. No separate hosted auth subscription required. |
-| Sign-in mail | Verify a sender domain/address and API key in Resend. Current production mail settings are **not verified**. |
-| Vercel settings | Existing connector's environment-variable listing was denied with HTTP 403; no local Vercel CLI available. Values/presence were not read or assumed missing. Use your project dashboard. |
+| Sign-in mail | Verify a sender domain/address and API key in Resend. Owner accepted actual email-code signup; sender kept unchanged. Full provider failure/delivery lifecycle remains open. |
+| Vercel settings | Connector env access was denied; authenticated dashboard access was available. Updated only two Production database Secrets; new news/ticket flags remain false. |
 | Public discovery | Account links are inside the account area. Main public navigation has no new account CTA. Add/review that only when the hosted flow is ready. |
 
 ## 1. Create the preview databases
@@ -40,7 +43,7 @@ roles and purposes. This is not a request for two paid accounts or auth provider
 [Neon database management](https://neon.com/docs/manage/databases).
 
 Use the project owner/migration role only for schema work. Create ordinary login
-roles `exp_account_runtime` and `exp_interest_runtime` for the website with access
+**with SQL**, roles `exp_account_app` and `exp_interest_app`, for the website with access
 only to their respective database tables; keep their passwords private. The
 provider-created owner/admin role is not the runtime credential. Roles created in
 Neon's console can have elevated membership; check the resulting grants rather
@@ -66,14 +69,14 @@ files deliberately fail on existing tables rather than overwrite stored accounts
 The code does not auto-migrate a hosted database at startup.
 
 After migration, the operator grants schema USAGE and SELECT/INSERT/UPDATE/DELETE
-on the existing account tables to `exp_account_runtime`, and equivalent access only
-on `exp_pro_interest` to `exp_interest_runtime`. No browser-facing database API or
+on the existing account tables to `exp_account_app`, and equivalent access only
+on `exp_pro_interest` to `exp_interest_app`. No browser-facing database API or
 PUBLIC table grants. For migration 008 **exclude the staff-grant table from CRUD**:
 runtime gets SELECT only on `exp_member_support_grant`, and SELECT/INSERT only on
 `exp_member_support_audit`. Exact grants, operator staff enrollment/revocation and
 hosted test gates: `NEWS-AND-TICKETS-v2.7.md`. Confirm account credentials cannot read
 the Pro database and Pro credentials cannot read account sessions. Database owner/schema/admin access
-does not belong in the deployed runtime. These grant/role checks are still pending.
+does not belong in the deployed runtime. The dated production receipt records grants/role boundaries and actual deployed login identities; future environments require their own checks.
 
 From Neon's **Connect** dialog, choose each runtime role/database and its pooled
 connection string for the Vercel functions. Use a direct migration connection for
@@ -114,7 +117,7 @@ credentials/secrets separate. Use only synthetic/authorized test data in Preview
 do not connect arbitrary previews to production accounts. Setting generic
 `DATABASE_URL` alone does not configure this app's purpose-specific URLs.
 Vercel applies changed values to **new deployments**, so saving a value does not
-update an already-running deployment. No deployment is authorized by this guide.
+update an already-running deployment. This guide is not independent deployment authorization; the dated receipt records the separately owner-authorized production setup.
 [Vercel environment behavior](https://vercel.com/docs/environment-variables).
 
 For a new secret, this Mac command copies a generated value to the clipboard

@@ -61,6 +61,11 @@ payment and license records live outside the repository; use sanitized summaries
       revisioned replies/status, explicit deletion, operator grants and audit.
       No senders/attachments. Migration 008/role grants and hosted privacy/operator/
       AT gates remain; contract: `launch/NEWS-AND-TICKETS-v2.7.md`.
+- [x] Owner-authorized hosted schemas/operator grant and restricted app-role setup:
+      007 applied, 008 already present; verified owner grant, separate SQL-created
+      account/Pro logins, reviewed-source redeployment and actual DB connection
+      identities observed. New news/ticket flags remain false; signed-in private
+      lifecycle/retention/AT gates remain open. `launch/HOSTED-HUB-SETUP-2026-10-17.md`.
 - [ ] Hosted account lifecycle/inbox/transport/origin/bot/retention and owner AT
       proof before public enablement; remaining hub slices are separately admitted.
 - [x] INFRA-006 local separate Pro request/confirm/withdraw with private PostgreSQL

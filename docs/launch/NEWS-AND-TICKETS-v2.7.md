@@ -104,10 +104,10 @@ shortcut to staff access.
    ```sql
    GRANT SELECT, INSERT, UPDATE, DELETE ON exp_member_news,
      exp_member_ticket, exp_member_ticket_event, exp_member_ticket_limit
-     TO exp_account_runtime;
-   GRANT SELECT, INSERT ON exp_member_support_audit TO exp_account_runtime;
-   REVOKE ALL ON exp_member_support_grant FROM exp_account_runtime;
-   GRANT SELECT ON exp_member_support_grant TO exp_account_runtime;
+     TO exp_account_app;
+   GRANT SELECT, INSERT ON exp_member_support_audit TO exp_account_app;
+   REVOKE ALL ON exp_member_support_grant FROM exp_account_app;
+   GRANT SELECT ON exp_member_support_grant TO exp_account_app;
    ```
 
    Confirm the runtime login does not own these tables or inherit an administrative
@@ -179,3 +179,14 @@ Standards checked before semantic/naming/focus changes: W3C
 [ARIA in HTML](https://www.w3.org/TR/html-aria/),
 [keyboard interface](https://www.w3.org/WAI/ARIA/apg/practices/keyboard-interface/),
 [WCAG 2.1 focus order](https://www.w3.org/TR/WCAG21/#focus-order).
+
+## Hosted continuation — October 17
+
+Owner authorized schema/support setup and clarified the verified account separately
+from the sender identity. Migration 008 was already present; applied missing 007,
+granted the verified owner support access, replaced administrative connection
+logins with SQL-created restricted roles and redeployed the same reviewed source.
+The two purpose-specific Production URLs now use `exp_account_app` /
+`exp_interest_app`. New ticket/news write flags remain false; private browser
+author/staff lifecycle and remaining operating gates are still open. Details and
+failed-probe boundaries: [dated hosted receipt](HOSTED-HUB-SETUP-2026-10-17.md).
