@@ -136,7 +136,12 @@ private enum SemanticHTMLPackageCheck {
         // first re-run showed the same class of drift — manifest bytes only,
         // while every embedded digest above still matches — verified by
         // generating from pre-BUG-062 code and comparing bytes.
-        require(sha256(manifestData) == "e3f688827dcef7beae741deed9b23e68f1061cb5b8982f4882ec540a92990877",
+        // Re-reviewed 2026-10-18 after FEAT-071: two fixture component sources
+        // now encode hasExplicitBounds=false. Comparing complete packages with
+        // the pre-FEAT-071 Document model isolates those two fields (+70 design
+        // bytes) and their manifest entry size/hash. HTML, CSS, tokens, README
+        // and all other manifest fields are byte-identical. No assertion removed.
+        require(sha256(manifestData) == "6400d6b5497b40951019c65b5c80a4d1305e40c59a30d506fdd8dcfc3c3014ba",
                 "handoff manifest no longer matches the reviewed golden")
         require(sha256(Data(readme.utf8)) == "0aca4002dc6c9c9e57c4b9b5bf9f922c3ed8c79b3b20331698a967cdcff8637f",
                 "handoff README no longer matches the reviewed golden")
