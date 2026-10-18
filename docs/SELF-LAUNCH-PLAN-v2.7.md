@@ -22,6 +22,12 @@ Start here for execution. [Release gates](RELEASE-CHECKLIST-v2.7.md) hold receip
 [source checks](SELF-LAUNCH-SOURCES-2026-10-16.md) support commercial decisions.
 ROADMAP remains the authority for scope and session continuity.
 
+**Owner amendment October 18:** add FEAT-033 Mesh fill and FEAT-073 image
+Duotone / Color Matrix to v2.7. These are selected implementation targets, not
+shipped claims. Exact scope, dated sequence and fidelity gates:
+`VISUAL-FEATURES-v2.7.md`. Prior FEAT-033 deferrals below are historical and
+superseded by this amendment.
+
 ## Decisions and boundaries
 
 - v2.7 is the **commercial-readiness cycle**. The scoping gate is satisfied for
@@ -37,7 +43,8 @@ ROADMAP remains the authority for scope and session continuity.
 - New document-mutating work remains sequential: build one slice, get owner
   acceptance, then start the next. Non-mutating docs/site work can proceed.
 - No Windows port, collaboration platform, investor process, sale process or
-  broad typography/color overhaul in this cycle. Collect platform requests in
+  broad typography/color overhaul in this cycle. The October 18 Mesh/Color Matrix
+  amendment is explicitly bounded to those two features. Collect platform requests in
   interviews; do not start another public waitlist competing with the Mac CTA.
 - Public posting, email sends, paid placements, account agreements, final video
   rendering and deployment require their own owner authorization. This plan
@@ -59,7 +66,7 @@ ROADMAP remains the authority for scope and session continuity.
 | SVG clip-path/CSS masks | SVG exporter and native masks exist; inventory covers a much larger future capability set | One bounded SVG clip-path candidate after core gates; no promise of full CSS mask support |
 | Background blur and inner shadow | Export parity gaps/BUG-055 remain; BUG-034 Stage 2 intentionally parked | Test marketed demo; truthful warnings or bounded fixes, no silent loss; do not reopen parked work |
 | Color/palette/token completeness | ROADMAP Phase 18 closed; older backlog statuses lag shipped controls/import/export | Reconcile status before coding; APCA and broad picker work are not commercial gates |
-| Notes, outlines, advanced gradients | Notes task lists shipped in 2.6; other edge cases need current repros | Regression inventory; fix only a reproducible core-flow blocker; FEAT-033 stays later |
+| Notes, outlines, advanced gradients | Notes task lists shipped in 2.6; other edge cases need current repros | Notes heading/link slice locally checked; owner adds FEAT-033 Mesh on Oct 18 with export/re-import/performance gates; outlines remain regression triage |
 | Rich text | Current model already has rich-text runs; remaining phase work is narrower | Do not schedule a wholesale rich-text subsystem from the report's summary |
 | ≥1% intent / 50 presales | Report labels these planning gates; denominators and sample sizes were inconsistent | Use explicit cohorts and counts below; 50 purchases is a stretch milestone, not a launch prerequisite |
 | $0–500 / six weeks | Excludes substantial owner labor and possibly legal/provider costs | Cap experimental spend separately; preserve contingency and quality gates |
@@ -292,7 +299,11 @@ Background blur, outline/underline and BUG-055: current fixture + observed resul
 + output-specific disclosure or bounded fix. A report about an intentional omission
 is acceptable only when the user sees it before relying on output. A silent core
 data-loss defect blocks release. BUG-034 Stage 2 remains parked. FEAT-057/059/060,
-FEAT-033, APCA, full token tooling and broad typography stay post-launch candidates.
+APCA, full token tooling and broad typography stay post-launch candidates.
+FEAT-033 and FEAT-073 now have their own owner-selected bounded work cards in
+`VISUAL-FEATURES-v2.7.md`. Optional clip-path work does not displace their review
+or the existing accessibility/account gates. Review scope/date with the owner
+on Nov 6 if these additions threaten the conditional Nov 20 release.
 
 Run focused checks per change, then the established release battery at freeze;
 record real fixtures and commands in the release checklist. Preserve v2.6 and

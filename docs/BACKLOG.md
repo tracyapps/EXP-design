@@ -3136,11 +3136,41 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 
 ## ✨ Features
 
+### FEAT-073 — Color Matrix sliders and image duotone
+- Type: feature
+- Priority: P1 — selected for v2.7 on 2026-10-18
+- Area: color · effects · inspector · canvas · export · import
+- Status: scoped — fidelity/render proof first; not implemented
+- Owner request: add the SVG color-matrix effect, including sliders, to make
+  duotone images and provide another visual feature to demonstrate at launch.
+- Slice: friendly shadow/highlight colors and strength; Advanced exposes all
+  twenty 4×5 coefficients with sliders plus exact keyboard-editable values and
+  identity reset. Default duotone preserves source transparency. Coefficient
+  values outside convenient slider ranges must survive import/save/reopen.
+- Technical contract: finite matrix coefficients, explicit working color space,
+  non-premultiplied channel math and correct output premultiplication. Preserve
+  imported sRGB/linearRGB semantics or report unsupported combinations. Native
+  canvas/PNG/PDF and exported SVG must agree. Existing effect grouping/order is
+  not a general filter graph; define supported ordering before integration.
+- Import scope: standalone/unbranched supported `feColorMatrix` chains first,
+  including images. Other graphs retain explicit import reporting. No claim
+  of general component transfer, displacement or all CSS filter functions.
+- UI/commands: existing Effects Add/menu/context routes; contextual validation,
+  labeled coefficient controls, numeric alternatives to dragging, one Undo per
+  gesture, no default-width panel overflow. Shared targets/thumbnail/export,
+  component states and appearance copy/paste require regression checks.
+- Plan, dated sequence and release acceptance: `VISUAL-FEATURES-v2.7.md`.
+- Sources reviewed 2026-10-18: W3C Filter Effects §9.6 and §10
+  https://www.w3.org/TR/filter-effects-1/#feColorMatrixElement ; Apple CIColorMatrix
+  https://developer.apple.com/documentation/coreimage/cicolormatrix . Source
+  candidate, not proof of Core Image/SVG numerical parity or accessibility.
+
 ### FEAT-072 — Markdown heading levels and links in artboard notes
 - Type: feature
 - Priority: P2
 - Area: notes · type · accessibility
-- Status: needs-verify — implemented with real AppKit checks; owner in-app/AT review pending
+- Status: owner reported an issue 2026-10-18 — reproduction details requested;
+  local AppKit checks pass, but owner acceptance is not complete
 - Owner scope 2026-10-18: expand the existing small Markdown subset with headings
   and links. This is separate from BUG-017's structured HTML export contract.
 - Implementation: `#` through `######` headings; basic `[label](URL)` web/mail
@@ -5953,9 +5983,15 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 
 ### FEAT-033 — Advanced multi-point gradient edited directly on the object
 - Type: feature
-- Priority: P3
+- Priority: P1 — selected for v2.7 on 2026-10-18
 - Area: color · canvas · export
-- Status: open
+- Status: scoped — v2.7 Mesh fill; fidelity/render proof first, not implemented
+- Current owner scope 2026-10-18 supersedes the previous release deferrals:
+  include Mesh in v2.7's visual launch story. Preserve the August 19 choice of
+  a base color plus layered radial color points. First deliverable: agree the
+  shared native/CSS/SVG compositing and re-import contract, prove it on bounded
+  fixtures, then add numeric and on-object editing. This is not a Bézier patch
+  mesh. Dated work, dependencies and acceptance: `VISUAL-FEATURES-v2.7.md`.
 - Repro/Detail: Owner request 2026-08-11: an "advanced" gradient where points are
   added directly on the object, each color's radius is definable, more can be added,
   and the flow of placing and resizing points on the object is smooth. Owner cannot
@@ -5995,9 +6031,13 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   reading it back as one editable freeform fill is the harder half.
   **Scheduled for v2.4 by the owner** (2026-08-19): *"it can be next version since
   we're improving quite a bit in this next release already."* FEAT-032 ships first.
-- Acceptance: not ready for an acceptance contract, but the export story is no longer
-  the blocker — the first deliverable is now the SVG half of it plus the import
-  round-trip question, then a UI spec.
+- Current acceptance: editable base and color points with position/radius/color/
+  opacity, add/remove/reorder and drag plus numeric keyboard alternatives; one
+  Undo per gesture; save/reopen/duplicate/component-state/library behavior; native
+  canvas/PNG/PDF and CSS/SVG agreement on non-square, transformed, clipped and
+  translucent fixtures; bounded stress performance. EXP-authored round-trip must
+  retain points. Arbitrary third-party gradient stacks are not silently guessed
+  to be a single mesh. Full gate and source paths: `VISUAL-FEATURES-v2.7.md`.
 
 ### FEAT-034 — "Add to Design Language" from the gradient and font controls
 - Type: feature

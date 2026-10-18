@@ -171,6 +171,21 @@ payment and license records live outside the repository; use sanitized summaries
 - [ ] Stale color/palette/rich-text backlog statuses reconciled from evidence;
       no invented completion claims or broad unrequested subsystem work.
 
+## Visual feature gate — owner adds October 18
+
+- [ ] FEAT-073 Duotone/Color Matrix: actual image, alpha, identity, signed values,
+      working color space, canvas/PNG/PDF/SVG parity and bounded supported SVG
+      import/round-trip verified; all twenty slider/numeric coefficients editable.
+- [ ] FEAT-033 Mesh: base plus editable radial points; numeric/on-object editing,
+      layering/radii/opacity, save/reopen/undo and native/CSS/SVG/PNG/PDF fidelity
+      verified; EXP-authored re-import retains editable points.
+- [ ] Both: panel-fit, keyboard/VoiceOver, appearance, shared thumbnail target,
+      component-state/style-library behavior, real stress performance and owner
+      acceptance recorded. No universal filter-graph or third-party mesh claim.
+- [ ] November 6 scope/date review complete; Nov 9–13 reserved for regressions.
+      Marketing demos/claims use accepted behavior. Remaining gates still apply.
+      Implementation cards and current evidence: `VISUAL-FEATURES-v2.7.md`.
+
 ## Pro offer gate — select by November 6
 
 - [ ] Same candidate benefit shown with one-time and recurring price cards in

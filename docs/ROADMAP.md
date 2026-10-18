@@ -1295,6 +1295,15 @@ from the appcast; a development plan does not change the published release.
 - [x] **Owner direction:** self-launch / Pro signup, analytics, licensing and
       remaining verification. Capacity 12–15 owner hours/week; test both one-time
       and recurring pricing with prospective users before choosing.
+- [x] **October 18 scope amendment:** owner adds two visual v2.7 features:
+      FEAT-033 Mesh fill (base plus radial color points) and FEAT-073 image
+      Duotone / Color Matrix, including advanced coefficient sliders.
+- [ ] FEAT-073: prove matrix/alpha/color-space/export behavior, then implement
+      native effect, duotone controls and all twenty advanced values; owner accepts.
+- [ ] FEAT-033: prove layered-radial native/CSS/SVG and re-import contract, then
+      implement Mesh fill/on-object plus numeric editing; owner accepts.
+      Work is sequential after the current notes gate. Dated work cards and
+      acceptance: `VISUAL-FEATURES-v2.7.md`; Nov 6 scope/date review precedes freeze.
 - [x] Report/roadmap reconciliation and execution plan written:
       `SELF-LAUNCH-PLAN-v2.7.md`; primary corrections in
       `SELF-LAUNCH-SOURCES-2026-10-16.md`; friend-facing brief in
@@ -1326,7 +1335,8 @@ from the appcast; a development plan does not change the published release.
       plain-string storage. `NOTES-FORMATTING-v2.7.md` records the supported subset.
 - [ ] Owner reviews FEAT-072 integrated notes editing/save/reopen/undo and real
       keyboard/VoiceOver link activation before another document-mutating slice.
-      BUG-017 structured standalone HTML notes remain separate/open.
+      Owner reports an issue October 18; reproduction details requested. Fix and
+      reverify notes first. BUG-017 structured standalone HTML notes remain separate/open.
 - [ ] Full 1x/2x, light/dark, Large interface type and AT matrix; signed release
       payload audit remains a freeze gate. Visual acceptance alone does not close these.
 - [x] **INFRA-005 local release-signup foundation:** durable storage before success,
@@ -1420,9 +1430,11 @@ owner, AT, hosted delivery or checkout proof complete from source checks alone.
 Public sends, deployment, account agreements and final promo rendering remain
 separately authorized. Shipped free editing/exports stay available.
 
-FEAT-057/059/060, FEAT-033, broad color/typography/token work and full CSS mask
+FEAT-057/059/060, broad color/typography/token work and full CSS mask
 support remain post-launch candidates. FEAT-052 remains deferred; BUG-034 Stage 2
 remains parked. Do not start a second document-mutating slice before acceptance.
+FEAT-033's earlier deferrals are superseded by the owner's October 18 v2.7
+amendment; FEAT-073 is the bounded Color Matrix slice, not the entire filter inventory.
 
 ## v2.6 — released (2026-10-01); complete (2026-10-02)
 
@@ -3460,6 +3472,26 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-10-18 — Visual v2.7 scope: Mesh and Duotone/Color Matrix [internal].**
+  Owner adds FEAT-033 Mesh and new FEAT-073 Color Matrix sliders/image duotone.
+  Superseded current post-launch Mesh deferrals in roadmap/launch plan, preserving
+  historical entries; added release gates and `VISUAL-FEATURES-v2.7.md` with dated
+  work cards and explicit native/export/re-import/AT/performance acceptance.
+  Sequence: Color Matrix first, Mesh second; Oct 20–23 and Oct 26–30 internal
+  implementation targets, Nov 2–6 repairs/evidence, Nov 6 scope/date review and
+  existing Nov 16/20 RC/release targets conditional on gates. Preserve the owner's
+  layered-radial Mesh choice; Color Matrix includes all 20 advanced values plus
+  friendly duotone controls. No broad filter graph or price/tier assignment.
+  Source inventory confirms neither is implemented and current effect paths group
+  kinds; imported matrix color-space/order need deliberate handling. W3C/Apple
+  references checked. Standalone software Core Image probe passes five matrices
+  over nine RGBA pixels (45 comparisons, max byte error 1); no app, SVG/browser,
+  linearRGB or performance proof claimed. Log/JSON/repeat in the visual plan.
+  Owner answers notes verification with an issue; reproduction details requested.
+  Repair/review FEAT-072 before Color Matrix production integration; independent
+  research/probes continue. No shipping model/renderer changed, no owner document
+  edited. No push, deployment or release artifact change; BUG-034 remains parked.
 
 - **2026-10-18 — Handoff baseline restored; notes headings/links FEAT-072 [internal].**
   Owner authorizes the next piece and expands notes scope. Deliberately updated

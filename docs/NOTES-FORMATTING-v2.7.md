@@ -2,6 +2,8 @@
 
 October 18, 2026 · FEAT-072 · development 2.7/build 18.
 Implemented/local checks pass; owner review remains pending.
+Owner reports an issue October 18; reproduction details requested. Do not mark
+acceptance complete or start the next document-mutating feature before repair/review.
 
 ## What changed
 

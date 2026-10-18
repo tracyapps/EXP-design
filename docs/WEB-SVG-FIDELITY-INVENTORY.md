@@ -46,6 +46,9 @@ accumulating raster fallbacks.
       opacity, and channel-mix presets. Import general SVG `feColorMatrix` and
       the equivalent CSS `filter()` functions; export the exact matrix. Keep an
       Advanced 20-value editor for uncommon channel work.
+      **Owner selects the bounded Duotone/Color Matrix slice for v2.7 on October 18:**
+      FEAT-073; `VISUAL-FEATURES-v2.7.md`. No implementation/import pass is implied.
+      General CSS filter functions and the rest of this inventory remain separate.
 - [ ] **Component Transfer.** Per-channel linear, gamma, table, and discrete
       transfer functions (`feComponentTransfer` / `feFuncR|G|B|A`). Friendly
       Levels/Gamma controls first; advanced curves/table editing later. EXP's
