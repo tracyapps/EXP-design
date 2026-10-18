@@ -3302,6 +3302,14 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   GitHub gets only a narrow token; DB/Resend stay in Vercel. Job-role credentials,
   hosted preview/dispatch, policy approval and actual mail/deletion remain pending.
   Exact activation/rollback: `launch/TICKET-NOTIFICATIONS-AND-RETENTION-v2.7.md`.
+- Subsequent owner-approved hosted setup: `cb38edc` production READY and protected
+  endpoint returns 401 anonymously. Created SQL job role with NOLOGIN and exact
+  restricted grants; catalog denies admin privileges/session token/ticket text/
+  staff writes. Owner-only credential wizard prepared and syntax/static checked;
+  no interactive run, new credentials, hosted preview or enablement inferred.
+  Current handoff/receipts are in the same job document. Recheck role after password
+  setup before read-only preview. Neon role/reset behavior checked against
+  https://neon.com/docs/manage/roles (SQL identity preserved; no Add role).
 - Accessibility sources checked before initial form/naming changes:
   https://www.w3.org/WAI/tutorials/forms/labels/ (explicit native labels),
   https://www.w3.org/TR/wai-aria-1.2/#status (polite status announcements),

@@ -3,7 +3,8 @@
 October 17–18, 2026 · FEAT-069 continuation. Queue/cleanup and the protected
 HTTP runner are locally verified. Additive migration 009 and incremental app-role
 grants are now applied to hosted `exp_accounts`; zero queued jobs observed.
-The owner selected GitHub Actions. Its environment is prepared, while credentials,
+The owner selected GitHub Actions. Its environment is prepared and the approved
+restricted job role now exists with login disabled. Owner credential entry,
 live workflow execution, mail delivery and approved deletion remain pending.
 Production ticket writes remain paused. Earlier no-notifier/no-job statements
 in [news and private tickets](NEWS-AND-TICKETS-v2.7.md) describe their dated slices.
@@ -165,20 +166,77 @@ the matching policy variable for retention. Preview does not send or delete.
   was preserved. Repository variables `ACCOUNT_JOBS_READY`,
   `ACCOUNT_TICKET_MAIL_ENABLED` and `ACCOUNT_RETENTION_ENABLED` are all `false`.
   No environment secrets have been installed. The local workflow is not a hosted
-  run. No dedicated job login or Vercel job credential is created in this slice.
+  run. This initial preparation created no job login or Vercel job credential;
+  the subsequently approved disabled role is recorded below.
+
+### Approved role setup and credential handoff — October 18
+
+Owner explicitly approved creating the restricted, login-disabled job role and
+guided private credential setup. Created **`exp_account_jobs` with NOLOGIN** using
+SQL, then applied exactly the job grants in `migrations/grants/009_account_jobs.sql`.
+The guarded transaction ran in `exp_accounts` and committed. Fresh catalog results:
+
+| Check | Observed immediately after creation |
+| --- | --- |
+| Login / superuser / create role / create DB / replication / bypass RLS | All false |
+| Role memberships | 0 |
+| Create public-schema objects | false |
+| Read recipient email | true |
+| Read session token / ticket message / insert support grant | All false |
+
+No password was entered or generated for this role by the agent. Screenshot:
+`output/a11y/hosted-job-setup-20261018/role-grants-verified.png`. The owner-only
+handoff enables LOGIN, uses **Reset password on this exact existing role**, then
+saves its `exp_accounts` pooled URL with `sslmode=verify-full` as Vercel Production
+Secret `EXP_ACCOUNT_JOBS_DATABASE_URL`. Do not create a replacement role using
+Neon's Add role control: the SQL-created restricted identity must be retained.
+Role attributes/grants must be rechecked after the credential handoff.
+
+The owner's pushed `cb38edccddb6d2be47286caef036c73ad9996777` is production READY:
+deployment `dpl_2yhxaavT7iqm65DewnwgWQH3ZVjs`, assigned to `expdesign.app`.
+Fresh public `/accounts` returns 200; unauthenticated `/api/account-jobs` returns
+401 with `Cache-Control: no-store`. This is deployment/access refusal proof,
+not an authenticated job preview. The GitHub workflow is present/active, while
+all three repository switches remain false and its dedicated environment has
+no secrets at this observation.
+
+The Vercel connector refused environment metadata access with 403; no CLI fallback
+is installed. The already authenticated dashboard remains available. Its new
+Production Secret form is prepared with the job-URL key and an empty value.
+Browser rules require the owner to enter/confirm/submit new credentials directly;
+neither a secret reveal nor a connector-authorization workaround was attempted.
+
+A local ephemeral five-stage wizard is prepared at
+`/Users/tapps/exp-account-jobs-setup-20261018.sh`:
+
+1. Owner enables LOGIN on this existing role in the selected account database.
+2. Owner sets its password using the existing role's Reset password action.
+3. Owner saves the job URL only in the Vercel Production Secret form.
+4. Wizard generates a random 256-bit job token in a private mode-600 file outside
+   Git; owner copies it into Vercel, then the human-run wizard installs the same
+   token in the explicit GitHub `exp-account-jobs` environment through stdin.
+5. Return to Codex for deployment, restricted-identity verification and read-only
+   hosted preview. No readiness, mail or retention flag is written by the wizard.
+
+The local token retry file is
+`~/.config/exp-design/account-job-setup/credentials.env` (or beneath the owner's
+configured XDG config home). Keep it private; no DB URL/Resend/auth secret is
+captured there. The wizard library was copied unchanged from the installed wizard
+skill. `bash -n` passes; static tracing verifies environment scope and no rollout
+flag writes. Shellcheck is unavailable. Per the skill, it was **not** run through
+interactive prompts by the agent. Credential completion is not inferred from
+preparing the wizard. It is intentionally local/ephemeral, not release source.
 
 ### Remaining activation sequence
 
 1. Owner reviews/pushes this source; confirm its Vercel deployment includes the
    endpoint before configuring jobs. Keep feature flags off. Existing app/auth
    credentials remain in place; the job needs neither auth secret nor Pro DB URL.
-2. Create an ordinary SQL login `exp_account_jobs` with a fresh private generated
-   credential, no admin memberships/attributes, schema CREATE or table ownership.
-   Apply only its reviewed grants in `migrations/grants/009_account_jobs.sql`.
-   The existing app grants in that file are already applied. Confirm catalog
-   attributes/object privileges, including denial of auth tokens, message text,
-   staff promotion and account verification. New access/credential setup needs
-   the owner's explicit authorization and secure credential handoff.
+2. The ordinary SQL role and its reviewed grants are now created and verified
+   as above. Complete the owner-only LOGIN/password handoff on that existing
+   identity, then recheck attributes/object privileges, including denial of auth
+   tokens, message text, staff promotion and account verification. Do not recreate
+   it or rerun the guarded creation transaction. Existing app grants are unchanged.
 3. Add Production Vercel Secret values `EXP_ACCOUNT_JOBS_DATABASE_URL` (that login,
    `exp_accounts`, `sslmode=verify-full`, preserved Neon channel binding) and a
    random dedicated token `EXP_ACCOUNT_JOB_TOKEN` of at least 32 characters.

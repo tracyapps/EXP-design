@@ -3450,6 +3450,32 @@ font import → Phase 9, shadows → Phase 10._
 
 ## Progress Log
 
+- **2026-10-18 — Hosted job role approved; private credential handoff ready [internal].**
+  Owner continues and explicitly approves the restricted NOLOGIN role plus guided
+  credential setup. Confirms pushed `cb38edc` is production READY on `expdesign.app`
+  (`dpl_2yhxaavT7iqm65DewnwgWQH3ZVjs`); public `/accounts` returns 200 and job
+  endpoint refuses unauthenticated access with 401/no-store. GitHub workflow is
+  present; three enable variables false and dedicated environment secrets empty.
+  Created `exp_account_jobs` with NOLOGIN through guarded SQL in `exp_accounts` and
+  applied the reviewed column/table job grants. COMMIT and fresh catalog proof:
+  all admin/login flags false, memberships 0, no public-schema CREATE, permitted
+  recipient email read, denied session token/ticket message/staff promotion.
+  Receipt screenshot: `output/a11y/hosted-job-setup-20261018/role-grants-verified.png`.
+  Vercel connector denies env metadata with 403; no CLI installed. Dashboard form
+  is prepared for empty Production Secret `EXP_ACCOUNT_JOBS_DATABASE_URL`.
+  Browser policy requires human entry/submission of new credentials; owner-only
+  login/password/URL/token steps are ready, not executed by the agent. Using the
+  wizard skill, prepared ephemeral `/Users/tapps/exp-account-jobs-setup-20261018.sh`
+  with unchanged library, five stages, private generated token retry file and
+  explicit GitHub environment-scoped stdin secret write. It never captures DB URL
+  or enables a rollout flag. `bash -n` and static trace pass; Shellcheck unavailable;
+  interactive run is human-only and not claimed. No application code changed,
+  no new deployment/mail/cleanup/hosted preview. NEXT: owner completes wizard and
+  reports credentials saved; recheck role/env metadata, redeploy reviewed source,
+  then dispatch read-only preview. Mail/inbox/policy/restore-erasure and AT gates
+  remain open. Full current receipt/steps:
+  `launch/TICKET-NOTIFICATIONS-AND-RETENTION-v2.7.md`.
+
 - **2026-10-18 — FEAT-069 private photos, account menu and paused GitHub jobs [internal].**
   Owner requests a profile photo/circular far-right login/account dropdown and an
   account explanation, then selects GitHub Actions for five-minute ticket checks.
