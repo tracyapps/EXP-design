@@ -1382,7 +1382,9 @@ from the appcast; a development plan does not change the published release.
       disabled repository switches prepared, protected HTTP runner locally tested.
       Owner credential setup and real GitHub → Vercel → restricted Neon preview
       pass October 18 (run `39117511031`). Readiness true; mail/retention switches
-      false. Real inbox delivery and live erasure remain unverified. Activation:
+      false. Combined local auth/ticket/HTTP-worker/captured-mail rehearsal also
+      passes; real inbox delivery and live erasure remain unverified. Acceptance:
+      `launch/TICKET-INBOX-ACCEPTANCE-v2.7.md`. Activation:
       `launch/TICKET-NOTIFICATIONS-AND-RETENTION-v2.7.md`.
 - [ ] Reliable separate Pro-interest signup, permission/delivery/unsubscribe proof,
       data map and owner-reviewed privacy/EULA/refund/ownership decisions.
@@ -3451,6 +3453,31 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-10-18 — Account/ticket local rehearsal and morning-push handoff [internal].**
+  Owner asks to finish the current portion and leave the push to them. Added one
+  combined HTTP journey to the standard account suite: real email-code registration/
+  session cookies, separate restricted app and worker roles, author ticket →
+  captured support mail → staff reply → captured author mail. It exercises the
+  actual GitHub HTTP client/Resend adapter against loopback, plus foreign-session
+  denial, session-versus-job authorization, no duplicate delivery, opt-out/no replay,
+  grant revocation, local ticket deletion, sign-out and denied privileged reads/
+  staff promotion. Uses its own disposable database and synthetic mail only;
+  role restrictions use SET ROLE, not hosted password authentication. First run
+  caught a test assertion reading `ticketMail` instead of the CLI's projected
+  `counts`; corrected the fixture, not production code. Original failure retained
+  at `/tmp/exp-account-final-journey-20261018.log`. Fresh full `npm test` exits 0:
+  154 service cases (15 signup, 23 Pro, 102 account/job/journey, 14 usage), plus
+  existing native lifecycle and actual URLSession→HTTP→DB checks. Receipt:
+  `/tmp/exp-account-finish-services-20261018.log`.
+  Added `launch/TICKET-INBOX-ACCEPTANCE-v2.7.md` with approved-recipient/queue review,
+  manual dispatch, inbox/spam observations, opt-out, pause and schedule gates.
+  It explicitly identifies global flags (no private tester allowlist); no sole
+  support-grant revocation or live-account deletion as a test shortcut. No shipped
+  app/site behavior, provider configuration, real email, cleanup or push changed.
+  NEXT: owner pushes; confirm the resulting deployment, then approve the exact
+  test recipients and conduct the hosted inbox journey. Mail/retention scheduling
+  and policy/restore-erasure/physical AT gates remain open.
 
 - **2026-10-18 — Restricted hosted job connection and GitHub preview pass [internal].**
   Owner completes credential wizard and corrects the saved job database URL after

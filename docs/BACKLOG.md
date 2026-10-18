@@ -3320,6 +3320,14 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   Next: approved recipients/operating review and controlled ticket/inbox journey;
   retention policy/restore-erasure and physical AT remain open. Earlier setup
   statements above are historical; current receipt is in the job handoff.
+- October 18 final local rehearsal: standard account verification now includes
+  `tests/account-ticket-journey.test.mjs`, joining actual email-code auth/cookies,
+  app/worker restrictions, ticket/reply/queue, HTTP CLI and loopback provider
+  capture. Checks foreign-session denial, opt-out/no replay, revoked staff,
+  duplicate suppression, local erasure/sign-out and denied privileged queries.
+  Fresh full service suite: 154 cases pass plus native/wire checks; no production
+  behavior/configuration or real deliveries changed. Hosted acceptance and pause
+  procedure: `launch/TICKET-INBOX-ACCEPTANCE-v2.7.md`. Owner pushes next.
 - Accessibility sources checked before initial form/naming changes:
   https://www.w3.org/WAI/tutorials/forms/labels/ (explicit native labels),
   https://www.w3.org/TR/wai-aria-1.2/#status (polite status announcements),

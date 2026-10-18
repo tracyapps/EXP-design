@@ -303,6 +303,9 @@ Credential/deployment/role checks and the initial hosted preview are complete
 as recorded above. Do not recreate the role or repeat password initialization.
 The next gated steps are:
 
+Use the [hosted inbox acceptance checklist](TICKET-INBOX-ACCEPTANCE-v2.7.md) for
+the approved recipients, exact observations and private evidence boundaries.
+
 1. With approved test recipients and operating review, separately enable reviewed
    ticket/mail flags in Vercel. Manually test member → support reply → member
    read/close/delete, actual inbox/spam delivery, independent opt-out, retries,
@@ -331,6 +334,21 @@ The private direct-DB CLI remains available to an authorized operator:
 It is a manual fallback; do not install a second scheduler for it.
 
 ## Verification and sources
+
+October 18 local wrap-up: `tests/account-ticket-journey.test.mjs` now joins
+registration/cookies, restricted app and worker roles, actual account HTTP adapter,
+GitHub HTTP client and Resend adapter with a loopback provider capture. It verifies
+the author/support notification round trip, foreign-session and cookie/job-token
+separation, opt-out/no replay, duplicate suppression, grant revocation, local
+ticket deletion, sign-out and denied privileged queries. The fixture has its own
+disposable database; SET ROLE verifies privileges, not password authentication.
+It loads no hosted credentials and sends no real mail. Fresh `npm test` passes
+**154 service cases** plus existing native/wire checks, exit 0:
+`/tmp/exp-account-finish-services-20261018.log`. An initial fixture assertion used
+the endpoint's `ticketMail` key instead of the CLI's `counts`; that test-only
+mistake was corrected. Historical failure retained at
+`/tmp/exp-account-final-journey-20261018.log`. No browser/UI or production behavior
+changed in this wrap-up, so prior browser evidence was not rerun or expanded.
 
 Focused feature-gap check initially failed because the ticket email preference
 was absent: `/tmp/exp-ticket-jobs-gap.log`. Fresh disposable PostgreSQL checks cover

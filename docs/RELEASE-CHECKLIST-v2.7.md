@@ -93,6 +93,12 @@ payment and license records live outside the repository; use sanitized summaries
 - [ ] Controlled inbox journey before mail schedule activation. Repository readiness
       true; mail/retention switches false and their workflow steps skipped.
       Retention policy approval and restore-erasure remain open. No send/delete run.
+      Exact next-session checklist: `launch/TICKET-INBOX-ACCEPTANCE-v2.7.md`.
+- [x] Combined local HTTP sign-in/ticket/worker/provider-capture journey through
+      separate restricted roles, including opt-out/no replay, revoked access,
+      duplicate suppression, local deletion and sign-out. Fresh `npm test` passes
+      154 service checks plus existing native/wire checks, exit 0:
+      `/tmp/exp-account-finish-services-20261018.log`. No real inbox claim.
 - [x] Owner-approved SQL job-role grants created with NOLOGIN; fresh catalog proves
       no admin membership/schema creation/session-token/ticket-text/staff-write
       access. Owner credential handoff complete; post-password LOGIN true with all
