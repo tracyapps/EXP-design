@@ -118,6 +118,12 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - FEAT-070 first semantics slice: the two grid fields are now named and the
   decorative `rectangle.3.group` illustration is hidden. Their focused native
   checks pass; other audit categories remain open. Retain original receipts.
+- October 18 triage: the later October 17 receipt has 23 observations, not 27
+  (`ACCESSIBILITY-VERIFICATION.md`). A fresh build passes, but the October 18
+  isolated runner times out enabling macOS automation before either selected
+  test executes. No fresh audit or regression pass is claimed. Prioritize visible
+  text contrast and menu actions; structural/native-control findings still need
+  behavior/reader evidence. Queue and exact receipts: `BUG-TRIAGE-v2.7.md`.
 - Acceptance: investigate each finding with actual control behavior and standards;
   fix real defects and retest. Any platform/container false positive needs a
   narrowly documented reason and human AT evidence; no blanket suppression.
@@ -181,7 +187,8 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: bug
 - Priority: P1
 - Area: canvas · paint
-- Status: **fixed 2026-09-03 (needs owner confirmation on canvas)**
+- Status: **done — owner verified on canvas 2026-09-03.** Status reconciled
+  October 18 from ROADMAP's September 3 owner acceptance; no new fix claimed.
 - Repro/Detail: Owner 2026-09-03, first look at FEAT-062 Stage B on the canvas:
   "the pattern itself is not pinned to its container… like a background image
   placed in 'fixed' position, and zoom and panning moves the pattern itself
@@ -203,10 +210,14 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   - Tile rasterisation resolution now reads the CONTEXT scale COMPOSED WITH
     `patternSpace`. Reading the CTM alone pinned every canvas tile at 1×, so
     patterns went soft the moment you zoomed in.
-- **Verified only in part, and worth stating:** the fixture suite still passes
+- **Original source-check boundary (superseded by owner acceptance below):** the fixture suite still passes
   38/38, but it exercises the export path, where `patternSpace` is a translation.
   The pan/zoom behaviour this entry is about is canvas-only and needs the owner's
   eyes; there is no harness for it here.
+- Owner confirmation is recorded in ROADMAP's September 3 Progress Log:
+  "pattern now being affixed to the object is now fixed" (alongside BUG-064).
+  The earlier pending label was stale; the historical export-only test boundary
+  is retained above so it is not mistaken for automated canvas proof.
 - **Open design question this exposes, NOT a bug:** with the lattice anchored in
   document space, moving a SHAPE slides the pattern underneath it. That is
   correct SVG `patternUnits="userSpaceOnUse"` behaviour and it is what round-trips

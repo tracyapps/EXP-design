@@ -3455,6 +3455,24 @@ font import → Phase 9, shadows → Phase 10._
 
 ## Progress Log
 
+- **2026-10-18 — v2.7 native bug polish triage [internal].**
+  Reviewed the open bug queue against current source and owner receipts; BUG-034
+  Stage 2 remains excluded. Reconciled BUG-066's stale pending status with its
+  explicit September 3 canvas acceptance. Recommended order and acceptance scopes:
+  `BUG-TRIAGE-v2.7.md`. Fresh unsigned build and semantic contract checks pass.
+  Native audit/name run is blocked before execution by XCTest automation-mode
+  initialization timeout; zero tests pass, no new audit/permission claim. Latest
+  completed broader audit remains October 17's 23 observations. Current semantic
+  package check fails its manifest golden: same-check historical-model control
+  passes fully; artifact diff isolates two new explicit-bounds false fields and
+  their design entry size/hash. HTML/CSS/tokens/README are identical. Review and
+  deliberately update that baseline before source export work; no tests or
+  production source changed here. Next candidates: BUG-069 contrast/menu actions,
+  reproduce BUG-004 title behavior, finish BUG-070 visual matrix, then contract
+  choice for BUG-017 notes. BUG-029/039 remain reproduction-dependent; effects
+  fidelity work stays outside this first pass. Account rollout gates remain
+  separate and ticket/mail/retention flags paused. No push or deployment.
+
 - **2026-10-18 — Controlled hosted ticket inbox round trip complete; test flags restored [internal].**
   Owner finishes support sign-in. Actual support inbox/link permits reply, exact
   pending recipient verified before mail run `39158314830` accepts one author
