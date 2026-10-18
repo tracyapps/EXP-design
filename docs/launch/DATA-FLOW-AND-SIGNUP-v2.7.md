@@ -186,3 +186,16 @@ private schema and purge job are locally implemented, with production collection
 disabled. Data contract, actual wire/DB checks and distinct hosted log/backup/
 retention/abuse gates: `USAGE-METRICS-v2.7.md`. Native `.design` Save is not counted;
 only verified output writes are admitted. Website traffic is not silently joined.
+
+### News and private support continuation — October 17
+
+Static `/news` reads no member API or email ledger. A separate development-news
+choice stores verified account UUID, boolean, wording version and update time;
+no sender/list migration occurs. Private ticket storage holds author ownership,
+subject, plain text, server times, revision and author/support history. Operator
+staff grants are separate from profile fields; runtime cannot write grants. Staff
+thread access/replies/status produce private audit metadata. Account deletion
+removes authored threads/replies/audits/news permission/grants, while support
+answers on another author's thread keep text and lose the deleted actor UUID.
+Exact caps, withdrawal, deletion and remaining hosted retention/backup/role gates:
+`NEWS-AND-TICKETS-v2.7.md`. No attachments or ticket/news email transport exists.

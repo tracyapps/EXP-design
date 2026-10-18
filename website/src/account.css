@@ -39,3 +39,7 @@
   .account-main { --surface-window: #f7f8f4; --surface-field: #ffffff; --text-primary: #192117; --text-secondary: #4d5949; --hairline: #c6cec1; --accent: #236b16; color-scheme: light; }
 }
 @media (prefers-color-scheme: dark) { .account-main { color-scheme: dark; } }
+
+.ticket-events { counter-reset: none; }
+.account-page .ticket-subject { max-width: 100%; text-align: left; overflow-wrap: anywhere; }
+.account-card h2, .account-card time { overflow-wrap: anywhere; }

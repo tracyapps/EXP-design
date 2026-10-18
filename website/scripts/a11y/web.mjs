@@ -76,6 +76,14 @@ try {
       page.setDefaultTimeout(7000); page.setDefaultNavigationTimeout(15000);
       page.on('pageerror', error => results.push({ name: `${variant.name}-javascript`, status: 'failed', detail: error.message }));
       const email = `${variant.name}@example.test`;
+      await check(`${variant.name}-news-public`,page,async()=>{
+        let accountCalls=0;const observe=r=>{if(new URL(r.url()).pathname==='/api/account')accountCalls++;};page.on('request',observe);
+        try{await page.goto(`${fixture.origin}/news`);await page.getByRole('heading',{name:'News and updates.',exact:true}).waitFor();
+          await page.getByRole('heading',{name:'EXP 2.6: a smoother canvas, and tools for everyday work.'}).waitFor();
+          assert.equal(accountCalls,0);assert.equal((await context.cookies()).length,0);
+          assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await scan(`${variant.name}-news`,page);
+        }finally{page.off('request',observe);}
+      });
       await check(`${variant.name}-account-registration-keyboard`, page, async () => {
         await page.goto(`${fixture.origin}/account`);
         const create = page.getByRole('radio', { name: 'Create account' });
@@ -106,6 +114,66 @@ try {
         await page.reload(); await page.getByLabel('Display name').waitFor();
         assert.equal(await page.getByLabel('Display name').inputValue(), 'Updated Keyboard Designer');
         await scan(`${variant.name}-profile`, page);
+      });
+      await check(`${variant.name}-news-permission-keyboard`,page,async()=>{
+        await page.goto(`${fixture.origin}/account/preferences`);
+        const choice=page.getByRole('checkbox',{name:'Email me occasional EXP development news',exact:false});await choice.waitFor();assert.equal(await choice.isChecked(),false);
+        await tabTo(page,choice);await page.keyboard.press('Space');
+        await tabTo(page,page.getByRole('button',{name:'Save news permission'}));await page.keyboard.press('Enter');
+        await page.getByRole('status').filter({hasText:'Development-news permission saved.'}).waitFor();
+        await page.reload();await choice.waitFor();assert.equal(await choice.isChecked(),true);await scan(`${variant.name}-news-permission`,page);
+        await tabTo(page,choice);await page.keyboard.press('Space');await tabTo(page,page.getByRole('button',{name:'Save news permission'}));await page.keyboard.press('Enter');
+        await page.getByRole('status').filter({hasText:'Development-news email permission is off.'}).waitFor();
+      });
+      await check(`${variant.name}-tickets-author-support-keyboard`,page,async()=>{
+        await page.goto(`${fixture.origin}/account/tickets`);
+        const subject=page.getByLabel('Subject (up to 120 characters)');await subject.waitFor();
+        await scan(`${variant.name}-tickets-empty`,page);
+        await type(page,subject,'Private pattern question');
+        const literal='<img src=x onerror=alert(1)> '+ 'private-ticket-'.repeat(25);
+        await type(page,page.getByLabel('What can we help with? (up to 1,500 characters)'),literal);
+        let firstId,retryId;
+        await page.route('**/api/account',async route=>{
+          const body=route.request().postDataJSON();if(body?.action!=='create-ticket')return route.continue();
+          if(!firstId){firstId=body.id;const committed=await route.fetch();assert.equal(committed.status(),200);return route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:'Response interrupted after local commit. Retry the same draft.'})});}
+          retryId=body.id;return route.continue();
+        });
+        const send=page.getByRole('button',{name:'Open ticket',exact:true});await tabTo(page,send);await page.keyboard.press('Enter');
+        await page.getByRole('status').filter({hasText:'Response interrupted'}).waitFor();assert.equal(await subject.inputValue(),'Private pattern question');
+        await tabTo(page,send);await page.keyboard.press('Enter');
+        await page.getByRole('status').filter({hasText:'Ticket received.'}).waitFor();await page.unroute('**/api/account');assert.equal(retryId,firstId);
+        await page.waitForFunction(()=>document.activeElement?.id==='ticket-thread-title');
+        assert.equal(await page.locator('.ticket-events li').count(),1);assert.equal(await page.locator('.ticket-events .account-feedback-message').textContent(),literal);assert.equal(await page.locator('.ticket-events img').count(),0);
+        await type(page,page.getByLabel('Your reply (up to 1,500 characters)'),'Extra detail from the author.');
+        await tabTo(page,page.getByRole('button',{name:'Send reply',exact:true}));await page.keyboard.press('Enter');await page.getByRole('status').filter({hasText:'Reply saved.'}).waitFor();
+        await scan(`${variant.name}-ticket-author`,page);
+        const staffContext=await browser.newContext({colorScheme:variant.colorScheme,viewport:{width:variant.width,height:1000}});
+        try{
+          await staffContext.route('**/*',route=>new URL(route.request().url()).origin===fixture.origin?route.continue():route.fulfill({status:200,body:'',contentType:'text/css'}));
+          const staffEmail=`support-${email}`;
+          assert.equal((await staffContext.request.post(`${fixture.origin}/api/account`,{headers:{origin:fixture.origin},data:{action:'send-code',email:staffEmail}})).status(),200);
+          const otp=fixture.mail.findLast(item=>item.kind==='account' && item.email===staffEmail).otp;
+          assert.equal((await staffContext.request.post(`${fixture.origin}/api/account`,{headers:{origin:fixture.origin},data:{action:'verify-code',email:staffEmail,otp,intent:'register',name:'Support Tester',accountConsent:true,consentVersion:'free-account-v1'}})).status(),200);
+          const denied=await staffContext.request.post(`${fixture.origin}/api/account`,{headers:{origin:fixture.origin},data:{action:'ticket',id:firstId}});assert.equal(denied.status(),404);
+          await fixture.supportGrant(staffEmail);await fixture.resetIPWindow();
+          const staffPage=await staffContext.newPage();tabKeys.set(staffPage,variant.engine===webkit?'Alt+Tab':'Tab');
+          await staffPage.goto(`${fixture.origin}/account/support?ticket=${firstId}`);await staffPage.getByLabel('Your reply (up to 1,500 characters)').waitFor();
+          assert.equal(await staffPage.locator('summary').filter({hasText:'Delete this ticket'}).count(),0);
+          await type(staffPage,staffPage.getByLabel('Your reply (up to 1,500 characters)'),'Resize the pattern bounds in its editor.');await tabTo(staffPage,staffPage.getByRole('button',{name:'Send reply',exact:true}));await staffPage.keyboard.press('Enter');
+          await staffPage.getByRole('status').filter({hasText:'Reply saved.'}).waitFor();await scan(`${variant.name}-ticket-support`,staffPage);
+          await staffPage.screenshot({path:path.join(output,`${variant.name}-ticket-support.png`),fullPage:true});
+          await fixture.supportGrant(staffEmail,false);
+          await tabTo(staffPage,staffPage.getByRole('button',{name:'Refresh tickets'}));await staffPage.keyboard.press('Enter');
+          await staffPage.getByRole('status').filter({hasText:/Support access is not available|Ticket not found/}).waitFor();assert.equal(await staffPage.locator('.ticket-events').count(),0);
+        }finally{await staffContext.close();}
+        await tabTo(page,page.getByRole('button',{name:'Refresh tickets'}));await page.keyboard.press('Enter');await page.getByText('Resize the pattern bounds in its editor.',{exact:true}).waitFor();
+        await tabTo(page,page.getByRole('button',{name:'Close ticket',exact:true}));await page.keyboard.press('Enter');await page.getByRole('status').filter({hasText:'Ticket closed.'}).waitFor();assert.equal(await page.getByLabel('Your reply (up to 1,500 characters)').count(),0);
+        await tabTo(page,page.getByRole('button',{name:'Reopen ticket',exact:true}));await page.keyboard.press('Enter');await page.getByRole('status').filter({hasText:'Ticket reopened.'}).waitFor();
+        assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await scan(`${variant.name}-ticket-reopened`,page);
+        await page.screenshot({path:path.join(output,`${variant.name}-ticket-author.png`),fullPage:true});
+        await tabTo(page,page.locator('summary').filter({hasText:'Delete this ticket'}));await page.keyboard.press('Enter');await type(page,page.getByLabel('Type DELETE to remove this ticket'),'DELETE');
+        await tabTo(page,page.getByRole('button',{name:'Delete ticket permanently'}));await page.keyboard.press('Enter');await page.getByRole('status').filter({hasText:'Ticket and its replies deleted.'}).waitFor();
+        await page.waitForFunction(()=>document.activeElement?.textContent==='Your tickets');assert.equal(await page.locator('.ticket-events').count(),0);
       });
       await check(`${variant.name}-community-profile-keyboard`, page, async () => {
         await page.goto(`${fixture.origin}/account/community`);
@@ -281,6 +349,9 @@ try {
         assert.equal(await page.locator('.account-page').evaluate(el=>getComputedStyle(el).fontSize),'20px');
         assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
         await scan(`${variant.name}-community-large`,page);
+        await page.goto(`${fixture.origin}/account/tickets`);await page.getByLabel('Subject (up to 120 characters)').waitFor();
+        assert.equal(await page.locator('.account-page').evaluate(el=>getComputedStyle(el).fontSize),'20px');
+        assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await scan(`${variant.name}-tickets-large`,page);
         await page.goto(`${fixture.origin}/account/preferences`); await large.waitFor();
         const summary = page.locator('summary').filter({ hasText: 'Delete this free account' });
         await tabTo(page, summary); await page.keyboard.press('Enter');

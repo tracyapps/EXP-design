@@ -3,6 +3,8 @@ import './account.css';
 import BetaPage from './BetaPage.jsx';
 import AccountProPage from './AccountProPage.jsx';
 import CommunityPage from './CommunityPage.jsx';
+import NewsPreferences from './NewsPreferences.jsx';
+import TicketsPage from './TicketsPage.jsx';
 import accountRequest from './account-request.js';
 
 
@@ -68,10 +70,10 @@ export default function AccountPage({ path }) {
       setMessage(error.name === 'TimeoutError' ? 'That took too long. Please try again later.' : error.message);
     } finally { setBusy(false); }
   }
-  const section = path === '/account/profile' ? 'profile' : path === '/account/preferences' ? 'preferences' : path === '/account/beta' ? 'beta' : path === '/account/pro' ? 'pro' : path === '/account/community' ? 'community' : 'home';
+  const section = path === '/account/profile' ? 'profile' : path === '/account/preferences' ? 'preferences' : path === '/account/beta' ? 'beta' : path === '/account/pro' ? 'pro' : path === '/account/community' ? 'community' : path === '/account/tickets' ? 'tickets' : path === '/account/support' ? 'support' : 'home';
   return <section className={`account-page${user?.largeText ? ' account-large-text' : ''}`} aria-labelledby="account-title">
     <p className="section-label">EXP [design] · free account</p>
-    <h1 id="account-title" tabIndex={-1} ref={headingRef}>{user ? section === 'profile' ? 'Your private profile.' : section === 'preferences' ? 'Your preferences.' : section === 'beta' ? 'Help shape EXP.' : section === 'pro' ? 'Your Pro interest.' : section === 'community' ? 'Your community profile.' : `Hello, ${user.name}.` : 'A place for you.'}</h1>
+    <h1 id="account-title" tabIndex={-1} ref={headingRef}>{user ? section === 'profile' ? 'Your private profile.' : section === 'preferences' ? 'Your preferences.' : section === 'beta' ? 'Help shape EXP.' : section === 'pro' ? 'Your Pro interest.' : section === 'community' ? 'Your community profile.' : section === 'tickets' ? 'Your private tickets.' : section === 'support' ? 'EXP support inbox.' : `Hello, ${user.name}.` : 'A place for you.'}</h1>
     <p className="account-lead">{user ? 'Your account details stay private. You choose whether to publish a separate community profile.' : 'An optional account, separate from your design files. The editor and shipped exports stay free to use without signing in.'}</p>
     <p className="account-status" role="status">{message}</p>
     {!user && proToken && <p>Sign in with the email used for Pro interest, then choose whether to connect that record. Signing in does not subscribe you. Reopen the email link if this page is reloaded.</p>}
@@ -113,12 +115,14 @@ export default function AccountPage({ path }) {
         <a href="/account/beta" aria-current={section === 'beta' ? 'page' : undefined}>Beta & feedback</a>
         <a href="/account/pro" aria-current={section === 'pro' ? 'page' : undefined}>Pro interest</a>
         <a href="/account/community" aria-current={section === 'community' ? 'page' : undefined}>Community profile</a>
+        <a href="/news">News & updates</a>
+        <a href="/account/tickets" aria-current={section === 'tickets' ? 'page' : undefined}>My tickets</a>
       </nav>
       {section === 'home' && <div className="account-card">
         <h2>Your account is ready.</h2>
         <p>Signed in as <strong>{user.email}</strong>. Edit your private profile or choose larger text for this account area.</p>
         <p><a href="/pro">Help shape EXP Pro</a> uses its own confirmation and permission. <a href="/support.html">Support the developer</a> is optional and account-free.</p>
-        <p><a href="/account/beta">Choose beta participation or send private feedback</a>. <a href="/account/community">Prepare an optional community profile</a>. News preferences and ticket replies are planned next.</p>
+        <p><a href="/account/beta">Choose beta participation or send private feedback</a>. <a href="/account/community">Prepare an optional community profile</a>. <a href="/news">Read news and updates</a> or <a href="/account/tickets">open a private support ticket</a>.</p>
       </div>}
       {section === 'profile' && <form className="account-card" onSubmit={e => { e.preventDefault(); act({ action: 'save-profile', ...profile }, 'Private profile saved.'); }}>
         <fieldset disabled={busy}><legend>Private profile</legend>
@@ -135,6 +139,8 @@ export default function AccountPage({ path }) {
       {section === 'beta' && <BetaPage key={user.id} request={accountRequest} onSignedOut={() => { receive(null); setSent(false); setMessage('Please sign in again.'); window.requestAnimationFrame(() => headingRef.current?.focus()); }} />}
       {section === 'pro' && <AccountProPage key={user.id} request={accountRequest} token={proToken} clearToken={() => setProToken('')} onSignedOut={() => { receive(null); setProToken(''); setSent(false); setMessage('Please sign in again.'); window.requestAnimationFrame(() => headingRef.current?.focus()); }} />}
       {section === 'community' && <CommunityPage key={user.id} request={accountRequest} onSignedOut={() => { receive(null); setSent(false); setMessage('Please sign in again.'); window.requestAnimationFrame(() => headingRef.current?.focus()); }} />}
+      {['tickets','support'].includes(section) && <TicketsPage key={user.id} request={accountRequest} support={section==='support'} onSignedOut={() => { receive(null); setSent(false); setMessage('Please sign in again.'); }} />}
+      {section === 'preferences' && <NewsPreferences key={user.id} request={accountRequest} onSignedOut={() => { receive(null); setSent(false); setMessage('Please sign in again.'); }} />}
       {section === 'preferences' && <form className="account-card" onSubmit={e => { e.preventDefault(); act({ action: 'save-preferences', largeText }, 'Account text preference saved.'); }}>
         <fieldset disabled={busy}><legend>Account display</legend>
           <label className="account-check"><input type="checkbox" checked={largeText} onChange={e => setLargeText(e.target.checked)} /><span>Use larger text in this account area</span></label>
@@ -150,7 +156,7 @@ export default function AccountPage({ path }) {
         <button type="button" disabled={busy} onClick={() => act({ action: 'sign-out-all' }, 'Signed out everywhere.')}>Sign out everywhere</button>
       </div>
       {section === 'preferences' && <details className="account-card account-delete"><summary>Delete this free account</summary>
-        <p>This removes your live account, private profile, account preferences, beta choices, feedback, Pro account connection, community draft/public profile, associated community reports and sessions. It does not remove local design files, separate release/Pro list permissions, sent email, provider logs or backups.</p>
+        <p>This removes your live account, private profile, account preferences, beta choices, feedback, Pro account connection, community draft/public profile, associated community reports, development-news permission, your authored tickets and all their replies, support grants and sessions. Replies you wrote as support on other members’ tickets remain with those threads without your account ID. It does not remove local design files, separate release/Pro list permissions, sent email, provider logs or backups.</p>
         <p>Sign in with a fresh email code, then confirm within five minutes. This cannot be undone.</p>
         <form onSubmit={e => { e.preventDefault(); act({ action: 'delete-account', confirmation }, 'Your live free account has been deleted. Separate email permissions are unchanged.'); }}>
           <fieldset disabled={busy}><legend>Confirm account deletion</legend>

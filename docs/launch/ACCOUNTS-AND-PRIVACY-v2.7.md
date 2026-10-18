@@ -5,7 +5,7 @@ sequencing. **Recommendation: finish the shared privacy/hosting foundation, then
 add a small optional free account area before billing.** Accounts do not depend
 on having a paid product. Their first useful job should determine their scope.
 October 17 continuation: auth/private-profile, account-display, beta/feedback,
-explicit Pro connection and optional community-profile foundation are locally
+explicit Pro connection, optional community profiles, news choice and private tickets are locally
 verified. Owner connected Neon/Vercel and accepted actual email-code account
 creation/sign-in. Full hosted lifecycle, community rollout and the rest of the hub
 remain open; [setup handoff](NEON-ACCOUNT-SETUP-v2.7.md).
@@ -443,3 +443,19 @@ October 17 implementation sources checked: [Better Auth installation](https://be
 Installed 1.7.10 source/types were also inspected for atomic verification, creation
 hooks, schema generation, rate-limit persistence, recent-auth deletion and swallowed
 mail failures; the executable tests establish those bounded local behaviors.
+
+## FEAT-069 news and private tickets — local October 17 continuation
+
+The public `/news` page reads no account data and starts with a curated shipped
+v2.6 post. Preferences offers a separate development-news email permission with
+explicit wording/version and withdrawal; no sender exists yet. Private tickets
+now have author history/replies, open/closed status, explicit deletion and a
+restricted staff inbox. Staff grants require an operator; no account can promote
+itself. No ticket notifications, attachments, hidden staff notes or beta-feedback
+conversion are implied. New write/permission flags default off. Migration 008,
+least-privilege grants, complete data/deletion contract, exact operator steps and
+hosted/retention/AT gates: [news and ticket handoff](NEWS-AND-TICKETS-v2.7.md).
+
+The account suite now has 71 real-PostgreSQL cases. Hosted operator enrollment,
+private two-account/staff journey and retention/restore-erasure remain unverified.
+The native editor and its release remain independent of this web rollout.

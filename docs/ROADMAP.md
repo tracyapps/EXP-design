@@ -1357,8 +1357,13 @@ from the appcast; a development plan does not change the published release.
       → explicit versioned public snapshot, unpublish, private reports and operator
       hold boundary. Public rollout remains off; contract/queue/setup in
       `launch/COMMUNITY-PROFILES-v2.7.md`.
+- [x] **FEAT-069 local news and private tickets:** public curated `/news`, separate
+      development-news permission/withdrawal, private author thread/replies/status/
+      deletion and explicitly granted staff inbox. No news/ticket sender or uploads.
+      Migration 008, runtime SELECT-only staff grants and hosted operator/retention/
+      AT gates: `launch/NEWS-AND-TICKETS-v2.7.md`. New-write flags default off.
 - [ ] Hosted account inbox/origin/cookie/TLS/retention/AT proof; verified email-purpose
-      lifecycle, community rollout/moderation, news and private ticket slices.
+      lifecycle, community rollout/moderation and news/private ticket rollout.
       Neon is connected and owner account creation passes; remaining setup handoff:
       `launch/NEON-ACCOUNT-SETUP-v2.7.md`.
 - [ ] Reliable separate Pro-interest signup, permission/delivery/unsubscribe proof,
@@ -3428,6 +3433,44 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-10-17 — FEAT-069 news and private author/staff tickets [internal].**
+  Owner authorizes the next news/updates and private ticket/reply slices. Added
+  account-free curated `/news` with a shipped v2.6 post, separate development-news
+  email permission/withdrawal, and private ticket creation/history/replies/status/
+  deletion. Support inbox requires an explicit operator grant to a verified
+  account, rechecked on every request. Authors and support share the visible thread;
+  no hidden staff notes, attachments, notifications or response-time promises.
+  Staff thread reads/replies/status commit private audit metadata; staff cannot
+  delete another author's ticket. No role-grant API or email allowlist exists.
+  Migration 008 adds private tables/cascades/indexes; staff grant table is runtime
+  SELECT-only. Deleting a ticket/account removes authored threads/replies/audits;
+  deleting staff identity preserves answers on other threads without its actor UUID.
+  Bounded shared quotas/caps, content-bound retry receipts, concurrent revision
+  refusal, Unicode payload allowance, generic errors and atomic rollback are tested.
+  A true restricted-runtime test caught an invalid FOR SHARE grant lookup that
+  required UPDATE privileges; changed it to a current-row SELECT, keeping grants
+  read-only. In-flight authorized actions may complete after operator revocation;
+  subsequent actions fail. Initial absent-feature and role failures are retained at
+  `/tmp/exp-news-tickets-gap.log` and `/tmp/exp-news-tickets-role-gap.log`.
+  Final `npm test` passes **123 service cases** (15 signup, 23 Pro, 71 accounts,
+  14 usage), plus existing Swift lifecycle and actual native HTTP→DB checks.
+  Final web matrix passes **173 checks, zero failed/blocked**, with **116 incomplete
+  contrast scans / 57 distinct review items** still open. Chromium/WebKit
+  dark-desktop/light-mobile journeys cover public reading with no account request,
+  permission persistence/withdrawal, response loss after real ticket commit and
+  retry without duplicate, literal text, author → granted staff answer → author,
+  revocation, closure/reopening, explicit deletion/focus and larger text. News,
+  mobile author and dark support layouts inspected without horizontal overflow.
+  Receipts: `/tmp/exp-news-tickets-regression-final.log`,
+  `output/a11y/2026-10-18T00-38-23-663Z/report.md` (UTC Oct 18; owner date Oct 17).
+  Both new permission/write flags default off. No hosted migration, setting,
+  deployment, staff grant, real email or user data was changed. Operator SQL,
+  exact grants and hosted privacy/retention/role/AT gates:
+  `launch/NEWS-AND-TICKETS-v2.7.md`. Next: owner reviews the local hub, then separately
+  authorized hosted migration/private author/staff lifecycle and accessibility
+  acceptance. Sending newsletters/ticket alerts and future Discord/forums remain
+  separate scope. Local commit only; no push.
 
 - **2026-10-17 — FEAT-069 optional community profiles [internal].**
   Owner confirms the hosted account was created and "looks good." This accepts

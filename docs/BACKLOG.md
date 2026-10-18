@@ -3205,8 +3205,8 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: feature
 - Priority: P1
 - Area: accounts · community · support
-- Status: account, beta/Pro and optional community foundation locally verified 2026-10-17;
-  remaining hub and hosted/owner acceptance open
+- Status: account, beta/Pro, community, news and private tickets locally verified
+  2026-10-17; hosted operator/privacy/retention and owner acceptance remain open
 - Owner scope 2026-10-16: profile, preferences, feedback/beta participation, Pro
   interest, community profile, news/updates, opening/responding to private tickets,
   a future Discord link and optional support-the-developer page. Forums later.
@@ -3218,7 +3218,8 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   locally. Private beta participation/separate invitation permission and retry-safe
   feedback/history/deletion are now locally verified too. Community draft/preview,
   explicit snapshot publication/unpublish, private reports and operator-hold boundary
-  are local; hosted public rollout/moderation and tickets remain open. No invitation
+  are local; hosted public rollout/moderation remains open. News/private tickets
+  now have a local foundation too; hosted operator/retention gates remain. No invitation
   sender is implemented. Existing Pro connection is
   now local: email capability + verified-account proof, live source state,
   withdrawal/disconnect; no automatic email matching or permission migration.
@@ -3253,6 +3254,14 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   hosted gates: `launch/COMMUNITY-PROFILES-v2.7.md`. Public flag defaults off.
   Owner separately accepts actual hosted email-code account creation/sign-in;
   remaining hosted lifecycle/retention/AT acceptance is open.
+- News/ticket continuation: 71 account checks including a real restricted-runtime
+  service journey with SELECT-only staff grants, permission isolation/withdrawal,
+  author/staff denial and revocation, retry/concurrent revision protection, quotas/
+  caps, pagination, plain text, deletion/anonymization and atomic storage failure.
+  Public `/news` uses curated shipped copy, never internal progress entries. Private
+  support inbox has operator-only staff grants and audited thread access. New-write
+  flags default off; no attachments, ticket email alerts or news sender. Migration
+  008/grants/setup and evidence: `launch/NEWS-AND-TICKETS-v2.7.md`.
 - Accessibility sources checked before form/naming changes:
   https://www.w3.org/WAI/tutorials/forms/labels/ (explicit native labels),
   https://www.w3.org/TR/wai-aria-1.2/#status (polite status announcements),
@@ -3265,6 +3274,9 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   changes, plus https://www.w3.org/TR/html-aria/#el-input-checkbox and
   https://www.w3.org/WAI/WCAG21/Understanding/status-messages.html (2026-10-17).
   Reader usability and incomplete shared-site contrast scans remain unverified.
+  News/ticket semantics/focus rechecked October 17 against the same native
+  label/group/status/HTML sources, https://www.w3.org/TR/WCAG21/#focus-order and
+  https://www.w3.org/WAI/ARIA/apg/practices/keyboard-interface/.
 - Sources: OWASP authentication; Better Auth database/email OTP; RFC 8252 for later
   native sign-in. Exact links and research-versus-execution boundary in the handoff.
 

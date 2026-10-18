@@ -26,9 +26,10 @@ before(async () => {
   await pool.query(await readFile(new URL('../migrations/005_member_beta.sql', import.meta.url), 'utf8'));
   await pool.query(await readFile(new URL('../migrations/006_account_pro_link.sql', import.meta.url), 'utf8'));
   await pool.query(await readFile(new URL('../migrations/007_community_profiles.sql', import.meta.url), 'utf8'));
+  await pool.query(await readFile(new URL('../migrations/008_news_and_tickets.sql', import.meta.url), 'utf8'));
   await pool.query('CREATE DATABASE exp_interest');
   for (const file of ['001_pro_interest.sql', '002_pro_interest_erasure.sql']) await interestPool.query(await readFile(new URL(`../migrations/${file}`, import.meta.url), 'utf8'));
-  service = createAccountService({ pool, origin, secret, betaEnabled: true, interestStore: interest, proLinkEnabled: true, communityEnabled: true, sendOTP: async mail => {
+  service = createAccountService({ pool, origin, secret, betaEnabled: true, interestStore: interest, proLinkEnabled: true, communityEnabled: true, newsEnabled:true, ticketsEnabled:true, sendOTP: async mail => {
   if (failMail) throw new Error('Mail transport failure with private data');
   mailbox.push(mail);
 } });
@@ -676,4 +677,209 @@ test('Node adapter supports pre-parsed Vercel-style JSON bodies and trusts only 
     assert.ok(mailbox.some(mail => mail.email === 'parsed@example.test'));
     assert.ok((await pool.query('SELECT key FROM exp_member_rate_limit WHERE key LIKE $1', ['%198.51.100.55%'])).rowCount > 0);
   } finally { await new Promise(resolve => server.close(resolve)); }
+});
+
+
+test('news permission starts off and saving it never enrolls another email purpose', async () => {
+  const cookie=await register('news-choice@example.test');
+  const initial=await call({action:'news-preference'},cookie);
+  assert.equal(initial.status,200,JSON.stringify(initial.body));
+  assert.equal(initial.body.enabled,false);
+  const user=(await call(undefined,cookie)).body.user;
+  const mailCount=mailbox.length;
+  assert.equal((await call({action:'save-news-preference',enabled:true,permissionVersion:'old'},cookie)).status,400);
+  const saved=await call({action:'save-news-preference',enabled:true,permissionVersion:'development-news-v1'},cookie);
+  assert.equal(saved.status,200);assert.equal(saved.body.enabled,true);
+  assert.equal((await call({action:'save-news-preference',enabled:true,permissionVersion:'development-news-v1'},cookie)).body.updatedAt,saved.body.updatedAt);
+  for(const table of ['exp_member_beta','exp_member_pro_link'])assert.equal((await pool.query(`SELECT * FROM ${table} WHERE user_id=$1`,[user.id])).rowCount,0);
+  assert.equal((await interestPool.query('SELECT * FROM exp_pro_interest WHERE email=$1',[user.email])).rowCount,0);
+  assert.equal(mailbox.length,mailCount,'Saving permission must not send email');
+  const other=await register('news-other@example.test');assert.equal((await call({action:'news-preference'},other)).body.enabled,false);
+  assert.equal((await call({action:'save-news-preference',enabled:false},cookie)).body.enabled,false);
+});
+
+test('a member can create and read a private support ticket', async () => {
+  const cookie=await register('ticket-author@example.test'), id=randomUUID();
+  const created=await call({action:'create-ticket',id,subject:'Pattern question',message:'How do I resize my tile?'},cookie);
+  assert.equal(created.status,200,JSON.stringify(created.body));
+  const thread=await call({action:'ticket',id},cookie);
+  assert.equal(thread.status,200);assert.equal(thread.body.ticket.subject,'Pattern question');
+  assert.equal(thread.body.events[0].message,'How do I resize my tile?');
+});
+
+async function ticket(cookie,subject='Private test ticket',message='A private question',id=randomUUID()) {
+  const created=await call({action:'create-ticket',id,subject,message},cookie);assert.equal(created.status,200,JSON.stringify(created.body));return id;
+}
+async function detail(cookie,id){const result=await call({action:'ticket',id},cookie);assert.equal(result.status,200,JSON.stringify(result.body));return result.body;}
+async function staffAccount(email) {
+  const cookie=await register(email),id=(await call(undefined,cookie)).body.user.id;
+  await pool.query('INSERT INTO exp_member_support_grant(user_id,operator_reference) VALUES($1,$2)',[id,'Disposable test grant']);
+  return {cookie,id};
+}
+test('paused news permits withdrawal and account deletion removes the permission',async()=>{
+  const cookie=await register('news-paused@example.test');await call({action:'save-news-preference',enabled:true,permissionVersion:'development-news-v1'},cookie);
+  const paused=createAccountService({pool,origin,secret,sendOTP:async()=>{}});
+  async function request(body){const r=await paused.handle(new Request(`${origin}/api/account`,{method:'POST',headers:{origin,cookie,'content-type':'application/json','x-exp-client-ip':`198.51.100.${++ip%250+1}`},body:JSON.stringify(body)}));return {status:r.status,body:await r.json()};}
+  assert.equal((await request({action:'save-news-preference',enabled:true,permissionVersion:'development-news-v1'})).status,503);
+  assert.equal((await request({action:'save-news-preference',enabled:false})).status,200);
+  assert.equal((await request({action:'news-preference'})).body.newsOpen,false);
+  assert.equal((await call({action:'news-preference'})).status,401);
+  assert.equal((await call({action:'save-news-preference',enabled:true,permissionVersion:'development-news-v1',userId:'someone-else'},cookie)).status,400);
+  const id=(await call(undefined,cookie)).body.user.id;await call({action:'delete-account',confirmation:'DELETE'},cookie);
+  assert.equal((await pool.query('SELECT * FROM exp_member_news WHERE user_id=$1',[id])).rowCount,0);
+});
+test('news storage failure returns no success or private database detail',async()=>{
+  const cookie=await register('news-failed@example.test');
+  await pool.query(`CREATE FUNCTION exp_news_fail() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'private news data'; END $$;
+    CREATE TRIGGER exp_news_fail BEFORE INSERT ON exp_member_news FOR EACH ROW EXECUTE FUNCTION exp_news_fail()`);
+  try{const r=await call({action:'save-news-preference',enabled:true,permissionVersion:'development-news-v1'},cookie);assert.equal(r.status,503);assert.doesNotMatch(JSON.stringify(r.body),/private news/);assert.equal((await call({action:'news-preference'},cookie)).body.enabled,false);}
+  finally{await pool.query('DROP TRIGGER exp_news_fail ON exp_member_news; DROP FUNCTION exp_news_fail()');}
+});
+test('ticket ownership is enforced on every read, reply, status, delete and list cursor',async()=>{
+  const owner=await register('ticket-isolation@example.test'),other=await register('ticket-stranger@example.test'),id=await ticket(owner);
+  const actions=[{action:'ticket',id},{action:'reply-ticket',id,receipt:randomUUID(),revision:1,message:'Intrusion'},
+    {action:'set-ticket-status',id,receipt:randomUUID(),revision:1,status:'closed'},{action:'delete-ticket',id,confirmation:'DELETE'},
+    {action:'tickets',before:id}];
+  for(const action of actions)assert.equal((await call(action,other)).status,404,action.action);
+  assert.deepEqual((await call({action:'tickets'},other)).body.tickets,[]);
+  assert.equal((await call({action:'tickets',scope:'support'},other)).status,403);
+  assert.equal((await call({action:'ticket',id})).status,401);
+  for(const field of ['userId','role','staff','actor_kind','status'])assert.equal((await call({action:'create-ticket',id:randomUUID(),subject:'X',message:'X',[field]:'support'},other)).status,400);
+  const own=await detail(owner,id);assert.equal(own.ticket.revision,1);assert.equal(own.events.length,1);
+  assert.doesNotMatch(JSON.stringify(own),/user_id|actor_id|email|operator_reference/);
+});
+test('explicit support grant enables private replies and audit; revocation removes access immediately',async()=>{
+  const owner=await register('ticket-supported@example.test'),staff=await staffAccount('ticket-support@example.test'),id=await ticket(owner);
+  const list=await call({action:'tickets',scope:'support'},staff.cookie);assert.equal(list.status,200);assert.equal(list.body.canSupport,true);assert.ok(list.body.tickets.some(t=>t.id===id));
+  const thread=await detail(staff.cookie,id);assert.equal(thread.canDelete,false);
+  assert.equal((await call({action:'delete-ticket',id,confirmation:'DELETE'},staff.cookie)).status,404);
+  assert.equal((await call({action:'reply-ticket',id,receipt:randomUUID(),revision:1,message:'A support answer'},staff.cookie)).status,200);
+  const authorView=await detail(owner,id);assert.equal(authorView.events[1].by,'support');assert.equal(authorView.events[1].message,'A support answer');
+  assert.doesNotMatch(JSON.stringify(authorView),new RegExp(staff.id));
+  assert.deepEqual((await pool.query('SELECT action FROM exp_member_support_audit WHERE ticket_id=$1 ORDER BY created_at',[id])).rows.map(r=>r.action),['read','reply']);
+  await pool.query('DELETE FROM exp_member_support_grant WHERE user_id=$1',[staff.id]);
+  assert.equal((await call({action:'ticket',id},staff.cookie)).status,404);
+  assert.equal((await call({action:'tickets',scope:'support'},staff.cookie)).status,403);
+  assert.equal((await call({action:'reply-ticket',id,receipt:randomUUID(),revision:2,message:'Revoked'},staff.cookie)).status,404);
+});
+test('ticket retries are atomic, content-bound and safe after status changes',async()=>{
+  const cookie=await register('ticket-retries@example.test'),id=randomUUID();
+  const payload={action:'create-ticket',id,subject:'Retry question',message:'Original content'};
+  const responses=await Promise.all(Array.from({length:5},()=>call(payload,cookie)));assert.ok(responses.every(r=>r.status===200));
+  assert.equal((await pool.query('SELECT * FROM exp_member_ticket_event WHERE ticket_id=$1',[id])).rowCount,1);
+  assert.equal((await call({...payload,message:'Changed'},cookie)).status,409);
+  const reply={action:'reply-ticket',id,receipt:randomUUID(),revision:1,message:'Followup'};
+  assert.ok((await Promise.all(Array.from({length:4},()=>call(reply,cookie)))).every(r=>r.status===200));
+  const close={action:'set-ticket-status',id,receipt:randomUUID(),revision:2,status:'closed'};
+  assert.equal((await call(close,cookie)).status,200);
+  assert.equal((await call(reply,cookie)).status,200,'A committed reply retry remains safe after closing');
+  assert.equal((await call({...reply,message:'Changed'},cookie)).status,409);
+  assert.equal((await call({...reply,receipt:randomUUID(),revision:3},cookie)).status,409,'Closed tickets cannot receive new replies');
+  assert.equal((await call({...close,receipt:randomUUID(),status:'open',revision:1},cookie)).status,409);
+  assert.equal((await call({...close,receipt:randomUUID(),status:'open',revision:3},cookie)).status,200);
+  const thread=await detail(cookie,id);assert.equal(thread.ticket.status,'open');assert.equal(thread.ticket.revision,4);assert.equal(thread.events.length,4);
+});
+test('simultaneous changes use revisions so one writer cannot overwrite another',async()=>{
+  const cookie=await register('ticket-concurrent@example.test'),staff=await staffAccount('ticket-concurrent-staff@example.test'),id=await ticket(cookie);
+  const replies=await Promise.all([cookie,staff.cookie].map(actor=>call({action:'reply-ticket',id,receipt:randomUUID(),revision:1,message:'Concurrent reply'},actor)));
+  assert.deepEqual(replies.map(r=>r.status).sort(),[200,409]);assert.equal((await detail(cookie,id)).events.length,2);
+});
+test('ticket pause/quota never blocks reads, closing or author deletion',async()=>{
+  const cookie=await register('ticket-paused@example.test'),id=await ticket(cookie),userId=(await call(undefined,cookie)).body.user.id;
+  await pool.query('UPDATE exp_member_ticket_limit SET count=30 WHERE user_id=$1',[userId]);
+  assert.equal((await call({action:'reply-ticket',id,receipt:randomUUID(),revision:1,message:'Over quota'},cookie)).status,429);
+  const paused=createAccountService({pool,origin,secret,sendOTP:async()=>{}});
+  async function request(body){const r=await paused.handle(new Request(`${origin}/api/account`,{method:'POST',headers:{origin,cookie,'content-type':'application/json','x-exp-client-ip':`203.0.113.${++ip%250+1}`},body:JSON.stringify(body)}));return {status:r.status,body:await r.json()};}
+  assert.equal((await request({action:'create-ticket',id:randomUUID(),subject:'Paused',message:'Paused'})).status,503);
+  assert.equal((await request({action:'ticket',id})).status,200);
+  assert.equal((await request({action:'set-ticket-status',id,receipt:randomUUID(),revision:1,status:'closed'})).status,200);
+  assert.equal((await request({action:'set-ticket-status',id,receipt:randomUUID(),revision:2,status:'open'})).status,503);
+  assert.equal((await request({action:'delete-ticket',id,confirmation:'DELETE'})).status,200);
+});
+test('bounded ticket queue paginates without leaking foreign cursors; saved-ticket cap is serialized',async()=>{
+  const cookie=await register('ticket-pages@example.test'),userId=(await call(undefined,cookie)).body.user.id;
+  // Seed valid old tickets to exercise an established account at the cap.
+  await pool.query(`INSERT INTO exp_member_ticket(id,user_id,subject,updated_at) SELECT gen_random_uuid(),$1,'Older ticket '||n,now()-n*interval '1 microsecond' FROM generate_series(1,49) n`,[userId]);
+  const results=await Promise.all([ticketPayload(),ticketPayload()].map(body=>call(body,cookie)));assert.deepEqual(results.map(r=>r.status).sort(),[200,409]);
+  const first=(await call({action:'tickets'},cookie)).body;assert.equal(first.tickets.length,25);assert.ok(first.next);
+  const second=(await call({action:'tickets',before:first.next},cookie)).body;assert.equal(second.tickets.length,25);assert.equal(second.next,null);
+  assert.equal(new Set([...first.tickets,...second.tickets].map(t=>t.id)).size,50);
+  function ticketPayload(){return {action:'create-ticket',id:randomUUID(),subject:'Last available',message:'At the cap'};}
+});
+test('thread history cap still allows closing and deletion',async()=>{
+  const cookie=await register('ticket-history-cap@example.test'),id=await ticket(cookie);
+  await pool.query(`INSERT INTO exp_member_ticket_event(id,ticket_id,actor_kind,kind,message,sequence) SELECT gen_random_uuid(),$1,'author','reply','History',n FROM generate_series(2,200) n`,[id]);
+  await pool.query('UPDATE exp_member_ticket SET revision=200 WHERE id=$1',[id]);
+  assert.equal((await call({action:'reply-ticket',id,receipt:randomUUID(),revision:200,message:'Over capacity'},cookie)).status,409);
+  assert.equal((await call({action:'set-ticket-status',id,receipt:randomUUID(),revision:200,status:'closed'},cookie)).status,200);
+  assert.equal((await call({action:'delete-ticket',id,confirmation:'DELETE'},cookie)).status,200);
+});
+test('ticket deletion cascades threads and audits; deleting a staff identity keeps anonymized support replies',async()=>{
+  const cookie=await register('ticket-delete@example.test'),staff=await staffAccount('ticket-delete-staff@example.test'),id=await ticket(cookie);
+  await detail(staff.cookie,id);await call({action:'reply-ticket',id,receipt:randomUUID(),revision:1,message:'Keep this answer'},staff.cookie);
+  assert.equal((await call({action:'delete-account',confirmation:'DELETE'},staff.cookie)).status,200);
+  assert.equal((await detail(cookie,id)).events[1].message,'Keep this answer');
+  assert.equal((await pool.query("SELECT actor_id FROM exp_member_ticket_event WHERE ticket_id=$1 AND actor_kind='support'",[id])).rows[0].actor_id,null);
+  assert.equal((await call({action:'delete-ticket',id,confirmation:'NO'},cookie)).status,400);
+  assert.equal((await call({action:'delete-ticket',id,confirmation:'DELETE'},cookie)).status,200);
+  for(const table of ['exp_member_ticket_event','exp_member_support_audit'])assert.equal((await pool.query(`SELECT * FROM ${table} WHERE ticket_id=$1`,[id])).rowCount,0);
+  const another=await ticket(cookie),userId=(await call(undefined,cookie)).body.user.id;
+  assert.equal((await call({action:'delete-account',confirmation:'DELETE'},cookie)).status,200);
+  assert.equal((await pool.query('SELECT * FROM exp_member_ticket WHERE id=$1',[another])).rowCount,0);
+  assert.equal((await pool.query('SELECT * FROM exp_member_ticket_limit WHERE user_id=$1',[userId])).rowCount,0);
+});
+test('failed ticket writes roll back rows, revisions and quotas and hide database errors',async()=>{
+  const cookie=await register('ticket-failure@example.test'),id=randomUUID(),userId=(await call(undefined,cookie)).body.user.id;
+  await pool.query(`CREATE FUNCTION exp_ticket_fail() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'private ticket payload'; END $$;
+    CREATE TRIGGER exp_ticket_fail BEFORE INSERT ON exp_member_ticket_event FOR EACH ROW EXECUTE FUNCTION exp_ticket_fail()`);
+  try{
+    const response=await call({action:'create-ticket',id,subject:'Failure',message:'Private'},cookie);assert.equal(response.status,503);assert.doesNotMatch(JSON.stringify(response.body),/private ticket/);
+    assert.equal((await pool.query('SELECT * FROM exp_member_ticket WHERE id=$1',[id])).rowCount,0);
+    assert.equal((await pool.query('SELECT * FROM exp_member_ticket_limit WHERE user_id=$1',[userId])).rowCount,0);
+  }finally{await pool.query('DROP TRIGGER exp_ticket_fail ON exp_member_ticket_event; DROP FUNCTION exp_ticket_fail()');}
+  await ticket(cookie,'Failure','Private',id);
+});
+test('ticket input bounds accept multilingual text and refuse unsafe fields or unbounded payloads',async()=>{
+  const cookie=await register('ticket-input@example.test'),id=await ticket(cookie,'文字の質問','界'.repeat(1500));
+  assert.equal((await detail(cookie,id)).events[0].message.length,1500);
+  for(const payload of [{subject:' ',message:'x'},{subject:'x'.repeat(121),message:'x'},{subject:'X',message:'x'.repeat(1501)}])assert.equal((await call({action:'create-ticket',id:randomUUID(),...payload},cookie)).status,400);
+  assert.equal((await call({action:'create-ticket',id:randomUUID(),subject:'X',message:'x'.repeat(13000)},cookie)).status,413);
+  assert.equal((await call({action:'ticket',id:'invalid'},cookie)).status,400);
+  assert.equal((await call({action:'tickets',scope:'admin'},cookie)).status,400);
+});
+test('support grants have no PUBLIC privileges and a runtime SELECT grant cannot promote an account',async()=>{
+  const name=`exp_ticket_runtime_${randomBytes(4).toString('hex')}`;
+  await pool.query(`CREATE ROLE ${name}`);
+  const client=await pool.connect();
+  try{
+    await pool.query(`GRANT USAGE ON SCHEMA public TO ${name}; GRANT SELECT ON exp_member_support_grant TO ${name}`);
+    assert.equal((await pool.query('SELECT has_table_privilege($1,$2,$3) allowed',[name,'exp_member_support_grant','INSERT'])).rows[0].allowed,false);
+    await client.query('BEGIN');await client.query(`SET LOCAL ROLE ${name}`);
+    await assert.rejects(client.query("INSERT INTO exp_member_support_grant(user_id,operator_reference) VALUES(gen_random_uuid(),'Self promotion')"),/permission denied/);
+    await client.query('ROLLBACK');
+  }finally{client.release();await pool.query(`DROP OWNED BY ${name}; DROP ROLE ${name}`);}
+});
+test('the service works through a restricted non-owner login with read-only staff grants',async()=>{
+  const cookie=await register('ticket-runtime-owner@example.test'),staff=await staffAccount('ticket-runtime-staff@example.test');
+  const name=`exp_ticket_service_${randomBytes(4).toString('hex')}`;
+  await pool.query(`CREATE ROLE ${name}`);
+  const restricted=new pg.Pool({connectionString:db,options:`-c role=${name}`});
+  try{
+    await pool.query(`GRANT USAGE ON SCHEMA public TO ${name};
+      GRANT SELECT,INSERT,UPDATE,DELETE ON exp_member_user,exp_member_session,exp_member_identity,
+        exp_member_verification,exp_member_rate_limit,exp_member_mail_limit,exp_member_news,
+        exp_member_ticket,exp_member_ticket_event,exp_member_ticket_limit TO ${name};
+      GRANT SELECT ON exp_member_support_grant TO ${name};
+      GRANT SELECT,INSERT ON exp_member_support_audit TO ${name}`);
+    const limited=createAccountService({pool:restricted,origin,secret,newsEnabled:true,ticketsEnabled:true,sendOTP:async()=>{}});
+    async function request(body,session=cookie){const r=await limited.handle(new Request(`${origin}/api/account`,{method:'POST',headers:{origin,cookie:session,'content-type':'application/json','x-exp-client-ip':`198.51.100.${++ip%250+1}`},body:JSON.stringify(body)}));return {status:r.status,body:await r.json()};}
+    const id=randomUUID();
+    assert.equal((await request({action:'create-ticket',id,subject:'Restricted runtime',message:'A question'})).status,200);
+    assert.equal((await request({action:'ticket',id},staff.cookie)).status,200);
+    assert.equal((await request({action:'reply-ticket',id,receipt:randomUUID(),revision:1,message:'Restricted answer'},staff.cookie)).status,200);
+    assert.equal((await request({action:'save-news-preference',enabled:true,permissionVersion:'development-news-v1'})).status,200);
+    assert.equal((await request({action:'delete-account',confirmation:'DELETE'},staff.cookie)).status,200);
+    assert.equal((await request({action:'ticket',id})).body.events[1].by,'support');
+    assert.equal((await request({action:'delete-ticket',id,confirmation:'DELETE'})).status,200);
+  }finally{await restricted.end();await pool.query(`DROP OWNED BY ${name}; DROP ROLE ${name}`);}
 });

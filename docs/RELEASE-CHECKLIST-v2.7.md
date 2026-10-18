@@ -57,6 +57,10 @@ payment and license records live outside the repository; use sanitized summaries
 - [x] Local optional community draft/preview/publication/unpublish/report foundation.
       Migration 007 and moderation/retention/hosted/AT gates remain ahead of enablement;
       `ACCOUNT_COMMUNITY_ENABLED` defaults false. Contract: `launch/COMMUNITY-PROFILES-v2.7.md`.
+- [x] Local public news/separate email permission and private author/staff tickets:
+      revisioned replies/status, explicit deletion, operator grants and audit.
+      No senders/attachments. Migration 008/role grants and hosted privacy/operator/
+      AT gates remain; contract: `launch/NEWS-AND-TICKETS-v2.7.md`.
 - [ ] Hosted account lifecycle/inbox/transport/origin/bot/retention and owner AT
       proof before public enablement; remaining hub slices are separately admitted.
 - [x] INFRA-006 local separate Pro request/confirm/withdraw with private PostgreSQL
@@ -359,3 +363,19 @@ Receipts: `/tmp/exp-community-all-tests-confirmed.log`,
 to hosted storage; public community flag defaults off. Hosted operator moderation,
 retention/logs/backups, abuse controls and human Safari/VoiceOver remain open.
 No agent deployment, provider email or public profile was created.
+
+October 17 FEAT-069 news/private tickets: final `npm test` passes **123 service
+cases** (15 signup, 23 Pro, 71 accounts, 14 usage), plus existing Swift lifecycle
+and actual native HTTP→DB checks. Final web matrix passes **173 checks**, zero
+failures/blocked, with **116 incomplete contrast scans / 57 distinct review items**
+left open. Four Chromium/WebKit dark-desktop/light-mobile journeys verify public
+news without account requests, separate news permission, retry after a real commit
+with lost response, escaped ticket text, operator-granted staff answer/author read,
+revocation, close/reopen, deletion/focus and larger account text. News/mobile author/
+dark staff layouts inspected without horizontal overflow. A real runtime-role test
+caught and fixed a grant-read lock requiring write access; staff grants remain
+SELECT-only. Receipts: `/tmp/exp-news-tickets-regression-final.log`,
+`output/a11y/2026-10-18T00-38-23-663Z/report.md`. Migration 008, restricted role grants,
+operator enrollment/coverage, hosted lifecycle/retention/backup-erasure and human AT
+remain rollout gates. New flags default off; no sender, attachments or hosted
+changes. Contract and setup: `launch/NEWS-AND-TICKETS-v2.7.md`.

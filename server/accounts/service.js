@@ -6,6 +6,8 @@ import { APIError, createAuthMiddleware } from 'better-auth/api';
 import { betaActions, handleBeta } from './beta.js';
 import { proActions, handleAccountInterest } from './pro-interest.js';
 import { communityActions, handleCommunity } from './community.js';
+import { newsActions, handleNews } from './news.js';
+import { ticketActions, handleTickets } from './tickets.js';
 
 export const accountConsentVersion = 'free-account-v1';
 const privateHeaders = { 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'X-Robots-Tag': 'noindex' };
@@ -19,7 +21,7 @@ const text = (value, max, required = false) => typeof value === 'string' && valu
 // Established library owns challenges, atomic OTP consumption, sessions and CSRF.
 // The single public endpoint does not expose password/OAuth/admin/plugin routes.
 export function createAccountService({ pool, origin, secret, sendOTP, registrationEnabled = true, betaEnabled = false,
-  interestStore = null, proLinkEnabled = false, communityEnabled = false }) {
+  interestStore = null, proLinkEnabled = false, communityEnabled = false, newsEnabled = false, ticketsEnabled = false }) {
   const delivery = new AsyncLocalStorage();
   const auth = betterAuth({
     appName: 'EXP [design]', baseURL: origin, basePath: '/api/auth', secret,
@@ -97,22 +99,23 @@ export function createAccountService({ pool, origin, secret, sendOTP, registrati
           const { done, value } = await reader.read();
           if (done) break;
           size += value.byteLength;
-          if (size > 4096) { await reader.cancel(); return json({ error: 'Request is too large.' }, 413); }
+          if (size > 12288) { await reader.cancel(); return json({ error: 'Request is too large.' }, 413); }
           chunks.push(value);
         }
         const raw = Buffer.concat(chunks).toString('utf8');
         body = JSON.parse(raw);
         if (!body || typeof body !== 'object' || Array.isArray(body)) return json({ error: 'Invalid request.' }, 400);
         action = body.action;
+        if (size > 4096 && !['create-ticket','reply-ticket'].includes(action)) return json({ error: 'Request is too large.' }, 413);
       }
       const allowed = {
-        ...betaActions, ...proActions, ...communityActions, session: [], 'send-code': ['email'],
+        ...betaActions, ...proActions, ...communityActions, ...newsActions, ...ticketActions, session: [], 'send-code': ['email'],
         'verify-code': ['email', 'otp', 'intent', 'name', 'accountConsent', 'consentVersion'],
         'save-profile': ['name', 'bio', 'link'], 'save-preferences': ['largeText'],
         'sign-out': [], 'sign-out-all': [], 'delete-account': ['confirmation']
       };
       if (typeof action !== 'string' || !Object.hasOwn(allowed, action) || Object.keys(body).some(k => k !== 'action' && !allowed[action].includes(k))) return json({ error: 'Invalid account action or field.' }, 400);
-      if (Object.hasOwn(betaActions, action) || Object.hasOwn(proActions, action) || Object.hasOwn(communityActions, action)) {
+      if (Object.hasOwn(betaActions, action) || Object.hasOwn(proActions, action) || Object.hasOwn(communityActions, action) || Object.hasOwn(newsActions, action) || Object.hasOwn(ticketActions, action)) {
         // Same database-backed auth/abuse checks as the existing account actions.
         const session = await auth.handler(new Request(`${origin}/api/auth/get-session`, { headers: request.headers }));
         const member = (await session.json().catch(() => null))?.user;
@@ -124,7 +127,11 @@ export function createAccountService({ pool, origin, secret, sendOTP, registrati
           ? await handleBeta({ pool, userId: member.id, body, enabled: betaEnabled })
           : Object.hasOwn(proActions, action)
             ? await handleAccountInterest({ pool, user: member, body, interestStore, enabled: proLinkEnabled })
-            : await handleCommunity({ pool, userId: member.id, body, enabled: communityEnabled });
+            : Object.hasOwn(communityActions, action)
+              ? await handleCommunity({ pool, userId: member.id, body, enabled: communityEnabled })
+              : Object.hasOwn(newsActions, action)
+                ? await handleNews({ pool, userId: member.id, body, enabled: newsEnabled })
+                : await handleTickets({ pool, userId: member.id, body, enabled: ticketsEnabled });
         return json(response.body, response.status, headers);
       }
       let path, payload;

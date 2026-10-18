@@ -53,23 +53,26 @@ checking the database selected in Neon's SQL Editor:
 
 | Database | Files, in order |
 | --- | --- |
-| `exp_accounts` | `migrations/003_free_accounts.sql` → `005_member_beta.sql` → `006_account_pro_link.sql` → `007_community_profiles.sql` |
+| `exp_accounts` | `migrations/003_free_accounts.sql` → `005_member_beta.sql` → `006_account_pro_link.sql` → `007_community_profiles.sql` → `008_news_and_tickets.sql` |
 | `exp_interest` | `migrations/001_pro_interest.sql` → `002_pro_interest_erasure.sql` |
 
 Migration 004 belongs to the optional usage collector, not this account setup.
 For the already working account database, apply **only unapplied migrations**;
-the new community slice needs 007 and its runtime table grants. Keep its public
-flag off until the moderation/retention and hosted checks in
+the community slice needs 007; news/tickets need 008 and their restricted runtime
+grants. Keep the community public flag off until the moderation/retention and hosted checks in
 `COMMUNITY-PROFILES-v2.7.md` are complete.
 Do not rerun migrations against an existing populated schema as a reset. These
 files deliberately fail on existing tables rather than overwrite stored accounts.
 The code does not auto-migrate a hosted database at startup.
 
 After migration, the operator grants schema USAGE and SELECT/INSERT/UPDATE/DELETE
-on account tables to `exp_account_runtime`, and equivalent access only on
-`exp_pro_interest` to `exp_interest_runtime`. No browser-facing database API or
-PUBLIC table grants. Confirm account credentials cannot read the Pro database and
-Pro credentials cannot read account sessions. Database owner/schema/admin access
+on the existing account tables to `exp_account_runtime`, and equivalent access only
+on `exp_pro_interest` to `exp_interest_runtime`. No browser-facing database API or
+PUBLIC table grants. For migration 008 **exclude the staff-grant table from CRUD**:
+runtime gets SELECT only on `exp_member_support_grant`, and SELECT/INSERT only on
+`exp_member_support_audit`. Exact grants, operator staff enrollment/revocation and
+hosted test gates: `NEWS-AND-TICKETS-v2.7.md`. Confirm account credentials cannot read
+the Pro database and Pro credentials cannot read account sessions. Database owner/schema/admin access
 does not belong in the deployed runtime. These grant/role checks are still pending.
 
 From Neon's **Connect** dialog, choose each runtime role/database and its pooled
@@ -101,6 +104,8 @@ The blank reference is `.env.accounts.example` in the repository root.
 | `ACCOUNT_BETA_ENABLED` | Initially `false`; pauses new beta choices/feedback, preserves withdrawal/deletion |
 | `ACCOUNT_PRO_LINK_ENABLED` | Initially `false`; pauses new connections, preserves existing review/withdraw/disconnect |
 | `ACCOUNT_COMMUNITY_ENABLED` | Initially `false`; permits private drafts/unpublish but hides public profiles and pauses publishing/reporting |
+| `ACCOUNT_NEWS_ENABLED` | Initially `false`; pauses new development-news permission, preserves withdrawal; no sender yet |
+| `ACCOUNT_TICKETS_ENABLED` | Initially `false`; pauses new tickets/replies/reopening, preserves reads/closing/author deletion |
 | `PRO_INTEREST_ENABLED` | Initially `false`; preserves separate Pro withdrawal/deletion when storage/origin remain configured |
 
 Store credentials as Secret values; origins and flags can be Config values. All

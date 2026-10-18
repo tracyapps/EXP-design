@@ -3,6 +3,7 @@ import siteContent from "./generated/siteContent.json";
 import InterestPage from "./InterestPage.jsx";
 import AccountPage from "./AccountPage.jsx";
 import PeoplePage from "./PeoplePage.jsx";
+import NewsPage from "./NewsPage.jsx";
 import {
   findHelpArticle,
   helpArticles,
@@ -1514,11 +1515,18 @@ export default function App() {
     return () => cancelAnimationFrame(raf);
   }, []);
 
-  if (["/account", "/account/profile", "/account/preferences", "/account/beta", "/account/pro", "/account/community"].includes(path)) {
+  if (["/account", "/account/profile", "/account/preferences", "/account/beta", "/account/pro", "/account/community", "/account/tickets", "/account/support"].includes(path)) {
     return <div className="account-shell">
       <Header progress={progress} actionLabel="get the free app" actionHref="/download" brandHref="/" />
       <main className="account-main"><AccountPage path={path} /></main>
       <Footer />
+    </div>;
+  }
+
+  if (path === "/news") {
+    return <div className="account-shell">
+      <Header progress={progress} actionLabel="get the free app" actionHref="/download" brandHref="/" />
+      <main className="account-main"><NewsPage /></main><Footer />
     </div>;
   }
 
