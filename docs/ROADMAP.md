@@ -3450,6 +3450,22 @@ font import → Phase 9, shadows → Phase 10._
 
 ## Progress Log
 
+- **2026-10-18 — Correct initial-password setup for the restricted job role [internal].**
+  Owner reports Neon Reset fails with `cannot update password for role without
+  password`. The earlier instruction incorrectly treated Reset as initialization
+  for the SQL-created password-less role. LOGIN is already verified enabled; no
+  role/grant recreation is needed. Rechecked Neon/PostgreSQL role documentation,
+  replaced step 2 with owner-run guarded initial-password SQL and added wizard
+  `--from=2` resume. Hex password placeholder refuses before alteration; actual
+  password entry/submission remains human-only. Step 3 now explains privately
+  filling a connection-URL password placeholder if Neon cannot retrieve it.
+  Fresh disposable PostgreSQL verifies placeholder refusal, initial password
+  initialization and unchanged restricted attributes/column grants. Bash syntax
+  and unchanged wizard-library/scope checks pass; no interactive agent run or
+  hosted password change. Owner stops old wizard and resumes the corrected one;
+  credentials/authenticated preview/mail/cleanup remain pending. Full handoff and
+  official sources: `launch/TICKET-NOTIFICATIONS-AND-RETENTION-v2.7.md`.
+
 - **2026-10-18 — Hosted job role approved; private credential handoff ready [internal].**
   Owner continues and explicitly approves the restricted NOLOGIN role plus guided
   credential setup. Confirms pushed `cb38edc` is production READY on `expdesign.app`
@@ -3475,6 +3491,10 @@ font import → Phase 9, shadows → Phase 10._
   then dispatch read-only preview. Mail/inbox/policy/restore-erasure and AT gates
   remain open. Full current receipt/steps:
   `launch/TICKET-NOTIFICATIONS-AND-RETENTION-v2.7.md`.
+  Troubleshooting follow-up: owner needs help in steps 1–2; fresh read-only role
+  query now confirms LOGIN enabled, so step 1 succeeded. Opened only the exact
+  job role's Reset password confirmation for owner submission. No reset/password
+  entry by agent; remaining credentials and preview are still pending.
 
 - **2026-10-18 — FEAT-069 private photos, account menu and paused GitHub jobs [internal].**
   Owner requests a profile photo/circular far-right login/account dropdown and an

@@ -4,7 +4,8 @@ October 17–18, 2026 · FEAT-069 continuation. Queue/cleanup and the protected
 HTTP runner are locally verified. Additive migration 009 and incremental app-role
 grants are now applied to hosted `exp_accounts`; zero queued jobs observed.
 The owner selected GitHub Actions. Its environment is prepared and the approved
-restricted job role now exists with login disabled. Owner credential entry,
+restricted job role was created with login disabled; the owner's LOGIN step is
+now independently verified complete. Password/remaining credential entry,
 live workflow execution, mail delivery and approved deletion remain pending.
 Production ticket writes remain paused. Earlier no-notifier/no-job statements
 in [news and private tickets](NEWS-AND-TICKETS-v2.7.md) describe their dated slices.
@@ -186,11 +187,40 @@ The guarded transaction ran in `exp_accounts` and committed. Fresh catalog resul
 
 No password was entered or generated for this role by the agent. Screenshot:
 `output/a11y/hosted-job-setup-20261018/role-grants-verified.png`. The owner-only
-handoff enables LOGIN, uses **Reset password on this exact existing role**, then
+handoff enables LOGIN, **initializes the password using owner-run SQL**, then
 saves its `exp_accounts` pooled URL with `sslmode=verify-full` as Vercel Production
 Secret `EXP_ACCOUNT_JOBS_DATABASE_URL`. Do not create a replacement role using
 Neon's Add role control: the SQL-created restricted identity must be retained.
 Role attributes/grants must be rechecked after the credential handoff.
+
+Owner troubleshooting follow-up: the role appears in Neon Roles and a fresh
+`SELECT rolname,rolcanlogin FROM pg_roles` confirms `exp_account_jobs` has LOGIN
+enabled. Step 1 is complete. Opened only its Reset password confirmation dialog;
+the original instructions asked the owner to click Reset. The owner then reports
+`cannot update password for role without password`. That Reset route does not
+initialize this password-less role. It is superseded by the correction below. The
+agent did not submit that dialog, view a password or complete the remaining wizard.
+Handoff screenshot: `output/a11y/hosted-job-setup-20261018/neon-password-reset-handoff.png`.
+
+Corrected step 2: owner generates 32 random bytes as 64 hex characters in their
+password manager or a separate Terminal (`openssl rand -hex 32`), saves the value
+privately and inserts it into the prepared SQL template. The guarded DO block
+refuses an unchanged placeholder or non-hex/wrong-length value, then uses quoted
+`ALTER ROLE exp_account_jobs WITH LOGIN PASSWORD` on the same restricted role.
+Only the owner enters/submits the password. Do not paste the resulting SQL or
+history containing it into chat. The connection URL may need that saved password
+inserted privately if Neon displays a placeholder; hex needs no URL escaping.
+
+Stop the old wizard with Ctrl-C and resume the corrected one with
+`bash ~/exp-account-jobs-setup-20261018.sh --from=2`. The existing running Bash
+function does not automatically pick up edits. No repetition of step 1 is needed.
+Local fresh PostgreSQL verifies: unchanged placeholder fails without setting
+password/enabling login; valid synthetic password initializes a password-less
+role and preserves restricted role attributes/column grants. Bash syntax and
+unchanged-library checks pass. This does not establish hosted password completion.
+SQL template: `output/a11y/hosted-job-setup-20261018/02-initialize-job-password.sql`.
+Sources rechecked: [Neon role password SQL](https://neon.com/docs/manage/roles),
+[PostgreSQL ALTER ROLE](https://www.postgresql.org/docs/current/sql-alterrole.html).
 
 The owner's pushed `cb38edccddb6d2be47286caef036c73ad9996777` is production READY:
 deployment `dpl_2yhxaavT7iqm65DewnwgWQH3ZVjs`, assigned to `expdesign.app`.
@@ -210,7 +240,8 @@ A local ephemeral five-stage wizard is prepared at
 `/Users/tapps/exp-account-jobs-setup-20261018.sh`:
 
 1. Owner enables LOGIN on this existing role in the selected account database.
-2. Owner sets its password using the existing role's Reset password action.
+2. Owner initializes its first password using the corrected guarded SQL step;
+   Neon's Reset control failed for the initial password-less role.
 3. Owner saves the job URL only in the Vercel Production Secret form.
 4. Wizard generates a random 256-bit job token in a private mode-600 file outside
    Git; owner copies it into Vercel, then the human-run wizard installs the same
