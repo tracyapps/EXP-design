@@ -91,9 +91,14 @@ payment and license records live outside the repository; use sanitized summaries
       queue empty. Actual restricted Neon connection independently observed.
       Corrected Production deployment `dpl_4H9JfDZQRLT2cTL1gTdrfqPuPjXn` READY.
 - [ ] Controlled inbox journey before mail schedule activation. Repository readiness
-      true; mail/retention switches false and their workflow steps skipped.
-      Retention policy approval and restore-erasure remain open. No send/delete run.
+      true; automatic mail/retention switches false. Retention policy approval and
+      restore-erasure remain open; no cleanup run.
       Exact next-session checklist: `launch/TICKET-INBOX-ACCEPTANCE-v2.7.md`.
+      Later Oct 18 partial evidence: one real test ticket, mail run `39157768945`
+      accepted 1; actual Gmail INBOX delivery/authentication/content verified.
+      Duplicate run `39157987865` accepted 0, inbox still one notice. Production
+      test write/queueing flags on; GitHub automatic mail/retention still off.
+      Support reply/author delivery and remaining lifecycle gates remain pending.
 - [x] Combined local HTTP sign-in/ticket/worker/provider-capture journey through
       separate restricted roles, including opt-out/no replay, revoked access,
       duplicate suppression, local deletion and sign-out. Fresh `npm test` passes

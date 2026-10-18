@@ -3454,6 +3454,33 @@ font import → Phase 9, shadows → Phase 10._
 
 ## Progress Log
 
+- **2026-10-18 — First real ticket notification reaches support inbox [internal].**
+  Owner asks to retry the browser interruption. Extension-backed EXP tab control
+  still reports an open extension UI. Native Brave accessibility shows no popup
+  but an extra tabExtend new-tab footer; misclassification is an inference.
+  Supported native accessibility controls work. Created one synthetic ticket
+  through the actual ordinary-member form; storage receipt, selected thread and
+  one event observed. Fresh DB query confirms exactly one pending job, belonging
+  to this test ticket and the approved support recipient; no unrelated queue.
+  Manual GitHub mail run `39157768945` succeeds: accepted 1, retry/failed/skipped
+  0. Gmail connector independently verifies one actual INBOX message, not SPAM,
+  19:13:36 UTC; SPF/DKIM/DMARC pass, exact support link, no ticket subject/body or
+  login token. Actual configured sender is `hello@expdesign.app` (not the earlier
+  assumed hi address); no sender configuration changed. Repeated mail run
+  `39157987865` succeeds with all counts 0; fresh inbox search still finds only
+  the one notice. No duplicate acceptance/delivery observed.
+  Production remains test deployment `dpl_3s6rgoTz9RHJCaog3bpR4rSbpVWu`, source
+  `72f7a4e`; ticket writes/queueing true, GitHub automatic mail/retention false.
+  No cleanup, grant changes or deletion. Signed out the ordinary member and
+  requested the existing support account's login code. Owner enters it privately
+  in the open EXP form; no code was read or pasted into chat. NEXT: finish support
+  sign-in, open the inbox/thread, post a synthetic reply, verify author delivery
+  and remaining opt-out/access checks. Do not claim a full inbox journey pass.
+  Sanitized receipts: `output/a11y/hosted-job-setup-20261018/`, including
+  `live-support-inbox-proof.json`, `live-ticket-inbox-20261018.json` and both actual
+  mail-run result/log/aggregate files. `launch/TICKET-INBOX-ACCEPTANCE-v2.7.md`
+  tracks the remaining observations. No source change or push.
+
 - **2026-10-18 — Hosted ticket test preflight; browser handoff pending [internal].**
   Owner selects a second controlled email for the ordinary member and approves
   service notifications to the existing support account (addresses kept private).

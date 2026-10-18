@@ -7,11 +7,14 @@ The owner selected GitHub Actions and completed private credentials for the
 approved restricted job role. Actual GitHub → Vercel → Neon read-only preview
 passes October 18; all cleanup counts are zero and the notification queue is empty.
 Repository readiness is true; mail and retention switches remain false.
-Real inbox delivery, retention approval and live deletion remain pending.
+The first real support notice is verified in Gmail INBOX, with no duplicate after
+a repeat manual worker run. The full reply/author/opt-out inbox journey, retention
+approval and live deletion remain pending.
 Later October 18 controlled-test setup temporarily configures Production ticket
 writes/mail queueing on, while GitHub automatic mail and retention remain off.
-Both approved accounts are verified; no ticket or mail operation yet. Browser
-extension interruption and exact current deployment/state:
+Both approved accounts are verified; one synthetic ticket and its manual support
+notification pass. Supported native controls continue despite the tab bridge's
+extension interruption. Exact current deployment/state and remaining handoff:
 [inbox acceptance continuation](TICKET-INBOX-ACCEPTANCE-v2.7.md#live-test-continuation-october-18).
 Earlier no-notifier/no-job statements
 in [news and private tickets](NEWS-AND-TICKETS-v2.7.md) describe their dated slices.

@@ -31,6 +31,20 @@ review the exact queued recipients before sending. The acceptance table below
 is still pending; account creation/preview do not establish notification delivery.
 Local sanitized preflight: `output/a11y/hosted-job-setup-20261018/live-ticket-inbox-preflight.json`.
 
+Later native-control continuation: the extension-backed tab still reports a
+block; native Brave accessibility shows no popup but a tabExtend footer alongside
+EXP. Supported native controls successfully create one synthetic ticket. The
+exact pending job/approved recipient is checked privately before dispatch.
+[Mail run 39157768945](https://github.com/tracyapps/EXP-design/actions/runs/39157768945)
+accepts one notice, with no retries/failures/skips. Gmail independently confirms
+INBOX delivery (not SPAM), SPF/DKIM/DMARC pass, the correct support link and no
+ticket text or login token. Sender is `hello@expdesign.app`. Duplicate-check
+[run 39157987865](https://github.com/tracyapps/EXP-design/actions/runs/39157987865)
+accepts zero; inbox search still shows exactly one notice. Owner support sign-in
+is now pending private code entry before the reply test. Automatic mail/retention
+remain off; Production test write/queueing flags remain on. Sanitized evidence:
+`output/a11y/hosted-job-setup-20261018/live-ticket-inbox-20261018.json`.
+
 ## What is ready
 
 - Account/auth, ticket queue, HTTP worker and pinned GitHub workflow are implemented.
@@ -75,13 +89,13 @@ or an actual customer issue as test content.
 
 | Action | Required observation | Hosted receipt |
 | --- | --- | --- |
-| Author creates one ticket | Exactly one thread/event; only eligible approved support recipients queued | Pending |
-| Dispatch `preview`, then `mail` once | Aggregate counts match the approved queued events; no private content in Actions output | Pending |
-| Operator checks inbox and spam | One service notice; correct sender and support link; no ticket text, name, code or login token | Pending |
+| Author creates one ticket | Exactly one thread/event; only eligible approved support recipients queued | Pass Oct 18: real UI receipt and exact DB recipient/queue check |
+| Dispatch `preview`, then `mail` once | Aggregate counts match the approved queued events; no private content in Actions output | Pass: preview 39151277752; mail 39157768945 accepted 1, other counts 0 |
+| Operator checks inbox and spam | One service notice; correct sender and support link; no ticket text, name, code or login token | Pass: Gmail INBOX, not SPAM; headers/body verified through connector |
 | Open link while signed out | Sign-in required; support inbox available only with the existing grant | Pending |
 | Operator replies on website | Author sees the reply; exactly one author notification queued | Pending |
 | Dispatch `mail`; author checks inbox/spam | One reply notice; link opens the author's thread after sign-in | Pending |
-| Repeat `mail` with no new events | Zero accepted; no duplicate mail arrives | Pending |
+| Repeat `mail` with no new events | Zero accepted; no duplicate mail arrives | Pass for initial support notice: run 39157987865 all counts 0; inbox count remains 1 |
 | Author turns ticket alerts off; operator replies | Reply visible on website, no author notice queued/delivered; news/beta/Pro choices unchanged | Pending |
 | Author turns alerts on again | No old notice replayed; a new support reply generates one new notice | Pending |
 | Author closes the test thread | Closed state persists after reload; no status-only email | Pending |
