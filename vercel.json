@@ -3,6 +3,7 @@
   "installCommand": "npm ci && npm --prefix website ci",
   "buildCommand": "cd website && npm run build",
   "outputDirectory": "website/dist",
+  "functions": { "api/account-jobs.js": { "maxDuration": 180 } },
   "rewrites": [
     {
       "source": "/support",

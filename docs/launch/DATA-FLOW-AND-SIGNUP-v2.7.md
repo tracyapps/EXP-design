@@ -169,7 +169,7 @@ on user action; EXP collects no payment data there. Account data is added below;
 | --- | --- | --- |
 | Request email code | Email to account Function/private PostgreSQL challenge and Resend transactional email; account-code mail includes only the code/purpose/expiry | No user before code verification; five-minute HMAC-protected OTP, five attempts; DB IP limits plus per-address HMAC cooldown/hour cap. Actual hosted delivery/abuse proof remains |
 | Verify code / explicitly create account | Verified email, random UUID, private display name, account-creation version/time to dedicated account tables | Signed HttpOnly SameSite cookie; Secure on HTTPS; seven-day database sessions; account creation grants no release/news/Pro/beta permissions |
-| Read/update private profile/preferences | Current session subject, name/bio/HTTPS link, larger-account-text boolean | Server ownership, rejected submitted userId/role/visibility/email/marketing fields; private-only DB constraint; no native sync, public directory or uploads |
+| Read/update private profile/preferences | Current session subject, name/bio/HTTPS link, larger-account-text boolean; October 18 adds a bounded private cropped photo | Server ownership, rejected submitted userId/role/visibility/email/marketing fields; private-only DB constraint; no native sync; photo never enters community/public projection |
 | Session lifecycle | Library session token, expiry, IP and user-agent in private PostgreSQL; shared IP rate-limit keys and HMAC address mail-limit rows | Server DB access only; session credentials never returned in browser JSON; no cookie cache; logout/revoke checked. Retention and production cleanup/log policy remain open |
 | Delete account | Explicit DELETE confirmation + session authenticated within five minutes | Removes live user/profile/preferences/sessions/identity rows; pending challenges, abuse data, separate lists, sent mail, logs/backups follow separate retention/cleanup. Hosted deletion and restored-backup process remain open |
 
@@ -189,7 +189,8 @@ only verified output writes are admitted. Website traffic is not silently joined
 
 ### News and private support continuation — October 17
 
-Static `/news` reads no member API or email ledger. A separate development-news
+Static `/news` content reads no member API or email ledger; the October 18 shared
+header makes one optional session GET to show the member avatar. A separate development-news
 choice stores verified account UUID, boolean, wording version and update time;
 no sender/list migration occurs. Private ticket storage holds author ownership,
 subject, plain text, server times, revision and author/support history. Operator
@@ -199,3 +200,23 @@ removes authored threads/replies/audits/news permission/grants, while support
 answers on another author's thread keep text and lose the deleted actor UUID.
 Exact caps, withdrawal, deletion and remaining hosted retention/backup/role gates:
 `NEWS-AND-TICKETS-v2.7.md`. No attachments or ticket/news email transport exists.
+
+### Photos, shared header and scheduled jobs — October 18
+
+Explicit photo save sends only the locally prepared 256×256 crop, not the source
+file. Independent server encoding/pixel/format limits, metadata removal and quota
+precede storage in the existing private account image column. Own-session JSON
+includes that bounded WebP URI; removal/account deletion removes the live image.
+Public profiles omit it. Provider backups and restore erasure stay separate.
+Public React pages now optionally read the shared session for the avatar header;
+public content/downloads remain independent of account availability. React memory
+holds the result; no browser-storage identity/photo cache is added. Cross-tab
+messages carry only a change signal. Details: `ACCOUNT-PHOTOS-AND-MENU-v2.7.md`.
+
+Migration 009/app grants are applied in Neon. The prepared paused GitHub workflow
+will hold only a dedicated job token, POSTing fixed operations to the protected
+Vercel endpoint. Restricted job DB and Resend credentials stay in Vercel. No job
+credential, hosted dispatch, live send or deletion is completed by this slice.
+Aggregate output excludes private rows; details/policy and remaining setup:
+`TICKET-NOTIFICATIONS-AND-RETENTION-v2.7.md`. This supersedes the earlier dated
+no-ticket-transport statement; no development-news sender is added.

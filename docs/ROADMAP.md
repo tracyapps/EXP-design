@@ -1372,6 +1372,16 @@ from the appcast; a development plan does not change the published release.
       lifecycle, community rollout/moderation and news/private ticket rollout.
       Neon is connected and owner account creation passes; remaining setup handoff:
       `launch/NEON-ACCOUNT-SETUP-v2.7.md`.
+- [x] **FEAT-069 local photo/header/explanation:** private bounded photo crop,
+      save/remove, circular account disclosure/shared session/cross-tab sign-out,
+      and public `/accounts` with truthful future plans. Browser/build 201 passes,
+      zero failures; human contrast/AT/hosted review remains. Contract:
+      `launch/ACCOUNT-PHOTOS-AND-MENU-v2.7.md`.
+- [x] **FEAT-069 hosted job preparation:** additive migration 009/app grants applied
+      in Neon (zero jobs); owner selects GitHub Actions. Main-only environment and
+      disabled repository switches prepared, protected HTTP runner locally tested.
+      No job login/token, dispatch, real mail or live erasure yet. Activation:
+      `launch/TICKET-NOTIFICATIONS-AND-RETENTION-v2.7.md`.
 - [ ] Reliable separate Pro-interest signup, permission/delivery/unsubscribe proof,
       data map and owner-reviewed privacy/EULA/refund/ownership decisions.
 - [x] **INFRA-010 local native measurement:** default-off Privacy control, typed
@@ -3439,6 +3449,49 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-10-18 — FEAT-069 private photos, account menu and paused GitHub jobs [internal].**
+  Owner requests a profile photo/circular far-right login/account dropdown and an
+  account explanation, then selects GitHub Actions for five-minute ticket checks.
+  Private profile now previews a local centered crop; explicit save sends only the
+  small image. Server independently checks encoding/magic/pixel/format/size limits,
+  strips metadata and stores a bounded WebP in the existing private user image
+  column. Removal remains available beyond upload quota; account deletion removes
+  the live photo. No photo migration, public URL/bucket or community publication.
+  Header uses saved photo/initials/person icon; ordinary navigation disclosure has
+  keyboard/escape/outside close, sign-out and download. Shared in-memory session
+  deduplicates optional header lookup and signals other tabs without storing profile
+  data. Public `/news` content remains account-free; its previous zero-lookup
+  contract intentionally changes to one optional header session GET. `/accounts`
+  explains current private profile/preferences/purpose choices, gradual ticket/
+  community rollout and future settings sync/Discord without dates or cloud-file
+  claims. Avatar saves preserve unsaved profile text. Standards checked before
+  semantics/naming; exact W3C citations in FEAT-069. First browser pass caught
+  initials missing from accessible name. Expanded pass caught a Safari retry-focus
+  race; focus now waits for controls to render enabled. Mobile test incorrectly
+  clicked behind the open popover; corrected to a real outside point. All failed
+  receipts retained; final build/browser matrix is
+  `output/a11y/2026-10-18T05-22-57-872Z/report.md`: **201 pass, zero failed/blocked,
+  128 incomplete contrast scans / 86 distinct rule-target findings**. Dark desktop/
+  light mobile photo menus inspected in Chromium and WebKit; screenshot evidence
+  uses a synthetic green photo. `npm test` passes **153 service cases** (15 signup,
+  23 Pro, 101 account/job, 14 usage), plus existing native/wire checks; log
+  `/tmp/exp-account-avatar-final-services.log`. Sharp 0.35.5 pinned; no native app
+  source/document mutation. Photo contract: `launch/ACCOUNT-PHOTOS-AND-MENU-v2.7.md`.
+  Hosted Neon migration 009 and incremental existing-app grants committed/verified,
+  zero queued jobs. Actual Vercel plan is Hobby. Created dedicated GitHub
+  `exp-account-jobs` environment with main-only policy and three false repository
+  switches. Workflow uses pinned official actions and built-in Node HTTP client;
+  GitHub will hold only a dedicated token while restricted DB/Resend stay in Vercel.
+  New POST endpoint authenticates before storage, permits three bounded operations
+  and independently gates mail/deletion; preview is read-only. Five new HTTP/DB
+  checks and checksum-verified Actionlint 1.7.12 pass. No dedicated job login/token,
+  hosted workflow dispatch, real email, live cleanup, push or deployment performed.
+  NEXT: owner push/review photos and explanation; authorize/configure the narrow
+  job credentials, run hosted read-only preview, then controlled staff/member/inbox
+  lifecycle before scheduled mail. Retention policy/backup-erasure and physical AT
+  acceptance remain separate gates. Exact activation/rollback and provider sources:
+  `launch/TICKET-NOTIFICATIONS-AND-RETENTION-v2.7.md`.
 
 - **2026-10-17 — FEAT-069 ticket notifications and guarded account retention [internal].**
   Owner authorizes local notification/cleanup continuation. New ticket/author reply

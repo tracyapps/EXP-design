@@ -4,6 +4,8 @@ import InterestPage from "./InterestPage.jsx";
 import AccountPage from "./AccountPage.jsx";
 import PeoplePage from "./PeoplePage.jsx";
 import NewsPage from "./NewsPage.jsx";
+import AccountMenu from './AccountMenu.jsx';
+import AccountsIntro from './AccountsIntro.jsx';
 import {
   findHelpArticle,
   helpArticles,
@@ -32,6 +34,7 @@ const featureLinks = [
 const learnLinks = [
   { label: "tutorials", href: "/learn" },
   { label: "ARIA roles guide", href: "/aria-roles/" },
+  { label: "free EXP accounts", href: "/accounts" },
 ];
 
 const navItems = [
@@ -213,9 +216,7 @@ function Header({
             {dateShort && <span className="version-date">{dateShort}</span>}
           </a>
         )}
-        <a className="header-action" href={actionHref}>
-          {actionLabel}
-        </a>
+        <AccountMenu />
       </div>
       <div className="scroll-progress" style={{ transform: `scaleX(${progress})` }} />
     </header>
@@ -1515,6 +1516,7 @@ export default function App() {
     return () => cancelAnimationFrame(raf);
   }, []);
 
+  if(path==='/accounts')return <div className="account-shell"><Header progress={progress} brandHref="/"/><main className="account-main"><AccountsIntro/></main><Footer/></div>;
   if (["/account", "/account/profile", "/account/preferences", "/account/beta", "/account/pro", "/account/community", "/account/tickets", "/account/support"].includes(path)) {
     return <div className="account-shell">
       <Header progress={progress} actionLabel="get the free app" actionHref="/download" brandHref="/" />

@@ -43,4 +43,7 @@
 
 .ticket-events { counter-reset: none; }
 .account-page .ticket-subject { max-width: 100%; text-align: left; overflow-wrap: anywhere; }
+.profile-photo-preview { width: 96px; height: 96px; margin-bottom: 20px; }
+.profile-photo-preview .account-avatar { font-size: 28px; border: 1px solid var(--text-secondary); }
+.account-card input[type=file] { max-width: 100%; height: auto; }
 .account-card h2, .account-card time { overflow-wrap: anywhere; }

@@ -5,11 +5,13 @@ import path from 'node:path';
 import { chromium, webkit } from 'playwright';
 import AxeBuilder from '@axe-core/playwright';
 import { startFixture } from './fixture.mjs';
+import sharp from 'sharp';
 
 const output = process.env.EXP_A11Y_OUTPUT;
 if (!output?.includes('/output/a11y/')) throw Error('Use the accessibility runner');
 await mkdir(output, { recursive: true });
 const fixture = await startFixture(), results = [];
+const avatarFixture=await sharp({create:{width:160,height:120,channels:3,background:'#8ccb48'}}).png().toBuffer();
 const tabKeys = new WeakMap();
 const variants = [
   { name: 'chromium-dark', engine: chromium, colorScheme: 'dark', width: 1280 },
@@ -77,10 +79,10 @@ try {
       page.on('pageerror', error => results.push({ name: `${variant.name}-javascript`, status: 'failed', detail: error.message }));
       const email = `${variant.name}@example.test`;
       await check(`${variant.name}-news-public`,page,async()=>{
-        let accountCalls=0;const observe=r=>{if(new URL(r.url()).pathname==='/api/account')accountCalls++;};page.on('request',observe);
+        const accountCalls=[];const observe=r=>{if(new URL(r.url()).pathname==='/api/account')accountCalls.push(r.method());};page.on('request',observe);
         try{await page.goto(`${fixture.origin}/news`);await page.getByRole('heading',{name:'News and updates.',exact:true}).waitFor();
           await page.getByRole('heading',{name:'EXP 2.6: a smoother canvas, and tools for everyday work.'}).waitFor();
-          assert.equal(accountCalls,0);assert.equal((await context.cookies()).length,0);
+          assert.ok(accountCalls.length<=1);assert.ok(accountCalls.every(method=>method==='GET'),'Only optional header session lookup is allowed');assert.equal((await context.cookies()).length,0);
           assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await scan(`${variant.name}-news`,page);
         }finally{page.off('request',observe);}
       });
@@ -103,6 +105,18 @@ try {
         await page.waitForFunction(() => document.activeElement?.id === 'account-title');
         await scan(`${variant.name}-overview`, page);
       });
+      await check(`${variant.name}-account-menu-keyboard`,page,async()=>{
+        const trigger=page.getByRole('button',{name:/Account menu for Keyboard Designer/});
+        await trigger.waitFor();assert.equal(await trigger.getAttribute('aria-expanded'),'false');
+        await tabTo(page,trigger);await page.keyboard.press('Enter');
+        assert.equal(await trigger.getAttribute('aria-expanded'),'true');await scan(`${variant.name}-account-menu`,page);
+        await page.screenshot({path:path.join(output,`${variant.name}-avatar-menu-open.png`),fullPage:false});
+        await page.keyboard.press(tabKeys.get(page)||'Tab');assert.equal(await page.locator('.account-popover a').first().evaluate(el=>el===document.activeElement),true);
+        await page.keyboard.press('Escape');assert.equal(await trigger.getAttribute('aria-expanded'),'false');
+        assert.equal(await trigger.evaluate(el=>el===document.activeElement),true);
+        await page.keyboard.press('Enter');await page.locator('main').click({position:{x:2,y:2}});assert.equal(await trigger.getAttribute('aria-expanded'),'false');
+        const box=await trigger.boundingBox();assert.ok(box.width>=44 && box.height>=44);
+      });
       await check(`${variant.name}-private-profile-keyboard`, page, async () => {
         await tabTo(page, page.getByRole('link', { name: 'Private profile', exact: true })); await page.keyboard.press('Enter');
         await page.getByLabel('Display name').waitFor();
@@ -114,6 +128,36 @@ try {
         await page.reload(); await page.getByLabel('Display name').waitFor();
         assert.equal(await page.getByLabel('Display name').inputValue(), 'Updated Keyboard Designer');
         await scan(`${variant.name}-profile`, page);
+      });
+      await check(`${variant.name}-private-photo-upload-retry-remove`,page,async()=>{
+        const upload=page.getByLabel('Choose a profile photo (PNG, JPEG or WebP, up to 5 MB)');
+        await type(page,page.getByLabel('Bio (optional, up to 500 characters)'),'Unsaved private draft stays while saving a photo.');
+        await upload.setInputFiles({name:'fixture-photo.png',mimeType:'image/png',buffer:avatarFixture});
+        const save=page.getByRole('button',{name:'Save profile photo',exact:true});await save.waitFor();
+        let firstImage,retryImage;
+        const lost=async route=>{
+          const payload=route.request().postDataJSON();if(payload?.action!=='save-avatar')return route.continue();
+          if(!firstImage){firstImage=payload.image;assert.equal((await route.fetch()).status(),200);return route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:'Photo response interrupted. Retry your preview.'})});}
+          retryImage=payload.image;return route.continue();
+        };
+        await page.route('**/api/account',lost);await tabTo(page,save);await page.keyboard.press('Enter');
+        await page.getByRole('status').filter({hasText:'Photo response interrupted.'}).waitFor();
+        await page.waitForFunction(()=>document.activeElement?.textContent==='Save profile photo');await page.keyboard.press('Enter');
+        await page.getByRole('status').filter({hasText:'Profile photo saved.'}).waitFor();await page.unroute('**/api/account',lost);
+        assert.equal(firstImage,retryImage);assert.equal(await page.getByLabel('Bio (optional, up to 500 characters)').inputValue(),'Unsaved private draft stays while saving a photo.');
+        assert.match(await page.locator('.account-avatar-button img').getAttribute('src'),/^data:image\/webp;base64,/);
+        await page.reload();await page.getByRole('button',{name:'Remove profile photo'}).waitFor();
+        assert.match(await page.locator('.account-avatar-button img').getAttribute('src'),/^data:image\/webp;base64,/);
+        await scan(`${variant.name}-profile-photo`,page);await page.screenshot({path:path.join(output,`${variant.name}-profile-photo.png`),fullPage:true});
+        const photoMenu=page.getByRole('button',{name:/Account menu for Updated Keyboard Designer/});
+        await tabTo(page,photoMenu);await page.keyboard.press('Enter');
+        await page.screenshot({path:path.join(output,`${variant.name}-profile-photo-menu.png`),fullPage:false});await page.keyboard.press('Escape');
+        await tabTo(page,page.getByRole('button',{name:'Remove profile photo'}));await page.keyboard.press('Enter');
+        await page.getByRole('status').filter({hasText:'Profile photo removed.'}).waitFor();await page.waitForFunction(()=>document.activeElement?.id==='profile-photo');
+        assert.equal(await page.locator('.account-avatar-button img').count(),0);
+        await upload.setInputFiles({name:'script.svg',mimeType:'image/svg+xml',buffer:Buffer.from('<svg/>')});
+        await page.getByRole('status').filter({hasText:'Choose a PNG, JPEG or WebP photo up to 5 MB.'}).waitFor();
+        assert.equal(await page.getByRole('button',{name:'Save profile photo'}).count(),0);
       });
       await check(`${variant.name}-news-permission-keyboard`,page,async()=>{
         await page.goto(`${fixture.origin}/account/preferences`);
@@ -234,7 +278,7 @@ try {
           assert.equal((await publicRequest).headers().cookie,undefined,'Public read must omit account cookie');
           await reader.getByText('Public Keyboard Designer',{exact:true}).waitFor();
           assert.equal(await reader.locator('.community-public-card img').count(),0);
-          assert.equal(await reader.getByText('Private Reporter',{exact:true}).count(),0);
+          assert.equal(await reader.locator('.community-public-card').getByText('Private Reporter',{exact:true}).count(),0);
           await scan(`${variant.name}-community-public`,reader);
           await reader.screenshot({path:path.join(output,`${variant.name}-community-public.png`),fullPage:true});
           await tabTo(reader,reader.locator('summary').filter({hasText:'Report this profile'}));await reader.keyboard.press('Enter');
@@ -437,6 +481,33 @@ try {
         await tabTo(page, withdraw); await page.keyboard.press('Enter');
         await page.getByRole('status').filter({ hasText: 'Your Pro interest has been withdrawn.' }).waitFor();
         await scan(`${variant.name}-pro-withdrawn`, page);
+      });
+      await check(`${variant.name}-account-explanation-and-guest-menu`,page,async()=>{
+        await page.route('**/api/account',route=>route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:'Accounts temporarily unavailable.'})}));
+        await page.goto(`${fixture.origin}/accounts`);await page.getByRole('heading',{name:'Your corner of EXP.'}).waitFor();
+        await page.getByText('Settings sync is not available today.',{exact:false}).waitFor();
+        const guest=page.getByRole('button',{name:'Sign in or create an EXP account',exact:true});
+        await tabTo(page,guest);await page.keyboard.press('Enter');await page.getByText('Account service is unavailable right now.',{exact:false}).waitFor();
+        assert.equal(await page.locator('.account-popover').getByRole('link',{name:'Download EXP',exact:true}).isVisible(),true);
+        await scan(`${variant.name}-account-about-menu`,page);assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+        await page.keyboard.press('Escape');await page.unroute('**/api/account');
+        await page.goto(`${fixture.origin}/account?intent=register`);await page.getByRole('radio',{name:'Create account'}).waitFor();
+        assert.equal(await page.getByRole('radio',{name:'Create account'}).isChecked(),true);
+      });
+      await check(`${variant.name}-header-signout-clears-other-tab`,page,async()=>{
+        const address=`header-${email}`;
+        assert.equal((await context.request.post(`${fixture.origin}/api/account`,{headers:{origin:fixture.origin},data:{action:'send-code',email:address}})).status(),200);
+        const otp=fixture.mail.findLast(item=>item.kind==='account' && item.email===address).otp;
+        assert.equal((await context.request.post(`${fixture.origin}/api/account`,{headers:{origin:fixture.origin},data:{action:'verify-code',email:address,otp,intent:'register',name:'Header Tester',accountConsent:true,consentVersion:'free-account-v1'}})).status(),200);
+        await page.goto(`${fixture.origin}/news`);const trigger=page.getByRole('button',{name:/Account menu for Header Tester/});await trigger.waitFor();
+        const second=await context.newPage();
+        try{
+          await second.goto(`${fixture.origin}/news`);await second.getByRole('button',{name:/Account menu for Header Tester/}).waitFor();
+          await tabTo(page,trigger);await page.keyboard.press('Enter');await tabTo(page,page.locator('.account-popover').getByRole('button',{name:'Sign out',exact:true}));await page.keyboard.press('Enter');
+          await page.getByRole('button',{name:'Sign in or create an EXP account',exact:true}).waitFor();
+          await second.getByRole('button',{name:'Sign in or create an EXP account',exact:true}).waitFor();
+          assert.equal((await (await context.request.get(`${fixture.origin}/api/account`)).json()).user,null);
+        }finally{await second.close();}
       });
       await context.close();
     } catch (error) { results.push({ name: variant.name, status: 'failed', detail: error.message }); }

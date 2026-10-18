@@ -8,6 +8,7 @@ import { proActions, handleAccountInterest } from './pro-interest.js';
 import { communityActions, handleCommunity } from './community.js';
 import { newsActions, handleNews } from './news.js';
 import { ticketActions, handleTickets } from './tickets.js';
+import { avatarActions,handleAvatar,privateAvatar } from './avatar.js';
 
 export const accountConsentVersion = 'free-account-v1';
 const privateHeaders = { 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'X-Robots-Tag': 'noindex' };
@@ -99,23 +100,23 @@ export function createAccountService({ pool, origin, secret, sendOTP, registrati
           const { done, value } = await reader.read();
           if (done) break;
           size += value.byteLength;
-          if (size > 12288) { await reader.cancel(); return json({ error: 'Request is too large.' }, 413); }
+          if (size > 144000) { await reader.cancel(); return json({ error: 'Request is too large.' }, 413); }
           chunks.push(value);
         }
         const raw = Buffer.concat(chunks).toString('utf8');
         body = JSON.parse(raw);
         if (!body || typeof body !== 'object' || Array.isArray(body)) return json({ error: 'Invalid request.' }, 400);
         action = body.action;
-        if (size > 4096 && !['create-ticket','reply-ticket'].includes(action)) return json({ error: 'Request is too large.' }, 413);
+        if ((size>12288 && action!=='save-avatar') || (size > 4096 && !['create-ticket','reply-ticket','save-avatar'].includes(action))) return json({ error: 'Request is too large.' }, 413);
       }
       const allowed = {
-        ...betaActions, ...proActions, ...communityActions, ...newsActions, ...ticketActions, session: [], 'send-code': ['email'],
+        ...avatarActions, ...betaActions, ...proActions, ...communityActions, ...newsActions, ...ticketActions, session: [], 'send-code': ['email'],
         'verify-code': ['email', 'otp', 'intent', 'name', 'accountConsent', 'consentVersion'],
         'save-profile': ['name', 'bio', 'link'], 'save-preferences': ['largeText'],
         'sign-out': [], 'sign-out-all': [], 'delete-account': ['confirmation']
       };
       if (typeof action !== 'string' || !Object.hasOwn(allowed, action) || Object.keys(body).some(k => k !== 'action' && !allowed[action].includes(k))) return json({ error: 'Invalid account action or field.' }, 400);
-      if (Object.hasOwn(betaActions, action) || Object.hasOwn(proActions, action) || Object.hasOwn(communityActions, action) || Object.hasOwn(newsActions, action) || Object.hasOwn(ticketActions, action)) {
+      if (Object.hasOwn(avatarActions,action) || Object.hasOwn(betaActions, action) || Object.hasOwn(proActions, action) || Object.hasOwn(communityActions, action) || Object.hasOwn(newsActions, action) || Object.hasOwn(ticketActions, action)) {
         // Same database-backed auth/abuse checks as the existing account actions.
         const session = await auth.handler(new Request(`${origin}/api/auth/get-session`, { headers: request.headers }));
         const member = (await session.json().catch(() => null))?.user;
@@ -123,7 +124,9 @@ export function createAccountService({ pool, origin, secret, sendOTP, registrati
         for (const cookie of session.headers.getSetCookie()) headers.append('set-cookie', cookie);
         if (!session.ok) return json({ error: session.status === 429 ? 'Please wait before trying again.' : 'Account service is unavailable. Please try later.' }, session.status, headers);
         if (!member?.id || member.emailVerified !== true) return json({ error: 'Please sign in again.' }, 401, headers);
-        const response = Object.hasOwn(betaActions, action)
+        const response = Object.hasOwn(avatarActions,action)
+          ? await handleAvatar({pool,userId:member.id,body,secret})
+          : Object.hasOwn(betaActions, action)
           ? await handleBeta({ pool, userId: member.id, body, enabled: betaEnabled })
           : Object.hasOwn(proActions, action)
             ? await handleAccountInterest({ pool, user: member, body, interestStore, enabled: proLinkEnabled })
@@ -184,7 +187,7 @@ export function createAccountService({ pool, origin, secret, sendOTP, registrati
         // Never return bearer/session tokens, IPs or user-agent details to JS.
         return json({ ok: true, registrationOpen: registrationEnabled, user: user ? { id: user.id, email: user.email, name: user.name,
           bio: user.bio || '', link: user.link || '', largeText: user.largeText === true,
-          profileVisibility: 'private' } : null }, 200, outputHeaders);
+          avatar:privateAvatar(user.image), profileVisibility: 'private' } : null }, 200, outputHeaders);
       }
       return json({ ok: true }, 200, outputHeaders);
     } catch (error) {

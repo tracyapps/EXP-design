@@ -3277,7 +3277,32 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   https://www.w3.org/TR/html-aria/#el-input-checkbox,
   https://www.w3.org/WAI/ARIA/apg/practices/keyboard-interface/#kbd_disabled_controls,
   https://www.w3.org/TR/WCAG21/#focus-order.
-- Accessibility sources checked before form/naming changes:
+- October 18 photo/header continuation: private cropped photo upload/removal,
+  circular account disclosure, shared in-memory session/cross-tab sign-out and
+  `/accounts` explanation implemented. Download stays available; settings sync/
+  Discord are future possibilities. The header intentionally adds one optional
+  account GET to public React pages; public content remains usable during outage.
+  Service suite: 153 passes total, including 101 account/job cases. Browser/build:
+  201 passes, zero failures/blocked; 128 incomplete scans / 86 distinct rule-target
+  contrast findings remain. Safari retry-focus race fixed by waiting for enabled
+  controls to render. Historical failed runs are retained. Handoff:
+  `launch/ACCOUNT-PHOTOS-AND-MENU-v2.7.md`. Before semantics/naming edits, verified
+  https://www.w3.org/WAI/ARIA/apg/patterns/disclosure/examples/disclosure-navigation/,
+  https://www.w3.org/TR/html-aria/,
+  https://www.w3.org/TR/wai-aria-1.2/#aria-expanded,
+  https://www.w3.org/TR/wai-aria-1.2/#aria-controls,
+  https://www.w3.org/TR/WCAG21/#focus-order and
+  https://www.w3.org/WAI/WCAG21/Understanding/label-in-name.html.
+  Ordinary disclosure links/buttons are used rather than menu/menuitem roles;
+  initials are included in the accessible name. Physical VoiceOver/FKA remains open.
+- October 18 hosted job continuation: Neon migration 009/app grants applied;
+  zero queued jobs verified. Owner chooses GitHub Actions; dedicated main-only
+  environment and false repository flags prepared. Local protected Vercel POST
+  endpoint/HTTP client and pinned workflow pass integration checks/Actionlint.
+  GitHub gets only a narrow token; DB/Resend stay in Vercel. Job-role credentials,
+  hosted preview/dispatch, policy approval and actual mail/deletion remain pending.
+  Exact activation/rollback: `launch/TICKET-NOTIFICATIONS-AND-RETENTION-v2.7.md`.
+- Accessibility sources checked before initial form/naming changes:
   https://www.w3.org/WAI/tutorials/forms/labels/ (explicit native labels),
   https://www.w3.org/TR/wai-aria-1.2/#status (polite status announcements),
   https://www.w3.org/TR/wai-aria-1.2/#aria-current (current page),

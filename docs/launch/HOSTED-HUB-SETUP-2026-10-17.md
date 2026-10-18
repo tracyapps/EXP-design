@@ -82,3 +82,13 @@ Provider facts checked against [Neon role documentation](https://neon.com/docs/m
 console/API/CLI-created roles receive administrative membership; SQL-created roles
 require explicit object grants. This project now uses the latter for the two live
 purpose-specific application connections.
+
+## October 18 continuation
+
+Applied additive migration 009 and incremental grants to the existing account
+app login. The two new tables/grants are verified, zero jobs queued. Owner selected
+GitHub Actions after actual Hobby plan verification. Created its dedicated
+main-only environment and three false repository switches; no secrets, job login,
+live dispatch, message or deletion. Protected HTTP runner source and exact
+remaining credential/activation steps:
+[ticket jobs handoff](TICKET-NOTIFICATIONS-AND-RETENTION-v2.7.md#github-actions--vercel-job-runner).

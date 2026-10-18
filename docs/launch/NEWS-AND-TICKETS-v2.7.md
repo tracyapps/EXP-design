@@ -12,7 +12,9 @@ no deployment, hosted migration, staff grant or real email is authorized here.
 
 ## Delivered behavior
 
-- `/news` is public, account-free and makes no account API request. The first
+- `/news` is public and account-free. Its content reads no member data; the
+  October 18 shared avatar header adds one optional session GET (public content
+  still works during account-service failure). The first
   curated post describes shipped v2.6, from `RELEASE-NOTES-v2.6.md` and its release
   receipt. Internal roadmap/progress notes are never its feed. Add future posts
   deliberately in `website/src/NewsPage.jsx`; do not announce unreleased work as

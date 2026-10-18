@@ -79,6 +79,16 @@ payment and license records live outside the repository; use sanitized summaries
       retained failed run are documented; no hosted delivery/deletion inferred.
 - [ ] Hosted account lifecycle/inbox/transport/origin/bot/retention and owner AT
       proof before public enablement; remaining hub slices are separately admitted.
+- [x] Private photo crop/upload/removal, circular header account disclosure, shared
+      session/cross-tab sign-out and public account explanation verified locally.
+      Photos stay private; future sync/Discord clearly labeled. No new image schema.
+      `launch/ACCOUNT-PHOTOS-AND-MENU-v2.7.md`.
+- [x] Neon migration 009/incremental app grants applied; zero queued jobs verified.
+      GitHub main-only environment and disabled switches prepared. Protected job
+      HTTP endpoint/client/workflow locally verified; Actionlint 1.7.12 passes.
+- [ ] Dedicated job login/token setup, hosted preview and controlled inbox journey
+      before schedule activation. Mail/retention switches stay off; retention policy
+      approval and restore-erasure remain open. No live dispatch/send/delete claimed.
 - [x] INFRA-006 local separate Pro request/confirm/withdraw with private PostgreSQL
       ledger; 16 real DB checks and browser flow pass. Enrollment disabled by default.
       Setup and remaining gates: `launch/PRO-INTEREST-v2.7.md`.
@@ -395,3 +405,19 @@ SELECT-only. Receipts: `/tmp/exp-news-tickets-regression-final.log`,
 operator enrollment/coverage, hosted lifecycle/retention/backup-erasure and human AT
 remain rollout gates. New flags default off; no sender, attachments or hosted
 changes. Contract and setup: `launch/NEWS-AND-TICKETS-v2.7.md`.
+
+October 18 FEAT-069 photo/header/jobs continuation: `npm test` passes **153 service
+cases** (15 signup, 23 Pro, 101 account/job, 14 usage), plus existing native/wire
+checks, exit 0 (`/tmp/exp-account-avatar-final-services.log`). Website build/keyboard/
+axe matrix passes **201 checks**, zero failures/blocked; **128 incomplete contrast
+scans / 86 distinct rule-target findings** remain, exit 0:
+`output/a11y/2026-10-18T05-22-57-872Z/report.md`. Dark-desktop/light-mobile photo
+menus inspected in both engines; tests use a synthetic green photo. Includes lost
+response/retry focus, preserved unsaved profile text, removal/reload, service-outage
+guest links and actual cross-tab server sign-out. Protected HTTP job tests include
+read-only preview, token/TLS/gate refusal and CLI redaction/redirect denial. Official
+Actionlint 1.7.12 passes; production dependency audit reports zero vulnerabilities.
+Neon 009/app grants and paused GitHub environment are separately observed hosted
+facts. No job-role credentials, live dispatch/mail/deletion, feature deployment or
+physical VoiceOver acceptance is inferred. Photo/job handoffs contain remaining
+activation gates and retained failed-run evidence.

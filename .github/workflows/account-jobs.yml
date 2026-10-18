@@ -1,0 +1,67 @@
+name: EXP account jobs
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Job to run (preview does not send or delete)
+        type: choice
+        required: true
+        default: preview
+        options: [preview, mail, retention]
+  schedule:
+    - cron: '2-57/5 * * * *'
+    - cron: '41 3 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: exp-account-jobs-${{ github.event_name == 'workflow_dispatch' && inputs.operation || (github.event.schedule == '41 3 * * *' && 'retention' || 'mail') }}
+  cancel-in-progress: false
+
+jobs:
+  account-jobs:
+    # Defaults to skipped. No PR/fork trigger, unreviewed branch or implicit enablement.
+    if: >-
+      github.repository == 'tracyapps/EXP-design' && github.ref == 'refs/heads/main' &&
+      vars.ACCOUNT_JOBS_READY == 'true' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.schedule == '2-57/5 * * * *' && vars.ACCOUNT_TICKET_MAIL_ENABLED == 'true') ||
+       (github.event.schedule == '41 3 * * *' && vars.ACCOUNT_RETENTION_ENABLED == 'true'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    environment: exp-account-jobs
+    env:
+      NODE_ENV: production
+      JOB_OPERATION: ${{ github.event_name == 'workflow_dispatch' && inputs.operation || (github.event.schedule == '41 3 * * *' && 'retention' || 'mail') }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      # Built-in Node fetch only. No DB, Resend, auth secrets or dependency install.
+      - name: Preview eligible cleanup and queue counts
+        if: env.JOB_OPERATION == 'preview'
+        run: node scripts/run_hosted_account_job.mjs preview
+        env:
+          EXP_ACCOUNT_JOB_TOKEN: ${{ secrets.EXP_ACCOUNT_JOB_TOKEN }}
+      - name: Process ticket notification queue
+        if: env.JOB_OPERATION == 'mail'
+        run: node scripts/run_hosted_account_job.mjs mail
+        env:
+          EXP_ACCOUNT_JOB_TOKEN: ${{ secrets.EXP_ACCOUNT_JOB_TOKEN }}
+      - name: Apply explicitly approved retention policy
+        if: env.JOB_OPERATION == 'retention'
+        shell: bash
+        run: |
+          if [[ "$ACCOUNT_RETENTION_POLICY" != 'member-retention-v1' ]]; then
+            echo 'The approved retention policy is not configured.' >&2
+            exit 1
+          fi
+          node scripts/run_hosted_account_job.mjs retention
+        env:
+          EXP_ACCOUNT_JOB_TOKEN: ${{ secrets.EXP_ACCOUNT_JOB_TOKEN }}
+          ACCOUNT_RETENTION_POLICY: ${{ vars.ACCOUNT_RETENTION_POLICY }}

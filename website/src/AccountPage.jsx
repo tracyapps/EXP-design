@@ -6,19 +6,21 @@ import CommunityPage from './CommunityPage.jsx';
 import NewsPreferences from './NewsPreferences.jsx';
 import TicketsPage from './TicketsPage.jsx';
 import accountRequest from './account-request.js';
+import {useAccountSession} from './AccountSession.jsx';
+import ProfilePhoto from './ProfilePhoto.jsx';
 
 
 export default function AccountPage({ path }) {
   const headingRef = useRef(null);
   const codeRef = useRef(null);
   const emailRef = useRef(null);
-  const [user, setUser] = useState(null);
+  const session=useAccountSession(),{user}=session;
   const [ready, setReady] = useState(false);
   const [available, setAvailable] = useState(false);
   const [registrationOpen, setRegistrationOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('Checking account availability…');
-  const [intent, setIntent] = useState('sign-in');
+  const [intent, setIntent] = useState(()=>new URLSearchParams(window.location.search).get('intent')==='register'?'register':'sign-in');
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   const [consent, setConsent] = useState(false);
@@ -29,24 +31,28 @@ export default function AccountPage({ path }) {
   const [confirmation, setConfirmation] = useState('');
   const [proToken, setProToken] = useState(() => path === '/account/pro' ? window.location.hash.slice(1) : '');
 
-  function receive(next) {
-    setUser(next);
-    if (next) {
+  function receive(next,preserveProfile=false) {
+    if(!next)session.clear();
+    if (next && !preserveProfile) {
       setProfile({ name: next.name, bio: next.bio, link: next.link });
       setLargeText(next.largeText);
-    } else { setProfile({ name: '', bio: '', link: '' }); setLargeText(false); }
+    } else if(!next) { setProfile({ name: '', bio: '', link: '' }); setLargeText(false); }
   }
   useEffect(() => {
     if (path === '/account/pro') window.history.replaceState(null, '', window.location.pathname);
     document.title = 'Your free account — EXP [design]';
     let active = true;
-    accountRequest().then(result => {
+    session.refresh().then(result => {
       if (active) { receive(result.user); setRegistrationOpen(result.registrationOpen); setAvailable(true); setMessage(''); }
     }).catch(error => { if (active) setMessage(error.message); })
       .finally(() => { if (active) setReady(true); });
     return () => { active = false; };
   }, []);
   useEffect(() => { if (sent) codeRef.current?.focus(); }, [sent]);
+  useEffect(()=>{
+    if(user){setProfile({name:user.name,bio:user.bio,link:user.link});setLargeText(user.largeText);}
+    else{setProfile({name:'',bio:'',link:''});setSent(false);setOTP('');setConsent(false);}
+  },[user?.id]);
 
   async function act(body, success) {
     setBusy(true); setMessage('Working…');
@@ -58,16 +64,18 @@ export default function AccountPage({ path }) {
           receive(null);
           setProToken('');
           setSent(false); setOTP(''); setConfirmation(''); setConsent(false);
-        } else receive((await accountRequest()).user);
+        } else receive((await session.refresh(true,true)).user,['save-avatar','remove-avatar'].includes(body.action));
       }
       setMessage(success);
       if (['verify-code', 'sign-out', 'sign-out-all', 'delete-account'].includes(body.action)) {
         setOTP('');
         window.requestAnimationFrame(() => headingRef.current?.focus());
       }
+      return true;
     } catch (error) {
       if (error.status === 401) { receive(null); setSent(false); }
       setMessage(error.name === 'TimeoutError' ? 'That took too long. Please try again later.' : error.message);
+      return false;
     } finally { setBusy(false); }
   }
   const section = path === '/account/profile' ? 'profile' : path === '/account/preferences' ? 'preferences' : path === '/account/beta' ? 'beta' : path === '/account/pro' ? 'pro' : path === '/account/community' ? 'community' : path === '/account/tickets' ? 'tickets' : path === '/account/support' ? 'support' : 'home';
@@ -75,6 +83,7 @@ export default function AccountPage({ path }) {
     <p className="section-label">EXP [design] · free account</p>
     <h1 id="account-title" tabIndex={-1} ref={headingRef}>{user ? section === 'profile' ? 'Your private profile.' : section === 'preferences' ? 'Your preferences.' : section === 'beta' ? 'Help shape EXP.' : section === 'pro' ? 'Your Pro interest.' : section === 'community' ? 'Your community profile.' : section === 'tickets' ? 'Your private tickets.' : section === 'support' ? 'EXP support inbox.' : `Hello, ${user.name}.` : 'A place for you.'}</h1>
     <p className="account-lead">{user ? 'Your account details stay private. You choose whether to publish a separate community profile.' : 'An optional account, separate from your design files. The editor and shipped exports stay free to use without signing in.'}</p>
+    {!user && <p><a href="/accounts">What is a free EXP account?</a> A private profile, preferences and a place for feedback. Settings sync is a future idea, not available today.</p>}
     <p className="account-status" role="status">{message}</p>
     {!user && proToken && <p>Sign in with the email used for Pro interest, then choose whether to connect that record. Signing in does not subscribe you. Reopen the email link if this page is reloaded.</p>}
     {!ready && <p>Loading…</p>}
@@ -124,6 +133,7 @@ export default function AccountPage({ path }) {
         <p><a href="/pro">Help shape EXP Pro</a> uses its own confirmation and permission. <a href="/support.html">Support the developer</a> is optional and account-free.</p>
         <p><a href="/account/beta">Choose beta participation or send private feedback</a>. <a href="/account/community">Prepare an optional community profile</a>. <a href="/news">Read news and updates</a> or <a href="/account/tickets">open a private support ticket</a>.</p>
       </div>}
+      {section === 'profile' && <ProfilePhoto key={user.id} user={user} busy={busy} onSave={body=>act(body,body.action==='remove-avatar'?'Profile photo removed.':'Profile photo saved.')}/>}
       {section === 'profile' && <form className="account-card" onSubmit={e => { e.preventDefault(); act({ action: 'save-profile', ...profile }, 'Private profile saved.'); }}>
         <fieldset disabled={busy}><legend>Private profile</legend>
           <label htmlFor="profile-name">Display name</label>

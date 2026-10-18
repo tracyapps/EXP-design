@@ -1,7 +1,7 @@
 import { before, after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID,createHmac } from 'node:crypto';
 import http from 'node:http';
 import pg from 'pg';
 import { getMigrations } from 'better-auth/db/migration';
@@ -9,6 +9,7 @@ import { createAccountService, accountConsentVersion } from '../server/accounts/
 import { accountConfiguration, accountInterestConfiguration, createAccountNodeHandler } from '../server/accounts/runtime.js';
 import { createInterestStore } from '../server/interest/store.js';
 import { createPublicProfileHandler } from '../server/accounts/community.js';
+import sharp from 'sharp';
 
 const db = process.env.EXP_ACCOUNT_TEST_DATABASE_URL;
 if (!db || !new URL(db).searchParams.get('host')?.startsWith('/tmp/exp-account-test.')) throw new Error('Disposable local PostgreSQL required');
@@ -706,6 +707,65 @@ test('a member can create and read a private support ticket', async () => {
   const thread=await call({action:'ticket',id},cookie);
   assert.equal(thread.status,200);assert.equal(thread.body.ticket.subject,'Pattern question');
   assert.equal(thread.body.events[0].message,'How do I resize my tile?');
+});
+
+test('profile images are private, normalized, visible in the own session and removable',async()=>{
+  const cookie=await register('avatar-owner@example.test');
+  const png=await sharp({create:{width:80,height:40,channels:3,background:'#6ab425'}}).png().toBuffer();
+  const saved=await call({action:'save-avatar',image:`data:image/png;base64,${png.toString('base64')}`},cookie);
+  assert.equal(saved.status,200,JSON.stringify(saved.body));
+  const me=(await call(undefined,cookie)).body.user;
+  assert.match(me.avatar,/^data:image\/webp;base64,/);
+  const metadata=await sharp(Buffer.from(me.avatar.split(',')[1],'base64')).metadata();
+  assert.equal(metadata.width,256);assert.equal(metadata.height,256);assert.equal(metadata.exif,undefined);
+  const other=await register('avatar-other@example.test');
+  assert.equal((await call(undefined,other)).body.user.avatar,null);
+  await call({action:'remove-avatar'},cookie);
+  assert.equal((await call(undefined,cookie)).body.user.avatar,null);
+});
+
+test('avatar uploads refuse foreign identity, missing sessions, URLs, scripts, bad encodings and excess pixels',async()=>{
+  const cookie=await register('avatar-validation@example.test');
+  const png=await sharp({create:{width:4,height:4,channels:3,background:'red'}}).png().toBuffer();
+  const image=`data:image/png;base64,${png.toString('base64')}`;
+  assert.equal((await call({action:'save-avatar',image})).status,401);
+  assert.equal((await call({action:'save-avatar',image,userId:randomUUID()},cookie)).status,400);
+  for(const bad of ['https://example.test/tracker.png','data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=',
+    'data:image/png;base64,PHN2Zz48L3N2Zz4=',`data:image/jpeg;base64,${png.toString('base64')}`,'data:image/png;base64,!!!!'])
+    assert.equal((await call({action:'save-avatar',image:bad},cookie)).status,400);
+  const oversized=await sharp({create:{width:2048,height:1024,channels:3,background:'blue'}}).png().toBuffer();
+  assert.equal((await call({action:'save-avatar',image:`data:image/png;base64,${oversized.toString('base64')}`},cookie)).status,400);
+  assert.equal((await call({action:'save-avatar',image:'x'.repeat(144001)},cookie)).status,413);
+  assert.equal((await call(undefined,cookie)).body.user.avatar,null);
+});
+test('server strips photo metadata, limits changes across requests and always permits removal',async()=>{
+  const cookie=await register('avatar-private-metadata@example.test');
+  const png=await sharp({create:{width:200,height:100,channels:3,background:'green'}}).withMetadata({exif:{IFD0:{Artist:'PRIVATE-ARTIST'}}}).png().toBuffer();
+  assert.ok((await sharp(png).metadata()).exif);
+  const image=`data:image/png;base64,${png.toString('base64')}`;
+  assert.equal((await call({action:'save-avatar',image},cookie)).status,200);
+  const user=(await call(undefined,cookie)).body.user;
+  const output=Buffer.from(user.avatar.split(',')[1],'base64');const metadata=await sharp(output).metadata();
+  assert.equal(metadata.exif,undefined);assert.equal(metadata.xmp,undefined);assert.equal(output.includes(Buffer.from('PRIVATE-ARTIST')),false);
+  const key=createHmac('sha256',secret).update(`account-avatar:${user.id}`).digest('hex');
+  await pool.query('UPDATE exp_member_mail_limit SET count=30 WHERE key=$1',[key]);
+  assert.equal((await call({action:'save-avatar',image},cookie)).status,429);
+  assert.equal((await call({action:'remove-avatar'},cookie)).status,200);
+  assert.equal((await call(undefined,cookie)).body.user.avatar,null);
+});
+test('photo saves fail closed on storage failure and account deletion removes the saved image',async()=>{
+  const cookie=await register('avatar-storage@example.test');
+  const png=await sharp({create:{width:8,height:8,channels:3,background:'orange'}}).png().toBuffer();
+  const image=`data:image/png;base64,${png.toString('base64')}`;
+  await pool.query(`CREATE FUNCTION fixture_avatar_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'private storage trace'; END $$;
+    CREATE TRIGGER fixture_avatar_failure BEFORE UPDATE OF image ON exp_member_user FOR EACH ROW EXECUTE FUNCTION fixture_avatar_failure()`);
+  try{const response=await call({action:'save-avatar',image},cookie);assert.equal(response.status,503);assert.doesNotMatch(JSON.stringify(response.body),/private storage/);}
+  finally{await pool.query('DROP TRIGGER fixture_avatar_failure ON exp_member_user; DROP FUNCTION fixture_avatar_failure()');}
+  assert.equal((await call({action:'save-avatar',image},cookie)).status,200);
+  const id=(await call(undefined,cookie)).body.user.id;
+  assert.equal((await call({action:'delete-account',confirmation:'DELETE'},cookie)).status,200);
+  assert.equal((await pool.query('SELECT image FROM exp_member_user WHERE id=$1',[id])).rowCount,0);
+  assert.equal((await call(undefined,cookie)).body.user,null);
 });
 
 test('ticket email choices are separate from news and remain adjustable while mail is paused', async () => {

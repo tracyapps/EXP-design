@@ -9,6 +9,8 @@ import pg from 'pg';
 import {handleTickets} from '../server/accounts/tickets.js';
 import {processTicketMail,createTicketMailer} from '../server/accounts/ticket-mail.js';
 import {accountRetention,accountRetentionVersion} from '../server/accounts/retention.js';
+import {createAccountJobHandler} from '../server/accounts/jobs.js';
+import accountJobsEndpoint from '../api/account-jobs.js';
 
 const db=process.env.EXP_ACCOUNT_TEST_DATABASE_URL;
 if(!db || !new URL(db).searchParams.get('host')?.startsWith('/tmp/exp-account-test.'))throw new Error('Disposable PostgreSQL required');
@@ -283,4 +285,76 @@ test('migration 009 preserves existing accounts and private threads without back
     assert.equal((await upgrade.query('SELECT message FROM exp_member_ticket_event WHERE ticket_id=$1',[ticket])).rows[0].message,'Existing private text');
     assert.equal((await upgrade.query('SELECT * FROM exp_member_ticket_mail')).rowCount,0);
   }finally{await upgrade.end();await operator.query('DROP DATABASE exp_account_upgrade_test');}
+});
+
+const jobToken=randomUUID()+randomUUID();
+async function jobServer(env,run,extra={}) {
+  const handler=createAccountJobHandler({pool,env:{EXP_ACCOUNT_JOB_TOKEN:jobToken,...env},send:async()=>randomUUID(),...extra});
+  const server=http.createServer(handler);await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+  const origin=`http://127.0.0.1:${server.address().port}`;
+  const request=(body={operation:'preview'},options={})=>fetch(`${origin}/api/account-jobs`,{method:'POST',headers:{authorization:`Bearer ${jobToken}`,'content-type':'application/json',...options.headers},body:JSON.stringify(body),...options});
+  try{await run({request,origin});}finally{await new Promise(resolve=>server.close(resolve));}
+}
+test('job HTTP boundary requires its dedicated token and validates requests before storage',async()=>{
+  await jobServer({},async({request,origin})=>{
+    for(const authorization of ['',`Bearer ${jobToken}wrong`])assert.equal((await request(undefined,{headers:{authorization,'content-type':'application/json'}})).status,401);
+    assert.equal((await fetch(`${origin}/api/account-jobs`,{headers:{authorization:`Bearer ${jobToken}`}})).status,405);
+    assert.equal((await request({operation:'sql'})).status,400);
+    assert.equal((await request({operation:'preview',userId:randomUUID()})).status,400);
+    assert.equal((await request({operation:'preview',text:'x'.repeat(2100)})).status,413);
+    assert.equal((await request({operation:'mail'})).status,503);
+    assert.equal((await request({operation:'retention'})).status,503);
+  },{pool:{query:()=>assert.fail('Denied/paused jobs must not access storage')}});
+});
+test('HTTP preview is read-only and the GitHub client prints only allowed aggregate fields',async()=>{
+  const user=await member();await pool.query("INSERT INTO exp_member_beta_feedback(id,user_id,subject,message,created_at) VALUES(gen_random_uuid(),$1,'Private subject','Private message',now()-interval '366 days')",[user]);
+  await jobServer({},async({request,origin})=>{
+    const response=await request();assert.equal(response.status,200);assert.equal(response.headers.get('cache-control'),'no-store');
+    const body=await response.json();assert.equal(body.retention.mode,'preview');assert.equal(body.retention.counts.betaFeedback,1);
+    const {stdout}=await promisify(execFile)(process.execPath,['scripts/run_hosted_account_job.mjs','preview'],{env:{...process.env,NODE_ENV:'test',EXP_ACCOUNT_JOB_TOKEN:jobToken,EXP_ACCOUNT_JOB_URL:`${origin}/api/account-jobs`}});
+    assert.equal(JSON.parse(stdout).counts.betaFeedback,1);assert.doesNotMatch(stdout,/Private|example.test|token|postgresql|provider_id/);
+    assert.equal((await pool.query('SELECT * FROM exp_member_beta_feedback')).rowCount,1);
+  });
+});
+test('HTTP mail and deletion are independent gates; approved policy only deletes eligible rows',async()=>{
+  const author=await member();await member(true);const closed=await open(author),stillOpen=await open(author);
+  await pool.query("UPDATE exp_member_ticket SET status='closed',updated_at=now()-interval '181 days' WHERE id=$1",[closed]);
+  await jobServer({ACCOUNT_TICKET_MAIL_ENABLED:'true',RESEND_API_KEY:'fixture-only',SIGNUP_FROM_EMAIL:'fixture@example.test',ACCOUNT_PUBLIC_ORIGIN:'https://accounts.example.test'},async({request})=>{
+    const response=await request({operation:'mail'});assert.equal(response.status,200);
+    const body=await response.json();assert.equal(body.ticketMail.accepted,2);assert.doesNotMatch(JSON.stringify(body),/example.test|Secret|recipient|provider_id/);
+    assert.equal((await request({operation:'retention'})).status,503);
+  });
+  await jobServer({ACCOUNT_RETENTION_ENABLED:'true',ACCOUNT_RETENTION_POLICY:'wrong'},async({request})=>{assert.equal((await request({operation:'retention'})).status,503);});
+  await jobServer({ACCOUNT_RETENTION_ENABLED:'true',ACCOUNT_RETENTION_POLICY:accountRetentionVersion},async({request})=>{
+    const response=await request({operation:'retention'});assert.equal(response.status,200);assert.equal((await response.json()).retention.counts.closedTickets,1);
+    assert.deepEqual((await pool.query('SELECT id FROM exp_member_ticket')).rows,[{id:stillOpen}]);
+    assert.equal((await request({operation:'mail'})).status,503);
+  });
+});
+test('job HTTP errors stay generic and the client refuses redirects or unrelated destinations',async()=>{
+  await jobServer({},async({request})=>{
+    const response=await request();assert.equal(response.status,503);assert.doesNotMatch(await response.text(),/private trace|password|postgres/);
+  },{pool:{query:async()=>{throw new Error('private trace with password');}}});
+  const server=http.createServer((req,res)=>res.writeHead(302,{location:'https://example.test/stolen'}).end());
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+  const run=url=>promisify(execFile)(process.execPath,['scripts/run_hosted_account_job.mjs','preview'],{env:{...process.env,NODE_ENV:'test',EXP_ACCOUNT_JOB_TOKEN:jobToken,EXP_ACCOUNT_JOB_URL:url}});
+  try{
+    for(const target of [`http://127.0.0.1:${server.address().port}/api/account-jobs`,'https://example.test/api/account-jobs'])await assert.rejects(run(target),error=>{
+      assert.equal(error.code,1);assert.doesNotMatch(error.stderr,new RegExp(jobToken));assert.doesNotMatch(error.stderr,/example.test|private trace/);return true;
+    });
+  }finally{await new Promise(resolve=>server.close(resolve));}
+});
+test('production job wrapper refuses missing tokens and unverified TLS without connecting',async()=>{
+  const priorToken=process.env.EXP_ACCOUNT_JOB_TOKEN,priorDB=process.env.EXP_ACCOUNT_JOBS_DATABASE_URL;
+  process.env.EXP_ACCOUNT_JOB_TOKEN=jobToken;process.env.EXP_ACCOUNT_JOBS_DATABASE_URL='postgresql://fixture:fixture@invalid.example.test/exp_accounts?sslmode=disable';
+  const server=http.createServer(accountJobsEndpoint);await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+  try{
+    const url=`http://127.0.0.1:${server.address().port}/api/account-jobs`;
+    assert.equal((await fetch(url)).status,401);
+    assert.equal((await fetch(url,{headers:{authorization:`Bearer ${jobToken}`}})).status,503);
+  }finally{
+    await new Promise(resolve=>server.close(resolve));
+    if(priorToken===undefined)delete process.env.EXP_ACCOUNT_JOB_TOKEN;else process.env.EXP_ACCOUNT_JOB_TOKEN=priorToken;
+    if(priorDB===undefined)delete process.env.EXP_ACCOUNT_JOBS_DATABASE_URL;else process.env.EXP_ACCOUNT_JOBS_DATABASE_URL=priorDB;
+  }
 });

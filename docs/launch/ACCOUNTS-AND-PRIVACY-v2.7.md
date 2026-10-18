@@ -1,9 +1,13 @@
 # Optional free accounts and the privacy foundation
 
-Latest local continuation: [ticket notifications and account cleanup](TICKET-NOTIFICATIONS-AND-RETENTION-v2.7.md)
-adds transactional service-alert jobs, an independent opt-out and a versioned
-preview/apply retention command. Migration 009, restricted job role, schedule,
-actual delivery and owner-approved production policy remain ahead of enablement.
+Latest continuation (October 18): [photos, account menu and public explanation](ACCOUNT-PHOTOS-AND-MENU-v2.7.md)
+are implemented and locally verified. Photos stay private; settings sync and
+Discord remain clearly described future ideas. The shared header makes one
+optional session lookup on public React pages, without requiring sign-in.
+[Ticket notifications and account cleanup](TICKET-NOTIFICATIONS-AND-RETENTION-v2.7.md)
+now have migration 009/app grants applied in Neon and a prepared, paused GitHub
+Actions environment. Restricted job credentials, hosted execution, actual delivery
+and owner-approved production policy remain ahead of enablement.
 Earlier no-notifier/no-cleanup statements describe their dated slices.
 
 October 16, 2026. Owner likes accounts before Pro/subscriptions and asks about

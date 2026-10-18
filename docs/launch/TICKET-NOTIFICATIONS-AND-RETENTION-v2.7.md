@@ -1,10 +1,12 @@
 # Ticket notifications and account cleanup
 
-October 17, 2026 · FEAT-069 continuation. Implemented and tested locally. No hosted
-migration, production setting, scheduler, live deletion or real mail send in this
-slice. Production ticket writes remain paused. This extends
-[news and private tickets](NEWS-AND-TICKETS-v2.7.md); its original no-notifier/no-job
-statements describe the earlier slice, superseded locally here.
+October 17–18, 2026 · FEAT-069 continuation. Queue/cleanup and the protected
+HTTP runner are locally verified. Additive migration 009 and incremental app-role
+grants are now applied to hosted `exp_accounts`; zero queued jobs observed.
+The owner selected GitHub Actions. Its environment is prepared, while credentials,
+live workflow execution, mail delivery and approved deletion remain pending.
+Production ticket writes remain paused. Earlier no-notifier/no-job statements
+in [news and private tickets](NEWS-AND-TICKETS-v2.7.md) describe their dated slices.
 
 ## Member and support behavior
 
@@ -116,59 +118,104 @@ their retention separately, and establish a private deletion-request/restore
 procedure: restore into isolation, reapply deletions, validate, then reopen access.
 This job does not erase a provider backup or supply a restore-erasure ledger.
 
-## Concrete hosted handoff
+## GitHub Actions → Vercel job runner
 
-1. Review these defaults and operator responsibility before authorizing live
-   deletion. Keep ticket/news/community/mail/retention rollout flags off until
-   their relevant gates pass. Preserve existing identity, sender and auth secret.
-2. Apply **only** additive migration `migrations/009_ticket_mail_and_retention.sql`
-   using the migration/operator login. Test against a restored preview copy first;
-   existing accounts and threads must remain, with no backfilled jobs.
-3. Create an ordinary SQL login `exp_account_jobs` using a private generated
-   credential, with no admin memberships/attributes, table ownership or schema
-   CREATE. Never use the preserved Neon administration roles. Apply the reviewed
-   incremental app and job grants in `migrations/grants/009_account_jobs.sql`.
-   The app can save preferences/queue jobs; the job role cannot grant staff,
-   verify accounts, read authentication tokens or read ticket/feedback messages.
-   Column-specific UPDATE on primary keys supports locking SELECT for cleanup.
-4. In the **private scheduler's** secret store, set
-   `EXP_ACCOUNT_JOBS_DATABASE_URL` to the account DB with this login and
-   `sslmode=verify-full` (preserve Neon channel binding). No `VITE_` variables,
-   credentials in cron command text, or local committed env file. Preview needs
-   this DB URL only. Mail additionally needs the reviewed `ACCOUNT_PUBLIC_ORIGIN`,
-   `SIGNUP_FROM_EMAIL`, `RESEND_API_KEY` and `ACCOUNT_TICKET_MAIL_ENABLED=true`.
-   The website deployment separately uses that flag to start queueing new events.
-   The job does not need `BETTER_AUTH_SECRET` or a Pro DB connection.
-5. Run the default read-only preview and retain its private aggregate receipt:
+The source workflow `.github/workflows/account-jobs.yml` runs mail approximately
+every five minutes (minutes 2/7/12/…/57) and retention daily at **03:41 UTC**.
+GitHub scheduling is best effort, not a five-minute delivery guarantee. Manual
+choices are `preview`, `mail` and `retention`; no PR/fork trigger is present.
+Pinned official checkout/setup-node actions, read-only repository permission,
+no persisted Git credential, operation concurrency and a six-minute limit bound
+execution. Repository/default-branch checks restrict it to `tracyapps/EXP-design`
+`main`. No dependency install is needed to run the HTTP client.
 
-   ```sh
-   npm run jobs:accounts -- --preview
-   ```
+GitHub receives **only** `EXP_ACCOUNT_JOB_TOKEN`, scoped to its dedicated
+`exp-account-jobs` environment. It does not receive database, Resend, account-auth
+or Pro credentials. The Node client POSTs only to
+`https://expdesign.app/api/account-jobs`, refuses redirects and prints explicitly
+projected aggregate counts only. A temporary loopback exception exists only for
+non-production integration tests.
 
-6. With approved test recipients, enable only the reviewed mail/ticket flags and
-   run the member → staff reply → member read/close/delete journey. Confirm actual
-   inbox/spam behavior, no body leakage, retry recovery, opt-out, grant revocation,
-   cross-account isolation, logout/revocation and fresh-auth account deletion.
-   A browser walkthrough and successful API acceptance do not prove delivery.
-7. After approval, use the private scheduler to run the two commands separately:
+Vercel holds the matching token and `EXP_ACCOUNT_JOBS_DATABASE_URL` for the
+restricted `exp_account_jobs` login. It reuses its existing sender/Resend settings.
+The new endpoint authenticates the dedicated token before storage; browser cookies
+or staff sessions never authorize it. It accepts only bounded JSON and the three
+fixed operations. Token-unset requests fail 401. Invalid/unverified-TLS database
+configuration fails closed. It has no arbitrary SQL, recipient, URL or policy input.
+The Function limit is 180 seconds; the client timeout is 150 seconds. Existing mail
+leases/idempotency and database cleanup locks remain the concurrency safeguards.
 
-   ```sh
-   # Every five minutes, with the mail flag/credentials above.
-   npm run jobs:accounts -- --mail
-   # Daily, only with ACCOUNT_RETENTION_ENABLED=true and approved policy.
-   npm run jobs:accounts -- --purge=member-retention-v1
-   ```
+Mail additionally requires Vercel `ACCOUNT_TICKET_MAIL_ENABLED=true`, existing
+`RESEND_API_KEY` and `SIGNUP_FROM_EMAIL`. Retention independently requires Vercel
+`ACCOUNT_RETENTION_ENABLED=true` **and**
+`ACCOUNT_RETENTION_POLICY=member-retention-v1`. The workflow independently requires
+the matching policy variable for retention. Preview does not send or delete.
 
-   No scheduler or public job endpoint is installed by this source change. Use a
-   scheduler that can access the private job secrets and reports failures to the
-   operator. Exit 1 means configuration/storage failure or terminal mail failures
-   in that batch. Output `retry` means backoff, `accepted` means provider acceptance,
-   and `skipped` means no eligible recipient. Monitor failed/old pending counts in
-   preview; check the actual support inbox even when no email arrives. If the daily
-   purge repeatedly hits its per-table cap, review backlog before raising frequency.
-8. Pause both app queueing and worker sending with the mail flag; pause deletion
-   independently with the retention flag. Old app code can run against the additive
-   schema. Leave the tables/indexes in place on rollback; do not drop account data.
+### Confirmed hosted setup — October 18
+
+- Neon `EXPdesign` / production / `exp_accounts`: guarded additive migration 009
+  committed. Both new tables and incremental existing-app-role grants verified:
+  `preferences_ready=true`, `queue_ready=true`, `preference_grants=true`,
+  `queue_grants=true`, `queued_jobs=0`. No backfill, live cleanup or mail send.
+  Local screenshot: `output/a11y/hosted-hub-continuation-20261018/migration009.png`.
+- Actual Vercel account is Hobby; its cron product supports only daily jobs.
+  No paid-plan change was made. GitHub Actions was explicitly selected by owner.
+- GitHub repository is public. Created dedicated `exp-account-jobs` environment
+  with a **main branch-only** deployment policy. Existing Production environment
+  was preserved. Repository variables `ACCOUNT_JOBS_READY`,
+  `ACCOUNT_TICKET_MAIL_ENABLED` and `ACCOUNT_RETENTION_ENABLED` are all `false`.
+  No environment secrets have been installed. The local workflow is not a hosted
+  run. No dedicated job login or Vercel job credential is created in this slice.
+
+### Remaining activation sequence
+
+1. Owner reviews/pushes this source; confirm its Vercel deployment includes the
+   endpoint before configuring jobs. Keep feature flags off. Existing app/auth
+   credentials remain in place; the job needs neither auth secret nor Pro DB URL.
+2. Create an ordinary SQL login `exp_account_jobs` with a fresh private generated
+   credential, no admin memberships/attributes, schema CREATE or table ownership.
+   Apply only its reviewed grants in `migrations/grants/009_account_jobs.sql`.
+   The existing app grants in that file are already applied. Confirm catalog
+   attributes/object privileges, including denial of auth tokens, message text,
+   staff promotion and account verification. New access/credential setup needs
+   the owner's explicit authorization and secure credential handoff.
+3. Add Production Vercel Secret values `EXP_ACCOUNT_JOBS_DATABASE_URL` (that login,
+   `exp_accounts`, `sslmode=verify-full`, preserved Neon channel binding) and a
+   random dedicated token `EXP_ACCOUNT_JOB_TOKEN` of at least 32 characters.
+   Set only the matching token as an environment secret in GitHub
+   `exp-account-jobs`. No `VITE_` secrets, command-line literals, committed env
+   files, DB URL or Resend key in GitHub. Redeploy to apply Vercel settings.
+4. Change **repository** variable `ACCOUNT_JOBS_READY=true` only after the above.
+   Repository scope is necessary for the workflow's job-level condition.
+   Keep the two scheduled-operation repository variables false. Manually dispatch
+   `preview`; record actual run/aggregate output, confirmed restricted login and
+   no changed data. An HTTP unit test or Actionlint pass is not this hosted proof.
+5. With approved test recipients and operating review, separately enable reviewed
+   ticket/mail flags in Vercel. Manually test member → support reply → member
+   read/close/delete, actual inbox/spam delivery, independent opt-out, retries,
+   grant revocation, cross-user denial and account/session deletion. API acceptance
+   is not inbox delivery. Then enable repository `ACCOUNT_TICKET_MAIL_ENABLED`.
+6. Keep retention off until owner approves `member-retention-v1`, provider log/
+   backup periods and the restore/deletion procedure. Run a fresh preview first.
+   After approval, configure policy and retention flag in Vercel, the environment
+   policy variable in GitHub and repository `ACCOUNT_RETENTION_ENABLED=true`.
+   Review the first actual bounded cleanup receipt before relying on the schedule.
+7. Verify the owner's GitHub failure notifications/coverage. Monitor failed/old
+   pending queue counts in previews and check the support inbox independently.
+   Exit 1 means configuration/storage failure or terminal mail failure; `retry`
+   means backoff, `accepted` means provider acceptance, `skipped` means no eligible
+   recipient. If cleanup keeps hitting its per-table cap, review backlog before
+   changing frequency.
+8. Pause GitHub with repository `ACCOUNT_JOBS_READY=false`; independently pause
+   sending/queueing and deletion with the Vercel flags. Removing/changing the job
+   token revokes HTTP access after deployment. Leave additive tables in place on
+   rollback; old app code remains compatible. Never reset receipt IDs/attempts to
+   resend ambiguous mail.
+
+The private direct-DB CLI remains available to an authorized operator:
+`npm run jobs:accounts -- --preview`, `--mail` or
+`--purge=member-retention-v1`. It uses the same restricted job login and guards.
+It is a manual fallback; do not install a second scheduler for it.
 
 ## Verification and sources
 
@@ -213,3 +260,23 @@ and [WCAG 2.1 focus order](https://www.w3.org/TR/WCAG21/#focus-order).
 The failed run is retained at `output/a11y/2026-10-18T04-26-52-435Z/` (two
 Chromium failures, not passes). This is a bounded usability check, not a complete
 WCAG 2.1 AA or assistive-technology conformance claim.
+
+
+October 18 HTTP continuation: five additional real-HTTP/PostgreSQL checks cover
+missing/wrong token, methods/content/field/body bounds, paused independent gates,
+read-only preview, projected CLI output, redirect/destination refusal, generic
+storage errors, verified TLS configuration and actual mail/approved cleanup paths.
+The HTTP provider is synthetic; no external recipient is used. Full service suite
+now passes **153** cases (15 signup, 23 Pro, 101 account/job, 14 usage), plus the
+existing native/wire checks: `/tmp/exp-account-avatar-final-services.log`.
+Official Actionlint **1.7.12** (release checksum verified) passes the workflow.
+No hosted dispatch or production deletion/send is claimed by those local checks.
+
+Scheduling references checked against
+[Vercel Hobby cron limits](https://vercel.com/docs/cron-jobs/usage-and-pricing),
+[Function duration](https://vercel.com/docs/functions/configuring-functions/duration),
+[GitHub scheduled events](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule),
+[GitHub secrets](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets),
+[environments](https://docs.github.com/en/rest/deployments/environments#create-or-update-an-environment)
+and [branch policies](https://docs.github.com/en/rest/deployments/branch-policies#create-a-deployment-branch-policy).
+Official action release tag commits were verified before pinning.
