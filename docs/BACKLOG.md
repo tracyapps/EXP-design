@@ -2414,6 +2414,11 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Priority: P2
 - Area: export
 - Status: open
+- Scope clarification 2026-10-18: this is an **export representation** issue,
+  not absence of Markdown in the editor. The editor already styles basic
+  emphasis, lists/tasks and `#` headings; FEAT-072 adds heading levels and links.
+  Source line breaks/Markdown can survive inside a comment, but they are not
+  exposed as structured HTML notes. That contract change remains open.
 - Repro/Detail: put formatted notes on an artboard (heading, bullets, bold) and export
   standalone semantic HTML. `SemanticHTMLExporter` emits the whole note as a single
   `<!-- EXP artboard notes: ... -->` comment, so the structure a developer or a model
@@ -3130,6 +3135,34 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   both fixed on the reported PNG document.
 
 ## ✨ Features
+
+### FEAT-072 — Markdown heading levels and links in artboard notes
+- Type: feature
+- Priority: P2
+- Area: notes · type · accessibility
+- Status: needs-verify — implemented with real AppKit checks; owner in-app/AT review pending
+- Owner scope 2026-10-18: expand the existing small Markdown subset with headings
+  and links. This is separate from BUG-017's structured HTML export contract.
+- Implementation: `#` through `######` headings; basic `[label](URL)` web/mail
+  links with native link attributes and underlining. Syntax stays visible/editable.
+  No image loading or custom/file URL activation. Code samples stay inert.
+  Existing heading/bullet/checklist actions replace heading markers without
+  stacking them. Native text view extracted into `UI/NotesTextView.swift` so
+  the production editor can be exercised directly without desktop automation.
+- Acceptance: headings/links style without changing saved notes, existing emphasis
+  and list editing work, links activate only through native interaction; review
+  save/reopen/undo and actual VoiceOver/keyboard behavior in the app.
+- Evidence and exact supported subset: `NOTES-FORMATTING-v2.7.md`.
+- Sources checked: CommonMark ATX headings and links
+  https://spec.commonmark.org/0.31.2/#atx-headings ; Apple native link API
+  https://developer.apple.com/documentation/appkit/nstextview/clicked(onlink:at:)
+  and `NSAttributedString.Key.link`; native descriptions guidance
+  https://developer.apple.com/design/human-interface-guidelines/voiceover .
+  Link distinction/purpose references:
+  https://www.w3.org/WAI/WCAG21/Understanding/use-of-color.html and
+  https://www.w3.org/WAI/WCAG21/Understanding/link-purpose-in-context.html .
+  No exported ARIA/HTML semantics change; no claim of complete Markdown, contrast
+  conformance or physical screen-reader acceptance.
 
 ### FEAT-071 — First-pattern creation and editable pattern/component bounds
 - Type: feature

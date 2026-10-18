@@ -1321,6 +1321,12 @@ from the appcast; a development plan does not change the published release.
       Scope, receipts and owner review: `SOURCE-BOUNDS-VERIFICATION.md`.
 - [x] Owner verifies pattern/component authoring and physical multi-monitor window
       ordering: "all of those passed. works well." (2026-10-17).
+- [x] **FEAT-072 notes formatting implemented/local checked:** six heading levels
+      and basic native web/mail links, editable Markdown syntax and unchanged
+      plain-string storage. `NOTES-FORMATTING-v2.7.md` records the supported subset.
+- [ ] Owner reviews FEAT-072 integrated notes editing/save/reopen/undo and real
+      keyboard/VoiceOver link activation before another document-mutating slice.
+      BUG-017 structured standalone HTML notes remain separate/open.
 - [ ] Full 1x/2x, light/dark, Large interface type and AT matrix; signed release
       payload audit remains a freeze gate. Visual acceptance alone does not close these.
 - [x] **INFRA-005 local release-signup foundation:** durable storage before success,
@@ -3454,6 +3460,28 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-10-18 — Handoff baseline restored; notes headings/links FEAT-072 [internal].**
+  Owner authorizes the next piece and expands notes scope. Deliberately updated
+  only the manifest golden after the prior complete artifact comparison isolated
+  FEAT-071's explicit-bounds fields; the entire semantic package check now passes,
+  including all assertions that previously could not execute. No export behavior
+  change. Notes source review confirms a heading/bold/italic/list/task subset
+  already exists; BUG-017 is specifically structured standalone HTML export,
+  not missing editor Markdown. Implemented six ATX heading levels and basic
+  underlined native web/mail links, with visible syntax, unchanged plain-string
+  storage and existing delayed commit/undo plumbing. Extracted the actual AppKit
+  text view into its own file for direct production-class verification. Pre-change
+  check fails specifically at heading level 2; final checks cover Unicode,
+  safe destinations and native delegate activation without opening external apps,
+  inactive images/code/unsupported schemes, stale-attribute clearing, existing
+  format/list actions, styling-limit transitions and fence edits. Real AppKit
+  light/dark renders inspected. Final unsigned app/thumbnail/test build, existing
+  appearance/style regression, backlog IDs and diff checks pass. Native APIs/syntax/accessibility references and
+  exact receipts: `NOTES-FORMATTING-v2.7.md`; no full Markdown/physical AT claim.
+  Owner in-app review remains before further document-mutating work. BUG-017,
+  BUG-069 and broader release gates stay open; BUG-034 remains parked. No push,
+  deployment, public version change or account configuration change.
 
 - **2026-10-18 — v2.7 native bug polish triage [internal].**
   Reviewed the open bug queue against current source and owner receipts; BUG-034
