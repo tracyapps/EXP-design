@@ -1380,7 +1380,9 @@ from the appcast; a development plan does not change the published release.
 - [x] **FEAT-069 hosted job preparation:** additive migration 009/app grants applied
       in Neon (zero jobs); owner selects GitHub Actions. Main-only environment and
       disabled repository switches prepared, protected HTTP runner locally tested.
-      No job login/token, dispatch, real mail or live erasure yet. Activation:
+      Owner credential setup and real GitHub → Vercel → restricted Neon preview
+      pass October 18 (run `39117511031`). Readiness true; mail/retention switches
+      false. Real inbox delivery and live erasure remain unverified. Activation:
       `launch/TICKET-NOTIFICATIONS-AND-RETENTION-v2.7.md`.
 - [ ] Reliable separate Pro-interest signup, permission/delivery/unsubscribe proof,
       data map and owner-reviewed privacy/EULA/refund/ownership decisions.
@@ -3449,6 +3451,29 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-10-18 — Restricted hosted job connection and GitHub preview pass [internal].**
+  Owner completes credential wizard and corrects the saved job database URL after
+  the first preview fails closed at the URL/protocol/verify-full guard, before pool
+  creation (run `39116939947`). No permissive TLS fallback. Owner-triggered
+  redeployment `dpl_4H9JfDZQRLT2cTL1gTdrfqPuPjXn` is production READY on
+  `expdesign.app`, source `72f7a4e15a39c018c4b9f302556579163d351543`.
+  Authenticated HTTP preview returns 200/no-store; actual GitHub manual preview
+  run `39117511031` succeeds at the same SHA. All 12 cleanup counts are zero and
+  the queue is empty. Fresh `pg_stat_activity` separately confirms an actual
+  `exp_account_jobs` connection to `exp_accounts`. Post-password catalog checks
+  preserve no admin attributes/membership/schema creation/session-token/ticket-text/
+  support-grant writes. GitHub has only the dedicated environment token; Vercel
+  job URL/token are Production Secrets. Repository readiness is true, while mail
+  and retention variables remain false; their workflow steps skipped. Scheduled
+  run `39117349349` also skipped. No send/delete operation invoked. Sanitized
+  receipts and screenshot: `output/a11y/hosted-job-setup-20261018/`.
+  Documentation-only continuation; application source is unchanged. NEXT: approved
+  test recipients and operating review, then controlled private author/support
+  lifecycle and inbox/spam/opt-out/revocation checks before mail scheduling.
+  Retention policy/backup restore-erasure and physical AT gates remain open.
+  Current setup and remaining sequence:
+  `launch/TICKET-NOTIFICATIONS-AND-RETENTION-v2.7.md`.
 
 - **2026-10-18 — Correct initial-password setup for the restricted job role [internal].**
   Owner reports Neon Reset fails with `cannot update password for role without

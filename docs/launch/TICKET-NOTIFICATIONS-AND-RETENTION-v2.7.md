@@ -3,10 +3,11 @@
 October 17–18, 2026 · FEAT-069 continuation. Queue/cleanup and the protected
 HTTP runner are locally verified. Additive migration 009 and incremental app-role
 grants are now applied to hosted `exp_accounts`; zero queued jobs observed.
-The owner selected GitHub Actions. Its environment is prepared and the approved
-restricted job role was created with login disabled; the owner's LOGIN step is
-now independently verified complete. Password/remaining credential entry,
-live workflow execution, mail delivery and approved deletion remain pending.
+The owner selected GitHub Actions and completed private credentials for the
+approved restricted job role. Actual GitHub → Vercel → Neon read-only preview
+passes October 18; all cleanup counts are zero and the notification queue is empty.
+Repository readiness is true; mail and retention switches remain false.
+Real inbox delivery, retention approval and live deletion remain pending.
 Production ticket writes remain paused. Earlier no-notifier/no-job statements
 in [news and private tickets](NEWS-AND-TICKETS-v2.7.md) describe their dated slices.
 
@@ -258,44 +259,67 @@ flag writes. Shellcheck is unavailable. Per the skill, it was **not** run throug
 interactive prompts by the agent. Credential completion is not inferred from
 preparing the wizard. It is intentionally local/ephemeral, not release source.
 
+### Completed credential and hosted preview verification — October 18
+
+The owner completed the wizard. Vercel has Production Secrets for
+`EXP_ACCOUNT_JOBS_DATABASE_URL` and `EXP_ACCOUNT_JOB_TOKEN`; GitHub's dedicated
+`exp-account-jobs` environment has only the matching job token. Secret values
+were not printed, committed or included in screenshots.
+
+The first manual preview [run 39116939947](https://github.com/tracyapps/EXP-design/actions/runs/39116939947)
+failed. A separate authenticated request returned 503 without a JSON content type,
+identifying the wrapper's database URL/protocol/`verify-full` check before pool
+creation; the token had passed. Paused readiness while the owner corrected the
+saved URL privately. No connection or data mutation is inferred from that failure.
+
+The owner-triggered corrected deployment `dpl_4H9JfDZQRLT2cTL1gTdrfqPuPjXn` is
+production READY on `expdesign.app`, source
+`72f7a4e15a39c018c4b9f302556579163d351543`. Authenticated preview now returns
+200 / `application/json` / `Cache-Control: no-store`. All 12 cleanup counts are
+zero; queue `[]`. Real manual GitHub [run 39117511031](https://github.com/tracyapps/EXP-design/actions/runs/39117511031)
+succeeds at that SHA (10:00 UTC). Its preview step passes; mail and retention
+steps are skipped. Fresh Neon `pg_stat_activity` shows one `exp_account_jobs`
+connection to `exp_accounts`, separately proving the runtime identity.
+
+Post-password catalog verification: LOGIN true; superuser/create-role/create-DB/
+replication/bypass-RLS false; memberships 0; public-schema CREATE false;
+recipient-email read true; session-token/ticket-message read and support-grant
+INSERT false. No password or hash was queried.
+
+Final repository variables: `ACCOUNT_JOBS_READY=true`,
+`ACCOUNT_TICKET_MAIL_ENABLED=false`, `ACCOUNT_RETENTION_ENABLED=false`.
+Scheduled [run 39117349349](https://github.com/tracyapps/EXP-design/actions/runs/39117349349)
+was skipped. Sending and cleanup remain off; no `mail` or `retention` operation
+was invoked. These reads do not prove inbox delivery, deletion or restore-erasure.
+
+Sanitized local receipts: `output/a11y/hosted-job-setup-20261018/` contains
+`hosted-preview-20261018.json`, `corrected-url-http-preview.json`, both run results
+and masked logs, plus `github-preview-success.png`. Earlier statements above are
+dated setup history, superseded by this verified completion.
+
 ### Remaining activation sequence
 
-1. Owner reviews/pushes this source; confirm its Vercel deployment includes the
-   endpoint before configuring jobs. Keep feature flags off. Existing app/auth
-   credentials remain in place; the job needs neither auth secret nor Pro DB URL.
-2. The ordinary SQL role and its reviewed grants are now created and verified
-   as above. Complete the owner-only LOGIN/password handoff on that existing
-   identity, then recheck attributes/object privileges, including denial of auth
-   tokens, message text, staff promotion and account verification. Do not recreate
-   it or rerun the guarded creation transaction. Existing app grants are unchanged.
-3. Add Production Vercel Secret values `EXP_ACCOUNT_JOBS_DATABASE_URL` (that login,
-   `exp_accounts`, `sslmode=verify-full`, preserved Neon channel binding) and a
-   random dedicated token `EXP_ACCOUNT_JOB_TOKEN` of at least 32 characters.
-   Set only the matching token as an environment secret in GitHub
-   `exp-account-jobs`. No `VITE_` secrets, command-line literals, committed env
-   files, DB URL or Resend key in GitHub. Redeploy to apply Vercel settings.
-4. Change **repository** variable `ACCOUNT_JOBS_READY=true` only after the above.
-   Repository scope is necessary for the workflow's job-level condition.
-   Keep the two scheduled-operation repository variables false. Manually dispatch
-   `preview`; record actual run/aggregate output, confirmed restricted login and
-   no changed data. An HTTP unit test or Actionlint pass is not this hosted proof.
-5. With approved test recipients and operating review, separately enable reviewed
+Credential/deployment/role checks and the initial hosted preview are complete
+as recorded above. Do not recreate the role or repeat password initialization.
+The next gated steps are:
+
+1. With approved test recipients and operating review, separately enable reviewed
    ticket/mail flags in Vercel. Manually test member → support reply → member
    read/close/delete, actual inbox/spam delivery, independent opt-out, retries,
    grant revocation, cross-user denial and account/session deletion. API acceptance
    is not inbox delivery. Then enable repository `ACCOUNT_TICKET_MAIL_ENABLED`.
-6. Keep retention off until owner approves `member-retention-v1`, provider log/
+2. Keep retention off until owner approves `member-retention-v1`, provider log/
    backup periods and the restore/deletion procedure. Run a fresh preview first.
    After approval, configure policy and retention flag in Vercel, the environment
    policy variable in GitHub and repository `ACCOUNT_RETENTION_ENABLED=true`.
    Review the first actual bounded cleanup receipt before relying on the schedule.
-7. Verify the owner's GitHub failure notifications/coverage. Monitor failed/old
+3. Verify the owner's GitHub failure notifications/coverage. Monitor failed/old
    pending queue counts in previews and check the support inbox independently.
    Exit 1 means configuration/storage failure or terminal mail failure; `retry`
    means backoff, `accepted` means provider acceptance, `skipped` means no eligible
    recipient. If cleanup keeps hitting its per-table cap, review backlog before
    changing frequency.
-8. Pause GitHub with repository `ACCOUNT_JOBS_READY=false`; independently pause
+4. Pause GitHub with repository `ACCOUNT_JOBS_READY=false`; independently pause
    sending/queueing and deletion with the Vercel flags. Removing/changing the job
    token revokes HTTP access after deployment. Leave additive tables in place on
    rollback; old app code remains compatible. Never reset receipt IDs/attempts to

@@ -86,13 +86,18 @@ payment and license records live outside the repository; use sanitized summaries
 - [x] Neon migration 009/incremental app grants applied; zero queued jobs verified.
       GitHub main-only environment and disabled switches prepared. Protected job
       HTTP endpoint/client/workflow locally verified; Actionlint 1.7.12 passes.
-- [ ] Dedicated job login/token setup, hosted preview and controlled inbox journey
-      before schedule activation. Mail/retention switches stay off; retention policy
-      approval and restore-erasure remain open. No live dispatch/send/delete claimed.
+- [x] Dedicated job login/token setup and real hosted read-only preview: GitHub run
+      `39117511031` succeeds on `72f7a4e`; HTTP 200, all 12 cleanup counts zero,
+      queue empty. Actual restricted Neon connection independently observed.
+      Corrected Production deployment `dpl_4H9JfDZQRLT2cTL1gTdrfqPuPjXn` READY.
+- [ ] Controlled inbox journey before mail schedule activation. Repository readiness
+      true; mail/retention switches false and their workflow steps skipped.
+      Retention policy approval and restore-erasure remain open. No send/delete run.
 - [x] Owner-approved SQL job-role grants created with NOLOGIN; fresh catalog proves
       no admin membership/schema creation/session-token/ticket-text/staff-write
-      access. Owner credential handoff remains pending. Production `cb38edc` READY;
-      protected endpoint rejects anonymous requests. Current receipt in job handoff.
+      access. Owner credential handoff complete; post-password LOGIN true with all
+      restrictions preserved. Anonymous refusal and authenticated restricted preview
+      separately verified. Current receipt in job handoff.
 - [x] INFRA-006 local separate Pro request/confirm/withdraw with private PostgreSQL
       ledger; 16 real DB checks and browser flow pass. Enrollment disabled by default.
       Setup and remaining gates: `launch/PRO-INTEREST-v2.7.md`.

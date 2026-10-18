@@ -3310,6 +3310,16 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   Current handoff/receipts are in the same job document. Recheck role after password
   setup before read-only preview. Neon role/reset behavior checked against
   https://neon.com/docs/manage/roles (SQL identity preserved; no Add role).
+- October 18 credential/preview completion: owner completes the private wizard
+  and corrects the saved URL after the first preview fails at the TLS URL guard.
+  Production deployment `dpl_4H9JfDZQRLT2cTL1gTdrfqPuPjXn` READY at `72f7a4e`;
+  real GitHub preview run `39117511031` succeeds (HTTP 200, 12 zero cleanup counts,
+  queue empty). Fresh Neon connection identity is `exp_account_jobs`; post-password
+  restricted attributes/grants preserved. Readiness true; scheduled mail/retention
+  switches false and their steps skipped. No send/delete operation invoked.
+  Next: approved recipients/operating review and controlled ticket/inbox journey;
+  retention policy/restore-erasure and physical AT remain open. Earlier setup
+  statements above are historical; current receipt is in the job handoff.
 - Accessibility sources checked before initial form/naming changes:
   https://www.w3.org/WAI/tutorials/forms/labels/ (explicit native labels),
   https://www.w3.org/TR/wai-aria-1.2/#status (polite status announcements),

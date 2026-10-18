@@ -92,3 +92,14 @@ main-only environment and three false repository switches; no secrets, job login
 live dispatch, message or deletion. Protected HTTP runner source and exact
 remaining credential/activation steps:
 [ticket jobs handoff](TICKET-NOTIFICATIONS-AND-RETENTION-v2.7.md#github-actions--vercel-job-runner).
+
+Later October 18 credential completion: owner initializes the existing restricted
+job login and saves Production Vercel secrets plus the separate GitHub token.
+After correcting the job URL, owner-triggered deployment
+`dpl_4H9JfDZQRLT2cTL1gTdrfqPuPjXn` is READY at `72f7a4e`.
+Actual [GitHub preview run 39117511031](https://github.com/tracyapps/EXP-design/actions/runs/39117511031)
+passes through Vercel to Neon: HTTP 200, all cleanup counts zero and queue empty.
+Actual `exp_account_jobs` connection and preserved restricted grants independently
+verified. Readiness true; mail/retention false, their steps skipped. No send/delete
+operation invoked. Controlled inbox journey, operating/policy review, backup
+restore-erasure and owner AT remain open; current details in the job handoff.
