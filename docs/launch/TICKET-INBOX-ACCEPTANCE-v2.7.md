@@ -7,6 +7,30 @@ passed through Vercel to the restricted Neon job role. Mail and retention remain
 off. This checklist is preparation; it authorizes no sends, access grants or
 deletions. The owner will push the remaining local commits.
 
+## Live-test continuation, October 18
+
+This later observation supersedes the initial paused-state paragraph above.
+Owner has approved the controlled author/support recipient pair and completed
+the secondary member's real email-code registration. Addresses are omitted here.
+Fresh database preflight shows two accounts, the secondary author verified, one
+intended verified support grant and zero tickets/mail jobs. The ordinary member
+has no support-inbox link. No grants were added.
+
+Fresh [preview run 39151277752](https://github.com/tracyapps/EXP-design/actions/runs/39151277752)
+passes with 12 zero cleanup counts; mail/retention steps skipped. Production and
+GitHub main remain at `72f7a4e`; unpushed commits affect tests/docs only.
+For the approved test, Production Config flags `ACCOUNT_TICKETS_ENABLED` and
+`ACCOUNT_TICKET_MAIL_ENABLED` were saved as `true`. Redeployment
+`dpl_3s6rgoTz9RHJCaog3bpR4rSbpVWu` is READY at that same SHA. GitHub repository
+mail/retention flags remain `false`, readiness `true`: manual delivery only.
+
+Brave then blocked the EXP reload because an extension UI was open. Owner was
+asked to dismiss it. The enabled form has not yet been read, no ticket created
+and no `mail` operation invoked. Resume with the ordinary-member session, then
+review the exact queued recipients before sending. The acceptance table below
+is still pending; account creation/preview do not establish notification delivery.
+Local sanitized preflight: `output/a11y/hosted-job-setup-20261018/live-ticket-inbox-preflight.json`.
+
 ## What is ready
 
 - Account/auth, ticket queue, HTTP worker and pinned GitHub workflow are implemented.

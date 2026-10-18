@@ -3454,6 +3454,31 @@ font import → Phase 9, shadows → Phase 10._
 
 ## Progress Log
 
+- **2026-10-18 — Hosted ticket test preflight; browser handoff pending [internal].**
+  Owner selects a second controlled email for the ordinary member and approves
+  service notifications to the existing support account (addresses kept private).
+  Owner completes actual email-code registration in Brave. Fresh DB preflight:
+  two accounts, secondary author verified, one intended verified support grant,
+  zero tickets/mail rows/pending jobs. The author session has no support-inbox link;
+  original owner session does. No new support grant or permission was added.
+  Fresh GitHub preview `39151277752` succeeds: all 12 cleanup counts zero; mail/
+  retention steps skipped. GitHub main and production still use `72f7a4e`; the
+  two unpushed local commits contain only tests/docs, with no runtime-source diff.
+  For the approved test, changed Production Config `ACCOUNT_TICKETS_ENABLED=true`
+  and added `ACCOUNT_TICKET_MAIL_ENABLED=true`; redeployment
+  `dpl_3s6rgoTz9RHJCaog3bpR4rSbpVWu` is READY on `expdesign.app` at that same SHA.
+  GitHub automatic mail/retention variables remain false; readiness true. No mail
+  operation, ticket creation or cleanup invoked. Actual enabled ticket-form read
+  is pending: Brave blocked the EXP reload because an extension UI is open.
+  Asked owner to dismiss it and continue. Do not mistake current Production test
+  flags for the earlier all-paused configuration, or claim an inbox journey pass.
+  Sanitized receipts: `output/a11y/hosted-job-setup-20261018/`, including
+  `live-ticket-inbox-preflight.json` and fresh preview result/log/aggregate.
+  NEXT: resume signed-in ordinary-member page, create one synthetic ticket,
+  verify the exact pending recipient/queue, then manually dispatch the approved
+  notice and check inbox/spam. Continue `launch/TICKET-INBOX-ACCEPTANCE-v2.7.md`.
+  Restore the intended pause state if the controlled test is abandoned. No push.
+
 - **2026-10-18 — Account/ticket local rehearsal and morning-push handoff [internal].**
   Owner asks to finish the current portion and leave the push to them. Added one
   combined HTTP journey to the standard account suite: real email-code registration/

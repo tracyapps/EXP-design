@@ -8,7 +8,12 @@ approved restricted job role. Actual GitHub → Vercel → Neon read-only previe
 passes October 18; all cleanup counts are zero and the notification queue is empty.
 Repository readiness is true; mail and retention switches remain false.
 Real inbox delivery, retention approval and live deletion remain pending.
-Production ticket writes remain paused. Earlier no-notifier/no-job statements
+Later October 18 controlled-test setup temporarily configures Production ticket
+writes/mail queueing on, while GitHub automatic mail and retention remain off.
+Both approved accounts are verified; no ticket or mail operation yet. Browser
+extension interruption and exact current deployment/state:
+[inbox acceptance continuation](TICKET-INBOX-ACCEPTANCE-v2.7.md#live-test-continuation-october-18).
+Earlier no-notifier/no-job statements
 in [news and private tickets](NEWS-AND-TICKETS-v2.7.md) describe their dated slices.
 
 ## Member and support behavior
