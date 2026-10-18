@@ -1383,7 +1383,8 @@ from the appcast; a development plan does not change the published release.
       Owner credential setup and real GitHub → Vercel → restricted Neon preview
       pass October 18 (run `39117511031`). Readiness true; mail/retention switches
       false. Combined local auth/ticket/HTTP-worker/captured-mail rehearsal also
-      passes; real inbox delivery and live erasure remain unverified. Acceptance:
+      passes. Controlled live inbox round trip, opt-out/no replay, access checks
+      and closure now pass; test flags restored false, no live erasure. Acceptance:
       `launch/TICKET-INBOX-ACCEPTANCE-v2.7.md`. Activation:
       `launch/TICKET-NOTIFICATIONS-AND-RETENTION-v2.7.md`.
 - [ ] Reliable separate Pro-interest signup, permission/delivery/unsubscribe proof,
@@ -3453,6 +3454,35 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-10-18 — Controlled hosted ticket inbox round trip complete; test flags restored [internal].**
+  Owner finishes support sign-in. Actual support inbox/link permits reply, exact
+  pending recipient verified before mail run `39158314830` accepts one author
+  notice; owner confirms secondary INBOX delivery. Separate private window first
+  requires sign-in, then ordinary-member session is denied support access while
+  its own ticket/replies remain readable. Member saves alerts off; new support
+  reply is visible, DB has no new mail row/pending job, and worker `39158635277`
+  accepts zero. Saving alerts on does not replay it; a fresh support reply creates
+  exactly one job and worker `39158735878` accepts one. Owner independently confirms
+  exactly two secondary reply messages total, none for the opted-out event.
+  Author closes test ticket; reload/DB prove closed, revision 5, five events,
+  three accepted mail rows total, zero pending, all three frozen envelopes cleared.
+  Sole support grant remains; no new grants, account/ticket deletion or cleanup.
+  Restored Production Config `ACCOUNT_TICKETS_ENABLED=false` and
+  `ACCOUNT_TICKET_MAIL_ENABLED=false`. Redeployment
+  `dpl_8sQuTepgenaJYkLBK4dSp5pcdEuY` is READY on `expdesign.app`, source `72f7a4e`.
+  Actual member/support reloads show paused writes/delivery and closed thread.
+  Final read-only GitHub preview `39159027869` succeeds with 12 zero cleanup counts.
+  Repository readiness true; automatic mail/retention false. Temporary member
+  session signed out and private window closed; original support session remains
+  signed in. Both accounts/closed test thread retained. Source unchanged; local
+  tests were not rerun for hosted configuration/verification/docs-only work.
+  Sanitized receipt/screenshot and per-run result/log/aggregate files:
+  `output/a11y/hosted-job-setup-20261018/`. Checked acceptance and evidence boundaries:
+  `launch/TICKET-INBOX-ACCEPTANCE-v2.7.md`. NEXT: owner pushes local commits;
+  remaining hosted foreign-author isolation/erasure/revocation/failure recovery,
+  operator coverage, retention/log/backups/restore-erasure and physical AT checks
+  precede automatic/public rollout. No schedule enablement or push.
 
 - **2026-10-18 — First real ticket notification reaches support inbox [internal].**
   Owner asks to retry the browser interruption. Extension-backed EXP tab control

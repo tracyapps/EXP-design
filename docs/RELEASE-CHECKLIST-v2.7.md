@@ -90,15 +90,20 @@ payment and license records live outside the repository; use sanitized summaries
       `39117511031` succeeds on `72f7a4e`; HTTP 200, all 12 cleanup counts zero,
       queue empty. Actual restricted Neon connection independently observed.
       Corrected Production deployment `dpl_4H9JfDZQRLT2cTL1gTdrfqPuPjXn` READY.
-- [ ] Controlled inbox journey before mail schedule activation. Repository readiness
-      true; automatic mail/retention switches false. Retention policy approval and
-      restore-erasure remain open; no cleanup run.
-      Exact next-session checklist: `launch/TICKET-INBOX-ACCEPTANCE-v2.7.md`.
-      Later Oct 18 partial evidence: one real test ticket, mail run `39157768945`
-      accepted 1; actual Gmail INBOX delivery/authentication/content verified.
-      Duplicate run `39157987865` accepted 0, inbox still one notice. Production
-      test write/queueing flags on; GitHub automatic mail/retention still off.
-      Support reply/author delivery and remaining lifecycle gates remain pending.
+- [x] Controlled live author/support inbox round trip, duplicate suppression,
+      signed-out/member support-access denial, opt-out/no replay and closed-thread
+      reload. Gmail support inbox inspected; owner confirms secondary inbox and
+      exactly two reply notices (none for opted-out reply). Real worker runs and
+      DB/UI counts in `launch/TICKET-INBOX-ACCEPTANCE-v2.7.md`.
+      Final closed/revision 5, five events, three accepted notices, zero pending.
+      Production write/mail flags restored false in READY deployment
+      `dpl_8sQuTepgenaJYkLBK4dSp5pcdEuY`; final preview `39159027869` passes.
+      Private test session signed out/closed; original support session preserved.
+- [ ] Before automatic mail/public rollout: remaining hosted author isolation,
+      grant revocation/account/ticket erasure, provider failure/recovery, operating
+      coverage and owner AT checks. Repository readiness true; automatic mail/
+      retention false. Retention-policy approval and restore-erasure remain open;
+      no cleanup or permanent deletion run. This inbox test does not waive them.
 - [x] Combined local HTTP sign-in/ticket/worker/provider-capture journey through
       separate restricted roles, including opt-out/no replay, revoked access,
       duplicate suppression, local deletion and sign-out. Fresh `npm test` passes

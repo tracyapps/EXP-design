@@ -2,10 +2,46 @@
 
 October 18, 2026 · FEAT-069 · private operator checklist.
 
-The connection setup is complete. GitHub [preview run 39117511031](https://github.com/tracyapps/EXP-design/actions/runs/39117511031)
-passed through Vercel to the restricted Neon job role. Mail and retention remain
-off. This checklist is preparation; it authorizes no sends, access grants or
-deletions. The owner will push the remaining local commits.
+The controlled live inbox test is complete. Author/support round trip, real inbox
+delivery, signed-out and ordinary-member support-access denial, opt-out/no replay
+and closure pass. Production ticket-write/mail flags are restored to `false`;
+automatic mail and retention remain off. This checklist does not authorize new
+sends, access grants or deletions. The owner will push remaining local commits.
+
+## Verified result, October 18
+
+- Support session opens the delivered link and saves a reply through the website.
+  [Run 39158314830](https://github.com/tracyapps/EXP-design/actions/runs/39158314830)
+  accepts one approved-author notice; owner confirms actual secondary inbox delivery.
+- Fresh private window requires sign-in for the support link. The ordinary member
+  then sees “Support access is not available for this account”; their own thread
+  remains readable, including all support replies.
+- Member saves alerts off. The next support reply is visible on the website, but
+  DB shows zero pending jobs and no new mail row; [run 39158635277](https://github.com/tracyapps/EXP-design/actions/runs/39158635277)
+  accepts zero. Saving alerts on leaves that suppressed event absent.
+- A new support reply after opt-in creates exactly one approved-author job;
+  [run 39158735878](https://github.com/tracyapps/EXP-design/actions/runs/39158735878)
+  accepts one. Owner confirms **exactly two** secondary reply messages total:
+  initial reply and new post-opt-in reply; none for the opted-out reply.
+- Author closes the ticket; reload and DB agree: status closed, revision 5,
+  five events, three accepted notification rows, zero pending, all three frozen
+  envelopes cleared. Support grant count stays one. No status-only notification.
+- Production Config `ACCOUNT_TICKETS_ENABLED=false` and
+  `ACCOUNT_TICKET_MAIL_ENABLED=false` are saved and loaded by READY deployment
+  `dpl_8sQuTepgenaJYkLBK4dSp5pcdEuY`, source `72f7a4e`. Both member and support
+  reloads display paused delivery/writes and the closed thread.
+  [Final preview 39159027869](https://github.com/tracyapps/EXP-design/actions/runs/39159027869)
+  succeeds with 12 zero cleanup counts. Repository readiness true; scheduled
+  mail/retention false. No cleanup or permanent deletion ran.
+- Temporary private member session signed out and its window closed; original
+  owner support session preserved. Both accounts and closed test thread retained.
+
+Sanitized evidence: `output/a11y/hosted-job-setup-20261018/live-ticket-inbox-20261018.json`,
+per-run result/log/aggregate files and `final-closed-ticket-paused.png`. Private
+addresses, thread IDs and provider receipts are omitted from this repository.
+The setup observations below are dated history, superseded by this final state.
+Remaining rollout gates are listed under **Finish or pause**; this test does not
+establish hosted account erasure, grant-revocation, retry-failure or physical AT proof.
 
 ## Live-test continuation, October 18
 
@@ -92,13 +128,13 @@ or an actual customer issue as test content.
 | Author creates one ticket | Exactly one thread/event; only eligible approved support recipients queued | Pass Oct 18: real UI receipt and exact DB recipient/queue check |
 | Dispatch `preview`, then `mail` once | Aggregate counts match the approved queued events; no private content in Actions output | Pass: preview 39151277752; mail 39157768945 accepted 1, other counts 0 |
 | Operator checks inbox and spam | One service notice; correct sender and support link; no ticket text, name, code or login token | Pass: Gmail INBOX, not SPAM; headers/body verified through connector |
-| Open link while signed out | Sign-in required; support inbox available only with the existing grant | Pending |
-| Operator replies on website | Author sees the reply; exactly one author notification queued | Pending |
-| Dispatch `mail`; author checks inbox/spam | One reply notice; link opens the author's thread after sign-in | Pending |
+| Open link while signed out | Sign-in required; support inbox available only with the existing grant | Pass: fresh private sign-in gate and ordinary-member support denial |
+| Operator replies on website | Author sees the reply; exactly one author notification queued | Pass: actual support/member UI plus exact DB event/recipient check |
+| Dispatch `mail`; author checks inbox/spam | One reply notice; link opens the author's thread after sign-in | Pass: run 39158314830 accepted 1; owner confirms INBOX; own thread displays reply |
 | Repeat `mail` with no new events | Zero accepted; no duplicate mail arrives | Pass for initial support notice: run 39157987865 all counts 0; inbox count remains 1 |
-| Author turns ticket alerts off; operator replies | Reply visible on website, no author notice queued/delivered; news/beta/Pro choices unchanged | Pending |
-| Author turns alerts on again | No old notice replayed; a new support reply generates one new notice | Pending |
-| Author closes the test thread | Closed state persists after reload; no status-only email | Pending |
+| Author turns ticket alerts off; operator replies | Reply visible on website, no author notice queued/delivered; news/beta/Pro choices unchanged | Pass: saved false; visible reply; unchanged 2 mail rows/zero pending; run 39158635277 accepted 0. Separate-purpose schema untouched by this operation |
+| Author turns alerts on again | No old notice replayed; a new support reply generates one new notice | Pass: no row on opt-in; one new event/job; run 39158735878 accepted 1; owner confirms exactly 2 reply messages total |
+| Author closes the test thread | Closed state persists after reload; no status-only email | Pass: closed/revision 5; 5 events; still only 3 accepted mail rows and zero pending |
 
 Use the reviewed workflow, not an ad hoc curl command with a token:
 
@@ -122,8 +158,9 @@ provider receipts or screenshots containing private inbox content. A provider
   and enable GitHub repository `ACCOUNT_TICKET_MAIL_ENABLED=true`. Confirm a real
   scheduled run and failure-notification coverage before relying on it. Scheduling
   is best effort; it is not a five-minute delivery promise.
-- Hosted cross-user denial, grant revocation, account deletion and ticket erasure
-  still need separately approved disposable identities/data. Do not revoke the
+- Hosted foreign-author isolation (a third ordinary account), grant revocation,
+  account deletion and ticket erasure still need separately approved disposable
+  identities/data. Do not revoke the
   sole real support operator or delete the owner's live account to test a gate.
   The local rehearsal proves these controls only in its isolated environment.
 - Cleanup remains independently off until the owner approves the proposed policy,

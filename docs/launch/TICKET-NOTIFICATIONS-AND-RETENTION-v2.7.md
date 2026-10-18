@@ -7,15 +7,15 @@ The owner selected GitHub Actions and completed private credentials for the
 approved restricted job role. Actual GitHub → Vercel → Neon read-only preview
 passes October 18; all cleanup counts are zero and the notification queue is empty.
 Repository readiness is true; mail and retention switches remain false.
-The first real support notice is verified in Gmail INBOX, with no duplicate after
-a repeat manual worker run. The full reply/author/opt-out inbox journey, retention
-approval and live deletion remain pending.
-Later October 18 controlled-test setup temporarily configures Production ticket
-writes/mail queueing on, while GitHub automatic mail and retention remain off.
-Both approved accounts are verified; one synthetic ticket and its manual support
-notification pass. Supported native controls continue despite the tab bridge's
-extension interruption. Exact current deployment/state and remaining handoff:
-[inbox acceptance continuation](TICKET-INBOX-ACCEPTANCE-v2.7.md#live-test-continuation-october-18).
+The controlled live inbox journey now passes: support notice inspected in Gmail
+INBOX, owner-confirmed secondary inbox replies, duplicate suppression, opt-out/no
+replay, signed-out/member support denial and closed-thread reload. Exactly three
+notices accepted; zero pending. Temporary Production write/mail flags restored
+`false` in READY deployment `dpl_8sQuTepgenaJYkLBK4dSp5pcdEuY` (`72f7a4e`).
+Automatic mail and retention remain off. Hosted erasure/revocation/failure recovery,
+policy/restore-erasure and physical AT gates remain open. Exact run links, final
+state, owner observations and remaining rollout gates:
+[inbox acceptance result](TICKET-INBOX-ACCEPTANCE-v2.7.md#verified-result-october-18).
 Earlier no-notifier/no-job statements
 in [news and private tickets](NEWS-AND-TICKETS-v2.7.md) describe their dated slices.
 
@@ -314,11 +314,13 @@ The next gated steps are:
 Use the [hosted inbox acceptance checklist](TICKET-INBOX-ACCEPTANCE-v2.7.md) for
 the approved recipients, exact observations and private evidence boundaries.
 
-1. With approved test recipients and operating review, separately enable reviewed
-   ticket/mail flags in Vercel. Manually test member → support reply → member
-   read/close/delete, actual inbox/spam delivery, independent opt-out, retries,
-   grant revocation, cross-user denial and account/session deletion. API acceptance
-   is not inbox delivery. Then enable repository `ACCOUNT_TICKET_MAIL_ENABLED`.
+1. Controlled author/support inbox round trip, opt-out/no replay and closure now
+   pass. Before automatic/public rollout, complete remaining hosted foreign-author
+   isolation, grant revocation, account/session and ticket erasure, failure/recovery,
+   operating coverage and physical AT checks with separately approved disposable
+   data/identities. Do not remove the sole support grant or delete the owner account.
+   If rollout is admitted, enable reviewed Production ticket/mail flags, deploy,
+   then enable repository `ACCOUNT_TICKET_MAIL_ENABLED`. Current flags remain false.
 2. Keep retention off until owner approves `member-retention-v1`, provider log/
    backup periods and the restore/deletion procedure. Run a fresh preview first.
    After approval, configure policy and retention flag in Vercel, the environment

@@ -3328,6 +3328,17 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   Fresh full service suite: 154 cases pass plus native/wire checks; no production
   behavior/configuration or real deliveries changed. Hosted acceptance and pause
   procedure: `launch/TICKET-INBOX-ACCEPTANCE-v2.7.md`. Owner pushes next.
+- October 18 controlled hosted inbox acceptance: actual author/support round trip,
+  owner-confirmed secondary inbox delivery, Gmail support INBOX/authentication/
+  minimal-content proof, no duplicate acceptance, signed-out/member support denial,
+  opt-out/no replay and closed-thread reload pass. Three notices accepted total;
+  owner confirms exactly two secondary reply messages, none for the opted-out
+  event. Final closed/revision 5, five events, zero pending, one preserved support
+  grant. Production test write/mail flags restored false and deployment READY;
+  GitHub automatic mail/retention remain off. Temporary private session signed out
+  and closed; owner support session preserved. Exact source/run links/receipts and
+  remaining hosted erasure/revocation/recovery/AT gates in the same acceptance
+  document. No application source change, public rollout, deletion or push.
 - Accessibility sources checked before initial form/naming changes:
   https://www.w3.org/WAI/tutorials/forms/labels/ (explicit native labels),
   https://www.w3.org/TR/wai-aria-1.2/#status (polite status announcements),
