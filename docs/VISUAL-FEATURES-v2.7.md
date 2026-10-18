@@ -12,7 +12,7 @@ Owner capacity remains 12 planned hours/week plus up to 3 hours contingency.
 
 | Dates | Codex work | Owner review / exit gate |
 | --- | --- | --- |
-| Oct 18–20 | Source inventory; bounded pixel/color-space/alpha probes for matrices; native/CSS/SVG representation examples for Mesh. No production model change yet. | Review notes FEAT-072 before a new document-mutating slice. About 1 hour. |
+| Oct 18–20 | Source inventory; shared matrix/image-engine foundation and bounded pixel/color-space/alpha proof; native/CSS/SVG representation examples for Mesh. Editor integration follows. | Notes FEAT-072 accepted Oct 18. About 1 hour used for that review gate. |
 | Oct 20–23 | First vertical slice: Color Matrix model → native image rendering → SVG export/import → Duotone and advanced controls. Shared thumbnail and package coverage. | Use owned raster/SVG images, transparency, save/reopen, Undo, keyboard and narrow panels. About 2 hours; acceptance precedes Mesh integration. |
 | Oct 26–30 | Mesh fill model/render/export and EXP-authored round-trip, then point controls/handles and numeric editing. | Owned non-square, clipped/transformed and patterned/component documents; preview performance and export comparison. About 2–3 hours. |
 | Nov 2–6 | Repair observed failures; finish both feature matrices, real-document demos and accessibility evidence. | Nov 6 scope/date review. If time or fidelity fails, agree a revised scope/date; do not silently drop either selected feature or waive a gate. |
@@ -136,11 +136,64 @@ Log: `/tmp/exp-visual-color-probe-20261018.log`; per-pixel JSON:
 `output/a11y/visual-features-20261018/core-image-matrix.json` (ignored local receipt).
 The probe deliberately remains separate from shipping Effect/Paint types.
 
-Owner reports an Undo crash in FEAT-072 notes on October 18. BUG-073/074 fixes and
-isolated checks pass; owner rebuild/retest remains pending. See
-`NOTES-UNDO-VERIFICATION-v2.7.md`. The immediate production sequence is **review notes →
-Color Matrix → accept → Mesh**. Independent specification/pixel work can proceed;
-no source mutation for either new release feature has started.
+### Shared image-engine foundation — October 18
+
+`ColorMatrix` now lives beside `Effect` in the always-shared Document model;
+`EffectsRender.colorMatrixImage` accepts immutable CGImages/mips. Both compile
+into the app and thumbnail target. This is the first implementation seam, **not
+an exposed editor feature**. No Effect.Kind, document field, effect ordering,
+SVGImporter support, actual exporter or inspector control is changed yet.
+
+- Exactly twenty finite Double values; malformed SVG number lists, wrong-length
+  JSON, NaN/infinite edits and invalid coefficient indices are rejected. SVG
+  decimal strings and JSON preserve finite values outside convenience ranges.
+  The standalone SVG-value initializer defaults to linearRGB; authored duotone
+  uses sRGB and an identity alpha row. Strength interpolates with identity.
+- Per-primitive clipping, explicit color profiles and full-float intermediates.
+  Rendering is eager to avoid retaining deferred filter graphs. An additional
+  chain of channel swaps followed by large signed cancellation exposed a
+  **239-byte reference error** with half-float intermediates. The same check
+  passes with full float; this is a real reduced regression, not an owner crash.
+- Nonidentity work rejects images over **4,194,304 pixels**, dimensions over
+  **4096**, or chains over **32** primitives before filtering. Identity returns
+  the exact source object without allocation. A backend coefficient magnitude
+  over 4096 returns an explicit error; the finite model value still survives
+  JSON. The editor must surface resource/backend errors, never silently draw
+  an unchanged source and claim success. Integration must choose a documented
+  preview mip/export strategy rather than dropping these guards.
+- Evictable NSCache has a 64 MiB cost target and 32-entry target, accounting for
+  retained source plus final output. Keys include source identity, every value
+  and working space. Entries retain their source to prevent address-reuse hits.
+  These are cache targets, not a measured hard process-memory ceiling.
+
+`bash scripts/verify_color_matrix.sh [optional-JSON-receipt-path]` compiles the
+actual shared model/renderer and runs an LSUIElement AppKit/WebKit fixture.
+**13 cases × 10 known RGBA pixels** pass against independent straight-channel
+math and actual WebKit-rendered SVG. Maximum channel error is **1/255** for both
+comparisons. Cases: identity, channel swap, duotone, signed bias, alpha scaling,
+alpha bias, RGB halving in sRGB versus linearRGB, per-primitive clipping, mixed
+spaces, large signed coefficients, intermediate precision and all twenty nonzero
+coefficients. Additional checks cover codec validation, zero-strength identity,
+alpha preservation, source immutability, cache reuse/separation and resource
+rejection. SVG pixels use a standards fixture constructed from the matrix values;
+**they do not pass through EXP's SVG exporter/importer**.
+
+Logs: `/tmp/exp-color-matrix-20261018.log`; reduced half-float failure:
+`/tmp/exp-color-matrix-precision-before-20261018.log`. Ignored per-pixel receipt:
+`output/a11y/visual-features-20261018/production-matrix.json`.
+Final checks also pass (exit 0): `bash scripts/verify_effect_export_coverage.sh`
+(`/tmp/exp-matrix-coverage-final-20261018.log`),
+`bash scripts/verify_semantic_html_package.sh`
+(`/tmp/exp-matrix-semantic-20261018.log`) and unsigned app/EXPThumbnail build
+(`/tmp/exp-matrix-build-final-20261018.log`). Existing project warnings remain.
+No claim of integrated canvas/PNG/PDF fidelity, real-image/stress performance,
+profile/display coverage, narrow-panel layout, Undo or accessibility acceptance.
+Those remain FEAT-073 gates. No owner test is requested for this hidden foundation.
+
+Owner accepts FEAT-072 notes and BUG-073/074 repairs October 18: “that all is
+verified working now.” See `NOTES-UNDO-VERIFICATION-v2.7.md`. Production sequence
+is now **Color Matrix → accept → Mesh**. Full physical AT/display certification
+remains a separate release gate.
 
 Specification sources reviewed October 18:
 [W3C color matrix](https://www.w3.org/TR/filter-effects-1/#feColorMatrixElement),

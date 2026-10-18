@@ -1,7 +1,8 @@
 # Notes Undo crash and literal help — October 18, 2026
 
-BUG-073/074 fixes implemented. Focused and isolated-app checks pass; original
-owner Xcode reproduction and physical AT review remain pending.
+BUG-073/074 owner-verified October 18, 2026: “that all is verified working now.”
+Focused and isolated-app checks also pass. Full physical AT/display coverage
+remains a separate release gate.
 
 ## Evidence and mechanism
 
@@ -79,7 +80,14 @@ AppKit's NSTextView undo manager and
 [shouldChangeText](https://developer.apple.com/documentation/appkit/nstextview/shouldchangetext(in:replacementstring:)),
 Foundation [UndoManager](https://developer.apple.com/documentation/foundation/undomanager).
 
-## Owner repeat
+## Owner acceptance — October 18
+
+Owner reports the repaired app works and accepts the notes slice, including the
+previously requested repeat. This closes the sequencing gate for FEAT-073. It
+does not establish the cause of every earlier console message or certify the
+full VoiceOver/display matrix.
+
+## Preserved owner repeat instructions
 
 Stop the old paused run when ready and rebuild in Xcode; the stopped binary does
 not acquire source fixes. Repeat the original sequence and several Undo/Redo
@@ -87,5 +95,6 @@ operations with notes open; close notes and verify one document-level Undo/Redo;
 save/reopen. Confirm the Markdown tooltip no longer emits the repeated warnings.
 Full VoiceOver/FKA and the real document/display matrix remain separate gates.
 
-The owner process is left paused for inspection. Only disposable fixture builds
-were stopped. No push, deployment, release artifact or live account changes.
+At the repair session, the owner process was left paused for inspection; only
+disposable fixture builds were stopped. Owner subsequently rebuilt/retested and
+accepted the slice. No push, deployment, release artifact or live account changes.

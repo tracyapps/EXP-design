@@ -38,7 +38,7 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: bug
 - Priority: P1
 - Area: notes · undo · document
-- Status: needs-verify — fix and focused/native app checks pass; owner rebuild/retest pending
+- Status: done — owner verifies repaired notes October 18, 2026
 - Owner report 2026-10-18: Undo while notes remain open stops at objc_msgSend.
   Read the actual paused Xcode process: Foundation `_NSUndoStack popAndInvoke`
   and `undoNestedGroup`; failed selector is `_undoRedoTextOperation:`.
@@ -52,7 +52,8 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   detach clears local entries. Existing coalesced Edit Notes document undo stays.
 - Acceptance/evidence: 20 real AppKit cycles pass, five actual app text Undo/Redo
   cycles, document Undo/Redo after closing notes, actual save and document reopen
-  pass in an isolated disposable build. Original owner process stays paused.
+  pass in an isolated disposable build. Owner accepts the rebuilt notes slice
+  October 18: “that all is verified working now.”
   Exact logs, boundary and owner repeat: `NOTES-UNDO-VERIFICATION-v2.7.md`.
 - References: Apple UndoManager removeAllActions(withTarget:), NSTextView
   undoManager and shouldChangeText(in:replacementString:); no exported semantics
@@ -62,7 +63,7 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: bug
 - Priority: P2
 - Area: notes · chrome
-- Status: needs-verify — literal tooltip verified in isolated app; owner Xcode log repeat pending
+- Status: done — owner accepts repaired notes October 18, 2026
 - Repro: owner console repeatedly reports “Only unstyled text can be used with
   help(_:)”. FEAT-072's new tooltip used a Markdown link in a localized literal;
   the actual baseline accessibility help strips its label/URL syntax.
@@ -70,8 +71,8 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   app's actual accessibility help retains `[label](https://example.com)` exactly.
 - Boundary: small un-debugged SwiftUI logging fixture did not reproduce the
   owner's console warning, so it is not kept as a passing regression test. Native
-  tooltip content is verified; Xcode log absence remains owner review. This warning
-  is not conflated with BUG-074's separately captured Undo crash.
+  tooltip content is verified; owner subsequently accepts the rebuilt notes slice.
+  This warning is not conflated with BUG-074's separately captured Undo crash.
 - Reference: installed SwiftUI help overloads and Apple Text.init(verbatim:).
   Evidence: `NOTES-UNDO-VERIFICATION-v2.7.md`.
 
@@ -3181,7 +3182,8 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: feature
 - Priority: P1 — selected for v2.7 on 2026-10-18
 - Area: color · effects · inspector · canvas · export · import
-- Status: scoped — fidelity/render proof first; not implemented
+- Status: in-progress — shared matrix/image engine and native/WebKit pixel proof
+  pass October 18; editor/effect/export/import integration and controls remain open
 - Owner request: add the SVG color-matrix effect, including sliders, to make
   duotone images and provide another visual feature to demonstrate at launch.
 - Slice: friendly shadow/highlight colors and strength; Advanced exposes all
@@ -3210,8 +3212,8 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: feature
 - Priority: P2
 - Area: notes · type · accessibility
-- Status: needs-verify — owner reports Undo crash; BUG-073/074 fixes and isolated
-  native checks pass October 18; owner rebuilt-app acceptance remains pending
+- Status: done — owner accepts notes and BUG-073/074 repairs October 18, 2026;
+  full physical AT/display release matrix remains separate
 - Owner scope 2026-10-18: expand the existing small Markdown subset with headings
   and links. This is separate from BUG-017's structured HTML export contract.
 - Implementation: `#` through `######` headings; basic `[label](URL)` web/mail

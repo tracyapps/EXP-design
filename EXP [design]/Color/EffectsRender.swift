@@ -61,6 +61,96 @@ struct Silhouette {
 
 enum EffectsRender {
 
+    // FEAT-073 image-filter foundation. This path does not capture a canvas
+    // surface: callers provide immutable source/mip pixels, independent of zoom.
+    // Explicit errors prevent an allocation/filter failure from looking like a
+    // successful identity operation. The editor integration must surface them.
+    enum MatrixRenderError: Error { case resourceLimit, unsupportedCoefficient, unavailableFilter, renderFailed }
+    static let maxMatrixPixels = 4_194_304
+    static let maxMatrixDimension = 4096
+
+    private final class MatrixImage: NSObject {
+        // Retain the input as well as the output. Object-identity keys can never
+        // alias a different image after its address is reused.
+        let input: CGImage
+        let output: CGImage
+        init(input: CGImage, output: CGImage) { self.input = input; self.output = output }
+    }
+    private static let matrixCache: NSCache<NSString, MatrixImage> = {
+        let cache = NSCache<NSString, MatrixImage>()
+        cache.totalCostLimit = 64 << 20
+        cache.countLimit = 32
+        return cache
+    }()
+    private static let matrixSRGB = CGColorSpace(name: CGColorSpace.sRGB)!
+    private static let matrixLinear = CGColorSpace(name: CGColorSpace.linearSRGB)!
+    private static let matrixSRGBContext = CIContext(options: [
+        .cacheIntermediates: false, .workingColorSpace: matrixSRGB,
+        .outputColorSpace: matrixSRGB, .workingFormat: CIFormat.RGBAf.rawValue
+    ])
+    private static let matrixLinearContext = CIContext(options: [
+        .cacheIntermediates: false, .workingColorSpace: matrixLinear,
+        .outputColorSpace: matrixLinear, .workingFormat: CIFormat.RGBAf.rawValue
+    ])
+
+    /// Apply matrices in list order, clamping after EACH primitive as SVG does.
+    /// Input/output CGImages retain explicit profiles. Intermediate full-float
+    /// images preserve precision when adjacent primitives use different spaces.
+    /// Identity is a zero-allocation path; alpha bias is allowed intentionally.
+    static func colorMatrixImage(_ image: CGImage, matrices: [ColorMatrix],
+                                 useCache: Bool = true) throws -> CGImage {
+        guard matrices.count <= 32 else { throw MatrixRenderError.resourceLimit }
+        let active = matrices.filter { $0.values != ColorMatrix.identityValues }
+        guard !active.isEmpty else { return image }
+        guard image.width <= maxMatrixDimension, image.height <= maxMatrixDimension,
+              image.width > 0, image.height > 0,
+              image.width * image.height <= maxMatrixPixels else { throw MatrixRenderError.resourceLimit }
+        // Core Image evaluates float intermediates. Preserve all finite
+        // model values, but explicitly refuse values outside this backend's safe
+        // arithmetic range instead of overflowing or changing stored coefficients.
+        guard active.allSatisfy({ $0.values.allSatisfy { abs($0) <= 4096 } }) else {
+            throw MatrixRenderError.unsupportedCoefficient
+        }
+        let key = ("\(ObjectIdentifier(image)):" + active.map {
+            $0.workingSpace.rawValue + ":" + $0.svgValues
+        }.joined(separator: ";")) as NSString
+        if useCache, let hit = matrixCache.object(forKey: key) { return hit.output }
+        var current = image
+        for matrix in active {
+            let space = matrix.workingSpace == .sRGB ? matrixSRGB : matrixLinear
+            let context = matrix.workingSpace == .sRGB ? matrixSRGBContext : matrixLinearContext
+            let input = CIImage(cgImage: current)
+            guard let filter = CIFilter(name: "CIColorMatrix") else { throw MatrixRenderError.unavailableFilter }
+            filter.setValue(input, forKey: kCIInputImageKey)
+            for (row, name) in ["inputRVector", "inputGVector", "inputBVector", "inputAVector"].enumerated() {
+                let i = row * 5, v = matrix.values
+                filter.setValue(CIVector(x: v[i], y: v[i+1], z: v[i+2], w: v[i+3]), forKey: name)
+            }
+            let v = matrix.values
+            filter.setValue(CIVector(x: v[4], y: v[9], z: v[14], w: v[19]), forKey: "inputBiasVector")
+            guard let output = filter.outputImage else { throw MatrixRenderError.renderFailed }
+            let clamped = output.applyingFilter("CIColorClamp", parameters: [
+                "inputMinComponents": CIVector(x: 0, y: 0, z: 0, w: 0),
+                "inputMaxComponents": CIVector(x: 1, y: 1, z: 1, w: 1)
+            ]).cropped(to: input.extent)
+            guard let rendered = context.createCGImage(clamped, from: input.extent,
+                                                       format: .RGBAf, colorSpace: space, deferred: false) else {
+                throw MatrixRenderError.renderFailed
+            }
+            current = rendered
+        }
+        let final = CIImage(cgImage: current)
+        guard let output = matrixSRGBContext.createCGImage(final, from: final.extent,
+                                                           format: .RGBA8, colorSpace: matrixSRGB, deferred: false) else {
+            throw MatrixRenderError.renderFailed
+        }
+        if useCache {
+            matrixCache.setObject(MatrixImage(input: image, output: output), forKey: key,
+                                  cost: image.bytesPerRow * image.height + output.bytesPerRow * output.height)
+        }
+        return output
+    }
+
     /// Whether the CANVAS preview can honour a shadow's `spread` for this node.
     ///
     /// BUG-034. `Silhouette.path(spread:)` above can only grow or shrink a

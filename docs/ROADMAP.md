@@ -1302,7 +1302,7 @@ from the appcast; a development plan does not change the published release.
       native effect, duotone controls and all twenty advanced values; owner accepts.
 - [ ] FEAT-033: prove layered-radial native/CSS/SVG and re-import contract, then
       implement Mesh fill/on-object plus numeric editing; owner accepts.
-      Work is sequential after the current notes gate. Dated work cards and
+      Work is sequential; notes accepted October 18. Dated work cards and
       acceptance: `VISUAL-FEATURES-v2.7.md`; Nov 6 scope/date review precedes freeze.
 - [x] Report/roadmap reconciliation and execution plan written:
       `SELF-LAUNCH-PLAN-v2.7.md`; primary corrections in
@@ -1333,10 +1333,10 @@ from the appcast; a development plan does not change the published release.
 - [x] **FEAT-072 notes formatting implemented/local checked:** six heading levels
       and basic native web/mail links, editable Markdown syntax and unchanged
       plain-string storage. `NOTES-FORMATTING-v2.7.md` records the supported subset.
-- [ ] Owner reviews FEAT-072 integrated notes editing/save/reopen/undo and real
-      keyboard/VoiceOver link activation before another document-mutating slice.
-      Owner reports Undo crash October 18; BUG-073/074 fixes pass isolated native
-      checks and await owner rebuild/retest. `NOTES-UNDO-VERIFICATION-v2.7.md`.
+- [x] Owner accepts FEAT-072 notes and BUG-073/074 repairs October 18:
+      “that all is verified working now.” This closes the sequencing gate for
+      Color Matrix; full physical AT/display certification remains separate.
+      `NOTES-UNDO-VERIFICATION-v2.7.md`.
       BUG-017 structured standalone HTML notes remain separate/open.
 - [ ] Full 1x/2x, light/dark, Large interface type and AT matrix; signed release
       payload audit remains a freeze gate. Visual acceptance alone does not close these.
@@ -3473,6 +3473,30 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-10-18 — Notes owner acceptance; Color Matrix image-engine foundation [internal].**
+  Owner accepts the repaired notes slice: “that all is verified working now.”
+  FEAT-072 and BUG-073/074 are closed; the full physical AT/display release matrix
+  remains separate. FEAT-073 begins with a shared validated 20-coefficient model,
+  sRGB duotone/identity, exact SVG number-list codec and explicit sRGB/linearRGB
+  image filtering in EffectsRender. No new Effect.Kind or editor control is
+  exposed yet; existing document encoding and effect ordering are unchanged.
+  Production-engine pixels agree with an independent reference and real WebKit
+  SVG across 13 cases × 10 RGBA samples: maximum one byte error. This includes
+  all twenty coefficients, signed/bias/alpha cases, mixed spaces and per-primitive
+  clipping. A new chained-cancellation case failed with half-float intermediates
+  (239-byte error); full-float intermediates fix it and agree with SVG within one.
+  Explicit guards cover pixel/dimension/chain budgets and backend coefficient
+  range; finite model values beyond that range survive JSON but rendering errors
+  must be surfaced by the future integration. Cache keys include retained source
+  identity, coefficients and working space. Fresh final checks pass:
+  `verify_color_matrix.sh`, `verify_effect_export_coverage.sh`,
+  `verify_semantic_html_package.sh`, and unsigned app + EXPThumbnail build
+  (`/tmp/exp-matrix-build-final-20261018.log`); existing project warnings remain.
+  Details/commands/limits: `VISUAL-FEATURES-v2.7.md`. Next: wire the engine through the node/effect,
+  native/export/import and inspector seams as one supported vertical slice;
+  settle mixed-effect ordering and error presentation before enabling controls.
+  Mesh remains after Color Matrix owner acceptance. No push or live changes.
 
 - **2026-10-18 — Notes Undo crash and literal tooltip repair, BUG-073/074 [internal].**
   Owner reports crash/warnings and confirms Undo while notes remain open. Preserved

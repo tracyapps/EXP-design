@@ -2687,6 +2687,92 @@ extension Node {
 
 // MARK: - Effects
 
+/// SVG Filter Effects §9.6: four output rows, each containing RGBA weights and
+/// a bias. Values operate on straight (unpremultiplied) channels. Kept beside
+/// the shared paint/color models so app, thumbnail and standalone exporters use
+/// the same validated representation, without introducing a UI dependency.
+struct ColorMatrix: Codable, Equatable, Hashable, Sendable {
+    enum WorkingSpace: String, Codable, Sendable { case sRGB, linearRGB }
+    enum ValidationError: Error { case coefficientCount, nonFiniteCoefficient, invalidIndex }
+    private(set) var values: [Double]
+    var workingSpace: WorkingSpace
+
+    nonisolated static let identityValues: [Double] = [
+        1,0,0,0,0, 0,1,0,0,0, 0,0,1,0,0, 0,0,0,1,0
+    ]
+    nonisolated static let identity = ColorMatrix(validated: identityValues, space: .sRGB)
+
+    private nonisolated init(validated: [Double], space: WorkingSpace) {
+        values = validated; workingSpace = space
+    }
+
+    nonisolated init(values: [Double], workingSpace: WorkingSpace = .sRGB) throws {
+        guard values.count == 20 else { throw ValidationError.coefficientCount }
+        guard values.allSatisfy(\.isFinite) else { throw ValidationError.nonFiniteCoefficient }
+        self.init(validated: values, space: workingSpace)
+    }
+
+    nonisolated func setting(_ index: Int, to value: Double) throws -> ColorMatrix {
+        guard values.indices.contains(index) else { throw ValidationError.invalidIndex }
+        guard value.isFinite else { throw ValidationError.nonFiniteCoefficient }
+        var result = self; result.values[index] = value; return result
+    }
+
+    /// Authored presets use sRGB brightness weights. Strength interpolates the
+    /// coefficients with identity; it never changes the image's source bytes or
+    /// uses the shadow/highlight swatch alpha to make transparent pixels opaque.
+    nonisolated static func duotone(shadows: RGBAColor, highlights: RGBAColor,
+                                   strength: Double = 1) throws -> ColorMatrix {
+        guard strength.isFinite else { throw ValidationError.nonFiniteCoefficient }
+        let dark = [shadows.r, shadows.g, shadows.b]
+        let light = [highlights.r, highlights.g, highlights.b]
+        guard (dark + light).allSatisfy(\.isFinite) else { throw ValidationError.nonFiniteCoefficient }
+        let weight = [0.2126, 0.7152, 0.0722]
+        let t = min(1, max(0, strength))
+        var v = identityValues
+        for row in 0..<3 {
+            for col in 0..<5 {
+                let coefficient = col < 3 ? (light[row] - dark[row]) * weight[col]
+                    : (col == 4 ? dark[row] : 0)
+                v[row * 5 + col] = identityValues[row * 5 + col] * (1 - t) + coefficient * t
+            }
+        }
+        return try ColorMatrix(values: v)
+    }
+
+    /// Exact round-trippable decimal strings, including signed/out-of-slider
+    /// values. This intentionally does not use the exporter's two-digit num().
+    nonisolated var svgValues: String { values.map { String($0) }.joined(separator: " ") }
+
+    nonisolated init(svgValues: String, workingSpace: WorkingSpace = .linearRGB) throws {
+        // Double() accepts spellings outside SVG's number grammar. Require a
+        // complete 20-number list; repeated/trailing commas must not disappear
+        // when split omits empty tokens.
+        let number = #"[+-]?(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[eE][+-]?[0-9]+)?"#
+        let separator = #"(?:[ \t\r\n]+|[ \t\r\n]*,[ \t\r\n]*)"#
+        let grammar = #"\A[ \t\r\n]*"# + number + "(?:" + separator + number + #"){19}[ \t\r\n]*\z"#
+        guard svgValues.range(of: grammar, options: .regularExpression) != nil else {
+            throw ValidationError.coefficientCount
+        }
+        let tokens = svgValues.split { $0.isWhitespace || $0 == "," }
+        var parsed: [Double] = []
+        for token in tokens {
+            guard let number = Double(token), number.isFinite else {
+                throw ValidationError.nonFiniteCoefficient
+            }
+            parsed.append(number)
+        }
+        try self.init(values: parsed, workingSpace: workingSpace)
+    }
+
+    enum CodingKeys: String, CodingKey { case values, workingSpace }
+    nonisolated init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        try self.init(values: c.decode([Double].self, forKey: .values),
+                      workingSpace: c.decode(WorkingSpace.self, forKey: .workingSpace))
+    }
+}
+
 /// A post-composite visual effect on a node. Drop + inner shadow mirror CSS
 /// `box-shadow` (offset x/y, blur, spread). Layer blur mirrors SVG
 /// `feGaussianBlur` on SourceGraphic. Noise + dissolve are procedural

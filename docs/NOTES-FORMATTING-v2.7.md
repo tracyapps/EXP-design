@@ -1,10 +1,9 @@
 # Artboard notes — headings and links
 
 October 18, 2026 · FEAT-072 · development 2.7/build 18.
-Implemented/local checks pass; owner review remains pending.
-Owner reports an Undo crash October 18. BUG-073/074 fixes are implemented and
-isolated native checks pass; owner rebuild/retest remains pending. Do not mark
-acceptance complete or start the next document-mutating feature before review.
+Owner-verified October 18, 2026 after BUG-073/074 repairs: “that all is verified
+working now.” Notes acceptance closes the next-feature sequencing gate; the full
+physical accessibility/display release matrix remains open.
 Crash/tooltip evidence and repeat: `NOTES-UNDO-VERIFICATION-v2.7.md`.
 
 ## What changed
@@ -13,8 +12,8 @@ The existing notes editor already styles bold, underscore italic, bullets,
 checkboxes and a single `#` heading. It now styles `#` through `######` headings
 and basic `[descriptive label](https://example.com)` / `mailto:` links.
 Syntax stays visible for editing. Link labels are underlined and use the system
-link color, with native NSTextView link behavior. Actual mouse/keyboard/VoiceOver
-activation in the integrated app remains an owner check.
+link color, with native NSTextView link behavior. Owner accepts the notes slice
+October 18; the full physical VoiceOver/FKA release matrix remains separate.
 
 `Artboard.notes` stays the same plain string; no document schema or codec changes.
 The existing delayed save, document undo-session grouping and menus remain in place.
@@ -80,9 +79,9 @@ Native APIs and syntax references are recorded in BACKLOG FEAT-072. Native
 heading styling alone does not establish heading-rotor navigation. No full
 screen-reader pass is claimed. Desktop XCTest previously timed out enabling
 automation before app tests; these direct AppKit checks bypass neither that
-coverage gap nor the owner acceptance gate.
+coverage gap. Owner acceptance was subsequently recorded October 18.
 
-## Owner check before another document-mutating slice
+## Preserved owner check — slice accepted October 18
 
 1. Open notes on a real artboard; type/paste six heading levels, Unicode, emphasis,
    checkboxes and `[Design guide](https://example.com)`.
