@@ -27,6 +27,7 @@ before(async () => {
   await pool.query(await readFile(new URL('../migrations/006_account_pro_link.sql', import.meta.url), 'utf8'));
   await pool.query(await readFile(new URL('../migrations/007_community_profiles.sql', import.meta.url), 'utf8'));
   await pool.query(await readFile(new URL('../migrations/008_news_and_tickets.sql', import.meta.url), 'utf8'));
+  await pool.query(await readFile(new URL('../migrations/009_ticket_mail_and_retention.sql', import.meta.url), 'utf8'));
   await pool.query('CREATE DATABASE exp_interest');
   for (const file of ['001_pro_interest.sql', '002_pro_interest_erasure.sql']) await interestPool.query(await readFile(new URL(`../migrations/${file}`, import.meta.url), 'utf8'));
   service = createAccountService({ pool, origin, secret, betaEnabled: true, interestStore: interest, proLinkEnabled: true, communityEnabled: true, newsEnabled:true, ticketsEnabled:true, sendOTP: async mail => {
@@ -707,6 +708,21 @@ test('a member can create and read a private support ticket', async () => {
   assert.equal(thread.body.events[0].message,'How do I resize my tile?');
 });
 
+test('ticket email choices are separate from news and remain adjustable while mail is paused', async () => {
+  const cookie=await register('ticket-email-choice@example.test');
+  const initial=await call({action:'tickets'},cookie);
+  assert.equal(initial.body.ticketEmailsEnabled,true);
+  assert.equal(initial.body.ticketMailOpen,false);
+  assert.equal((await call({action:'save-ticket-preferences',emailAlerts:false},cookie)).status,200);
+  assert.equal((await call({action:'tickets'},cookie)).body.ticketEmailsEnabled,false);
+  assert.equal((await call({action:'news-preference'},cookie)).body.enabled,false);
+  assert.equal((await call({action:'save-ticket-preferences',emailAlerts:'true'},cookie)).status,400);
+  assert.equal((await call({action:'save-ticket-preferences',emailAlerts:true,userId:randomUUID()},cookie)).status,400);
+  assert.equal((await call({action:'save-ticket-preferences',emailAlerts:true})).status,401);
+  const other=await register('ticket-email-choice-other@example.test');
+  assert.equal((await call({action:'tickets'},other)).body.ticketEmailsEnabled,true);
+});
+
 async function ticket(cookie,subject='Private test ticket',message='A private question',id=randomUUID()) {
   const created=await call({action:'create-ticket',id,subject,message},cookie);assert.equal(created.status,200,JSON.stringify(created.body));return id;
 }
@@ -868,7 +884,7 @@ test('the service works through a restricted non-owner login with read-only staf
     await pool.query(`GRANT USAGE ON SCHEMA public TO ${name};
       GRANT SELECT,INSERT,UPDATE,DELETE ON exp_member_user,exp_member_session,exp_member_identity,
         exp_member_verification,exp_member_rate_limit,exp_member_mail_limit,exp_member_news,
-        exp_member_ticket,exp_member_ticket_event,exp_member_ticket_limit TO ${name};
+        exp_member_ticket,exp_member_ticket_event,exp_member_ticket_limit,exp_member_ticket_preference TO ${name};
       GRANT SELECT ON exp_member_support_grant TO ${name};
       GRANT SELECT,INSERT ON exp_member_support_audit TO ${name}`);
     const limited=createAccountService({pool:restricted,origin,secret,newsEnabled:true,ticketsEnabled:true,sendOTP:async()=>{}});

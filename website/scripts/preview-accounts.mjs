@@ -14,7 +14,7 @@ const databaseURL = process.env.EXP_ACCOUNT_TEST_DATABASE_URL;
 const socket = databaseURL && new URL(databaseURL).searchParams.get('host');
 if (!socket?.startsWith('/tmp/exp-account-test.') || process.env.NODE_ENV === 'production') throw new Error('Use scripts/verify_accounts.sh --preview');
 const pool = new pg.Pool({ connectionString: databaseURL });
-for (const file of ['001_pro_interest.sql', '002_pro_interest_erasure.sql', '003_free_accounts.sql', '005_member_beta.sql', '006_account_pro_link.sql', '007_community_profiles.sql', '008_news_and_tickets.sql']) {
+for (const file of ['001_pro_interest.sql', '002_pro_interest_erasure.sql', '003_free_accounts.sql', '005_member_beta.sql', '006_account_pro_link.sql', '007_community_profiles.sql', '008_news_and_tickets.sql', '009_ticket_mail_and_retention.sql']) {
   await pool.query(await readFile(new URL(`../../migrations/${file}`, import.meta.url), 'utf8'));
 }
 const origin = 'http://127.0.0.1:5191', mailbox = [];

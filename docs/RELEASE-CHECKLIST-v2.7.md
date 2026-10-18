@@ -66,6 +66,17 @@ payment and license records live outside the repository; use sanitized summaries
       account/Pro logins, reviewed-source redeployment and actual DB connection
       identities observed. New news/ticket flags remain false; signed-in private
       lifecycle/retention/AT gates remain open. `launch/HOSTED-HUB-SETUP-2026-10-17.md`.
+- [x] Local transactional ticket notifications and independent member opt-out;
+      minimal frozen envelope/provider keys, bounded retries and current-recipient
+      checks. Guarded cleanup preview/apply with versioned policy, restricted job
+      role and additive migration 009; pre-migration paused reads remain available.
+      Migration/grants, private scheduler, live delivery/retention approval and AT
+      remain open: `launch/TICKET-NOTIFICATIONS-AND-RETENTION-v2.7.md`.
+      Final `npm test`: 144 service checks plus existing native/wire checks pass
+      (`/tmp/exp-ticket-jobs-final-all.log`). Browser/build: 173 pass, zero failures/
+      blocked, 116 incomplete contrast scans / 57 distinct review items:
+      `output/a11y/2026-10-18T04-31-19-895Z/report.md`. Focus regression and its
+      retained failed run are documented; no hosted delivery/deletion inferred.
 - [ ] Hosted account lifecycle/inbox/transport/origin/bot/retention and owner AT
       proof before public enablement; remaining hub slices are separately admitted.
 - [x] INFRA-006 local separate Pro request/confirm/withdraw with private PostgreSQL

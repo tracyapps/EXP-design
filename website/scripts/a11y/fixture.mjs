@@ -11,12 +11,13 @@ import { createAccountNodeHandler } from '../../../server/accounts/runtime.js';
 import { createPublicProfileHandler } from '../../../server/accounts/community.js';
 import { createInterestHandlers } from '../../../server/interest/handlers.js';
 import { createInterestStore } from '../../../server/interest/store.js';
+import { processTicketMail } from '../../../server/accounts/ticket-mail.js';
 
 export async function startFixture() {
   const databaseURL = process.env.EXP_A11Y_DATABASE_URL;
   if (!databaseURL || !new URL(databaseURL).searchParams.get('host')?.startsWith('/tmp/exp-a11y-pg.') || process.env.NODE_ENV === 'production') throw Error('Disposable accessibility runner required');
   const pool = new pg.Pool({ connectionString: databaseURL });
-  for (const name of ['001_pro_interest.sql', '002_pro_interest_erasure.sql', '003_free_accounts.sql', '005_member_beta.sql', '006_account_pro_link.sql', '007_community_profiles.sql', '008_news_and_tickets.sql']) {
+  for (const name of ['001_pro_interest.sql', '002_pro_interest_erasure.sql', '003_free_accounts.sql', '005_member_beta.sql', '006_account_pro_link.sql', '007_community_profiles.sql', '008_news_and_tickets.sql', '009_ticket_mail_and_retention.sql']) {
     await pool.query(await readFile(new URL(`../../../migrations/${name}`, import.meta.url), 'utf8'));
   }
   const mail = [], errors = [], dist = path.resolve(fileURLToPath(new URL('../../dist/', import.meta.url)));
@@ -46,7 +47,7 @@ export async function startFixture() {
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
   const origin = `http://127.0.0.1:${server.address().port}`;
   const service = createAccountService({ pool, origin, secret: randomBytes(32).toString('hex'), betaEnabled: true,
-    interestStore: createInterestStore(pool), proLinkEnabled: true, communityEnabled:true, newsEnabled:true, ticketsEnabled:true, sendOTP: async item => { mail.push({ kind: 'account', ...item }); } });
+    interestStore: createInterestStore(pool), proLinkEnabled: true, communityEnabled:true, newsEnabled:true, ticketsEnabled:true, ticketMailEnabled:true, sendOTP: async item => { mail.push({ kind: 'account', ...item }); } });
   account = createAccountNodeHandler({ handle: service.handle, origin, env: {} });
   people = createAccountNodeHandler({ handle:createPublicProfileHandler({pool,enabled:true}), origin, env:{} });
   const interest = createInterestHandlers({ env: { PRO_INTEREST_ENABLED: 'true', EXP_INTEREST_DATABASE_URL: databaseURL,
@@ -56,6 +57,8 @@ export async function startFixture() {
   routes = { '/api/pro-interest': interest.request, '/api/confirm-interest': interest.confirm, '/api/withdraw-interest': interest.withdraw,
     '/api/request-interest-erasure': interest.requestErasure, '/api/delete-interest': interest.erase };
   return { origin, mail, errors,
+    async processTicketMail() { return processTicketMail({pool,enabled:true,origin,from:'EXP <fixture@example.test>',
+      send:async(envelope,key)=>{mail.push({kind:'ticket',...envelope,key});return randomBytes(16).toString('hex');}}); },
     async supportGrant(email, enabled=true) {
       const row=(await pool.query('SELECT id FROM exp_member_user WHERE email=$1 AND "emailVerified"=true',[email])).rows[0];
       if(!row)throw Error('Verified local fixture account required');

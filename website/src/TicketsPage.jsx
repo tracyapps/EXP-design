@@ -34,9 +34,22 @@ export default function TicketsPage({request,onSignedOut,support=false}) {
     finally{if(alive.current)setBusy(false);}
   }
   function setStatus(status){mutate({action:'set-ticket-status',id:selected,receipt:receiptFor(statusReceipt,{selected,status,revision:thread.ticket.revision}),revision:thread.ticket.revision,status},status==='closed'?'Ticket closed.':'Ticket reopened.');}
+  async function setEmailAlerts(emailAlerts){
+    if(busy)return;setBusy(true);setMessage('Saving ticket email choice…');
+    try{
+      const next=await request({action:'save-ticket-preferences',emailAlerts});
+      if(alive.current){setList(current=>({...current,ticketEmailsEnabled:next.ticketEmailsEnabled}));setMessage('Ticket email choice saved. News, beta and Pro email choices are unchanged.');}
+    }catch(error){if(alive.current){if(error.status===401)onSignedOut();else setMessage(error.message);}}
+    finally{if(alive.current)setBusy(false);}
+  }
   return <>
     <p role="status" className="account-status">{message}</p>
-    <p>Tickets and all replies are private to the ticket author and authorized EXP support staff. Check here for replies; ticket email alerts are not available yet.</p>
+    <p>Tickets and all replies are private to the ticket author and authorized EXP support staff. Read and respond here; email alerts contain a sign-in link without ticket text.</p>
+    {list?.ticketEmailPreferencesAvailable && <>
+      <label className="account-check" htmlFor="ticket-email-alerts"><input id="ticket-email-alerts" type="checkbox" checked={list.ticketEmailsEnabled} aria-disabled={busy} onClick={event=>{if(busy)event.preventDefault();}} onChange={e=>setEmailAlerts(e.target.checked)}/> Email me about ticket replies{list.canSupport?' and member tickets':''}</label>
+      <p>{list.ticketMailOpen?'Alerts are sent separately from newsletters. Check here even if an email does not arrive.':'Ticket email delivery is paused. Your choice is saved for when it resumes; check here for replies.'}</p>
+    </>}
+    {list && !list.ticketEmailPreferencesAvailable && <p>Ticket email alerts are not available yet. Check here for replies.</p>}
     <p>Send text only. Please leave out passwords, private client work and other people’s personal details. No files, device logs or design contents are attached automatically.</p>
     {list?.canSupport && <p><a href={support?'/account/tickets':'/account/support'}>{support?'My tickets':'Open support inbox'}</a></p>}
     <button type="button" className="account-secondary" disabled={busy} onClick={()=>setRefresh(value=>value+1)}>Refresh tickets</button>
@@ -71,7 +84,7 @@ export default function TicketsPage({request,onSignedOut,support=false}) {
       <fieldset disabled={busy}><legend>Open a private ticket</legend>
         <label htmlFor="ticket-subject">Subject (up to 120 characters)</label><input id="ticket-subject" required maxLength={120} value={subject} onChange={e=>{setSubject(e.target.value);createReceipt.current=null;}}/>
         <label htmlFor="ticket-message">What can we help with? (up to 1,500 characters)</label><textarea id="ticket-message" required rows={6} maxLength={1500} value={body} onChange={e=>{setBody(e.target.value);createReceipt.current=null;}}/>
-        <p>Up to 50 saved tickets per account. Deleting your account removes your authored tickets and all replies.</p><button type="submit">Open ticket</button>
+        <p>Up to 50 saved tickets per account. Deleting your account removes your authored tickets and all replies. Closed tickets are scheduled for deletion after 180 days without changes once the retention policy is enabled.</p><button type="submit">Open ticket</button>
       </fieldset>
     </form>}
   </>;

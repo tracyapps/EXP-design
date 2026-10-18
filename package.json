@@ -6,6 +6,7 @@
     "test": "node --test tests/signup.test.mjs && bash scripts/verify_pro_interest.sh && bash scripts/verify_accounts.sh && bash scripts/verify_usage_metrics.sh",
     "test:interest": "bash scripts/verify_pro_interest.sh",
     "test:accounts": "bash scripts/verify_accounts.sh",
+    "jobs:accounts": "node scripts/run_account_jobs.mjs",
     "preview:accounts": "bash scripts/verify_accounts.sh --preview",
     "test:a11y": "node scripts/a11y/run.mjs",
     "test:usage": "bash scripts/verify_usage_metrics.sh"

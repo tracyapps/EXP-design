@@ -1,5 +1,10 @@
 # EXP accounts: Neon + Vercel setup
 
+Next additive setup: local ticket notifications and cleanup require migration 009
+and its reviewed app/job grants before deploying that source. Private scheduler,
+mail and retention flags remain off pending review. Exact commands, proposed
+policy and rollback: [ticket jobs handoff](TICKET-NOTIFICATIONS-AND-RETENTION-v2.7.md).
+
 October 17, 2026. The existing EXPdesign project is connected and production
 account creation/sign-in was owner-verified. Missing migration 007 is now applied;
 003/005/006/008 were already present. New SQL-created restricted logins

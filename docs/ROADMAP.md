@@ -1362,6 +1362,12 @@ from the appcast; a development plan does not change the published release.
       deletion and explicitly granted staff inbox. No news/ticket sender or uploads.
       Migration 008, runtime SELECT-only staff grants and hosted operator/retention/
       AT gates: `launch/NEWS-AND-TICKETS-v2.7.md`. New-write flags default off.
+- [x] **FEAT-069 local ticket notifications and cleanup:** atomic queue, independent
+      email choice, minimal service mail and bounded provider-idempotent retries;
+      guarded versioned retention preview/apply, restricted private job role and
+      additive migration 009. Open tickets/active accounts/unresolved reports are
+      preserved. Proposed periods and private scheduling/hosted enablement gates:
+      `launch/TICKET-NOTIFICATIONS-AND-RETENTION-v2.7.md`. Production remains paused.
 - [ ] Hosted account inbox/origin/cookie/TLS/retention/AT proof; verified email-purpose
       lifecycle, community rollout/moderation and news/private ticket rollout.
       Neon is connected and owner account creation passes; remaining setup handoff:
@@ -3433,6 +3439,44 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-10-17 — FEAT-069 ticket notifications and guarded account retention [internal].**
+  Owner authorizes local notification/cleanup continuation. New ticket/author reply
+  queues service alerts to current support members; support reply queues the author.
+  Event/recipient dedup joins the existing ticket transaction and retry receipts.
+  Independent member opt-out cancels pending alerts without touching marketing.
+  Private worker freezes minimal sign-in-link mail, uses provider keys and committed
+  leases, retries within Resend's 24-hour window (23-hour local cutoff), and rechecks
+  current verification/preference/audience/grants. Terminal envelopes are cleared;
+  provider acceptance is never called inbox delivery. No ticket text/name in mail.
+  Additive migration 009 preserves legacy accounts/threads without backfill. New
+  source still serves paused ticket reads before that migration; unavailable new
+  preferences stay hidden. Restricted app/job grants are exercised against real PG;
+  worker cannot read auth tokens/ticket or beta message text, promote staff, verify
+  accounts or resolve reports. No public job endpoint or live scheduler installed.
+  Versioned policy preview is read-only; apply needs explicit policy plus flag.
+  Proposed expiry: closed tickets 180 days since update, beta feedback 365 days,
+  resolved reports 90 days, audit metadata 180 days, terminal mail receipts 30 days,
+  pending mail seven days, expired auth/abuse rows as documented. Open tickets,
+  active accounts, unresolved reports and permission choices are preserved. Bounded
+  statements skip rows locked by concurrent edits/reopening; backups/provider logs
+  and restore-erasure remain separate. Gap test failed at absent email preference:
+  `/tmp/exp-ticket-jobs-gap.log`. Initial browser run passed; stronger focus assertion
+  then caught two Chromium failures (retained `output/a11y/2026-10-18T04-26-52-435Z/`).
+  Verified ARIA/HTML/APG/WCAG sources and replaced temporary native-disabled toggle
+  with retained-focus disabled semantics plus activation guards. Fixed browser run
+  passes at `output/a11y/2026-10-18T04-29-14-334Z/`. Final `npm test` passes 144
+  service checks plus existing native/wire checks (`/tmp/exp-ticket-jobs-final-all.log`).
+  Final build/browser matrix: `output/a11y/2026-10-18T04-31-19-895Z/report.md` —
+  173 pass, zero failed/blocked, 116 incomplete contrast scans / 57 distinct review
+  items remain. Matrix includes held-save repeat-key suppression/focus and actual
+  local staff-reply → processed queue → captured minimal mail. Actual live mail delivery,
+  scheduling, migration 009/grants, retention policy approval/operation, hosted
+  two-account lifecycle, restore-erasure and human AT remain open. Production
+  flags/settings/data unchanged; no real mail, source push or deployment.
+  Next: review policy and configure the hosted private job runner, then perform
+  the controlled member/staff/inbox lifecycle before enabling new ticket writes.
+  Exact commands and rollout/rollback: `launch/TICKET-NOTIFICATIONS-AND-RETENTION-v2.7.md`.
 
 - **2026-10-17 — Hosted account schemas, restricted roles and owner support [internal].**
   Owner authorizes hosted migrations/support setup after pushing `13317af`, then

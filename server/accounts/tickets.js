@@ -1,7 +1,7 @@
 export const ticketActions = {
   tickets:['scope','before'], ticket:['id'], 'create-ticket':['id','subject','message'],
   'reply-ticket':['id','receipt','revision','message'], 'set-ticket-status':['id','receipt','revision','status'],
-  'delete-ticket':['id','confirmation']
+  'delete-ticket':['id','confirmation'], 'save-ticket-preferences':['emailAlerts']
 };
 const uuid=value=>typeof value==='string' && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(value);
 const text=(value,max)=>typeof value==='string' && value.length<=max && value.trim().length>0;
@@ -9,11 +9,13 @@ const result=(body,status=200)=>({body,status});
 const projection=row=>({id:row.id,subject:row.subject,status:row.status,revision:row.revision,createdAt:row.created_at,updatedAt:row.updated_at});
 const missing=()=>result({error:'Ticket not found.'},404);
 
-export async function handleTickets({pool,userId,body,enabled}) {
+export async function handleTickets({pool,userId,body,enabled,mailEnabled=false}) {
   const {action}=body;
   if(action==='tickets') {
     if((body.scope!==undefined && !['own','support'].includes(body.scope)) ||
         (body.before!==undefined && !uuid(body.before))) return result({error:'Invalid ticket list.'},400);
+  } else if(action==='save-ticket-preferences') {
+    if(typeof body.emailAlerts!=='boolean')return result({error:'Choose whether to receive ticket emails.'},400);
   } else if(!uuid(body.id)) return result({error:'Invalid ticket reference.'},400);
   if(action==='create-ticket' && (!text(body.subject,120) || !text(body.message,1500))) return result({error:'Add a subject up to 120 characters and a message up to 1,500.'},400);
   if(['reply-ticket','set-ticket-status'].includes(action) && (!uuid(body.receipt) || !Number.isSafeInteger(body.revision) || body.revision<1)) return result({error:'Reload the ticket before making this change.'},400);
@@ -45,7 +47,29 @@ export async function handleTickets({pool,userId,body,enabled}) {
   }
   function limited(){return result({error:'Too many ticket changes. Please try again in an hour. Closing and deletion remain available.'},429);}
   async function audit(id,action){await client.query('INSERT INTO exp_member_support_audit(ticket_id,actor_id,action) VALUES($1,$2,$3)',[id,userId,action]);}
+  async function notify(eventId,ownerId) {
+    if(!mailEnabled)return;
+    // Service notifications only; never inspect or change marketing permissions.
+    await client.query(`INSERT INTO exp_member_ticket_mail(event_id,recipient_id,audience)
+      SELECT $1,u.id,CASE WHEN $2::uuid IS NULL THEN 'support' ELSE 'author' END
+      FROM exp_member_user u LEFT JOIN exp_member_ticket_preference p ON p.user_id=u.id
+      WHERE u."emailVerified"=true AND u.id<>$3 AND coalesce(p.email_alerts,true)
+      AND (($2::uuid IS NOT NULL AND u.id=$2) OR ($2::uuid IS NULL AND EXISTS
+        (SELECT 1 FROM exp_member_support_grant g WHERE g.user_id=u.id)))
+      ON CONFLICT(event_id,recipient_id) DO NOTHING`,[eventId,ownerId,userId]);
+  }
   async function perform(staff) {
+    // Rolling deployment: old schemas must still serve existing ticket reads
+    // while the new feature is paused. Never swallow a real permission/outage.
+    let preferencesReady=false;
+    if(['tickets','save-ticket-preferences'].includes(action))preferencesReady=(await client.query("SELECT to_regclass('exp_member_ticket_preference') IS NOT NULL AS ready")).rows[0].ready;
+    if(action==='save-ticket-preferences') {
+      if(!preferencesReady)return result({error:'Ticket email preferences are not available yet. Check here for replies.'},503);
+      await client.query(`INSERT INTO exp_member_ticket_preference(user_id,email_alerts) VALUES($1,$2)
+        ON CONFLICT(user_id) DO UPDATE SET email_alerts=EXCLUDED.email_alerts,updated_at=now()`,[userId,body.emailAlerts]);
+      if(!body.emailAlerts)await client.query("DELETE FROM exp_member_ticket_mail WHERE recipient_id=$1 AND state='pending'",[userId]);
+      return result({ok:true,ticketEmailsEnabled:body.emailAlerts});
+    }
     if(action==='tickets') {
       const support=body.scope==='support';
       if(support && !staff)return result({error:'Support access is not available for this account.'},403);
@@ -54,7 +78,8 @@ export async function handleTickets({pool,userId,body,enabled}) {
       const rows=(await client.query(`SELECT id,subject,status,revision,created_at,updated_at FROM exp_member_ticket
         WHERE ($1 OR user_id=$2) AND ($3::timestamptz IS NULL OR (updated_at,id)<($3,$4::uuid))
         ORDER BY updated_at DESC,id DESC LIMIT 26`,[support,userId,cursor?.updated_at??null,cursor?.id??null])).rows;
-      return result({ok:true,ticketsOpen:enabled,canSupport:staff,tickets:rows.slice(0,25).map(projection),next:rows.length>25?rows[24].id:null});
+      const preference=preferencesReady?(await client.query('SELECT email_alerts FROM exp_member_ticket_preference WHERE user_id=$1',[userId])).rows[0]:null;
+      return result({ok:true,ticketsOpen:enabled,ticketEmailPreferencesAvailable:preferencesReady,ticketMailOpen:mailEnabled&&preferencesReady,ticketEmailsEnabled:preference?.email_alerts??true,canSupport:staff,tickets:rows.slice(0,25).map(projection),next:rows.length>25?rows[24].id:null});
     }
     const row=(await client.query('SELECT * FROM exp_member_ticket WHERE id=$1 FOR UPDATE',[body.id])).rows[0];
     const own=row?.user_id===userId;
@@ -70,6 +95,7 @@ export async function handleTickets({pool,userId,body,enabled}) {
       await client.query('INSERT INTO exp_member_ticket(id,user_id,subject) VALUES($1,$2,$3)',[body.id,userId,body.subject.trim()]);
       await client.query(`INSERT INTO exp_member_ticket_event(id,ticket_id,actor_id,actor_kind,kind,message,sequence)
         VALUES($1,$1,$2,'author','opened',$3,1)`,[body.id,userId,body.message.trim()]);
+      await notify(body.id,null);
       return result({ok:true,id:body.id});
     }
     if(!row || (!own && !staff))return missing();
@@ -96,6 +122,7 @@ export async function handleTickets({pool,userId,body,enabled}) {
       [body.receipt,row.id,userId,own?'author':'support',kind,message,row.revision+1]);
     await client.query('UPDATE exp_member_ticket SET status=$2,revision=revision+1,updated_at=clock_timestamp() WHERE id=$1',[row.id,action==='set-ticket-status'?body.status:row.status]);
     if(!own)await audit(row.id,kind);
+    if(kind==='reply')await notify(body.receipt,own?null:row.user_id);
     return result({ok:true});
   }
 }

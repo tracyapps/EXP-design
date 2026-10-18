@@ -1,5 +1,12 @@
 # News, email choice and private support — FEAT-069
 
+**Later local continuation:** ticket service notifications, independent member
+email choice and guarded retention jobs are now implemented separately in
+[Ticket notifications and account cleanup](TICKET-NOTIFICATIONS-AND-RETENTION-v2.7.md).
+The no-notifier/no-cleanup statements below describe this original slice.
+Migration 009, private scheduling and live policy/delivery approval are still
+required before hosted enablement; production flags remain paused.
+
 October 17, 2026. Continues the owner-selected free member hub. Local source only;
 no deployment, hosted migration, staff grant or real email is authorized here.
 

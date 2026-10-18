@@ -1,5 +1,11 @@
 # Optional free accounts and the privacy foundation
 
+Latest local continuation: [ticket notifications and account cleanup](TICKET-NOTIFICATIONS-AND-RETENTION-v2.7.md)
+adds transactional service-alert jobs, an independent opt-out and a versioned
+preview/apply retention command. Migration 009, restricted job role, schedule,
+actual delivery and owner-approved production policy remain ahead of enablement.
+Earlier no-notifier/no-cleanup statements describe their dated slices.
+
 October 16, 2026. Owner likes accounts before Pro/subscriptions and asks about
 sequencing. **Recommendation: finish the shared privacy/hosting foundation, then
 add a small optional free account area before billing.** Accounts do not depend

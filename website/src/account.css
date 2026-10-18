@@ -16,6 +16,7 @@
 .account-page button:disabled { opacity: .6; cursor: default; }
 .account-page .account-secondary, .account-session-actions button { background: transparent; color: var(--text-primary); }
 .account-check { display: flex; gap: 12px; align-items: start; margin: 12px 0; }
+.account-check input[aria-disabled=true] { opacity: .6; cursor: wait; }
 .account-card input:is([type=checkbox], [type=radio]) { width: 18px; height: 18px; flex: 0 0 18px; accent-color: var(--accent); margin-top: 3px; }
 .account-options, .account-session-actions, .account-nav { display: flex; flex-wrap: wrap; gap: 20px; }
 .account-options { margin-bottom: 12px; }

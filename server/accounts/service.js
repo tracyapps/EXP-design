@@ -21,7 +21,7 @@ const text = (value, max, required = false) => typeof value === 'string' && valu
 // Established library owns challenges, atomic OTP consumption, sessions and CSRF.
 // The single public endpoint does not expose password/OAuth/admin/plugin routes.
 export function createAccountService({ pool, origin, secret, sendOTP, registrationEnabled = true, betaEnabled = false,
-  interestStore = null, proLinkEnabled = false, communityEnabled = false, newsEnabled = false, ticketsEnabled = false }) {
+  interestStore = null, proLinkEnabled = false, communityEnabled = false, newsEnabled = false, ticketsEnabled = false, ticketMailEnabled = false }) {
   const delivery = new AsyncLocalStorage();
   const auth = betterAuth({
     appName: 'EXP [design]', baseURL: origin, basePath: '/api/auth', secret,
@@ -131,7 +131,7 @@ export function createAccountService({ pool, origin, secret, sendOTP, registrati
               ? await handleCommunity({ pool, userId: member.id, body, enabled: communityEnabled })
               : Object.hasOwn(newsActions, action)
                 ? await handleNews({ pool, userId: member.id, body, enabled: newsEnabled })
-                : await handleTickets({ pool, userId: member.id, body, enabled: ticketsEnabled });
+                : await handleTickets({ pool, userId: member.id, body, enabled: ticketsEnabled, mailEnabled: ticketMailEnabled });
         return json(response.body, response.status, headers);
       }
       let path, payload;

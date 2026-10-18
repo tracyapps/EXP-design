@@ -3262,6 +3262,21 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   support inbox has operator-only staff grants and audited thread access. New-write
   flags default off; no attachments, ticket email alerts or news sender. Migration
   008/grants/setup and evidence: `launch/NEWS-AND-TICKETS-v2.7.md`.
+- Ticket-mail/retention continuation: transactional event/recipient queue, brief
+  content-free service notices, independent member opt-out, current-recipient/grant
+  checks and bounded idempotent retries. Additive migration 009 and a restricted
+  private job role/command; versioned read-only cleanup preview, guarded batches
+  preserving open tickets/active accounts/unresolved reports. Proposed periods,
+  source/test evidence and hosted setup in
+  `launch/TICKET-NOTIFICATIONS-AND-RETENTION-v2.7.md`. Both features remain disabled
+  in production; actual scheduling/delivery/retention/restore-erasure and AT are
+  separate gates. A new focus assertion caught the temporary native-disabled
+  checkbox losing focus in Chromium; retained-focus disabled semantics/activation
+  guards replace it. Sources verified before that fix:
+  https://www.w3.org/TR/wai-aria-1.2/#aria-disabled,
+  https://www.w3.org/TR/html-aria/#el-input-checkbox,
+  https://www.w3.org/WAI/ARIA/apg/practices/keyboard-interface/#kbd_disabled_controls,
+  https://www.w3.org/TR/WCAG21/#focus-order.
 - Accessibility sources checked before form/naming changes:
   https://www.w3.org/WAI/tutorials/forms/labels/ (explicit native labels),
   https://www.w3.org/TR/wai-aria-1.2/#status (polite status announcements),

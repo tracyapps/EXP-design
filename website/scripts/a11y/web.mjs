@@ -128,6 +128,21 @@ try {
       await check(`${variant.name}-tickets-author-support-keyboard`,page,async()=>{
         await page.goto(`${fixture.origin}/account/tickets`);
         const subject=page.getByLabel('Subject (up to 120 characters)');await subject.waitFor();
+        const alerts=page.getByRole('checkbox',{name:'Email me about ticket replies',exact:false});
+        assert.equal(await alerts.isChecked(),true);
+        let releaseChoice;const choiceGate=new Promise(resolve=>{releaseChoice=resolve;});let choiceRequests=0;
+        const holdChoice=async route=>{if(route.request().postDataJSON()?.action!=='save-ticket-preferences')return route.continue();choiceRequests++;await choiceGate;return route.continue();};
+        await page.route('**/api/account',holdChoice);
+        try{
+          await tabTo(page,alerts);await page.keyboard.press('Space');await page.getByRole('status').filter({hasText:'Saving ticket email choice…'}).waitFor();
+          assert.equal(await alerts.getAttribute('aria-disabled'),'true');assert.equal(await alerts.evaluate(element=>element===document.activeElement),true);
+          await page.keyboard.press('Space');assert.equal(choiceRequests,1,'Repeat activation while saving must be suppressed');
+        }finally{releaseChoice();}
+        await page.getByRole('status').filter({hasText:'Ticket email choice saved.'}).waitFor();assert.equal(await alerts.isChecked(),false);
+        assert.equal(await alerts.evaluate(element=>element===document.activeElement),true,'Saving the checkbox must retain keyboard focus');
+        await page.unroute('**/api/account',holdChoice);
+        await page.reload();await subject.waitFor();assert.equal(await alerts.isChecked(),false);
+        await tabTo(page,alerts);await page.keyboard.press('Space');await page.getByRole('status').filter({hasText:'Ticket email choice saved.'}).waitFor();
         await scan(`${variant.name}-tickets-empty`,page);
         await type(page,subject,'Private pattern question');
         const literal='<img src=x onerror=alert(1)> '+ 'private-ticket-'.repeat(25);
@@ -161,6 +176,11 @@ try {
           assert.equal(await staffPage.locator('summary').filter({hasText:'Delete this ticket'}).count(),0);
           await type(staffPage,staffPage.getByLabel('Your reply (up to 1,500 characters)'),'Resize the pattern bounds in its editor.');await tabTo(staffPage,staffPage.getByRole('button',{name:'Send reply',exact:true}));await staffPage.keyboard.press('Enter');
           await staffPage.getByRole('status').filter({hasText:'Reply saved.'}).waitFor();await scan(`${variant.name}-ticket-support`,staffPage);
+          const noticesBefore=fixture.mail.filter(item=>item.kind==='ticket' && item.to===email).length;
+          await fixture.processTicketMail();
+          const notices=fixture.mail.filter(item=>item.kind==='ticket' && item.to===email);
+          assert.equal(notices.length,noticesBefore+1);assert.ok(notices.at(-1).text.includes(`/account/tickets?ticket=${firstId}`));
+          assert.doesNotMatch(JSON.stringify(notices.at(-1)),/Private pattern question|Resize the pattern bounds/);
           await staffPage.screenshot({path:path.join(output,`${variant.name}-ticket-support.png`),fullPage:true});
           await fixture.supportGrant(staffEmail,false);
           await tabTo(staffPage,staffPage.getByRole('button',{name:'Refresh tickets'}));await staffPage.keyboard.press('Enter');

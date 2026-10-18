@@ -18,5 +18,5 @@ if [[ "${1:-}" == "--schema" ]]; then
 elif [[ "${1:-}" == "--preview" ]]; then
   node website/scripts/preview-accounts.mjs
 else
-  node --test tests/accounts.test.mjs
+  node --test tests/accounts.test.mjs tests/account-jobs.test.mjs
 fi
