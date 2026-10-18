@@ -2,8 +2,10 @@
 
 October 18, 2026 · FEAT-072 · development 2.7/build 18.
 Implemented/local checks pass; owner review remains pending.
-Owner reports an issue October 18; reproduction details requested. Do not mark
-acceptance complete or start the next document-mutating feature before repair/review.
+Owner reports an Undo crash October 18. BUG-073/074 fixes are implemented and
+isolated native checks pass; owner rebuild/retest remains pending. Do not mark
+acceptance complete or start the next document-mutating feature before review.
+Crash/tooltip evidence and repeat: `NOTES-UNDO-VERIFICATION-v2.7.md`.
 
 ## What changed
 
@@ -15,7 +17,8 @@ link color, with native NSTextView link behavior. Actual mouse/keyboard/VoiceOve
 activation in the integrated app remains an owner check.
 
 `Artboard.notes` stays the same plain string; no document schema or codec changes.
-The existing delayed save, undo-session grouping and menus remain in place.
+The existing delayed save, document undo-session grouping and menus remain in place.
+BUG-074 separates transient native text undo from the document's snapshots.
 The text view moved from ArtboardNotesOverlay into its own production file so
 focused checks exercise real AppKit editing/attributes/activation directly.
 This adds syntax recognition, not a new canvas command; existing Format actions

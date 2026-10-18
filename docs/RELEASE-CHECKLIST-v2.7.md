@@ -173,6 +173,10 @@ payment and license records live outside the repository; use sanitized summaries
 
 ## Visual feature gate — owner adds October 18
 
+- [ ] Notes owner regression gate: BUG-073 literal tooltip / BUG-074 Undo repair
+      passes focused and isolated-app checks; owner rebuild/original-repeat pending.
+      `NOTES-UNDO-VERIFICATION-v2.7.md`. Keep this before new document mutations.
+
 - [ ] FEAT-073 Duotone/Color Matrix: actual image, alpha, identity, signed values,
       working color space, canvas/PNG/PDF/SVG parity and bounded supported SVG
       import/round-trip verified; all twenty slider/numeric coefficients editable.

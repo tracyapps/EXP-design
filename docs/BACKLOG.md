@@ -34,6 +34,47 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 
 ## 🐞 Bugs
 
+### BUG-074 — Undo with artboard notes open crashes in native text undo
+- Type: bug
+- Priority: P1
+- Area: notes · undo · document
+- Status: needs-verify — fix and focused/native app checks pass; owner rebuild/retest pending
+- Owner report 2026-10-18: Undo while notes remain open stops at objc_msgSend.
+  Read the actual paused Xcode process: Foundation `_NSUndoStack popAndInvoke`
+  and `undoNestedGroup`; failed selector is `_undoRedoTextOperation:`.
+- Mechanism: native text-range operations share the document snapshot undo
+  manager. A document restore can replace the text buffer before an older
+  native operation is invoked. A focused real-AppKit interleaving reproduces
+  an NSRangeException in NSUndoTyping; this is not claimed to reproduce the
+  owner's exact EXC_BAD_ACCESS address. Lifetime-only first probe was inconclusive.
+- Fix: private per-editor native text history; external model refresh clears
+  only that local history before replacing text; unchanged refresh retains it;
+  detach clears local entries. Existing coalesced Edit Notes document undo stays.
+- Acceptance/evidence: 20 real AppKit cycles pass, five actual app text Undo/Redo
+  cycles, document Undo/Redo after closing notes, actual save and document reopen
+  pass in an isolated disposable build. Original owner process stays paused.
+  Exact logs, boundary and owner repeat: `NOTES-UNDO-VERIFICATION-v2.7.md`.
+- References: Apple UndoManager removeAllActions(withTarget:), NSTextView
+  undoManager and shouldChangeText(in:replacementString:); no exported semantics
+  or document codec change.
+
+### BUG-073 — Notes Markdown tooltip is interpreted as styled help
+- Type: bug
+- Priority: P2
+- Area: notes · chrome
+- Status: needs-verify — literal tooltip verified in isolated app; owner Xcode log repeat pending
+- Repro: owner console repeatedly reports “Only unstyled text can be used with
+  help(_:)”. FEAT-072's new tooltip used a Markdown link in a localized literal;
+  the actual baseline accessibility help strips its label/URL syntax.
+- Fix: explicit `Text(verbatim:)` with the shared plain help string. The repaired
+  app's actual accessibility help retains `[label](https://example.com)` exactly.
+- Boundary: small un-debugged SwiftUI logging fixture did not reproduce the
+  owner's console warning, so it is not kept as a passing regression test. Native
+  tooltip content is verified; Xcode log absence remains owner review. This warning
+  is not conflated with BUG-074's separately captured Undo crash.
+- Reference: installed SwiftUI help overloads and Apple Text.init(verbatim:).
+  Evidence: `NOTES-UNDO-VERIFICATION-v2.7.md`.
+
 ### BUG-072 — Detached palettes obscure Sanaa setup and cannot be raised predictably
 - Type: bug
 - Priority: P1
@@ -3169,8 +3210,8 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: feature
 - Priority: P2
 - Area: notes · type · accessibility
-- Status: owner reported an issue 2026-10-18 — reproduction details requested;
-  local AppKit checks pass, but owner acceptance is not complete
+- Status: needs-verify — owner reports Undo crash; BUG-073/074 fixes and isolated
+  native checks pass October 18; owner rebuilt-app acceptance remains pending
 - Owner scope 2026-10-18: expand the existing small Markdown subset with headings
   and links. This is separate from BUG-017's structured HTML export contract.
 - Implementation: `#` through `######` headings; basic `[label](URL)` web/mail

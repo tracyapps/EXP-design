@@ -8,6 +8,26 @@ import AppKit
 /// is an editable Markdown subset, not a full Markdown renderer. Markers are dimmed rather than
 /// hidden, because hiding them makes the caret jump in ways that feel broken.
 final class NotesTextView: NSTextView, NSTextStorageDelegate {
+    static let formattingHelp = "Markdown: # through ###### for headings; [label](https://example.com) for links. Right click for formatting."
+
+    // Native text operations contain ranges into this transient editor. Never
+    // mix them with the document's whole-model snapshots: restoring a snapshot
+    // can replace the string before AppKit invokes the older native operation.
+    // The panel continues to commit one coalesced Edit Notes document snapshot.
+    private let textHistory = UndoManager()
+    override var undoManager: UndoManager? { textHistory }
+
+    func replaceExternalText(_ value: String) {
+        guard value != string else { return }
+        textHistory.removeAllActions()
+        string = value
+        restyleAll()
+    }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if newWindow == nil { textHistory.removeAllActions() }
+        super.viewWillMove(toWindow: newWindow)
+    }
 
     // MARK: Fonts + limits
 

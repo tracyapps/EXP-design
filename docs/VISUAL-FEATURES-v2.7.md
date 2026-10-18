@@ -136,8 +136,9 @@ Log: `/tmp/exp-visual-color-probe-20261018.log`; per-pixel JSON:
 `output/a11y/visual-features-20261018/core-image-matrix.json` (ignored local receipt).
 The probe deliberately remains separate from shipping Effect/Paint types.
 
-Owner reports an issue in FEAT-072 notes on October 18. Reproduction details have
-been requested. The immediate production sequence is **repair/review notes →
+Owner reports an Undo crash in FEAT-072 notes on October 18. BUG-073/074 fixes and
+isolated checks pass; owner rebuild/retest remains pending. See
+`NOTES-UNDO-VERIFICATION-v2.7.md`. The immediate production sequence is **review notes →
 Color Matrix → accept → Mesh**. Independent specification/pixel work can proceed;
 no source mutation for either new release feature has started.
 

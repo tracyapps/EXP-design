@@ -1335,8 +1335,9 @@ from the appcast; a development plan does not change the published release.
       plain-string storage. `NOTES-FORMATTING-v2.7.md` records the supported subset.
 - [ ] Owner reviews FEAT-072 integrated notes editing/save/reopen/undo and real
       keyboard/VoiceOver link activation before another document-mutating slice.
-      Owner reports an issue October 18; reproduction details requested. Fix and
-      reverify notes first. BUG-017 structured standalone HTML notes remain separate/open.
+      Owner reports Undo crash October 18; BUG-073/074 fixes pass isolated native
+      checks and await owner rebuild/retest. `NOTES-UNDO-VERIFICATION-v2.7.md`.
+      BUG-017 structured standalone HTML notes remain separate/open.
 - [ ] Full 1x/2x, light/dark, Large interface type and AT matrix; signed release
       payload audit remains a freeze gate. Visual acceptance alone does not close these.
 - [x] **INFRA-005 local release-signup foundation:** durable storage before success,
@@ -3472,6 +3473,25 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-10-18 — Notes Undo crash and literal tooltip repair, BUG-073/074 [internal].**
+  Owner reports crash/warnings and confirms Undo while notes remain open. Preserved
+  actual stopped Xcode backtrace: Foundation undo stack; register selector is
+  `_undoRedoTextOperation:`. Did not resume/terminate the owner's stopped process.
+  First lifetime-only probe is inconclusive; real-AppKit text/snapshot interleaving
+  fails in NSUndoTyping with a range exception, not the exact owner memory fault.
+  Separate per-editor text undo from whole-document snapshots; clear only local
+  text history for changed external text and detach, retaining unchanged-refresh
+  and coalesced document history. Twenty focused cycles pass; minimized interleaving
+  now passes. Actual isolated app passes five text Undo/Redo cycles, closing notes
+  then one document Undo/Redo, save verified in actual JSON and full file reopen.
+  Tooltip now uses Text(verbatim:); actual native help retains the full Markdown
+  example. Small un-debugged warning fixture did not reproduce Xcode log spam and
+  is not claimed as green coverage. Formatting regressions and unsigned app/
+  thumbnail/test build pass. Exact evidence: `NOTES-UNDO-VERIFICATION-v2.7.md`.
+  Owner rebuild/original-repeat and real AT remain pending; notes gate stays open.
+  Mesh/Color Matrix scope and independent probe are already committed; no new
+  feature integration while notes acceptance waits. No push, release or deployment.
 
 - **2026-10-18 — Visual v2.7 scope: Mesh and Duotone/Color Matrix [internal].**
   Owner adds FEAT-033 Mesh and new FEAT-073 Color Matrix sliders/image duotone.

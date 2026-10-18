@@ -279,7 +279,7 @@ private struct NotesPanel: View {
                 .frame(height: editorHeight)
                 .accessibilityLabel("Notes for \(title)")
                 .accessibilityHint("Command B for bold, Command I for italic. Use one to six hash marks for headings and bracketed labels with parenthesized URLs for links. Right click for formatting.")
-                .help("Markdown: # through ###### for headings; [label](https://example.com) for links. Right click for formatting.")
+                .help(Text(verbatim: NotesTextView.formattingHelp))
         }
         .padding(8)
         .frame(width: size.width, alignment: .topLeading)
@@ -423,10 +423,7 @@ private struct NotesEditor: NSViewRepresentable {
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         guard let tv = scroll.documentView as? NotesTextView else { return }
         context.coordinator.parent = self
-        if tv.string != text {
-            tv.string = text
-            tv.restyleAll()
-        }
+        tv.replaceExternalText(text)
         reportHeight(tv)
     }
 
