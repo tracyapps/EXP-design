@@ -1350,9 +1350,17 @@ from the appcast; a development plan does not change the published release.
 - [x] **FEAT-069 local Pro-purpose connection:** explicit email-capability plus
       verified-account proof; live source status, withdrawal and disconnect. Separate
       PostgreSQL databases tested; no email-match enrollment or entitlements.
+- [x] **Owner hosted account creation:** email-code delivery/creation/sign-in accepted
+      as “account created. looks good.” (2026-10-17); this is one owner journey,
+      not the complete hosted privacy/security/AT lifecycle gate.
+- [x] **FEAT-069 local optional community foundation:** private draft → saved preview
+      → explicit versioned public snapshot, unpublish, private reports and operator
+      hold boundary. Public rollout remains off; contract/queue/setup in
+      `launch/COMMUNITY-PROFILES-v2.7.md`.
 - [ ] Hosted account inbox/origin/cookie/TLS/retention/AT proof; verified email-purpose
-      lifecycle, opt-in community/news and private ticket slices. Neon setup handoff:
-      `launch/NEON-ACCOUNT-SETUP-v2.7.md` (owner has Neon, no EXP database created yet).
+      lifecycle, community rollout/moderation, news and private ticket slices.
+      Neon is connected and owner account creation passes; remaining setup handoff:
+      `launch/NEON-ACCOUNT-SETUP-v2.7.md`.
 - [ ] Reliable separate Pro-interest signup, permission/delivery/unsubscribe proof,
       data map and owner-reviewed privacy/EULA/refund/ownership decisions.
 - [x] **INFRA-010 local native measurement:** default-off Privacy control, typed
@@ -3420,6 +3428,69 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-10-17 — FEAT-069 optional community profiles [internal].**
+  Owner confirms the hosted account was created and "looks good." This accepts
+  one real account-creation/code-delivery/sign-in journey after the configuration
+  fixes below; it does not close every hosted privacy, lifecycle or AT gate.
+  Continued the selected free-account scope with separate private community drafts,
+  saved preview and explicit publication consent, four-field public profiles,
+  immediate unpublishing and private version-specific profile reports. Private
+  account details are never copied into the public profile. Handles lock after
+  first publication; reports do not automatically hide content. Added operator
+  hold/removal instructions and account-deletion cascades. Public operation defaults
+  off (`ACCOUNT_COMMUNITY_ENABLED`); migration 007 and hosted moderation/abuse/
+  retention/operator checks are required before enablement. No hosted schema,
+  setting, deployment, profile or email was changed by the agent.
+  `npm test` passes **107 service cases** (15 signup, 23 Pro, 55 account, 14 usage)
+  plus existing Swift lifecycle and actual native HTTP→PostgreSQL checks. Final web
+  matrix passes **133 checks, zero failures/blocked**, with **88 incomplete contrast
+  scans** still requiring review. Chromium/WebKit dark-desktop/light-mobile journeys
+  cover draft/preview/consent, focus, cookie-free public lookup, escaped text, a
+  second verified reporter, withdrawal and larger text. Inspected mobile editor,
+  mobile public profile and dark desktop editor screenshots without clipping.
+  Initial failed runs are retained: a fixed Tab-count ceiling in an older helper,
+  then a real post-publication focus race, fixed by focusing after React commits.
+  Receipts: `/tmp/exp-community-all-tests-confirmed.log`,
+  `output/a11y/2026-10-18T00-23-50-317Z/report.md` (UTC Oct 18; owner date Oct 17).
+  Contract, migration order, operator SQL and rollout gates:
+  `launch/COMMUNITY-PROFILES-v2.7.md`. Human Safari/VoiceOver and hosted community
+  proof remain open. Next account slices: news/updates and private author/staff
+  tickets; forums and Discord remain later scope. Local commit only; no push.
+
+- **2026-10-17 — Hosted account configuration check [internal].**
+  Owner has added the Neon/Vercel integration and asks to test it. Read-only Vercel
+  metadata confirms latest READY production deployment runs commit `2c13c79` on
+  `expdesign.app`; no preview deployments are listed. Anonymous GET `/account`
+  returns 200 with no-store/no-referrer/noindex headers. GET `/api/account` returns
+  503 JSON `Free accounts are not open yet.` Source confirms this response occurs
+  before creating the database pool when account origin, database URL/TLS mode or
+  auth secret is missing/invalid. This is not evidence of a failed Neon database
+  connection, missing schema or email delivery. Environment metadata remains denied
+  by connector HTTP 403; no Vercel CLI/local credentials are available. Asked owner
+  for only variable names and environment scopes. No hosted writes, registration,
+  email, deployments or setting changes performed. Sanitized receipt:
+  `output/a11y/account-hosting-check-20261017/check.json`.
+  Owner confirms `BETTER_AUTH_SECRET` is missing while `BETTER_AUTH_API_KEY` exists.
+  Current EXP code reads only the former; the API key is not a substitute. Advised
+  generating an independent high-entropy secret, adding it privately in the tested
+  environment and redeploying, without changing registration flags. No secret was
+  generated, read or collected in chat. Other configuration/schema proof remains open.
+  Owner then adds the secret; a new READY production deployment is confirmed
+  (`dpl_BbMvGusgPwk8RDe6yaYYcKosBeD6`, same source commit). Fresh anonymous
+  account GET still returns the same pre-database configuration 503. Remaining
+  origin/TLS-mode/secret-length/environment-scope checks require owner inspection;
+  no specific remaining value is inferred. Receipt: `secret-retest.json` beside
+  the initial receipt. Owner then corrects the secret value and database TLS
+  modes. A new READY production deployment (`dpl_EGmFrfBtXE5dGp8ChXuxum6Tvk8B`,
+  same source commit, iad1) now returns 200 with `ok:true`, `user:null` and
+  `registrationOpen:true`; no-store/no-referrer/noindex headers pass. The
+  configuration blocker is cleared. Receipt: `corrected-config-retest.json`.
+  This verifies the anonymous session endpoint, not complete account creation,
+  schema coverage, inbox delivery, Pro source access or owner AT. Registration
+  is currently enabled by hosted configuration. Next: owner creates a test
+  account using their own inbox and reports the code-delivery/sign-in result;
+  no agent-generated account or email was created/sent during this check.
 
 - **2026-10-17 — FEAT-069 explicit Pro-purpose connection and Neon setup [internal].**
   Owner asks what to configure for accounts and reports an existing Neon account,

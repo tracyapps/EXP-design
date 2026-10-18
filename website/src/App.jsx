@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import siteContent from "./generated/siteContent.json";
 import InterestPage from "./InterestPage.jsx";
 import AccountPage from "./AccountPage.jsx";
+import PeoplePage from "./PeoplePage.jsx";
 import {
   findHelpArticle,
   helpArticles,
@@ -1502,7 +1503,7 @@ export default function App() {
   // rendered the target section. Re-run the scroll after mount, once the
   // section exists. (Same-page hash clicks scroll natively and skip this.)
   useEffect(() => {
-    if (path.startsWith("/account") || ["/confirm-interest", "/withdraw-interest", "/delete-interest"].includes(path)) return undefined;
+    if (path.startsWith("/account") || path.startsWith("/people") || ["/confirm-interest", "/withdraw-interest", "/delete-interest"].includes(path)) return undefined;
     const hash = window.location.hash;
     if (!hash) return undefined;
     let raf = requestAnimationFrame(() => {
@@ -1513,10 +1514,19 @@ export default function App() {
     return () => cancelAnimationFrame(raf);
   }, []);
 
-  if (["/account", "/account/profile", "/account/preferences", "/account/beta", "/account/pro"].includes(path)) {
+  if (["/account", "/account/profile", "/account/preferences", "/account/beta", "/account/pro", "/account/community"].includes(path)) {
     return <div className="account-shell">
       <Header progress={progress} actionLabel="get the free app" actionHref="/download" brandHref="/" />
       <main className="account-main"><AccountPage path={path} /></main>
+      <Footer />
+    </div>;
+  }
+
+  if (path === "/people" || path.startsWith("/people/")) {
+    const handle = path.slice("/people/".length);
+    return <div className="account-shell">
+      <Header progress={progress} actionLabel="get the free app" actionHref="/download" brandHref="/" />
+      <main className="account-main"><PeoplePage handle={handle} /></main>
       <Footer />
     </div>;
   }

@@ -30,6 +30,10 @@
 .account-feedback-list li { border-top: 1px solid var(--hairline); padding-block: 24px; overflow-wrap: anywhere; }
 .account-feedback-list h3 { font-size: 1.1em; margin: 0; }
 .account-feedback-message { white-space: pre-wrap; }
+.community-public-card { overflow-wrap: anywhere; }
+.community-public-card .community-public-name { font-size: 1.5em; font-weight: 600; color: var(--text-primary); line-height: 1.3; }
+.account-card select { max-width: 100%; min-height: 48px; padding: 10px 12px; font: inherit; color: var(--text-primary); background: var(--surface-window); border: 1px solid var(--text-secondary); border-radius: 6px; }
+.account-page select:focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; }
 @media (max-width: 760px) { .account-page { padding-top: 106px; } }
 @media (prefers-color-scheme: light) {
   .account-main { --surface-window: #f7f8f4; --surface-field: #ffffff; --text-primary: #192117; --text-secondary: #4d5949; --hairline: #c6cec1; --accent: #236b16; color-scheme: light; }

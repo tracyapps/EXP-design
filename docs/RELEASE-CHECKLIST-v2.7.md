@@ -52,6 +52,11 @@ payment and license records live outside the repository; use sanitized summaries
       withdrawal and disconnect; 45 account checks across separate real databases.
 - [x] Neon/Vercel setup handoff and blank environment reference prepared; existing
       project/domain metadata confirmed. Environment access denied; no settings read.
+- [x] Owner verifies actual hosted email-code account creation/sign-in (Oct 17):
+      “account created. looks good.” Remaining hosted lifecycle/AT checks stay open.
+- [x] Local optional community draft/preview/publication/unpublish/report foundation.
+      Migration 007 and moderation/retention/hosted/AT gates remain ahead of enablement;
+      `ACCOUNT_COMMUNITY_ENABLED` defaults false. Contract: `launch/COMMUNITY-PROFILES-v2.7.md`.
 - [ ] Hosted account lifecycle/inbox/transport/origin/bot/retention and owner AT
       proof before public enablement; remaining hub slices are separately admitted.
 - [x] INFRA-006 local separate Pro request/confirm/withdraw with private PostgreSQL
@@ -339,3 +344,18 @@ connection, withdrawal and account deletion. Receipts:
 post-final-Tab focus check; target was focused in the failure screenshot. Helper
 fixed and full suite rerun. No hosted enablement, provider email or actual
 Safari/VoiceOver proof. Neon setup guide records remaining owner/operator steps.
+
+October 17 FEAT-069 community continuation: owner confirms hosted account creation
+and the resulting signed-in experience. The optional community foundation passes
+**107 service cases** (15 signup, 23 Pro, 55 account, 14 usage), plus existing native
+lifecycle/wire checks; final browser matrix passes **133 checks**, zero failures
+or blocked, with **88 incomplete contrast scans** left open. Mobile editor/public
+profile and dark desktop editor screenshots inspected without clipping. Journeys
+cover explicit preview/consent/publication, result focus, public field isolation,
+literal rendering, verified private reporting and unpublish→not-found. Initial
+failures and fixes are preserved in `launch/COMMUNITY-PROFILES-v2.7.md`.
+Receipts: `/tmp/exp-community-all-tests-confirmed.log`,
+`output/a11y/2026-10-18T00-23-50-317Z/report.md`. Migration 007 remains unapplied
+to hosted storage; public community flag defaults off. Hosted operator moderation,
+retention/logs/backups, abuse controls and human Safari/VoiceOver remain open.
+No agent deployment, provider email or public profile was created.

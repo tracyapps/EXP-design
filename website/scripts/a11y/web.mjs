@@ -20,7 +20,9 @@ const variants = [
 
 async function check(name, page, fn) {
   const file = name.replace(/[^a-z0-9-]/gi, '-');
-  try { await fn(); results.push({ name, status: 'passed' }); }
+  // Separate journeys share one loopback IP. Service tests independently prove
+  // shared rate enforcement; do not accumulate unrelated scenario traffic here.
+  try { await fixture.resetIPWindow(); await fn(); results.push({ name, status: 'passed' }); }
   catch (error) { results.push({ name, status: 'failed', detail: error.message }); }
   if (page && !page.isClosed()) {
     await page.screenshot({ path: path.join(output, `${file}.png`), fullPage: true }).catch(() => {});
@@ -35,8 +37,11 @@ async function scan(name, page) {
   if (result.incomplete.length) results.push({ name: `${name}-axe-incomplete`, status: 'needs-review', detail: result.incomplete.map(v => v.id).join(', '),
     reviewItems: result.incomplete.flatMap(v => v.nodes.map(node => ({ rule: v.id, target: node.target, reason: node.failureSummary }))) });
 }
-async function tabTo(page, locator, maximum = 35) {
-  for (let i = 0; i < maximum; i++) {
+async function tabTo(page, locator, maximum) {
+  // Bound a full page traversal as the account navigation grows. Hidden/disabled
+  // controls only make this ceiling conservative; actual keyboard focus is tested.
+  const budget = maximum ?? Math.max(35, await page.locator('a[href], button, input, select, textarea, summary, [tabindex]').count() + 2);
+  for (let i = 0; i < budget; i++) {
     if (await locator.evaluate(el => el === document.activeElement)) return;
     await page.keyboard.press(tabKeys.get(page) || 'Tab');
   }
@@ -101,6 +106,63 @@ try {
         await page.reload(); await page.getByLabel('Display name').waitFor();
         assert.equal(await page.getByLabel('Display name').inputValue(), 'Updated Keyboard Designer');
         await scan(`${variant.name}-profile`, page);
+      });
+      await check(`${variant.name}-community-profile-keyboard`, page, async () => {
+        await page.goto(`${fixture.origin}/account/community`);
+        const handle=page.getByLabel('Handle (3–30 letters, numbers or hyphens)');await handle.waitFor();
+        const name=page.getByLabel('Public display name (up to 80 characters)');
+        assert.equal(await name.inputValue(),'','Private identity must not be copied automatically');
+        const slug=`public-${variant.name}`;
+        await type(page,handle,slug);await type(page,name,'Public Keyboard Designer');
+        await type(page,page.getByLabel('Public bio (optional, up to 500 characters)'),'<img src=x onerror=alert(1)> Public text only.');
+        await type(page,page.getByLabel('Public website (optional HTTPS link)'),'https://example.test/public-work');
+        await tabTo(page,page.getByRole('button',{name:'Save and preview'}));await page.keyboard.press('Enter');
+        const preview=page.getByRole('heading',{name:'Public preview',exact:true});await preview.waitFor();
+        await page.waitForFunction(()=>document.activeElement?.textContent==='Public preview');
+        const publish=page.getByRole('button',{name:'Publish community profile',exact:true});
+        assert.ok(await publish.isDisabled());
+        assert.equal((await context.request.get(`${fixture.origin}/api/people?handle=${slug}`)).status(),404);
+        await scan(`${variant.name}-community-preview`,page);
+        await tabTo(page,page.getByRole('checkbox',{name:'Publish these previewed details publicly.'}));await page.keyboard.press('Space');
+        await tabTo(page,publish);await page.keyboard.press('Enter');
+        await page.getByRole('status').filter({hasText:'Your community profile is published.'}).waitFor();
+        await page.waitForFunction(()=>document.activeElement?.textContent==='Publication status');
+        await page.reload();await page.getByRole('button',{name:'Unpublish community profile'}).waitFor();
+        await scan(`${variant.name}-community-published-editor`,page);
+        await page.screenshot({path:path.join(output,`${variant.name}-community-editor.png`),fullPage:true});
+
+        // A second verified member reports through actual HTTP cookies and UI.
+        // Captured mail replaces only delivery, never the account/database code.
+        const reporterContext=await browser.newContext({colorScheme:variant.colorScheme,viewport:{width:variant.width,height:1000}});
+        try{
+          await reporterContext.route('**/*',route=>new URL(route.request().url()).origin===fixture.origin?route.continue():route.fulfill({status:200,body:'',contentType:'text/css'}));
+          const reporterEmail=`report-${email}`;
+          assert.equal((await reporterContext.request.post(`${fixture.origin}/api/account`,{headers:{origin:fixture.origin},data:{action:'send-code',email:reporterEmail}})).status(),200);
+          const otp=fixture.mail.findLast(item=>item.kind==='account' && item.email===reporterEmail).otp;
+          assert.equal((await reporterContext.request.post(`${fixture.origin}/api/account`,{headers:{origin:fixture.origin},data:{action:'verify-code',email:reporterEmail,otp,intent:'register',name:'Private Reporter',accountConsent:true,consentVersion:'free-account-v1'}})).status(),200);
+          const reader=await reporterContext.newPage();tabKeys.set(reader,variant.engine===webkit?'Alt+Tab':'Tab');
+          const publicRequest=reader.waitForRequest(r=>new URL(r.url()).pathname==='/api/people');
+          await reader.goto(`${fixture.origin}/people/${slug}`);
+          assert.equal((await publicRequest).headers().cookie,undefined,'Public read must omit account cookie');
+          await reader.getByText('Public Keyboard Designer',{exact:true}).waitFor();
+          assert.equal(await reader.locator('.community-public-card img').count(),0);
+          assert.equal(await reader.getByText('Private Reporter',{exact:true}).count(),0);
+          await scan(`${variant.name}-community-public`,reader);
+          await reader.screenshot({path:path.join(output,`${variant.name}-community-public.png`),fullPage:true});
+          await tabTo(reader,reader.locator('summary').filter({hasText:'Report this profile'}));await reader.keyboard.press('Enter');
+          const category=reader.getByLabel('Reason category');await tabTo(reader,category);await reader.keyboard.type('p');await reader.keyboard.press(tabKeys.get(reader)||'Tab');
+          await type(reader,reader.getByLabel('What should we review? (up to 500 characters)'),'Please review this public detail.');
+          await tabTo(reader,reader.getByRole('button',{name:'Send private report'}));await reader.keyboard.press('Enter');
+          await reader.getByRole('status').filter({hasText:'Report received privately'}).waitFor();
+          await scan(`${variant.name}-community-report-received`,reader);
+          assert.ok(await reader.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+          await tabTo(page,page.getByRole('button',{name:'Unpublish community profile'}));await page.keyboard.press('Enter');
+          await page.getByRole('status').filter({hasText:'Your community profile is unpublished.'}).waitFor();
+          await page.waitForFunction(()=>document.activeElement?.textContent==='Publication status');
+          await reader.reload();await reader.getByRole('status').filter({hasText:'Profile not found.'}).waitFor();
+          assert.equal(await reader.locator('.community-public-card').count(),0);
+        }finally{await reporterContext.close();}
+        assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
       });
       await check(`${variant.name}-beta-feedback-keyboard`, page, async () => {
         await tabTo(page, page.getByRole('link', { name: 'Beta & feedback', exact: true })); await page.keyboard.press('Enter');
@@ -214,6 +276,11 @@ try {
         assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
         await scan(`${variant.name}-beta-large`, page);
         await page.screenshot({ path: path.join(output, `${variant.name}-beta-large.png`), fullPage: true });
+        await page.goto(`${fixture.origin}/account/community`);
+        await page.getByLabel('Public display name (up to 80 characters)').waitFor();
+        assert.equal(await page.locator('.account-page').evaluate(el=>getComputedStyle(el).fontSize),'20px');
+        assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+        await scan(`${variant.name}-community-large`,page);
         await page.goto(`${fixture.origin}/account/preferences`); await large.waitFor();
         const summary = page.locator('summary').filter({ hasText: 'Delete this free account' });
         await tabTo(page, summary); await page.keyboard.press('Enter');

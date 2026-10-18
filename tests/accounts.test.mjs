@@ -8,6 +8,7 @@ import { getMigrations } from 'better-auth/db/migration';
 import { createAccountService, accountConsentVersion } from '../server/accounts/service.js';
 import { accountConfiguration, accountInterestConfiguration, createAccountNodeHandler } from '../server/accounts/runtime.js';
 import { createInterestStore } from '../server/interest/store.js';
+import { createPublicProfileHandler } from '../server/accounts/community.js';
 
 const db = process.env.EXP_ACCOUNT_TEST_DATABASE_URL;
 if (!db || !new URL(db).searchParams.get('host')?.startsWith('/tmp/exp-account-test.')) throw new Error('Disposable local PostgreSQL required');
@@ -24,9 +25,10 @@ before(async () => {
   await pool.query(await readFile(new URL('../migrations/003_free_accounts.sql', import.meta.url), 'utf8'));
   await pool.query(await readFile(new URL('../migrations/005_member_beta.sql', import.meta.url), 'utf8'));
   await pool.query(await readFile(new URL('../migrations/006_account_pro_link.sql', import.meta.url), 'utf8'));
+  await pool.query(await readFile(new URL('../migrations/007_community_profiles.sql', import.meta.url), 'utf8'));
   await pool.query('CREATE DATABASE exp_interest');
   for (const file of ['001_pro_interest.sql', '002_pro_interest_erasure.sql']) await interestPool.query(await readFile(new URL(`../migrations/${file}`, import.meta.url), 'utf8'));
-  service = createAccountService({ pool, origin, secret, betaEnabled: true, interestStore: interest, proLinkEnabled: true, sendOTP: async mail => {
+  service = createAccountService({ pool, origin, secret, betaEnabled: true, interestStore: interest, proLinkEnabled: true, communityEnabled: true, sendOTP: async mail => {
   if (failMail) throw new Error('Mail transport failure with private data');
   mailbox.push(mail);
 } });
@@ -58,6 +60,144 @@ async function resetCooldown(email) {
   // Only the disposable test DB; exercise subsequent flows without wall-clock sleeps.
   await pool.query("UPDATE exp_member_mail_limit SET sent_at = now() - interval '61 seconds'");
 }
+async function publicProfile(handle, enabled=true) {
+  const r=await createPublicProfileHandler({pool,enabled})(new Request(`${origin}/api/people?handle=${encodeURIComponent(handle)}`));
+  return {status:r.status,body:await r.json(),headers:r.headers};
+}
+async function communityDraft(cookie,handle,extra={}) {
+  assert.equal((await call({action:'save-community',handle,displayName:'Chosen public name',bio:'Chosen bio',link:'https://example.test/public',...extra},cookie)).status,200);
+  return (await call({action:'community'},cookie)).body.draft;
+}
+async function publishCommunity(cookie,draft) {
+  return call({action:'publish-community',revision:draft.revision,confirmed:true,consentVersion:'community-profile-v1'},cookie);
+}
+
+test('community starts without public details and requires a saved preview plus explicit publication', async () => {
+  const cookie = await register('community-preview@example.test');
+  const initial = await call({ action: 'community' }, cookie);
+  assert.equal(initial.status, 200);
+  assert.equal(initial.body.draft, null); assert.equal(initial.body.published, null);
+  const saved = await call({ action: 'save-community', handle: 'preview-designer', displayName: 'Public Designer', bio: 'Public bio', link: 'https://example.test/work' }, cookie);
+  assert.equal(saved.status, 200);
+  const preview = (await call({ action: 'community' }, cookie)).body;
+  assert.equal(preview.published, null); assert.equal(preview.draft.displayName, 'Public Designer');
+  assert.equal((await call({ action: 'publish-community', revision: preview.draft.revision, confirmed: false, consentVersion: 'community-profile-v1' }, cookie)).status, 400);
+  assert.equal((await call({ action: 'publish-community', revision: preview.draft.revision, confirmed: true, consentVersion: 'community-profile-v1' }, cookie)).status, 200);
+  const published = (await call({ action: 'community' }, cookie)).body;
+  assert.equal(published.published.handle, 'preview-designer');
+  assert.equal((await call({ action: 'unpublish-community' }, cookie)).status, 200);
+  assert.equal((await call({ action: 'community' }, cookie)).body.published, null);
+});
+test('public community projection excludes identity and drafts and does not follow private profile edits',async()=>{
+  const cookie=await register('community-private@example.test');
+  await call({action:'save-profile',name:'Private identity',bio:'Private biography',link:'https://example.test/private'},cookie);
+  const draft=await communityDraft(cookie,'projection-designer');
+  assert.equal((await publicProfile(draft.handle)).status,404);
+  await publishCommunity(cookie,draft);
+  const view=await publicProfile(draft.handle);
+  assert.deepEqual(view.body,{ok:true,profile:{handle:'projection-designer',displayName:'Chosen public name',bio:'Chosen bio',link:'https://example.test/public'}});
+  assert.equal(view.headers.get('cache-control'),'no-store');assert.equal(view.headers.get('referrer-policy'),'no-referrer');assert.equal(view.headers.get('x-robots-tag'),'noindex');
+  await communityDraft(cookie,draft.handle,{displayName:'Unpublished name',bio:'Unpublished biography'});
+  await call({action:'save-profile',name:'Another private identity',bio:'Still private',link:''},cookie);
+  assert.deepEqual((await publicProfile(draft.handle)).body,view.body);
+  assert.equal((await call({action:'community'},cookie)).body.draft.bio,'Unpublished biography');
+});
+test('publication refuses stale previews and old wording; same-version retry is safe',async()=>{
+  const cookie=await register('community-stale@example.test');
+  const first=await communityDraft(cookie,'revision-designer');
+  const next=await communityDraft(cookie,first.handle,{bio:'Changed in another tab'});
+  assert.equal((await publishCommunity(cookie,first)).status,409);
+  assert.equal((await call({action:'publish-community',revision:next.revision,confirmed:true,consentVersion:'old'},cookie)).status,400);
+  const replies=await Promise.all(Array.from({length:4},()=>publishCommunity(cookie,next)));
+  assert.ok(replies.every(r=>r.status===200));
+  assert.equal((await publicProfile(first.handle)).body.profile.bio,'Changed in another tab');
+});
+test('community validation and sessions prevent unsafe links, reserved handles and forged ownership',async()=>{
+  assert.equal((await call({action:'community'})).status,401);
+  const cookie=await register('community-validation@example.test');
+  const good={action:'save-community',handle:'valid-designer',displayName:'A name',bio:'',link:''};
+  for(const extra of [{handle:'admin'},{handle:'a'},{handle:'-bad'},{handle:'bad/'},{handle:'x'.repeat(31)},{displayName:' '},{bio:'x'.repeat(501)},
+    {link:'javascript:alert(1)'},{link:'https://user:secret@example.test'},{userId:randomUUID()},{moderation_hold:false},{published_at:'now'},{email:'foreign@example.test'}]){
+    assert.equal((await call({...good,...extra},cookie)).status,400);
+  }
+  await call({action:'sign-out'},cookie);
+  assert.equal((await call(good,cookie)).status,401);
+  const post=await createPublicProfileHandler({pool,enabled:true})(new Request(`${origin}/api/people?handle=valid-designer`,{method:'POST'}));
+  assert.equal(post.status,405);assert.equal(post.headers.get('allow'),'GET');
+});
+test('handles are unique without revealing owners and cannot rename after publication',async()=>{
+  const a=await register('community-unique-a@example.test'),b=await register('community-unique-b@example.test');
+  const draft=await communityDraft(a,'unique-designer');
+  const conflict=await call({action:'save-community',handle:'UNIQUE-DESIGNER',displayName:'Another',bio:'',link:''},b);
+  assert.equal(conflict.status,409);assert.doesNotMatch(JSON.stringify(conflict.body),/community-unique|user_id/);
+  const renamed=await communityDraft(a,'renamed-designer');await publishCommunity(a,renamed);
+  assert.equal((await call({action:'save-community',handle:draft.handle,displayName:'No',bio:'',link:''},a)).status,409);
+  assert.equal((await publicProfile(draft.handle)).status,404);
+});
+test('paused community keeps drafts and unpublishing available, including after quota exhaustion',async()=>{
+  const cookie=await register('community-paused@example.test');
+  const draft=await communityDraft(cookie,'paused-designer');await publishCommunity(cookie,draft);
+  const paused=createAccountService({pool,origin,secret,sendOTP:async()=>{}});
+  const post=body=>paused.handle(new Request(`${origin}/api/account`,{method:'POST',headers:{origin,'content-type':'application/json',cookie,'x-exp-client-ip':'192.0.2.120'},body:JSON.stringify(body)}));
+  assert.equal((await publicProfile(draft.handle,false)).status,404);
+  assert.equal((await post({action:'publish-community',revision:draft.revision,confirmed:true,consentVersion:'community-profile-v1'})).status,503);
+  assert.equal((await post({action:'save-community',handle:draft.handle,displayName:'Updated privately',bio:'',link:''})).status,200);
+  const id=(await call(undefined,cookie)).body.user.id;
+  await pool.query('UPDATE exp_member_community_limit SET count=30 WHERE user_id=$1',[id]);
+  assert.equal((await call({action:'save-community',handle:draft.handle,displayName:'Blocked draft',bio:'',link:''},cookie)).status,429);
+  assert.equal((await post({action:'unpublish-community'})).status,200);
+  assert.equal((await publicProfile(draft.handle)).status,404);
+  assert.equal((await (await post({action:'community'})).json()).draft.displayName,'Updated privately');
+});
+test('community reports are private, authenticated, retry-safe and never hide a profile automatically',async()=>{
+  const owner=await register('community-target@example.test'),reporter=await register('community-reporter@example.test');
+  const draft=await communityDraft(owner,'reported-designer');await publishCommunity(owner,draft);
+  const body={action:'report-community',handle:draft.handle,category:'privacy',reason:'Please review this public detail.'};
+  assert.equal((await call(body)).status,401);
+  assert.equal((await call(body,owner)).status,400);
+  const replies=await Promise.all(Array.from({length:4},()=>call(body,reporter)));
+  assert.ok(replies.every(r=>r.status===200));
+  const targetId=(await call(undefined,owner)).body.user.id;
+  const rows=(await pool.query('SELECT * FROM exp_member_community_report WHERE target_id=$1',[targetId])).rows;
+  assert.equal(rows.length,1);assert.deepEqual(rows[0].public_snapshot,(await publicProfile(draft.handle)).body.profile);
+  assert.equal((await publicProfile(draft.handle)).status,200);
+  assert.doesNotMatch(JSON.stringify((await call({action:'community'},owner)).body),/reporter|Please review/);
+  const updated=await communityDraft(owner,draft.handle,{bio:'A new public version'});await publishCommunity(owner,updated);
+  assert.equal((await call(body,reporter)).status,200);
+  assert.equal((await pool.query('SELECT * FROM exp_member_community_report WHERE target_id=$1',[targetId])).rowCount,2,'a new public version can be reported independently');
+  await call({action:'unpublish-community'},owner);
+  assert.equal((await pool.query('SELECT * FROM exp_member_community_report WHERE target_id=$1',[targetId])).rowCount,2,'private moderation snapshots survive unpublish');
+  await call({action:'delete-account',confirmation:'DELETE'},reporter);
+  assert.equal((await pool.query('SELECT * FROM exp_member_community_report WHERE target_id=$1',[targetId])).rowCount,0);
+});
+test('operator moderation hold hides the public profile and cannot be bypassed by its owner',async()=>{
+  const cookie=await register('community-held@example.test');const draft=await communityDraft(cookie,'held-designer');await publishCommunity(cookie,draft);
+  await pool.query('UPDATE exp_member_community SET moderation_hold=true WHERE handle=$1',[draft.handle]);
+  assert.equal((await publicProfile(draft.handle)).status,404);
+  assert.equal((await publishCommunity(cookie,draft)).status,403);
+  assert.equal((await call({action:'publish-community',revision:draft.revision,confirmed:true,consentVersion:'community-profile-v1',moderation_hold:false},cookie)).status,400);
+  assert.equal((await call({action:'unpublish-community'},cookie)).status,200);
+});
+test('community account deletion cascades public data, drafts, reports and quota',async()=>{
+  const cookie=await register('community-delete@example.test'),reporter=await register('community-delete-report@example.test');
+  const draft=await communityDraft(cookie,'deleted-designer');await publishCommunity(cookie,draft);
+  await call({action:'report-community',handle:draft.handle,category:'other',reason:'Review this'},reporter);
+  const id=(await call(undefined,cookie)).body.user.id;
+  assert.equal((await call({action:'delete-account',confirmation:'DELETE'},cookie)).status,200);
+  assert.equal((await publicProfile(draft.handle)).status,404);
+  for(const table of ['exp_member_community','exp_member_community_limit'])assert.equal((await pool.query(`SELECT * FROM ${table} WHERE user_id=$1`,[id])).rowCount,0);
+  assert.equal((await pool.query('SELECT * FROM exp_member_community_report WHERE target_id=$1',[id])).rowCount,0);
+});
+test('community storage failures cannot report successful publication or expose internals',async()=>{
+  const cookie=await register('community-failure@example.test');const draft=await communityDraft(cookie,'failure-designer');
+  await pool.query(`CREATE FUNCTION exp_community_test_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'private schema detail'; END $$;
+    CREATE TRIGGER exp_community_test_failure BEFORE UPDATE ON exp_member_community FOR EACH ROW EXECUTE FUNCTION exp_community_test_failure()`);
+  try{const response=await publishCommunity(cookie,draft);assert.equal(response.status,503);assert.doesNotMatch(JSON.stringify(response.body),/private schema|community-failure/);assert.equal((await publicProfile(draft.handle)).status,404);}
+  finally{await pool.query('DROP TRIGGER exp_community_test_failure ON exp_member_community; DROP FUNCTION exp_community_test_failure()');}
+  await pool.query('ALTER TABLE exp_member_community RENAME TO exp_member_community_unavailable');
+  try{assert.equal((await publicProfile(draft.handle)).status,503);assert.equal((await publicProfile(draft.handle,false)).status,404);}
+  finally{await pool.query('ALTER TABLE exp_member_community_unavailable RENAME TO exp_member_community');}
+});
 
 test('verified email alone never links Pro permission; explicit proof links without rewriting the source', async () => {
   const email = 'pro-link@example.test', cookie = await register(email);

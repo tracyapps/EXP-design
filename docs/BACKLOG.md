@@ -3205,7 +3205,7 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: feature
 - Priority: P1
 - Area: accounts · community · support
-- Status: auth/profile, beta/feedback and explicit Pro connection locally verified 2026-10-17;
+- Status: account, beta/Pro and optional community foundation locally verified 2026-10-17;
   remaining hub and hosted/owner acceptance open
 - Owner scope 2026-10-16: profile, preferences, feedback/beta participation, Pro
   interest, community profile, news/updates, opening/responding to private tickets,
@@ -3216,8 +3216,10 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   the native v2.7 release. Better Auth 1.7.10 now implements optional email-code
   accounts/private profile/larger web-account text and session/deletion lifecycle
   locally. Private beta participation/separate invitation permission and retry-safe
-  feedback/history/deletion are now locally verified too. Tickets and public profiles
-  remain open; no invitation sender is implemented. Existing Pro connection is
+  feedback/history/deletion are now locally verified too. Community draft/preview,
+  explicit snapshot publication/unpublish, private reports and operator-hold boundary
+  are local; hosted public rollout/moderation and tickets remain open. No invitation
+  sender is implemented. Existing Pro connection is
   now local: email capability + verified-account proof, live source state,
   withdrawal/disconnect; no automatic email matching or permission migration.
 - Boundaries: local editor/exports/download remain account-free; public profiles
@@ -3244,6 +3246,13 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   disconnect and account-deletion isolation. Combined browser suite 109 passes;
   68 incomplete shared-site contrast scans still need review. Neon setup and
   environment reference prepared; no provisioning/hosted claims.
+- Community continuation: 55 account checks, including exact public projection,
+  saved-revision consent, private draft/public snapshot isolation, handle lifecycle,
+  per-version report dedup/evidence, quota-independent unpublish, moderation holds,
+  source errors and deletion cascades. Contract/setup/remaining moderation and
+  hosted gates: `launch/COMMUNITY-PROFILES-v2.7.md`. Public flag defaults off.
+  Owner separately accepts actual hosted email-code account creation/sign-in;
+  remaining hosted lifecycle/retention/AT acceptance is open.
 - Accessibility sources checked before form/naming changes:
   https://www.w3.org/WAI/tutorials/forms/labels/ (explicit native labels),
   https://www.w3.org/TR/wai-aria-1.2/#status (polite status announcements),

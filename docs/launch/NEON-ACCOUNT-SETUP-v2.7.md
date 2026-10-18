@@ -1,9 +1,12 @@
 # EXP accounts: Neon + Vercel setup
 
 October 17, 2026. Owner has an existing Neon account and no EXP database yet.
-This is the setup handoff, not a record of provisioning or public enablement.
+This began as the setup handoff. Update Oct 17: the owner connected Neon/Vercel,
+corrected the auth secret/TLS URL settings and verified real email-code account
+creation/sign-in. Do not recreate that working project. Project names, restricted
+runtime-role grants, retention and full hosted lifecycle proof remain unverified.
 
-**Your first step:** create a dedicated **EXP Preview** PostgreSQL project in your
+**For a new isolated test environment:** create a dedicated **EXP Preview** PostgreSQL project in your
 existing [Neon console](https://console.neon.tech/). Choose a US region suitable
 for the site's Vercel functions; record the selected region so we can align them.
 Send only the project name/region back. Keep credentials in the provider dashboard
@@ -50,10 +53,14 @@ checking the database selected in Neon's SQL Editor:
 
 | Database | Files, in order |
 | --- | --- |
-| `exp_accounts` | `migrations/003_free_accounts.sql` → `005_member_beta.sql` → `006_account_pro_link.sql` |
+| `exp_accounts` | `migrations/003_free_accounts.sql` → `005_member_beta.sql` → `006_account_pro_link.sql` → `007_community_profiles.sql` |
 | `exp_interest` | `migrations/001_pro_interest.sql` → `002_pro_interest_erasure.sql` |
 
 Migration 004 belongs to the optional usage collector, not this account setup.
+For the already working account database, apply **only unapplied migrations**;
+the new community slice needs 007 and its runtime table grants. Keep its public
+flag off until the moderation/retention and hosted checks in
+`COMMUNITY-PROFILES-v2.7.md` are complete.
 Do not rerun migrations against an existing populated schema as a reset. These
 files deliberately fail on existing tables rather than overwrite stored accounts.
 The code does not auto-migrate a hosted database at startup.
@@ -93,6 +100,7 @@ The blank reference is `.env.accounts.example` in the repository root.
 | `ACCOUNTS_ENABLED` | Initially `false`; controls registration, not existing-member privacy access |
 | `ACCOUNT_BETA_ENABLED` | Initially `false`; pauses new beta choices/feedback, preserves withdrawal/deletion |
 | `ACCOUNT_PRO_LINK_ENABLED` | Initially `false`; pauses new connections, preserves existing review/withdraw/disconnect |
+| `ACCOUNT_COMMUNITY_ENABLED` | Initially `false`; permits private drafts/unpublish but hides public profiles and pauses publishing/reporting |
 | `PRO_INTEREST_ENABLED` | Initially `false`; preserves separate Pro withdrawal/deletion when storage/origin remain configured |
 
 Store credentials as Secret values; origins and flags can be Config values. All

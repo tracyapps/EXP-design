@@ -4,6 +4,7 @@ import { toNodeHandler } from 'better-auth/node';
 import { createAccountService } from './service.js';
 import { interestConfiguration } from '../interest/handlers.js';
 import { configuredStore } from '../interest/store.js';
+import { createPublicProfileHandler } from './community.js';
 
 export function accountConfiguration(env) {
   const origin = env.ACCOUNT_PUBLIC_ORIGIN;
@@ -43,6 +44,25 @@ export function createAccountNodeHandler({ handle, origin, env = process.env }) 
 }
 
 let runtime;
+let publicRuntime;
+function accountPool(config) {
+  const pool = new pg.Pool({ connectionString: config.databaseURL, max: 2, connectionTimeoutMillis: 3000, statement_timeout: 5000, allowExitOnIdle: true });
+  pool.on('error', () => console.error('Account database connection failed.'));
+  return pool;
+}
+export async function publicProfileEndpoint(request, response) {
+  if (process.env.ACCOUNT_COMMUNITY_ENABLED !== 'true') {
+    response.writeHead(404, { 'Content-Type':'application/json', 'Cache-Control':'no-store', 'Referrer-Policy':'no-referrer', 'X-Robots-Tag':'noindex' }).end(JSON.stringify({ error:'Profile not found.' }));
+    return;
+  }
+  const config = accountConfiguration(process.env);
+  if (!config) {
+    response.writeHead(503, { 'Content-Type':'application/json', 'Cache-Control':'no-store' }).end(JSON.stringify({ error:'Community profiles are unavailable.' }));
+    return;
+  }
+  publicRuntime ??= createAccountNodeHandler({ origin:config.origin, handle:createPublicProfileHandler({ pool:accountPool(config), enabled:true }) });
+  await publicRuntime(request, response);
+}
 export default async function accountEndpoint(request, response) {
   const env = process.env;
   const config = accountConfiguration(env);
@@ -51,12 +71,12 @@ export default async function accountEndpoint(request, response) {
     return;
   }
   if (!runtime) {
-    const pool = new pg.Pool({ connectionString: config.databaseURL, max: 2, connectionTimeoutMillis: 3000, statement_timeout: 5000, allowExitOnIdle: true });
-    pool.on('error', () => console.error('Account database connection failed.'));
+    const pool = accountPool(config);
     const interestConfig = accountInterestConfiguration(env, config.origin);
     const service = createAccountService({ pool, ...config, registrationEnabled: env.ACCOUNTS_ENABLED === 'true',
       interestStore: interestConfig ? configuredStore(interestConfig.databaseURL) : null,
       proLinkEnabled: env.ACCOUNT_PRO_LINK_ENABLED === 'true',
+      communityEnabled: env.ACCOUNT_COMMUNITY_ENABLED === 'true',
       betaEnabled: env.ACCOUNT_BETA_ENABLED === 'true', async sendOTP({ email, otp }) {
       if (!env.RESEND_API_KEY || !env.SIGNUP_FROM_EMAIL) throw new Error('Account mail unavailable');
       const result = await fetch('https://api.resend.com/emails', { method: 'POST',

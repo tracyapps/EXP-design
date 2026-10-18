@@ -7,6 +7,17 @@ provider configuration, retention settings, delivery or legal sufficiency.
 
 ## Tonight's completed slice
 
+October 17 community continuation: explicit member-entered handle/name/bio/HTTPS
+website remain a private draft until versioned publication. Only those four chosen
+fields enter public `/people/:handle` and `/api/people` responses; public fetches
+omit account cookies. No email/UUID/private permission/report projection. Authenticated
+private reports store reporter/target IDs, category/reason/time and a snapshot of
+the reported public revision in the account database. Unpublish removes the live
+public snapshot; reports remain private until reporter/target account deletion or
+the future operator retention process. No expiry job/report emails are implemented.
+Migration 007, role/flag/moderation/retention/hosted gates and full contract:
+`COMMUNITY-PROFILES-v2.7.md`. Local only; public feature flag defaults off.
+
 October 17 account continuation: `/account/pro` now supports explicit connection
 to a confirmed Pro record using both the email capability and the same verified
 account email. Migration 006 stores account UUID/hashed reference/version/time in

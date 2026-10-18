@@ -4,10 +4,11 @@ October 16, 2026. Owner likes accounts before Pro/subscriptions and asks about
 sequencing. **Recommendation: finish the shared privacy/hosting foundation, then
 add a small optional free account area before billing.** Accounts do not depend
 on having a paid product. Their first useful job should determine their scope.
-October 17 continuation: auth/private-profile, account-display, beta/feedback and
-explicit Pro-interest connection slices are locally verified. Owner has an existing
-Neon account and no EXP database yet; follow [the Neon setup handoff](NEON-ACCOUNT-SETUP-v2.7.md).
-Hosted enablement and the rest of the hub remain open.
+October 17 continuation: auth/private-profile, account-display, beta/feedback,
+explicit Pro connection and optional community-profile foundation are locally
+verified. Owner connected Neon/Vercel and accepted actual email-code account
+creation/sign-in. Full hosted lifecycle, community rollout and the rest of the hub
+remain open; [setup handoff](NEON-ACCOUNT-SETUP-v2.7.md).
 
 ## Owner-selected member hub
 
@@ -195,8 +196,8 @@ Resend receipt, hosted configuration or formal VoiceOver/full keyboard acceptanc
 Local receipts: `/tmp/exp-member-all-tests.log`, `/tmp/exp-member-build.log` and
 ignored `output/playwright/exp-account-*.png`.
 
-The beta and explicit Pro-connection continuations below are locally verified.
-Community publication/news and private author/staff tickets follow their own gates.
+The beta, explicit Pro connection and community foundation are locally verified.
+Community public rollout/news and private author/staff tickets retain their gates.
 Hosted setup/retention/inbox and owner AT verification remain ahead of public
 enablement; native v2.7 release scope stays independent.
 
@@ -342,6 +343,23 @@ The initial combined browser run had one beta helper failure after its last
 allowed Tab; the screenshot showed the intended button focused. Added the missing
 post-final-Tab focus check without increasing the Tab budget and reran every
 variant. Initial receipt retained at `output/a11y/2026-10-17T22-13-36-592Z/`.
+
+## Optional community foundation and hosted account acceptance
+
+Owner confirms hosted account creation/email-code sign-in on Oct 17: “account
+created. looks good.” This closes that one observed journey on the existing
+production account foundation. It does not establish hosted cross-user isolation,
+logout/revocation/deletion, Pro source lifecycle, roles/retention or formal AT proof.
+
+The next local FEAT-069 slice adds `/account/community`, `/people/:handle` and
+`/api/people`, with private drafts and independently chosen public details. Exact
+server projection, revision-confirmed publication, handle lifecycle, unpublish,
+private per-publication reports, operator hold process and setup/acceptance gates:
+`COMMUNITY-PROFILES-v2.7.md`. No private profile copying, automatic publication,
+community email notification, uploads, directory or forums. `ACCOUNT_COMMUNITY_ENABLED`
+defaults false; the new tables require migration 007 plus role grants in the
+account database before draft review, and moderation/privacy/retention/hosted/AT
+acceptance before public enablement. No hosted schema or feature flag changed.
 
 ## Voluntary support page completed locally (INFRA-008)
 
