@@ -59,7 +59,7 @@ private final class Page: NSObject, WKNavigationDelegate {
         }
         return p
     }
-    func cssPixels(_ mesh: MeshFill, width: Int, height: Int) async throws -> [Int] {
+    func cssPixels(_ mesh: MeshFill, width: Int, height: Int,background: String? = nil) async throws -> [Int] {
         web.frame.size = CGSize(width: width,height: height)
         if window == nil {
             let host = NSWindow(contentRect: web.frame,styleMask: [.borderless],backing: .buffered,defer: false)
@@ -74,9 +74,9 @@ private final class Page: NSObject, WKNavigationDelegate {
           document.body.style.cssText='margin:0;width:'+width+'px;height:'+height+'px;'+declarations;
           await new Promise(resolve => setTimeout(resolve,100));
           return getComputedStyle(document.body).getPropertyValue("--exp-mesh-v1").trim();
-          """,arguments: ["declarations":try mesh.cssDeclarations(),"width":width,"height":height],in: nil,contentWorld: .page)
+          """,arguments: ["declarations":try background ?? mesh.cssDeclarations(),"width":width,"height":height],in: nil,contentWorld: .page)
         let encoded = try mesh.metadata()
-        require(metadata as? String == "\"\(encoded)\"","CSS must retain exact bounded metadata")
+        if background == nil { require(metadata as? String == "\"\(encoded)\"","CSS must retain exact bounded metadata") }
         require(try MeshFill.fromMetadata(encoded) == mesh,"CSS metadata must reconstruct point IDs/order")
         let config = WKSnapshotConfiguration(); config.rect = CGRect(x: 0,y: 0,width: width,height: height)
         let image = try await web.takeSnapshot(configuration: config)
@@ -193,6 +193,36 @@ private final class Page: NSObject, WKNavigationDelegate {
             }
         }
         let integrationBoard = Artboard(name: "Mesh integration",frame: CGRect(x: 0,y: 0,width: 128,height: 80),background: .clear)
+        let legacy = try JSONDecoder().decode(GradientFill.self,from: Data("{\"kind\":\"radial\"}".utf8))
+        require(legacy.radial == nil,"old radial files must retain implicit geometry")
+        rejects("negative radial radius") {
+            _ = try JSONDecoder().decode(GradientFill.self,from: Data("{\"kind\":\"radial\",\"radial\":{\"center\":[0.5,0.5],\"radius\":[-1,0.5]}}".utf8))
+        }
+        for alpha in [1.0,0.4] {
+            var radial = GradientFill(kind: .radial,stops: [GradientStop(color: RGBAColor(r: 1,g: 0.2,b: 0.4,a: alpha),position: 0),GradientStop(color: RGBAColor(r: 0.1,g: 0.5,b: 1,a: alpha),position: 1)])
+            radial.radial = RadialGradientGeometry(center: CGPoint(x: 0.3,y: 0.6),radius: CGSize(width: 0.4,height: 0.7))
+            require(try JSONDecoder().decode(GradientFill.self,from: JSONEncoder().encode(radial)) == radial,"radial geometry must survive save/reopen")
+            let defaultRadial = GradientFill(kind: .radial).radialGeometry(in: integrationBoard.frame)
+            require(abs(defaultRadial.radius.width*128-hypot(128,80)/2)<1e-8,"legacy radial must stay a circle to the corner")
+            let node = Node(name: "Radial editing",frame: integrationBoard.frame,content: .rectangle(RectangleShape(fill: .gradient(radial),strokeWidth: 0)))
+            let renderer = ExportRenderer(document: Document(artboards: [integrationBoard],nodes: [node]))
+            let svg = renderer.svgString(for: integrationBoard)
+            guard let data = renderer.pngData(for: integrationBoard,scale: 1,transparentBackground: true),let image = NSBitmapImageRep(data: data)?.cgImage else { fail("radial PNG missing") }
+            let browser = try await page.sample(svg,width: 128,height: 80)
+            let error = zip(pixels(image),browser).map { abs($0-$1) }.max()!
+            require(error <= 8,"off-center elliptical radial native/PDF/SVG alpha \(alpha) error \(error)")
+            let css = try await page.cssPixels(MeshFill(base: .white),width: 128,height: 80,background: "background: "+DesignLanguageIO.cssGradient(radial)+";")
+            let native = pixels(image)
+            var cssError = 0
+            for pixel in 0..<(128*80) { for channel in 0..<3 {
+                cssError = max(cssError,abs(native[pixel*4+channel]+255-native[pixel*4+3]-css[pixel*4+channel]))
+            }}
+            require(cssError <= 8,"radial CSS must match native geometry/alpha, error \(cssError)")
+            guard let imported = SVGImporter.importDocument(from: Data(svg.utf8)),let roundtrip = ExportRenderer(document: Document(artboards: [integrationBoard],nodes: [imported.group])).pngData(for: integrationBoard,scale: 1,transparentBackground: true),let restored = NSBitmapImageRep(data: roundtrip)?.cgImage else { fail("radial SVG roundtrip missing") }
+            require(zip(pixels(image),pixels(restored)).map { abs($0-$1) }.max()! <= 8,"radial SVG re-import must retain geometry")
+            print("PASS: off-center elliptical radial codec/native/PDF/SVG/own import at alpha \(alpha), SVG error \(error), CSS \(cssError)")
+        }
+
         let integrationMesh = cases[3].1
         var integrationNode = Node(name: "Mesh shape",frame: integrationBoard.frame,
             content: .rectangle(RectangleShape(fill: .mesh(integrationMesh),strokeWidth: 0)))

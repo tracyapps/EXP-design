@@ -1318,8 +1318,11 @@ from the appcast; a development plan does not change the published release.
       position/radius/opacity, add/remove/reorder, shape handles and command routes;
       bounded shared native/export, canonical SVG and verified CSS own-import.
       `MESH-FILL-VERIFICATION-v2.7.md` records honest limits and local evidence.
-- [ ] Owner accepts editable Mesh: physical center/radius drags, Undo/cancel,
-      color grouping, save/reopen, components/library, exports and keyboard/AT.
+- [x] Owner accepts initial editable Mesh functionality October 19: “that works nicely.”
+- [ ] Owner accepts October 19 gradient refinements: clear point selection/color dots,
+      persistent editor, radial center/radius handles and padded icon/text navigation.
+      `GRADIENT-EDITING-v2.7.md` records native checks and remaining matrix.
+      Color grouping, full components/library, exports and keyboard/AT remain gates.
 - [x] Report/roadmap reconciliation and execution plan written:
       `SELF-LAUNCH-PLAN-v2.7.md`; primary corrections in
       `SELF-LAUNCH-SOURCES-2026-10-16.md`; friend-facing brief in
@@ -3489,6 +3492,23 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-10-19 — Gradient editing refinements [internal].**
+  Owner accepts initial Mesh functionality and requests clearer selected points,
+  persistent paint editing, radial handles and padded icon/text fill navigation.
+  Mesh buttons now have accent-filled selection plus point-color dots. An explicit
+  AppKit popover keeps canvas edits live, with Done/scoped Escape and shared selected
+  colors/numbers. Radial center and separate X/Y radii use optional normalized model
+  geometry, shared native/PDF masks, standard SVG axes/own-import and real CSS.
+  Old absent geometry keeps the native default. General's existing label preference
+  also controls fill navigation; equal slots and measured width retain margins at
+  Extra Large size. Actual isolated app proves Mesh selection/drag/Undo, radial
+  center/Y-radius drag/Undo and persistent field sync. A screenshot caught wrapped
+  labels and the final fix passes icons/text/icons-only/large-type visual review.
+  App/thumbnail, Mesh/radial pixel/codec/import, semantic goldens, appearance and
+  preference checks pass; effect/pattern and surface contract evidence is recorded
+  in `GRADIENT-EDITING-v2.7.md`. Full AT/display/stress/library and owner refinement
+  acceptance remain open. Local commit only; no push or live changes.
 
 - **2026-10-18 — Editable Mesh fill integration [internal].**
   Owner accepts the foundation preview and authorizes continuation. FEAT-033 now

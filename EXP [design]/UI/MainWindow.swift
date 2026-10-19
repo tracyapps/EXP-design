@@ -5438,7 +5438,7 @@ extension RightPanel {
                     .font(.callout)
                 if ps.closed {
                     PaintWell(label: "Fill", paint: pathFillBinding,
-                              gradientSize: selectedNode?.frame.size,
+                              gradientSize: ps.fill.gradientValue?.kind == .radial ? ExportRenderView.nsPath(ps,origin: .zero).bounds.size : selectedNode?.frame.size,
                               selectedGradientStopID: gradientStopSelection)
                 }
                 Divider()

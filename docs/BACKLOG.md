@@ -6040,8 +6040,10 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Area: color · canvas · export
 - Status: needs-verify — editable Mesh Paint, numeric controls/point actions,
   shape position/radius handles and shared export/strict own-import implemented
-  October 18. Owner accepted the foundation preview; editable feature review is
-  open. `MESH-FILL-VERIFICATION-v2.7.md` records scope, limits and fresh receipts.
+  October 18. Owner accepted initial editable functionality October 19; requested
+  point selection, persistent popup, radial handles and navigation refinements are
+  locally checked and await owner review. `GRADIENT-EDITING-v2.7.md` supplements
+  `MESH-FILL-VERIFICATION-v2.7.md` with scope, limits and fresh receipts.
 - Native naming/selected state checked against Apple accessibilityLabel and
   accessibilityTraits.isSelected: https://developer.apple.com/documentation/swiftui/view/accessibilitylabel(_:)-1d7jv
   and https://developer.apple.com/documentation/swiftui/accessibilitytraits/isselected .

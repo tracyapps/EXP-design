@@ -50,7 +50,7 @@ enum EXPInterfaceGuidance: String, CaseIterable, Identifiable {
     }
 }
 
-/// Drawing-toolbar text can be chosen without changing other visible guidance.
+/// Drawing-toolbar and fill-type text can be chosen independently of panel help.
 /// This controls presentation only; tool accessibility names remain unconditional.
 enum EXPToolbarLabels: String, CaseIterable, Identifiable {
     case automatic, iconsOnly, iconsAndText

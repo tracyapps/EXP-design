@@ -9,6 +9,7 @@
 //
 
 import SwiftUI
+import AppKit
 
 // MARK: - Swatch button
 
@@ -35,14 +36,15 @@ struct PaintWell: View {
             .buttonStyle(.plain)
             .help("Edit \(label.lowercased())")
             .accessibilityLabel(label.isEmpty ? "Edit paint" : "Edit \(label.lowercased())")
-            .popover(isPresented: $showing, arrowEdge: .leading) {
-                PaintEditor(paint: $paint, supportsOpacity: supportsOpacity,supportsMesh: supportsMesh,
-                            gradientSize: gradientSize,
-                            selectedGradientStopID: selectedGradientStopID)
-                    .frame(width: 250)
-                    .padding(12)
-                    .expTransientWindowLevel()
-            }
+            .background(PersistentPaintPopover(isPresented: $showing) {
+                VStack(alignment: .trailing,spacing: 8) {
+                    PaintEditor(paint: $paint, supportsOpacity: supportsOpacity,supportsMesh: supportsMesh,
+                                gradientSize: gradientSize,selectedGradientStopID: selectedGradientStopID)
+                    Button("Done") { showing = false }.keyboardShortcut(.cancelAction)
+                }
+                .padding(16)
+                .expTransientWindowLevel()
+            })
         }
     }
 }
@@ -221,8 +223,15 @@ struct PaintSwatch: View {
                 startPoint: UnitPoint(x: 0.5 - cos(a) / 2, y: 0.5 - sin(a) / 2),
                 endPoint: UnitPoint(x: 0.5 + cos(a) / 2, y: 0.5 + sin(a) / 2)))
         case .radial:
-            shape.fill(RadialGradient(stops: stops, center: .center,
-                                      startRadius: 0, endRadius: 22))
+            Canvas { context,size in
+                let width = max(1,Int(min(256,size.width*2))),height = max(1,Int(min(256,size.height*2)))
+                if let space = CGColorSpace(name: CGColorSpace.sRGB),
+                   let bitmap = CGContext(data: nil,width: width,height: height,bitsPerComponent: 8,bytesPerRow: 0,space: space,bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) {
+                    bitmap.translateBy(x: 0,y: CGFloat(height)); bitmap.scaleBy(x: CGFloat(width)/max(1,size.width),y: -CGFloat(height)/max(1,size.height))
+                    PaintRender.fillRect(.gradient(g),rect: CGRect(origin: .zero,size: size),in: bitmap)
+                    if let image = bitmap.makeImage() { context.draw(Image(decorative: image,scale: 1),in: CGRect(origin: .zero,size: size)) }
+                }
+            }.clipShape(shape)
         }
     }
 }
@@ -260,7 +269,21 @@ struct PaintEditor: View {
     /// appears, and the fill changes when a tile is actually chosen.
     @State private var choosingPattern = false
 
-    private enum Mode: Int { case solid, linear, radial, mesh, pattern }
+    private enum Mode: Int,CaseIterable {
+        case solid, linear, radial, mesh, pattern
+        var title: String { switch self { case .solid: "Solid"; case .linear: "Linear"; case .radial: "Radial"; case .mesh: "Mesh"; case .pattern: "Pattern" } }
+        var icon: String { switch self { case .solid: "square.fill"; case .linear: "rectangle.lefthalf.inset.filled"; case .radial: "circle.dotted.circle.fill"; case .mesh: "circle.hexagongrid.fill"; case .pattern: "square.grid.3x3.fill" } }
+    }
+    private var modes: [Mode] { Mode.allCases.filter { $0 != .mesh || supportsMesh || paint.isMesh } }
+    private var showModeText: Bool { EXPInterfaceAccessibility.shared.showToolbarLabels }
+    private var editorWidth: CGFloat {
+        let font = NSFont.systemFont(ofSize: EXPType.small)
+        let widest = modes.map { mode in
+            CGFloat(11 + 32) + (showModeText ? 6 + (mode.title as NSString).size(withAttributes: [.font: font]).width : 0)
+        }.max() ?? 0
+        let navigation = widest * CGFloat(modes.count) + CGFloat(4 + (modes.count-1)*2) + 24
+        return max(300 * EXPInterfaceAccessibility.shared.textScale,navigation)
+    }
     private var mode: Mode {
         if choosingPattern, !paint.isPattern { return .pattern }
         switch paint {
@@ -273,20 +296,11 @@ struct PaintEditor: View {
 
     var body: some View {
         VStack(spacing: 10) {
-            Picker("Paint type", selection: modeBinding) {
-                Text("Solid").tag(Mode.solid)
-                Text("Linear").tag(Mode.linear)
-                Text("Radial").tag(Mode.radial)
-                // FEAT-065b. ALWAYS present. It used to appear only when the fill
-                // already was a pattern — correct while there was no way to choose
-                // one, but the moment there is a library to pick from, a tab that
-                // comes and goes reads as a bug rather than a rule. Owner: keep the
-                // fill tabs consistent on every element.
-                if supportsMesh || paint.isMesh { Text("Mesh").tag(Mode.mesh) }
-                Text("Pattern").tag(Mode.pattern)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
+            EXPSegmented(selection: modeBinding,segments: modes.map {
+                .init(value: $0,label: showModeText ? $0.title : nil,icon: $0.icon,
+                      accessibilityLabel: "\($0.title) fill",help: "\($0.title) fill")
+            },equalWidth: true)
+            .padding(.horizontal, 4)
 
             switch mode {
             case .solid:
@@ -299,6 +313,7 @@ struct PaintEditor: View {
                 patternEditor
             }
         }
+        .frame(width: editorWidth)
         .onAppear { validateSelectedStop() }
         .onChange(of: paint) { _, _ in validateSelectedStop() }
     }
@@ -340,6 +355,8 @@ struct PaintEditor: View {
             }
         }
 
+        if mode == .radial { radialControls }
+
         if mode == .linear {
             HStack(spacing: 6) {
                 Text("Angle").foregroundStyle(EXPColor.textSecondary).font(.callout)
@@ -353,6 +370,34 @@ struct PaintEditor: View {
                     .numericStepping(angleBinding)
                 Text("°").foregroundStyle(EXPColor.textSecondary)
             }
+        }
+    }
+
+    private var radialControls: some View {
+        VStack(spacing: 6) {
+            radialField("Center X",key: \.center.x)
+            radialField("Center Y",key: \.center.y)
+            radialField("Radius X",key: \.radius.width)
+            radialField("Radius Y",key: \.radius.height)
+        }
+    }
+    private func radialField(_ title: String,key: WritableKeyPath<RadialGradientGeometry,CGFloat>) -> some View {
+        let binding = Binding<Double>(get: {
+            Double(gradientBinding.wrappedValue.radialGeometry(in: CGRect(origin: .zero,size: gradientSize ?? CGSize(width: 100,height: 100)))[keyPath: key])*100
+        },set: { value in
+            guard value.isFinite else { return }
+            var gradient = gradientBinding.wrappedValue
+            var radial = gradient.radialGeometry(in: CGRect(origin: .zero,size: gradientSize ?? CGSize(width: 100,height: 100)))
+            let radius = key == \.radius.width || key == \.radius.height
+            radial[keyPath: key] = radius ? min(1_000_000,max(0.005,value/100)) : min(3,max(-2,value/100))
+            if radial.isValid,gradient.radial != radial { gradient.radial = radial; gradientBinding.wrappedValue = gradient }
+        })
+        return HStack {
+            Text(title).font(.callout).foregroundStyle(EXPColor.textSecondary)
+            Spacer()
+            TextField("Radial \(title), percent",value: binding,format: .number.precision(.fractionLength(0...2)))
+                .textFieldStyle(.exp).frame(width: 80).numericStepping(binding,step: 1)
+            Text("%")
         }
     }
 
@@ -699,4 +744,62 @@ private func clampD(_ v: Double) -> Double { min(1, max(0, v)) }
 
 private extension Array {
     subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil }
+}
+
+
+/// An explicitly dismissed paint editor remains usable while the canvas or a
+/// floating inspector becomes key. SwiftUI's transient popover closes on that
+/// first click. Keep the original SwiftUI environment (library, Undo and type).
+private struct PersistentPaintPopover<Content: View>: NSViewRepresentable {
+    @Binding var isPresented: Bool
+    @ViewBuilder var content: () -> Content
+    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeNSView(context: Context) -> NSView { NSView() }
+    func updateNSView(_ view: NSView,context: Context) {
+        context.coordinator.presented = $isPresented
+        if isPresented {
+            let root = AnyView(content().environment(\.self,context.environment))
+            context.coordinator.show(root,anchor: view)
+        } else { context.coordinator.close() }
+    }
+    static func dismantleNSView(_ nsView: NSView,coordinator: Coordinator) { coordinator.close() }
+    final class Coordinator: NSObject,NSPopoverDelegate {
+        private var popover: NSPopover?
+        var presented: Binding<Bool>?
+        func show(_ root: AnyView,anchor: NSView) {
+            if let host = popover?.contentViewController as? NSHostingController<AnyView> {
+                host.rootView = root
+                return
+            }
+            guard anchor.window != nil else { return }
+            let popup = NSPopover(); popup.behavior = .applicationDefined; popup.delegate = self
+            let host = NSHostingController(rootView: root); host.sizingOptions = [.preferredContentSize]
+            popup.contentViewController = host
+            popover = popup
+            PaintPopoverActivity.shared.open(self,close: { [weak self] in self?.close() })
+            popup.show(relativeTo: anchor.bounds,of: anchor,preferredEdge: .minX)
+        }
+        func close() { popover?.close(); popover = nil; PaintPopoverActivity.shared.closed(self) }
+        func popoverDidClose(_ notification: Notification) {
+            popover = nil; PaintPopoverActivity.shared.closed(self)
+            if presented?.wrappedValue == true { presented?.wrappedValue = false }
+        }
+    }
+}
+
+@MainActor final class PaintPopoverActivity {
+    static let shared = PaintPopoverActivity()
+    private weak var active: AnyObject?
+    private var closeActive: (() -> Void)?
+    var isVisible: Bool {
+        if let popover = active as? NSPopover { return popover.isShown }
+        return active != nil
+    }
+    func open(_ coordinator: AnyObject,close: @escaping () -> Void) {
+        if active !== coordinator { closeActive?() }
+        active = coordinator; closeActive = close
+    }
+    func closed(_ coordinator: AnyObject) {
+        if active === coordinator { active = nil; closeActive = nil }
+    }
 }

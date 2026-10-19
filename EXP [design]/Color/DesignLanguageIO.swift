@@ -289,7 +289,7 @@ enum DesignLanguageIO {
             let normalized = (g.angle + 90).truncatingRemainder(dividingBy: 360)
             let angle = normalized < 0 ? normalized + 360 : normalized
             return "linear-gradient(\(Int(angle.rounded()))deg, \(stops))"
-        case .radial: return "radial-gradient(circle, \(stops))"
+        case .radial: return g.radialCSS(stops: stops)
         }
     }
 

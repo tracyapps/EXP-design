@@ -1026,6 +1026,21 @@ enum SVGImporter {
                     g.end = CGPoint(x: x2, y: y2)
                 }
             }
+            if g.kind == .radial {
+                let units = gradientAttr(chain,"gradientUnits") ?? "objectBoundingBox"
+                let cx = frac(chain,"cx",0.5),cy = frac(chain,"cy",0.5),r = frac(chain,"r",0.5)
+                let fx = frac(chain,"fx",cx),fy = frac(chain,"fy",cy)
+                let carrier = XMLElement(name: "g")
+                if let value = gradientAttr(chain,"gradientTransform") { carrier.addAttribute(XMLNode.attribute(withName: "transform",stringValue: value) as! XMLNode) }
+                let matrix = transform(carrier)
+                if units == "objectBoundingBox",abs(matrix.b) < 1e-9,abs(matrix.c) < 1e-9,abs(fx-cx) < 1e-9,abs(fy-cy) < 1e-9,frac(chain,"fr",0) == 0 {
+                    let radial = RadialGradientGeometry(center: CGPoint(x: cx,y: cy).applying(matrix),
+                        radius: CGSize(width: abs(r*matrix.a),height: abs(r*matrix.d)))
+                    if radial.isValid { g.radial = radial }
+                } else {
+                    ctx.filterWarnings.values.append("Radial gradient with user-space, rotated/skewed axes or a separate focal point is outside editable geometry support; centered fallback retained.")
+                }
+            }
             ctx.gradients[id] = g
         }
     }

@@ -333,11 +333,11 @@ private struct GeneralSettingsPane: View {
         VStack(alignment: .leading, spacing: 24) {
             SettingsGroup("Interface",
                           footnote: "Tooltip detail only changes the hover bubble. Accessible names and full VoiceOver hints always remain available; hold Option while hovering to temporarily show the full explanation.") {
-                Picker("Drawing toolbar labels", selection: $toolbarLabels) {
+                Picker("Toolbar and fill-type labels", selection: $toolbarLabels) {
                     ForEach(EXPToolbarLabels.allCases) { Text($0.label).tag($0.rawValue) }
                 }
-                .accessibilityLabel("Drawing toolbar labels")
-                Text("Automatic shows tool names when VoiceOver is on. Text size and panel help are in Accessibility.")
+                .accessibilityLabel("Toolbar and fill-type labels")
+                Text("Applies to drawing tools and fill types. Automatic shows names when VoiceOver is on. Text size and panel help are in Accessibility.")
                     .font(.expLabel).foregroundStyle(EXPColor.textSecondary)
                 LabeledContent("Tooltip detail") {
                     Picker("Tooltip detail", selection: tooltipVerbosity) {

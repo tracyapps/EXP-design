@@ -141,6 +141,7 @@ struct ColorPopover: View {
     @State private var code = ""
     @State private var keyMonitor: Any?
     @State private var dlMatch: DesignAsset?
+    @State private var authoredColor: RGBAColor?
 
     var body: some View {
         VStack(spacing: 10) {
@@ -190,7 +191,13 @@ struct ColorPopover: View {
             }
         }
         .onAppear { loadFromColor(); installKeyMonitor(); refreshDLMatch() }
-        .onChange(of: color) { _, _ in refreshDLMatch() }
+        .onChange(of: color) { _, next in
+            // External point selection reloads all channels. Our own writes keep
+            // the authoring coordinates and out-of-gamut explanation intact.
+            if next != authoredColor { loadFromColor() }
+            authoredColor = nil
+            refreshDLMatch()
+        }
         .onDisappear(perform: removeKeyMonitor)
     }
 
@@ -276,33 +283,35 @@ struct ColorPopover: View {
 
     private func pushHSB() {
         let (r, g, bl) = ColorMath.hsbToRGB(h, s, b)
-        color = RGBAColor(r: r, g: g, b: bl, a: supportsOpacity ? a : 1)
+        writeColor(RGBAColor(r: r, g: g, b: bl, a: supportsOpacity ? a : 1))
         refreshCode()
     }
 
     private func pushHSL() {
         let (r, g, bl) = ColorMath.hslToRGB(hslH, hslS / 100, hslL / 100)
-        color = RGBAColor(r: r, g: g, b: bl, a: supportsOpacity ? a : 1)
+        writeColor(RGBAColor(r: r, g: g, b: bl, a: supportsOpacity ? a : 1))
         refreshCode()
     }
 
     private func pushOKLCH() {
         let (rgb, inGamut) = ColorMath.oklchToRGBGamut(okL, okC, okH)
         oklchInGamut = inGamut
-        color = RGBAColor(r: rgb.0, g: rgb.1, b: rgb.2, a: supportsOpacity ? a : 1)
+        writeColor(RGBAColor(r: rgb.0, g: rgb.1, b: rgb.2, a: supportsOpacity ? a : 1))
         refreshCode()
     }
 
     private func pushAlpha() {
-        color = RGBAColor(r: color.r, g: color.g, b: color.b, a: supportsOpacity ? a : 1)
+        writeColor(RGBAColor(r: color.r, g: color.g, b: color.b, a: supportsOpacity ? a : 1))
         refreshCode()
     }
+
+    private func writeColor(_ next: RGBAColor) { authoredColor = next; color = next }
 
     private func refreshCode() { code = ColorMath.string(color, format) }
 
     private func commitCode() {
         guard let c = ColorMath.parse(code, format, currentAlpha: a) else { refreshCode(); return }
-        color = c
+        writeColor(c)
         loadFromColor()
     }
 
@@ -314,8 +323,8 @@ struct ColorPopover: View {
     private func sampleScreen() {
         NSColorSampler().show { picked in
             guard let ns = picked?.usingColorSpace(.sRGB) else { return }
-            color = RGBAColor(r: Double(ns.redComponent), g: Double(ns.greenComponent),
-                              b: Double(ns.blueComponent), a: supportsOpacity ? Double(ns.alphaComponent) : 1)
+            writeColor(RGBAColor(r: Double(ns.redComponent), g: Double(ns.greenComponent),
+                              b: Double(ns.blueComponent), a: supportsOpacity ? Double(ns.alphaComponent) : 1))
             loadFromColor()
         }
     }

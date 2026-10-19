@@ -236,6 +236,7 @@ final class CanvasNSView: NSView {
         // FEAT-032: drag the on-canvas gradient line. `movingStart` picks the end;
         // a stop is addressed by its own id because `sortedStops` reorders.
         case gradientEnd(id: UUID, movingStart: Bool)
+        case radialY(id: UUID)
         case gradientStop(id: UUID, stopID: UUID)
         case meshPoint(id: UUID, pointID: UUID, radius: Bool)
         case marquee(startView: CGPoint, additive: Bool)
@@ -3527,12 +3528,10 @@ final class CanvasNSView: NSView {
 
     /// `line(t)` is a hit on the gradient line itself, `t` being the position along
     /// it — that is where a click ADDS a stop (FEAT-045).
-    enum GradientHandleHit: Equatable { case start, end, stop(UUID), line(CGFloat) }
+    enum GradientHandleHit: Equatable { case start, end, radialY, stop(UUID), line(CGFloat) }
 
-    /// The LINEAR gradient fill of a node, if it has one. Radial is excluded on
-    /// purpose: its on-canvas control is a different shape (centre + radius) and is
-    /// not what this feature was asked for.
-    private func linearGradientFill(of node: Node) -> GradientFill? {
+    /// Both gradient kinds share stop selection, commands and the live editor.
+    private func editableGradientFill(of node: Node) -> GradientFill? {
         let paint: Paint?
         switch node.content {
         case .rectangle(let s): paint = s.fill
@@ -3541,7 +3540,7 @@ final class CanvasNSView: NSView {
         case .path(let s):      paint = s.fill
         default:                paint = nil
         }
-        guard let g = paint?.gradientValue, g.kind == .linear else { return nil }
+        guard let g = paint?.gradientValue else { return nil }
         return g
     }
 
@@ -3560,14 +3559,20 @@ final class CanvasNSView: NSView {
     /// Unit space (0…1 of the fill rect) ⇄ the node's local points. Going through
     /// `nodeLocalToView` / `viewToNodeLocal` is what makes the line follow the shape
     /// through its own rotation and flip and every ancestor transform.
-    private func gradientUnitToView(_ u: CGPoint, _ n: Node, chain: [Node]) -> CGPoint {
-        nodeLocalToView(CGPoint(x: u.x * n.frame.width, y: u.y * n.frame.height), n, chain: chain)
+    private func gradientControlRect(_ n: Node) -> CGRect {
+        if editableGradientFill(of: n)?.kind == .radial,case .path(let path) = n.content {
+            return ExportRenderView.nsPath(path,origin: .zero).bounds
+        }
+        return CGRect(origin: .zero,size: n.frame.size)
     }
-
+    private func gradientUnitToView(_ u: CGPoint, _ n: Node, chain: [Node]) -> CGPoint {
+        let rect = gradientControlRect(n)
+        return nodeLocalToView(CGPoint(x: rect.minX+u.x*rect.width,y: rect.minY+u.y*rect.height), n, chain: chain)
+    }
     private func gradientViewToUnit(_ p: CGPoint, _ n: Node, chain: [Node]) -> CGPoint {
-        let l = viewToNodeLocal(p, n, chain: chain)
-        return CGPoint(x: n.frame.width  > 0 ? l.x / n.frame.width  : 0,
-                       y: n.frame.height > 0 ? l.y / n.frame.height : 0)
+        let l = viewToNodeLocal(p, n, chain: chain),rect = gradientControlRect(n)
+        return CGPoint(x: rect.width > 0 ? (l.x-rect.minX)/rect.width : 0,
+                       y: rect.height > 0 ? (l.y-rect.minY)/rect.height : 0)
     }
 
     /// The gradient handle line for the current selection, in view space.
@@ -3577,9 +3582,13 @@ final class CanvasNSView: NSView {
         guard app?.tool == .select, editingNodeID == nil,
               let id = app?.singleSelectedNodeID, let n = node(id),
               n.frame.width > 0, n.frame.height > 0,
-              let g = linearGradientFill(of: n) else { return nil }
+              let g = editableGradientFill(of: n) else { return nil }
         let chain = ancestorGroups(of: id)
-        let (u0, u1) = g.unitLinearPoints(in: CGRect(origin: .zero, size: n.frame.size))
+        let u0: CGPoint,u1: CGPoint
+        if g.kind == .radial {
+            let radial = g.radialGeometry(in: gradientControlRect(n))
+            u0 = radial.center; u1 = CGPoint(x: u0.x+radial.radius.width,y: u0.y)
+        } else { (u0,u1) = g.unitLinearPoints(in: CGRect(origin: .zero,size: n.frame.size)) }
         return (id, n, chain, g,
                 gradientUnitToView(u0, n, chain: chain),
                 gradientUnitToView(u1, n, chain: chain))
@@ -3691,6 +3700,11 @@ final class CanvasNSView: NSView {
         func near(_ c: CGPoint) -> Bool {
             hypot(p.x - c.x, p.y - c.y) <= handleGrab * 0.6
         }
+        if h.gradient.kind == .radial {
+            let radial = h.gradient.radialGeometry(in: gradientControlRect(h.node))
+            let yHandle = gradientUnitToView(CGPoint(x: radial.center.x,y: radial.center.y+radial.radius.height),h.node,chain: h.chain)
+            if near(yHandle) { return (h.id,.radialY) }
+        }
         if near(h.start) { return (h.id, .start) }
         if near(h.end)   { return (h.id, .end) }
         for stop in h.gradient.sortedStops
@@ -3713,7 +3727,7 @@ final class CanvasNSView: NSView {
     /// drag — click-and-drag places a stop in one motion.
     @discardableResult
     private func addGradientStop(on id: UUID, at t: CGFloat) -> UUID? {
-        guard let n = node(id), var g = linearGradientFill(of: n) else { return nil }
+        guard let n = node(id), var g = editableGradientFill(of: n) else { return nil }
         let stop = GradientStop(color: g.color(at: Double(t)), position: Double(t))
         g.stops.append(stop)
         dragBaseline = document?.model
@@ -3733,7 +3747,7 @@ final class CanvasNSView: NSView {
     /// menu and the popover, where each change is its own action.
     private func mutateGradientStop(nodeID: UUID, stopID: UUID, actionName: String,
                                     _ change: (inout GradientStop) -> Void) {
-        guard let n = node(nodeID), var g = linearGradientFill(of: n),
+        guard let n = node(nodeID), var g = editableGradientFill(of: n),
               let i = g.stops.firstIndex(where: { $0.id == stopID }) else { return }
         dragBaseline = document?.model
         gestureUndoName = actionName
@@ -3745,7 +3759,7 @@ final class CanvasNSView: NSView {
     }
 
     private func gradientStop(nodeID: UUID, stopID: UUID) -> GradientStop? {
-        guard let n = node(nodeID), let g = linearGradientFill(of: n) else { return nil }
+        guard let n = node(nodeID), let g = editableGradientFill(of: n) else { return nil }
         return g.stops.first { $0.id == stopID }
     }
 
@@ -3755,35 +3769,39 @@ final class CanvasNSView: NSView {
     /// It reuses `ColorPopover`, so the eyedropper, the code field, the WCAG contrast
     /// strip and "add to Design Language" all come along unchanged.
     private func showGradientStopEditor(nodeID: UUID, stopID: UUID) {
+        guard !PaintPopoverActivity.shared.isVisible else { return }
         gradientStopPopover?.close()
         gradientStopPopover = nil
         guard let h = gradientHandleLine(), h.id == nodeID,
               let stop = h.gradient.stops.first(where: { $0.id == stopID }) else { return }
         let knob = Self.lerp(h.start, h.end, CGFloat(stop.position))
         let color = Binding<RGBAColor>(
-            get: { [weak self] in self?.gradientStop(nodeID: nodeID, stopID: stopID)?.color ?? .black },
+            get: { [weak self] in self?.gradientStop(nodeID: nodeID, stopID: self?.app?.selectedGradientStopID ?? stopID)?.color ?? .black },
             set: { [weak self] c in
-                self?.mutateGradientStop(nodeID: nodeID, stopID: stopID,
+                self?.mutateGradientStop(nodeID: nodeID, stopID: self?.app?.selectedGradientStopID ?? stopID,
                                          actionName: "Gradient Stop Color") { $0.color = c }
             })
         let position = Binding<Double>(
             get: { [weak self] in
-                Double(self?.gradientStop(nodeID: nodeID, stopID: stopID)?.position ?? 0) * 100
+                Double(self?.gradientStop(nodeID: nodeID, stopID: self?.app?.selectedGradientStopID ?? stopID)?.position ?? 0) * 100
             },
             set: { [weak self] v in
-                self?.mutateGradientStop(nodeID: nodeID, stopID: stopID,
+                self?.mutateGradientStop(nodeID: nodeID, stopID: self?.app?.selectedGradientStopID ?? stopID,
                                          actionName: "Gradient Stop Position") {
                     $0.position = min(1, max(0, v / 100))
                 }
             })
         let popover = NSPopover()
-        popover.behavior = .transient
+        popover.behavior = .applicationDefined
         popover.contentViewController = NSHostingController(
-            rootView: GradientStopEditor(color: color, positionPercent: position)
-                .expTransientWindowLevel())
+            rootView: VStack(alignment: .trailing) {
+                GradientStopEditor(color: color, positionPercent: position)
+                Button("Done") { [weak popover] in popover?.close() }.keyboardShortcut(.cancelAction).padding(8)
+            }.expTransientWindowLevel())
         popover.show(relativeTo: CGRect(x: knob.x - 6, y: knob.y - 6, width: 12, height: 12),
                      of: self, preferredEdge: .maxY)
         gradientStopPopover = popover
+        PaintPopoverActivity.shared.open(popover,close: { [weak popover] in popover?.close() })
     }
 
     @objc func editGradientStopAction(_ sender: Any?) {
@@ -3836,7 +3854,7 @@ final class CanvasNSView: NSView {
     /// existing stop and recolours it instead of stacking an unseparable duplicate.
     @objc func pasteGradientStopAction(_ sender: Any?) {
         guard let copied = app?.copiedGradientStop, let m = pendingGradientMenu,
-              let n = node(m.nodeID), var g = linearGradientFill(of: n) else { return }
+              let n = node(m.nodeID), var g = editableGradientFill(of: n) else { return }
         let t = Double(min(1, max(0, m.t)))
         dragBaseline = document?.model
         gestureUndoName = "Paste Gradient Stop"
@@ -3858,7 +3876,7 @@ final class CanvasNSView: NSView {
     /// gradient and there is no sensible thing to draw.
     @objc func deleteGradientStopAction(_ sender: Any?) {
         guard let m = pendingGradientMenu, let stopID = m.stopID,
-              let n = node(m.nodeID), var g = linearGradientFill(of: n),
+              let n = node(m.nodeID), var g = editableGradientFill(of: n),
               g.stops.count > 2, let i = g.stops.firstIndex(where: { $0.id == stopID })
         else { NSSound.beep(); return }
         dragBaseline = document?.model
@@ -8010,6 +8028,20 @@ final class CanvasNSView: NSView {
         ctx.move(to: h.start); ctx.addLine(to: h.end); ctx.strokePath()
         ctx.restoreGState()
 
+        if h.gradient.kind == .radial {
+            let radial = h.gradient.radialGeometry(in: gradientControlRect(h.node))
+            ctx.saveGState(); ctx.setStrokeColor(NSColor.white.cgColor); ctx.setLineWidth(1); ctx.setLineDash(phase: 0,lengths: [4,3])
+            for step in 0...64 {
+                let angle = Double(step)*Double.pi/32
+                let unit = CGPoint(x: radial.center.x+cos(angle)*radial.radius.width,y: radial.center.y+sin(angle)*radial.radius.height)
+                let point = gradientUnitToView(unit,h.node,chain: h.chain)
+                if step == 0 { ctx.move(to: point) } else { ctx.addLine(to: point) }
+            }
+            ctx.strokePath(); ctx.restoreGState()
+            let yHandle = gradientUnitToView(CGPoint(x: radial.center.x,y: radial.center.y+radial.radius.height),h.node,chain: h.chain)
+            drawGradientKnob(at: yHandle,fill: .white,radius: 5.5,in: ctx)
+        }
+
         // Stops first, ends on top: an end knob and a 0/1 stop share a position, and
         // the end is what the hit-test prefers, so it should be what you see.
         for stop in h.gradient.sortedStops {
@@ -8017,8 +8049,8 @@ final class CanvasNSView: NSView {
                              fill: PaintRender.nsColor(stop.color), radius: 4,
                              isSelected: app?.selectedGradientStopID == stop.id, in: ctx)
         }
-        drawGradientKnob(at: h.start, fill: .white, radius: 5.5, in: ctx)
-        drawGradientKnob(at: h.end, fill: .white, radius: 5.5, in: ctx)
+        drawGradientKnob(at: h.start, fill: PaintRender.nsColor(h.gradient.sortedStops.first?.color ?? .white), radius: 5.5,isSelected: app?.selectedGradientStopID == h.gradient.sortedStops.first?.id, in: ctx)
+        drawGradientKnob(at: h.end, fill: PaintRender.nsColor(h.gradient.sortedStops.last?.color ?? .white), radius: 5.5,isSelected: app?.selectedGradientStopID == h.gradient.sortedStops.last?.id, in: ctx)
     }
 
     private func drawGradientKnob(at c: CGPoint, fill: NSColor, radius: CGFloat,
@@ -8359,7 +8391,9 @@ final class CanvasNSView: NSView {
     }
 
     override func keyDown(with event: NSEvent) {
-        if event.keyCode == 53,case .meshPoint = dragMode {
+        let editingGradient: Bool
+        switch dragMode { case .meshPoint,.gradientEnd,.gradientStop,.radialY: editingGradient = true; default: editingGradient = false }
+        if event.keyCode == 53,editingGradient {
             if let baseline = dragBaseline { document?.model = baseline }
             meshDragOriginal = nil; dragBaseline = nil; dragMode = .none; didEdit = false
             needsDisplay = true; return
@@ -8627,10 +8661,12 @@ final class CanvasNSView: NSView {
         if let g = hitTestGradientHandle(atViewPoint: p) {
             didEdit = false
             switch g.hit {
-            case .start, .end:
+            case .start, .end, .radialY:
+                if let n = node(g.id),let fill = editableGradientFill(of: n) { app.selectedGradientStopID = (g.hit == .start ? fill.sortedStops.first : fill.sortedStops.last)?.id }
                 dragBaseline = document.model
                 gestureUndoName = "Gradient Direction"
-                dragMode = .gradientEnd(id: g.id, movingStart: g.hit == .start)
+                if g.hit == .radialY { dragMode = .radialY(id: g.id) }
+                else { dragMode = .gradientEnd(id: g.id, movingStart: g.hit == .start) }
             case .stop(let stopID):
                 dragBaseline = document.model
                 gestureUndoName = "Gradient Stop"
@@ -9243,8 +9279,23 @@ final class CanvasNSView: NSView {
             } else { mesh.points[i].position = CGPoint(x: min(3,max(-2,unit.x)),y: min(3,max(-2,unit.y))) }
             if mesh != h.mesh { setMeshFill(mesh,on: id); didEdit = true; needsDisplay = true }
 
+        case .radialY(let id):
+            guard let n = node(id),var gradient = editableGradientFill(of: n) else { return }
+            var radial = gradient.radialGeometry(in: gradientControlRect(n))
+            radial.radius.height = min(1_000_000,max(0.005,abs(gradientViewToUnit(p,n,chain: ancestorGroups(of: id)).y-radial.center.y)))
+            gradient.radial = radial
+            setGradientFill(gradient,on: id); didEdit = true; needsDisplay = true
+
         case .gradientEnd(let id, let movingStart):
-            guard let n = node(id), let g0 = linearGradientFill(of: n) else { return }
+            guard let n = node(id), let g0 = editableGradientFill(of: n) else { return }
+            if g0.kind == .radial {
+                var gradient = g0,radial = g0.radialGeometry(in: gradientControlRect(n))
+                let unit = gradientViewToUnit(p,n,chain: ancestorGroups(of: id))
+                if movingStart { radial.center = CGPoint(x: min(3,max(-2,unit.x)),y: min(3,max(-2,unit.y))) }
+                else { radial.radius.width = min(1_000_000,max(0.005,abs(unit.x-radial.center.x))) }
+                gradient.radial = radial
+                setGradientFill(gradient,on: id); didEdit = true; needsDisplay = true; return
+            }
             let rect = CGRect(origin: .zero, size: n.frame.size)
             var (u0, u1) = g0.unitLinearPoints(in: rect)
             var u = gradientViewToUnit(p, n, chain: ancestorGroups(of: id))
@@ -9260,10 +9311,17 @@ final class CanvasNSView: NSView {
             needsDisplay = true
 
         case .gradientStop(let id, let stopID):
-            guard let n = node(id), var g = linearGradientFill(of: n),
+            guard let n = node(id), var g = editableGradientFill(of: n),
                   let i = g.stops.firstIndex(where: { $0.id == stopID }) else { return }
             let rect = CGRect(origin: .zero, size: n.frame.size)
-            let (u0, u1) = g.unitLinearPoints(in: rect)
+            let u0: CGPoint,u1: CGPoint
+            if g.kind == .radial {
+                let radial = g.radialGeometry(in: gradientControlRect(n)); u0 = radial.center
+                u1 = CGPoint(x: u0.x+radial.radius.width,y: u0.y)
+                let unit = gradientViewToUnit(p,n,chain: ancestorGroups(of: id))
+                g.stops[i].position = min(1,max(0,(unit.x-u0.x)/max(0.005,radial.radius.width)))
+                setGradientFill(g,on: id); didEdit = true; needsDisplay = true; return
+            } else { (u0,u1) = g.unitLinearPoints(in: rect) }
             // Project onto the line in LOCAL POINTS, not unit space: on a non-square
             // shape the two are not the same direction, and projecting in unit space
             // would slide the stop to the wrong place.
@@ -9428,7 +9486,7 @@ final class CanvasNSView: NSView {
         case .pathPoint(let nodeID, _):
             if didEdit { normalizePath(nodeID); registerUndoForGesture() }
 
-        case .gradientEnd:
+        case .gradientEnd, .radialY:
             if didEdit { registerUndoForGesture() }
         case .meshPoint(let id,_,_):
             if didEdit,let original = meshDragOriginal,node(id)?.layerPaintStyle?.fill?.meshValue != original { registerUndoForGesture() }
@@ -13659,7 +13717,7 @@ final class CanvasNSView: NSView {
                 t = CGFloat(gradientStop(nodeID: g.id, stopID: id)?.position ?? 0)
             case .line(let hitT):
                 t = hitT
-            case .start, .end:
+            case .start, .end, .radialY:
                 return super.menu(for: event)   // the ends are not stops; no menu of their own
             }
             pendingGradientMenu = (g.id, stopID, t)
@@ -13680,7 +13738,7 @@ final class CanvasNSView: NSView {
                 item("Copy Stop", #selector(copyGradientStopAction(_:)))
                 item("Paste Stop Here", #selector(pasteGradientStopAction(_:)), enabled: canPaste)
                 menu.addItem(.separator())
-                let canDelete = (node(g.id).flatMap { linearGradientFill(of: $0) }?.stops.count ?? 0) > 2
+                let canDelete = (node(g.id).flatMap { editableGradientFill(of: $0) }?.stops.count ?? 0) > 2
                 item("Delete Stop", #selector(deleteGradientStopAction(_:)), enabled: canDelete)
             } else {
                 item("Add Stop Here", #selector(addGradientStopHereAction(_:)))

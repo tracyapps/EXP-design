@@ -40,8 +40,20 @@ struct MeshPaintControls: View {
             }
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(),spacing: 4),count: 4),spacing: 4) {
                 ForEach(Array(mesh.points.enumerated()),id: \.element.id) { i,p in
-                    Button("\(i+1)") { selection = p.id }
-                        .buttonStyle(.bordered).tint(selection == p.id ? .accentColor : nil)
+                    Button { selection = p.id } label: {
+                        HStack(spacing: 6) {
+                            Circle().fill(p.color.swiftUI).frame(width: 10,height: 10)
+                                .overlay(Circle().strokeBorder(EXPColor.textSecondary.opacity(0.6),lineWidth: 1))
+                                .accessibilityHidden(true)
+                            Text("\(i+1)").font(.expLabel)
+                        }
+                        .frame(maxWidth: .infinity,minHeight: EXPInterfaceAccessibility.shared.targetHeight(24))
+                        .foregroundStyle(selection == p.id ? EXPColor.accentForeground : EXPColor.textSecondary)
+                        .background(selection == p.id ? EXPColor.accent : EXPColor.surfaceField,
+                                    in: RoundedRectangle(cornerRadius: EXPMetric.radiusControl-2))
+                        .contentShape(Rectangle())
+                    }
+                        .buttonStyle(.plain)
                         .accessibilityLabel(Text("Mesh point \(i+1)"))
                         .accessibilityAddTraits(selection == p.id ? .isSelected : [])
                 }

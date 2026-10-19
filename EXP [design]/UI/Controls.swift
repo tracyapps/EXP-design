@@ -33,6 +33,7 @@ struct EXPSegmented<Value: Hashable>: View {
 
     @Binding var selection: Value
     let segments: [Segment]
+    var equalWidth = false
     @FocusState private var focusedValue: Value?
     private var segmentFontSize: CGFloat { EXPType.small }
     private var segmentHeight: CGFloat { EXPInterfaceAccessibility.shared.targetHeight(20) }
@@ -47,11 +48,12 @@ struct EXPSegmented<Value: Hashable>: View {
                 } label: {
                     HStack(spacing: 5) {
                         if let icon = seg.icon { Image(systemName: icon).font(.system(size: 11)) }
-                        if let label = seg.label { Text(label) }
+                        if let label = seg.label { Text(label).fixedSize(horizontal: equalWidth,vertical: false) }
                     }
                     .font(.system(size: segmentFontSize, weight: sel ? .medium : .light))
                     .foregroundStyle(sel ? EXPColor.accentForeground : EXPColor.textSecondary)
                     .padding(.horizontal, 10)
+                    .frame(maxWidth: equalWidth ? .infinity : nil)
                     .frame(minHeight: segmentHeight)
                     .background(sel ? EXPColor.accent : Color.clear,
                                 in: RoundedRectangle(cornerRadius: EXPMetric.radiusControl - 2, style: .continuous))

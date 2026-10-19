@@ -1,8 +1,9 @@
 # Mesh fill — v2.7 owner review
 
 October 18, 2026 · FEAT-033 · development 2.7/build 18.
-Implemented and locally checked; **owner functional acceptance remains open**.
-The owner accepted the foundation rendering preview; this is the editable slice.
+Owner accepted the initial editable functionality October 19 (“that works nicely”).
+The requested refinement slice awaits review; see `GRADIENT-EDITING-v2.7.md`.
+Full AT/display/stress/library gates remain open.
 
 ## Try it in the rebuilt Xcode app
 
@@ -14,7 +15,7 @@ The owner accepted the foundation rendering preview; this is the editable slice.
    horizontal width and one vertical height. Back/Front change the point order;
    Remove deletes the selected point. At most eight points; all can be removed
    to leave the base. Numeric controls provide the keyboard alternative.
-3. Close the popover. On shape fills, drag a colored center to move it; select
+3. Keep the popover open. On shape fills, drag a colored center to move it; select
    a point to see its dashed elliptical extent and white radius handle. Drag
    that white handle to resize. Escape restores the drag baseline; returning
    to the original value does not create an Undo step. Artboard/auto-padding

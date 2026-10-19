@@ -424,10 +424,7 @@ enum PaintRender {
                 let (s, e) = g.linearPoints(in: rect)
                 ctx.drawLinearGradient(gradient, start: s, end: e, options: opts)
             case .radial:
-                let c = CGPoint(x: rect.midX, y: rect.midY)
-                let r = max(1, hypot(rect.width, rect.height) / 2)
-                ctx.drawRadialGradient(gradient, startCenter: c, startRadius: 0,
-                                       endCenter: c, endRadius: r, options: opts)
+                drawRadial(gradient,geometry: g.radialGeometry(in: rect),rect: rect,ctx: ctx,options: opts)
             }
             ctx.restoreGState()
             return
@@ -439,10 +436,7 @@ enum PaintRender {
             let (s, e) = g.linearPoints(in: rect)
             ctx.drawLinearGradient(gradient, start: s, end: e, options: opts)
         case .radial:
-            let c = CGPoint(x: rect.midX, y: rect.midY)
-            let r = max(1, hypot(rect.width, rect.height) / 2)
-            ctx.drawRadialGradient(gradient, startCenter: c, startRadius: 0,
-                                   endCenter: c, endRadius: r, options: opts)
+            drawRadial(gradient,geometry: g.radialGeometry(in: rect),rect: rect,ctx: ctx,options: opts)
         }
     }
 
@@ -484,12 +478,19 @@ enum PaintRender {
             let (s, e) = g.linearPoints(in: rect)
             bitmap.drawLinearGradient(gradient, start: s, end: e, options: opts)
         case .radial:
-            let c = CGPoint(x: rect.midX, y: rect.midY)
-            let r = max(1, hypot(rect.width, rect.height) / 2)
-            bitmap.drawRadialGradient(gradient, startCenter: c, startRadius: 0,
-                                      endCenter: c, endRadius: r, options: opts)
+            drawRadial(gradient,geometry: g.radialGeometry(in: rect),rect: rect,ctx: bitmap,options: opts)
         }
         return bitmap.makeImage()
+    }
+
+    private static func drawRadial(_ gradient: CGGradient,geometry: RadialGradientGeometry,
+                                   rect: CGRect,ctx: CGContext,options: CGGradientDrawingOptions) {
+        guard rect.width > 0,rect.height > 0,geometry.isValid else { return }
+        ctx.saveGState()
+        ctx.translateBy(x: rect.minX+geometry.center.x*rect.width,y: rect.minY+geometry.center.y*rect.height)
+        ctx.scaleBy(x: geometry.radius.width*rect.width,y: geometry.radius.height*rect.height)
+        ctx.drawRadialGradient(gradient,startCenter: .zero,startRadius: 0,endCenter: .zero,endRadius: 1,options: options)
+        ctx.restoreGState()
     }
 
     static func nsColor(_ c: RGBAColor) -> NSColor {

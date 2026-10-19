@@ -636,6 +636,9 @@ struct ExportRenderer {
             let (u0, u1) = g.unitLinearPoints(in: rect ?? CGRect(x: 0, y: 0, width: 1, height: 1))
             return "  <linearGradient id=\"\(id)\" x1=\"\(num(u0.x))\" y1=\"\(num(u0.y))\" x2=\"\(num(u1.x))\" y2=\"\(num(u1.y))\">\n\(stops)  </linearGradient>\n"
         case .radial:
+            if let radial = g.radial,radial.isValid {
+                return "  <radialGradient id=\"\(id)\" cx=\"0\" cy=\"0\" r=\"1\" gradientTransform=\"matrix(\(radial.radius.width) 0 0 \(radial.radius.height) \(radial.center.x) \(radial.center.y))\">\n\(stops)  </radialGradient>\n"
+            }
             return "  <radialGradient id=\"\(id)\" cx=\"0.5\" cy=\"0.5\" r=\"0.5\">\n\(stops)  </radialGradient>\n"
         }
     }
@@ -1565,7 +1568,7 @@ final class ExportRenderView: NSView {
             }
             exportStroke(path, width: ps.strokeWidth,
                          alignment: ps.effectiveStrokeAlignment, paint: ps.stroke,
-                         bounds: rect, in: ctx, join: ps.strokeJoin.cgLineJoin,
+                         bounds: ps.stroke.gradientValue?.kind == .radial ? path.bounds : rect, in: ctx, join: ps.strokeJoin.cgLineJoin,
                          cap: ps.strokeCap.cgLineCap, miterLimit: ps.strokeMiterLimit,
                          pattern: ps.strokePattern)
             if ps.strokeWidth > 0, let tangents = ps.endpointTangents {

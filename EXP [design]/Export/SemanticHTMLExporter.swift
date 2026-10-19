@@ -984,6 +984,9 @@ private struct HTMLWriter {
             let points = gradient.linearPoints(in: rect)
             return "<linearGradient id=\"\(id)\" gradientUnits=\"userSpaceOnUse\" x1=\"\(number(points.0.x))\" y1=\"\(number(points.0.y))\" x2=\"\(number(points.1.x))\" y2=\"\(number(points.1.y))\">\(stops)</linearGradient>"
         case .radial:
+            if let radial = gradient.radial,radial.isValid {
+                return "<radialGradient id=\"\(id)\" cx=\"0\" cy=\"0\" r=\"1\" gradientTransform=\"matrix(\(radial.radius.width) 0 0 \(radial.radius.height) \(radial.center.x) \(radial.center.y))\">\(stops)</radialGradient>"
+            }
             let radius = hypot(rect.width / 2, rect.height / 2)
             return "<radialGradient id=\"\(id)\" gradientUnits=\"userSpaceOnUse\" cx=\"\(number(rect.midX))\" cy=\"\(number(rect.midY))\" r=\"\(number(radius))\">\(stops)</radialGradient>"
         }
@@ -1506,7 +1509,7 @@ private struct CSSWriter {
             }.joined(separator: ", ")
             switch gradient.kind {
             case .linear: return "linear-gradient(\(number(cssGradientAngle(gradient.angle)))deg, \(stops))"
-            case .radial: return "radial-gradient(circle, \(stops))"
+            case .radial: return gradient.radialCSS(stops: stops)
             }
         }
     }

@@ -28,10 +28,19 @@ struct GradientStop: Codable, Equatable, Identifiable, Sendable {
     }
 }
 
-/// A multi-stop gradient. Geometry is normalized to the shape's bounding box:
-/// linear is driven by `angle` (degrees, y-down: 0 = →, 90 = ↓) or, when the
-/// gradient line has been placed explicitly, by `start`/`end`; radial is centered
-/// with a radius to the box corner.
+/// Optional radial geometry in fractions of the fill's bounds.
+struct RadialGradientGeometry: Codable,Equatable,Sendable {
+    var center: CGPoint
+    var radius: CGSize
+    var isValid: Bool {
+        [center.x,center.y,radius.width,radius.height].allSatisfy(\.isFinite)
+            && (-2...3).contains(center.x) && (-2...3).contains(center.y)
+            && radius.width > 0 && radius.height > 0 && radius.width <= 1_000_000 && radius.height <= 1_000_000
+    }
+}
+
+/// Linear uses an angle or explicit line; radial keeps its legacy centered
+/// circle until editable center/elliptical radii are authored.
 struct GradientFill: Codable, Equatable, Sendable {
     enum Kind: String, Codable, Sendable { case linear, radial }
 
@@ -41,6 +50,8 @@ struct GradientFill: Codable, Equatable, Sendable {
         GradientStop(color: .black, position: 1)
     ]
     var angle: Double = 90
+    /// nil retains the original centered circular gradient, including old files.
+    var radial: RadialGradientGeometry? = nil
 
     /// FEAT-032 — the gradient LINE, in UNIT space (0…1 of the fill rect, the same
     /// objectBoundingBox convention CSS and SVG use). `nil` means "derive from
@@ -56,7 +67,7 @@ struct GradientFill: Codable, Equatable, Sendable {
     var start: CGPoint? = nil
     var end: CGPoint? = nil
 
-    enum CodingKeys: String, CodingKey { case kind, stops, angle, start, end }
+    enum CodingKeys: String, CodingKey { case kind, stops, angle, start, end, radial }
 
     /// Every parameter keeps a default so this matches the memberwise initializer
     /// the compiler used to synthesize — existing call sites are unaffected.
@@ -78,6 +89,8 @@ struct GradientFill: Codable, Equatable, Sendable {
             GradientStop(color: .black, position: 1)
         ]
         angle = try c.decodeIfPresent(Double.self, forKey: .angle) ?? 90
+        radial = try c.decodeIfPresent(RadialGradientGeometry.self,forKey: .radial)
+        if let radial,!radial.isValid { throw DecodingError.dataCorruptedError(forKey: .radial,in: c,debugDescription: "Invalid radial geometry") }
         start = try c.decodeIfPresent(CGPoint.self, forKey: .start)
         end = try c.decodeIfPresent(CGPoint.self, forKey: .end)
         // A half-written line is meaningless; fall back to the angle rather than
@@ -92,6 +105,20 @@ struct GradientFill: Codable, Equatable, Sendable {
         try c.encode(angle, forKey: .angle)
         try c.encodeIfPresent(start, forKey: .start)
         try c.encodeIfPresent(end, forKey: .end)
+        try c.encodeIfPresent(radial,forKey: .radial)
+    }
+
+    /// Center/radii in unit box coordinates. The implicit default reproduces
+    /// the previous circle-to-corner paint exactly on every aspect ratio.
+    func radialGeometry(in rect: CGRect) -> RadialGradientGeometry {
+        if let radial,radial.isValid { return radial }
+        let radius = max(1,hypot(rect.width,rect.height)/2)
+        return RadialGradientGeometry(center: CGPoint(x: 0.5,y: 0.5),
+            radius: CGSize(width: radius/max(0.001,rect.width),height: radius/max(0.001,rect.height)))
+    }
+    func radialCSS(stops: String) -> String {
+        guard let radial,radial.isValid else { return "radial-gradient(circle, \(stops))" }
+        return "radial-gradient(ellipse \(radial.radius.width*100)% \(radial.radius.height*100)% at \(radial.center.x*100)% \(radial.center.y*100)%, \(stops))"
     }
 
     /// Stops in draw order (ascending position), clamped to 0…1.
