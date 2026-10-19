@@ -143,7 +143,7 @@ private final class Page: NSObject, WKNavigationDelegate {
             ("off-canvas",MeshFill(base: .clear,points: [MeshPoint(position: CGPoint(x: -0.1,y: 0.3),radius: 1.25,color: .white)]))
         ]
         var receipts: [[String:Any]] = []
-        for size in [CGSize(width: 128,height: 80),CGSize(width: 48,height: 120)] {
+        for size in (CommandLine.arguments.contains("--integration-only") ? [] : [CGSize(width: 128,height: 80),CGSize(width: 48,height: 120)]) {
             let w = Int(size.width), h = Int(size.height), rect = CGRect(origin: .zero,size: size)
             for (name,mesh) in cases {
                 func native(_ pdfSafe: Bool, white: Bool = false) throws -> [Int] {
@@ -192,6 +192,121 @@ private final class Page: NSObject, WKNavigationDelegate {
                 receipts.append(["case":name,"width":w,"height":h,"svgError":svgError,"cssError":cssError,"maskError":maskError,"pdfError":pdfError,"nativeReferenceError":directMath,"pdfReferenceError":pdfMath])
             }
         }
+        let integrationBoard = Artboard(name: "Mesh integration",frame: CGRect(x: 0,y: 0,width: 128,height: 80),background: .clear)
+        let integrationMesh = cases[3].1
+        var integrationNode = Node(name: "Mesh shape",frame: integrationBoard.frame,
+            content: .rectangle(RectangleShape(fill: .mesh(integrationMesh),strokeWidth: 0)))
+        for opacity in [1.0,0.5] {
+            integrationNode.opacity = opacity
+            let document = Document(artboards: [integrationBoard],nodes: [integrationNode])
+            let renderer = ExportRenderer(document: document)
+            guard let png = renderer.pngData(for: integrationBoard,scale: 1,transparentBackground: true),
+                  let image = NSBitmapImageRep(data: png)?.cgImage else { fail("integrated Mesh PNG failed") }
+            let svg = renderer.svgString(for: integrationBoard)
+            let browser = try await page.sample(svg,width: 128,height: 80)
+            let error = zip(pixels(image),browser).map { abs($0-$1) }.max()!
+            if error > 8 {
+                let mismatch = zip(pixels(image),browser).enumerated().filter { abs($0.element.0-$0.element.1)>8 }.prefix(10).map { "x=\(($0.offset/4)%128) y=\(($0.offset/4)/128) ch=\($0.offset%4): \($0.element.0)/\($0.element.1)" }
+                fail("actual Mesh PNG/PDF vs SVG at opacity \(opacity): \(error), \(mismatch)")
+            }
+            require(renderer.svgString(for: integrationBoard) == svg,"Mesh export must be deterministic")
+            guard let imported = SVGImporter.importDocument(from: Data(svg.utf8)) else { fail("own mesh SVG import failed") }
+            func mesh(in node: Node) -> MeshFill? {
+                if let m = node.layerPaintStyle?.fill?.meshValue { return m }
+                if case .group(let children) = node.content { return children.compactMap { mesh(in: $0) }.first }
+                return nil
+            }
+            require(mesh(in: imported.group) == integrationMesh,"own SVG must restore editable points; warnings \(imported.warnings)")
+            let shifted = svg.replacingOccurrences(of: "patternUnits=\"userSpaceOnUse\" x=\"0.0\"",with: "patternUnits=\"userSpaceOnUse\" x=\"5.0\"")
+            require(shifted != svg,"placement rejection fixture must change the pattern")
+            let shiftedImport = SVGImporter.importDocument(from: Data(shifted.utf8))
+            require(shiftedImport != nil && mesh(in: shiftedImport!.group) == nil && !shiftedImport!.warnings.isEmpty,"changed pattern placement must not collapse to old Mesh positions")
+            let saved = try JSONDecoder().decode(Document.self,from: JSONEncoder().encode(document))
+            require(saved.nodes[0].layerPaintStyle?.fill?.meshValue == integrationMesh,"document save/reopen mesh changed")
+            let altered = svg.replacingOccurrences(of: "stop-opacity=\"0.8\"",with: "stop-opacity=\"0.1\"")
+            // Modifying a visible position must invalidate metadata collapse.
+            let tokenSVG = svg.replacingOccurrences(of: "<defs>",with: "<style>:root { --accent: #ff00ff; }</style><defs>")
+            let tokenImport = SVGImporter.importDocument(from: Data(tokenSVG.utf8))
+            require(tokenImport != nil && mesh(in: tokenImport!.group) == integrationMesh,"inert EXP color tokens must preserve Mesh collapse")
+            let styled = svg.replacingOccurrences(of: "<defs>",with: "<style>stop { stop-color: red !important; }</style><defs>")
+            let styledImport = SVGImporter.importDocument(from: Data(styled.utf8))
+            require(styledImport != nil && mesh(in: styledImport!.group) == nil && !styledImport!.warnings.isEmpty,"stylesheet overrides must not be hidden by Mesh metadata")
+            let changed = altered.replacingOccurrences(of: "cx=\"0.25\"",with: "cx=\"0.3\"")
+            let untrusted = SVGImporter.importDocument(from: Data(changed.utf8))
+            require(untrusted != nil && mesh(in: untrusted!.group) == nil && !untrusted!.warnings.isEmpty,"changed SVG visuals must not collapse from stale metadata")
+            print("PASS: actual Mesh Paint / PNG / SVG / strict import / codec at opacity \(opacity), channel error \(error)")
+        }
+        integrationNode.opacity = 0.6; integrationNode.rotation = 25
+        integrationNode.frame = CGRect(x: 18,y: 12,width: 92,height: 56)
+        let rotatedDoc = Document(artboards: [integrationBoard],nodes: [integrationNode])
+        let rotatedRenderer = ExportRenderer(document: rotatedDoc)
+        let rotatedSVG = rotatedRenderer.svgString(for: integrationBoard)
+        guard let rotatedImport = SVGImporter.importDocument(from: Data(rotatedSVG.utf8)),
+              let first = rotatedRenderer.pngData(for: integrationBoard,scale: 1,transparentBackground: true),
+              let second = ExportRenderer(document: Document(artboards: [integrationBoard],nodes: [rotatedImport.group])).pngData(for: integrationBoard,scale: 1,transparentBackground: true),
+              let firstCG = NSBitmapImageRep(data: first)?.cgImage,let secondCG = NSBitmapImageRep(data: second)?.cgImage else { fail("rotated Mesh roundtrip unavailable") }
+        let rotatedError = zip(pixels(firstCG),pixels(secondCG)).map { abs($0-$1) }.max()!
+        require(rotatedError <= 8,"rotated non-square Mesh SVG re-import error \(rotatedError)")
+        print("PASS: rotated non-square Mesh SVG/native roundtrip, channel error \(rotatedError)")
+        _ = try await page.cssPixels(integrationMesh,width: 128,height: 80)
+        let extraction = RenderedHTMLExtractionScript.source(sourceName: "Mesh CSS",sourceURL: "file:///mesh.html",
+            viewport: RenderedHTMLViewport(name: "Mesh",width: 128,renderHeight: 80))
+        guard let snapshot = try await page.web.evaluateJavaScript(extraction) as? String else { fail("real CSS snapshot missing") }
+        let mapped = try RenderedHTMLImporter().read(snapshotData: [Data(snapshot.utf8)])
+        require(mapped.payload.pages[0].artboards[0].background.meshValue == integrationMesh,"real CSS extraction/import must retain editable Mesh")
+        _ = try await page.web.evaluateJavaScript("document.body.style.backgroundImage='none'")
+        guard let changedSnapshot = try await page.web.evaluateJavaScript(extraction) as? String else { fail("changed CSS snapshot missing") }
+        let changed = try RenderedHTMLImporter().read(snapshotData: [Data(changedSnapshot.utf8)])
+        require(changed.payload.pages[0].artboards[0].background.meshValue == nil,"stale CSS metadata must not override changed visuals")
+        print("PASS: actual production WebKit CSS extraction -> editable Mesh; changed visual invalidates stale metadata")
+        let strokeFrame = CGRect(x: 24,y: 20,width: 80,height: 40)
+        for opacity in [1.0,0.5] {
+            let strokeNode = Node(name: "Mesh outline",frame: strokeFrame,opacity: opacity,
+                content: .rectangle(RectangleShape(fill: .clear,stroke: .mesh(integrationMesh),strokeWidth: 8)))
+            let renderer = ExportRenderer(document: Document(artboards: [integrationBoard],nodes: [strokeNode]))
+            guard let png = renderer.pngData(for: integrationBoard,scale: 1,transparentBackground: true),
+                  let cg = NSBitmapImageRep(data: png)?.cgImage else { fail("Mesh outline PNG missing") }
+            let svg = try await page.sample(renderer.svgString(for: integrationBoard),width: 128,height: 80)
+            let error = zip(pixels(cg),svg).map { abs($0-$1) }.max()!
+            require(error <= 8,"Mesh outline native/SVG mismatch \(error), opacity \(opacity)")
+            print("PASS: Mesh outline uses same tiled bbox paint as SVG, opacity \(opacity), channel error \(error)")
+        }
+        var curveStart = PathPoint(point: CGPoint(x: 0,y: 20)); curveStart.controlOut = CGPoint(x: 0,y: 0)
+        var curveEnd = PathPoint(point: CGPoint(x: 80,y: 20)); curveEnd.controlIn = CGPoint(x: 80,y: 40)
+        let curveNode = Node(name: "Mesh curve",frame: CGRect(x: 24,y: 20,width: 80,height: 40),content: .path(PathShape(points: [curveStart,curveEnd],closed: true,fill: .mesh(integrationMesh),strokeWidth: 0)))
+        let curveRenderer = ExportRenderer(document: Document(artboards: [integrationBoard],nodes: [curveNode]))
+        guard let curvePNG = curveRenderer.pngData(for: integrationBoard,scale: 1,transparentBackground: true),let curveCG = NSBitmapImageRep(data: curvePNG)?.cgImage else { fail("Mesh curve PNG absent") }
+        let curveSVG = curveRenderer.svgString(for: integrationBoard)
+        let curveBrowser = try await page.sample(curveSVG,width: 128,height: 80)
+        // Compare solid interior pixels; vector edge antialiasing belongs to the
+        // existing path rasterizers and must not mask a paint-space mismatch.
+        let curveNative = pixels(curveCG)
+        var logicalError = 0
+        for pixel in 0..<(128*80) where curveNative[pixel*4+3] == 255 {
+            let x = Double(pixel%128)+0.5, y = Double(pixel/128)+0.5
+            var rgb = [integrationMesh.base.r,integrationMesh.base.g,integrationMesh.base.b]
+            for point in integrationMesh.points {
+                let distance = hypot(((x-24)/80-point.position.x)/point.radius,
+                                     ((y-20)/40-point.position.y)/point.radius)
+                let alpha = point.color.a * point.opacity * max(0,1-distance)
+                for (channel,color) in [point.color.r,point.color.g,point.color.b].enumerated() {
+                    rgb[channel] = color*alpha+rgb[channel]*(1-alpha)
+                }
+            }
+            for channel in 0..<3 { logicalError = max(logicalError,abs(curveNative[pixel*4+channel]-Int((rgb[channel]*255).rounded()))) }
+        }
+        require(logicalError <= 4,"curved Mesh must follow editing-frame point coordinates: \(logicalError)")
+        var curveError = 0
+        for pixel in 0..<(128*80) where curveNative[pixel*4+3] == 255 && curveBrowser[pixel*4+3] == 255 {
+            for ch in 0..<3 { curveError = max(curveError,abs(curveNative[pixel*4+ch]-curveBrowser[pixel*4+ch])) }
+        }
+        require(curveError <= 8,"curved Mesh paint must use logical frame, not SVG ink bounds: \(curveError)")
+        guard let curveImport = SVGImporter.importDocument(from: Data(curveSVG.utf8)),
+              let roundtrip = ExportRenderer(document: Document(artboards: [integrationBoard],nodes: [curveImport.group])).pngData(for: integrationBoard,scale: 1,transparentBackground: true),
+              let roundtripCG = NSBitmapImageRep(data: roundtrip)?.cgImage else { fail("curved Mesh own SVG re-import missing") }
+        let curveRoundtrip = zip(curveNative,pixels(roundtripCG)).map { abs($0-$1) }.max()!
+        require(curveRoundtrip <= 8,"curved Mesh native SVG re-import changed paint: \(curveRoundtrip)")
+        print("PASS: curved Mesh editing-frame math \(logicalError), native/SVG interior \(curveError), own re-import \(curveRoundtrip) channel error")
         let benchSize = CGSize(width: 512,height: 320)
         let bench = CGContext(data: nil,width: 512,height: 320,bitsPerComponent: 8,bytesPerRow: 0,space: space,
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
@@ -234,6 +349,12 @@ private final class Page: NSObject, WKNavigationDelegate {
                 MeshPoint(position: CGPoint(x: 0.8,y: 0.5),radius: 0.85,color: RGBAColor(r: 0,g: 0.8,b: 1,a: 1)),
                 MeshPoint(position: CGPoint(x: 0.25,y: 0.9),radius: 0.65,color: RGBAColor(r: 0.5,g: 1,b: 0.06,a: 1),opacity: 0.8)
             ])
+            let fixtureURL = receipt.deletingLastPathComponent().appendingPathComponent("mesh-editor.design")
+            if !FileManager.default.fileExists(atPath: fixtureURL.path) {
+                let board = Artboard(name: "Mesh review",frame: CGRect(x: 0,y: 0,width: 960,height: 640))
+                let node = Node(name: "Mesh shape",frame: CGRect(x: 160,y: 120,width: 640,height: 400),content: .rectangle(RectangleShape(fill: .mesh(preview),strokeWidth: 0)))
+                try JSONEncoder().encode(Document(artboards: [board],nodes: [node])).write(to: fixtureURL)
+            }
             let previewRect = CGRect(x: 0,y: 0,width: 720,height: 450)
             let ctx = CGContext(data: nil,width: 720,height: 450,bitsPerComponent: 8,bytesPerRow: 0,space: space,
                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!

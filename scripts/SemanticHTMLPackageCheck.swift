@@ -441,6 +441,19 @@ private enum SemanticHTMLPackageCheck {
                 && launcher.contains("only after you press the button"),
                 "the CodePen review page should state the transmission boundary plainly")
 
+        let mesh = MeshFill(base: .white,points: [MeshPoint(position: CGPoint(x: 0.3,y: 0.4),radius: 0.7,color: .black)])
+        let meshBoard = Artboard(name: "Mesh",frame: CGRect(x: 0,y: 0,width: 100,height: 100),background: .mesh(mesh))
+        let meshNode = Node(name: "Mesh node",frame: CGRect(x: 5,y: 5,width: 90,height: 90),
+            content: .rectangle(RectangleShape(fill: .mesh(mesh),stroke: .mesh(mesh),strokeWidth: 2)))
+        let meshDoc = Document(artboards: [meshBoard],nodes: [meshNode])
+        let meshBundle = SemanticHTMLExporter(document: meshDoc).makeBundle()
+        let meshCSS = meshBundle.artifacts.first { $0.path.hasSuffix(".css") }.flatMap { String(data: $0.data,encoding: .utf8) } ?? ""
+        require(meshCSS.contains("radial-gradient(ellipse") && meshCSS.contains("--exp-mesh-v1:"),"Mesh Handoff must include real CSS plus editable metadata")
+        require(meshBundle.fidelityIssues.contains { $0.requirement == "meshStroke" },"CSS mesh border fallback must be explicit")
+        let tokens = try DesignLanguageIO.exportDesignTokensJSON(DesignLanguage(assets: [DesignAsset(name: "Mesh",value: .mesh(mesh))]))
+        require(String(data: tokens,encoding: .utf8)?.contains("exp-mesh-v1") == true,"Mesh token must preserve its actual type")
+        require(DesignLanguageIO.parseDesignTokensJSON(tokens)?.assets.first?.value.meshValue == mesh,"EXP custom Mesh token must re-import editable points")
+        print("ok: Mesh CSS/metadata, explicit border fallback and custom token round-trip")
         print("ok: standalone stylesheet + artboard page")
         print("ok: deterministic fixed-input package bytes")
         print("ok: manifest byte counts and SHA-256 hashes")

@@ -16,6 +16,7 @@ struct PaintWell: View {
     let label: String
     @Binding var paint: Paint
     var supportsOpacity: Bool = true
+    var supportsMesh: Bool = true
     /// The owning object's size lets an angle edit preserve the physical length
     /// of an explicitly placed gradient line on non-square objects.
     var gradientSize: CGSize? = nil
@@ -35,7 +36,7 @@ struct PaintWell: View {
             .help("Edit \(label.lowercased())")
             .accessibilityLabel(label.isEmpty ? "Edit paint" : "Edit \(label.lowercased())")
             .popover(isPresented: $showing, arrowEdge: .leading) {
-                PaintEditor(paint: $paint, supportsOpacity: supportsOpacity,
+                PaintEditor(paint: $paint, supportsOpacity: supportsOpacity,supportsMesh: supportsMesh,
                             gradientSize: gradientSize,
                             selectedGradientStopID: selectedGradientStopID)
                     .frame(width: 250)
@@ -133,8 +134,24 @@ extension View {
 private struct EXPPatternLibraryProvider: ViewModifier {
     @ObservedObject var document: ExpDocument
     @Environment(\.undoManager) private var undoManager
+    @State private var meshBaseline: Document?
+    @State private var meshChanged = false
     func body(content: Content) -> some View {
-        content.environment(\.patternLibrary, PatternLibrary(
+        content.environment(\.meshEditSession,MeshEditSession(gesture: { active in
+            if active {
+                if meshBaseline == nil { meshBaseline = document.model; meshChanged = false }
+            } else if let baseline = meshBaseline {
+                meshBaseline = nil
+                if meshChanged { document.registerUndo(restoring: baseline,undoManager: undoManager,actionName: "Edit Mesh Color") }
+                meshChanged = false
+            }
+        },update: { work in
+            let grouped = meshBaseline != nil
+            if grouped { undoManager?.disableUndoRegistration() }
+            work()
+            if grouped { undoManager?.enableUndoRegistration(); meshChanged = true }
+        }))
+        .environment(\.patternLibrary, PatternLibrary(
             sources: { document.model.patterns },
             image: { PatternPreviewStore.shared.image(for: $0, document: document) },
             create: { PatternAuthoring.create(document: document, undoManager: undoManager) },
@@ -157,6 +174,12 @@ struct PaintSwatch: View {
             switch paint {
             case .solid(let c):
                 shape.fill(c.swiftUI)
+            case .mesh(let m):
+                Canvas { context,size in
+                    if let image = PaintRender.meshPreview(m,size: CGSize(width: size.width * 2,height: size.height * 2)) {
+                        context.draw(Image(decorative: image,scale: 1),in: CGRect(origin: .zero,size: size))
+                    }
+                }.clipShape(shape)
             case .gradient(let g):
                 gradientView(g, shape: shape)
             case .pattern(let ref):
@@ -206,13 +229,27 @@ struct PaintSwatch: View {
 
 // MARK: - Editor
 
+private struct MeshEditSession {
+    var gesture: (Bool) -> Void = { _ in }
+    var update: (() -> Void) -> Void = { $0() }
+}
+private struct MeshEditSessionKey: EnvironmentKey { static let defaultValue = MeshEditSession() }
+private extension EnvironmentValues {
+    var meshEditSession: MeshEditSession {
+        get { self[MeshEditSessionKey.self] }
+        set { self[MeshEditSessionKey.self] = newValue }
+    }
+}
+
 struct PaintEditor: View {
     @Binding var paint: Paint
     var supportsOpacity: Bool
+    var supportsMesh: Bool = true
     var gradientSize: CGSize? = nil
     var selectedGradientStopID: Binding<UUID?>? = nil
 
     @State private var localSelectedStopID: UUID?
+    @Environment(\.meshEditSession) private var meshSession
     @Environment(\.patternLibrary) private var patternLibrary
 
     /// FEAT-065b. True once Pattern is chosen but no tile has been picked yet.
@@ -223,12 +260,13 @@ struct PaintEditor: View {
     /// appears, and the fill changes when a tile is actually chosen.
     @State private var choosingPattern = false
 
-    private enum Mode: Int { case solid, linear, radial, pattern }
+    private enum Mode: Int { case solid, linear, radial, mesh, pattern }
     private var mode: Mode {
         if choosingPattern, !paint.isPattern { return .pattern }
         switch paint {
         case .solid: return .solid
         case .gradient(let g): return g.kind == .linear ? .linear : .radial
+        case .mesh: return .mesh
         case .pattern: return .pattern
         }
     }
@@ -244,6 +282,7 @@ struct PaintEditor: View {
                 // one, but the moment there is a library to pick from, a tab that
                 // comes and goes reads as a bug rather than a rule. Owner: keep the
                 // fill tabs consistent on every element.
+                if supportsMesh || paint.isMesh { Text("Mesh").tag(Mode.mesh) }
                 Text("Pattern").tag(Mode.pattern)
             }
             .pickerStyle(.segmented)
@@ -254,6 +293,8 @@ struct PaintEditor: View {
                 ColorPopover(color: solidBinding, supportsOpacity: supportsOpacity)
             case .linear, .radial:
                 gradientEditor
+            case .mesh:
+                MeshPaintControls(mesh: Binding(get: { paint.meshValue ?? MeshFill(base: .white) },set: { next in guard next != paint.meshValue,(try? next.validate()) != nil else { return }; meshSession.update { paint = .mesh(next) } }),selection: activeSelectedStopID,supportsOpacity: supportsOpacity,gesture: meshSession.gesture)
             case .pattern:
                 patternEditor
             }
@@ -336,6 +377,12 @@ struct PaintEditor: View {
     }
 
     private func validateSelectedStop() {
+        if let mesh = paint.meshValue {
+            if !mesh.points.contains(where: { $0.id == activeSelectedStopID.wrappedValue }) {
+                activeSelectedStopID.wrappedValue = mesh.points.first?.id
+            }
+            return
+        }
         guard case .gradient(let gradient) = paint else {
             activeSelectedStopID.wrappedValue = nil
             return
@@ -506,6 +553,10 @@ struct PaintEditor: View {
                     g.kind = (newMode == .linear) ? .linear : .radial
                     paint = .gradient(g)
                     validateSelectedStop()
+                case .mesh:
+                    choosingPattern = false
+                    paint = .mesh(paint.meshValue ?? MeshFill.seeded(base: paint.representativeColor))
+                    activeSelectedStopID.wrappedValue = paint.meshValue?.points.first?.id
                 case .pattern:
                     // FEAT-065b. Show the picker; do NOT touch the paint yet. A
                     // `PatternRef` must point at a real tile, so the fill changes

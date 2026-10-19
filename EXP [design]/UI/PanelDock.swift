@@ -1161,6 +1161,12 @@ private struct ComponentSourcePreview: View {
         switch paint {
         case .solid(let color):
             context.fill(path, with: .color(color.swiftUI))
+        case .mesh(let mesh):
+            let rect = path.boundingRect
+            if let image = PaintRender.meshPreview(mesh,size: rect.size) {
+                var clipped = context; clipped.clip(to: path)
+                clipped.draw(Image(decorative: image,scale: 1),in: rect)
+            }
         case .gradient(let gradient):
             let colors = gradient.sortedStops.map { $0.color.swiftUI }
             context.fill(path, with: .linearGradient(

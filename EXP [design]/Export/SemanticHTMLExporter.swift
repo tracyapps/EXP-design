@@ -716,6 +716,11 @@ private struct HTMLWriter {
                    "The \(alignment.rawValue) stroke is approximated by the browser's available border/SVG stroke alignment.")
         }
 
+        if let style = node.layerPaintStyle, style.strokeWidth > 0,style.stroke.isMesh {
+            if case .path = node.content {} else {
+                report("meshStroke","The mesh stroke is preserved in design.json and native/SVG exports; CSS borders use its base-color fallback.")
+            }
+        }
         for effect in node.effects where effect.isEnabled {
             report("unsupportedEffect",
                    "The enabled \(effect.kind.rawValue) effect is preserved in design.json but is not reproduced by semantic HTML/CSS.")
@@ -900,6 +905,11 @@ private struct HTMLWriter {
             case .solid(let color):
                 fill = "var(--exp-path-fill, \(svgColor(color)))"
                 fillOpacity = "1"
+            case .mesh(let mesh):
+                let server = try? mesh.svgPattern(name: "\(domID)-mesh",bounds: CGRect(x: 0,y: 0,width: width,height: height))
+                definitions = server?.definition ?? ""
+                fill = server.map { "url(#\($0.id))" } ?? "none"
+                fillOpacity = "1"
             case .gradient(let gradient):
                 let gradientID = "\(domID)-fill"
                 definitions = svgGradient(gradient, id: gradientID,
@@ -918,8 +928,12 @@ private struct HTMLWriter {
             fill = "none"
             fillOpacity = "1"
         }
+        var strokePaint = "var(--exp-path-stroke, \(svgColor(path.stroke.representativeColor)))"
+        if let mesh = path.stroke.meshValue,let server = try? mesh.svgPattern(name: "\(domID)-mesh-stroke",bounds: CGRect(x: 0,y: 0,width: width,height: height)) {
+            definitions += server.definition; strokePaint = "url(#\(server.id))"
+        }
         let stroke = path.strokeWidth > 0
-            ? " stroke=\"var(--exp-path-stroke, \(svgColor(path.stroke.representativeColor)))\" stroke-width=\"\(number(path.strokeWidth))\"\(svgStrokePattern(path.strokePattern, width: path.strokeWidth))"
+            ? " stroke=\"\(strokePaint)\" stroke-width=\"\(number(path.strokeWidth))\"\(svgStrokePattern(path.strokePattern, width: path.strokeWidth))"
             : ""
         let defs = definitions.isEmpty ? "" : "<defs>\(definitions)</defs>"
         return "<svg class=\"exp-path-svg\" viewBox=\"0 0 \(number(width)) \(number(height))\" preserveAspectRatio=\"none\" aria-hidden=\"true\" focusable=\"false\">\(defs)<path class=\"exp-path-shape\" d=\"\(svgPathData(path))\" fill=\"\(fill)\" fill-opacity=\"\(fillOpacity)\"\(stroke) stroke-linejoin=\"\(path.strokeJoin.rawValue)\" stroke-linecap=\"\(path.strokeCap.rawValue)\"/></svg>"
@@ -1459,6 +1473,10 @@ private struct CSSWriter {
     }
 
     private func paint(_ value: Paint) -> String {
+        if let mesh = value.meshValue {
+            return "\((try? mesh.cssBackground()) ?? "none"); --exp-mesh-v1: \"\((try? mesh.metadata()) ?? "")\""
+        }
+
         if let binding = DesignLanguageIO.firstAssetBinding(
             matching: value, in: document.designLanguage) {
             return "var(--\(binding.variableName), \(paintFallback(value)))"
@@ -1470,6 +1488,7 @@ private struct CSSWriter {
         switch value {
         case .solid(let c):
             return color(c)
+        case .mesh(let m): return (try? m.cssBackground()) ?? "none"
         case .pattern(let ref):
             // FEAT-062 Stage A — the pattern's own declared fallback, so every
             // export surface degrades to the same colour the canvas paints.

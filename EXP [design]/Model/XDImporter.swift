@@ -182,6 +182,7 @@ nonisolated private extension XDImporter {
                     // FEAT-062. `libraryPaint` never returns a pattern (XD document
                     // assets are colours and gradients), so this only exists to keep
                     // the naming exhaustive rather than defaulted.
+                    case .mesh: fallbackName = "Mesh \(index + 1)"
                     case .pattern: fallbackName = "Pattern \(index + 1)"
                     }
                     let trimmedName = authoredName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""

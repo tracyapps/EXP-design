@@ -1313,7 +1313,13 @@ from the appcast; a development plan does not change the published release.
 - [x] FEAT-033 shared model/drawing/serialization foundation: bounded radial points,
       native/CSS/SVG and actual PDF pixel fixtures plus strict metadata codec.
       `MESH-FILL-FOUNDATION-v2.7.md` records measured quantization and limits.
-      Paint/editor/export/import integration remains open; no Mesh picker yet.
+      Historical first slice; editable integration follows below.
+- [x] FEAT-033 local editable slice: Mesh picker, base/point controls, numeric
+      position/radius/opacity, add/remove/reorder, shape handles and command routes;
+      bounded shared native/export, canonical SVG and verified CSS own-import.
+      `MESH-FILL-VERIFICATION-v2.7.md` records honest limits and local evidence.
+- [ ] Owner accepts editable Mesh: physical center/radius drags, Undo/cancel,
+      color grouping, save/reopen, components/library, exports and keyboard/AT.
 - [x] Report/roadmap reconciliation and execution plan written:
       `SELF-LAUNCH-PLAN-v2.7.md`; primary corrections in
       `SELF-LAUNCH-SOURCES-2026-10-16.md`; friend-facing brief in
@@ -3483,6 +3489,31 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-10-18 — Editable Mesh fill integration [internal].**
+  Owner accepts the foundation preview and authorizes continuation. FEAT-033 now
+  exposes a distinct validated Paint case through the picker, same seeded
+  Edit/context command, numeric controls, ordered point actions and on-object
+  shape position/radius chrome. Per-gesture snapshots, Escape restore and no-op
+  guards avoid spurious Undo entries. Eight points; panel choices/layout defaults
+  are unchanged. Shared app/thumbnail/outline rendering and exports are integrated.
+  Mesh is excluded from single-operation alpha shortcuts. A Quartz PDF group
+  color shift at 50% opacity was reduced from 9/255 to 2/255 by bounded sRGB
+  capture only for Mesh nodes requiring opacity/blend compositing. Own SVG checks
+  canonical visuals/styles before restoring points; modified metadata/CSS cannot
+  erase later edits. Real production WebKit CSS extraction/import passes. Curved
+  Mesh now shares its logical editing frame with the handles and explicit SVG
+  placement: a failing math regression went from 51/255 to 2/255; own native SVG
+  re-import is unchanged. Shifted SVG placement cannot restore stale points.
+  Stroke, Sanaa unresolved contrast, custom tokens and reader limits are explicit.
+  Actual isolated native UI confirms numeric editing, addition, one-step Undo,
+  saved JSON and restart/reopen. CUA did not establish a physical canvas drag;
+  that and radius/cancel/color sessions/menu/AT/display/stress remain owner checks.
+  Local Mesh pixel/export/import, appearance/token/Handoff, Color Matrix,
+  old effects/HTML and 86/86 real pattern checks pass; unsigned app/EXPThumbnail compiles. Details and
+  exact logs: `MESH-FILL-VERIFICATION-v2.7.md`. FEAT-033 remains needs-verify.
+  No next document-changing slice starts before owner review. Local commit only;
+  no push, release/deployment or live account/settings changes.
 
 - **2026-10-18 — Color Matrix owner acceptance; Mesh rendering contract [internal].**
   Owner accepts FEAT-073 and its exports: “that works well, and all exports

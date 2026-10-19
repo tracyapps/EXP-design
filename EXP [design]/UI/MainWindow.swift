@@ -771,6 +771,11 @@ struct EditorMenuModel {
 
     var canDuplicate: Bool
     var canDuplicateEffect: Bool
+    var canUseMesh: Bool
+    var canAddMeshPoint: Bool
+    var canRemoveMeshPoint: Bool
+    var canMeshBack: Bool
+    var canMeshFront: Bool
     var canAddColorMatrix: Bool
     var canResetColorMatrix: Bool
     var canCopyStyle: Bool
@@ -1037,6 +1042,13 @@ func makeEditorMenuModel(document: ExpDocument, app: AppState, scope: CanvasScop
         hasArtboards: hasArtboards,
         canDuplicate: hasNodes,
         canDuplicateEffect: singleNode?.effects.contains(where: { $0.id == app.selectedEffectID }) == true,
+        canUseMesh: singleNode.map { !$0.isLocked && $0.frame.width > 0 && $0.frame.height > 0 && $0.layerPaintStyle?.fill != nil && $0.layerPaintStyle?.fill?.isMesh != true } ?? false,
+        canAddMeshPoint: singleNode.map { !$0.isLocked && ($0.layerPaintStyle?.fill?.meshValue.map { $0.points.count < MeshFill.maximumPoints } ?? false) } ?? false,
+        canRemoveMeshPoint: singleNode.map { !$0.isLocked && $0.layerPaintStyle?.fill?.meshValue?.points.contains { $0.id == app.selectedGradientStopID } == true } ?? false,
+        canMeshBack: singleNode.map { !$0.isLocked && ($0.layerPaintStyle?.fill?.meshValue?.points.firstIndex { $0.id == app.selectedGradientStopID } ?? 0) > 0 } ?? false,
+        canMeshFront: singleNode.map { n in
+            guard !n.isLocked,let mesh = n.layerPaintStyle?.fill?.meshValue,let i = mesh.points.firstIndex(where: { $0.id == app.selectedGradientStopID }) else { return false }; return i < mesh.points.count-1
+        } ?? false,
         canAddColorMatrix: singleNode.map { !$0.isLocked && $0.frame.width > 0 && $0.frame.height > 0 && $0.effects.filter { $0.kind == .colorMatrix }.count < 32 } ?? false,
         canResetColorMatrix: singleNode.map { !$0.isLocked && $0.effects.contains { $0.id == app.selectedEffectID && $0.kind == .colorMatrix } } ?? false,
         canCopyStyle: hasNodes,
@@ -4591,7 +4603,7 @@ struct RightPanel: View {
                     .numericStepping(strokeWidthBinding, min: 0)
                 Spacer()
             }
-            PaintWell(label: "Paint", paint: strokeColorBinding)
+            PaintWell(label: "Paint", paint: strokeColorBinding,supportsMesh: false)
             EXPSegmented(selection: lineStrokePatternBinding,
                          segments: StrokePattern.allCases.map { .init(value: $0, label: $0.label) })
                 .help("Use a solid, dashed, or dotted line")

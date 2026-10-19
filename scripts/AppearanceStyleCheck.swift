@@ -89,6 +89,15 @@ private func rectangle(_ name: String) -> Node {
         require(Node.pasteAppearance(paint, to: selected, in: &nodes) && nodes.allSatisfy { $0.layerPaintStyle?.strokeWidth == 3 }, "800-icon batch receives appearance")
         let decoded = try JSONDecoder().decode([Node].self, from: encoded(nodes))
         require(decoded[0].layerPaintStyle?.fill == gradient, "appearance survives document encoding")
+        let mesh = MeshFill(base: .white,points: [MeshPoint(position: CGPoint(x: 0.2,y: 0.7),radius: 0.55,color: .black)])
+        var meshSource = rectangle("Mesh source"); var meshStyle = meshSource.layerPaintStyle!
+        meshStyle.fill = .mesh(mesh); _ = meshSource.applyPaintStyle(meshStyle)
+        var meshTargets = [rectangle("Mesh target")]
+        require(Node.pasteAppearance(NodeAppearanceStyle(paint: meshSource.layerPaintStyle),to: [meshTargets[0].id],in: &meshTargets),"Mesh paint paste applies")
+        require(meshTargets[0].layerPaintStyle?.fill?.meshValue == mesh,"Mesh paste must preserve editable points and stable local IDs")
+        let meshDecoded = try JSONDecoder().decode([Node].self,from: encoded(meshTargets))
+        require(meshDecoded[0].layerPaintStyle?.fill?.meshValue == mesh,"Mesh appearance must survive codec")
+        print("PASS: Mesh appearance copy/paste retains editable point data and codec")
         print("PASS: paint/effects/combined channels, gradient geometry, corners, paths, nested folders, protected branches, padding, text, type styles, 800-icon batch, round-trip")
         if let output = CommandLine.arguments.dropFirst().first {
             var doc = Document()

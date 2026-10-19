@@ -6038,10 +6038,14 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: feature
 - Priority: P1 — selected for v2.7 on 2026-10-18
 - Area: color · canvas · export
-- Status: in progress — shared model/drawing/serialization foundation checked
-  October 18; Paint/editor and application export/import integration pending.
-  `MESH-FILL-FOUNDATION-v2.7.md` records the eight-point budget, measured native/
-  CSS/SVG/PDF quantization, metadata contract and exact remaining gates.
+- Status: needs-verify — editable Mesh Paint, numeric controls/point actions,
+  shape position/radius handles and shared export/strict own-import implemented
+  October 18. Owner accepted the foundation preview; editable feature review is
+  open. `MESH-FILL-VERIFICATION-v2.7.md` records scope, limits and fresh receipts.
+- Native naming/selected state checked against Apple accessibilityLabel and
+  accessibilityTraits.isSelected: https://developer.apple.com/documentation/swiftui/view/accessibilitylabel(_:)-1d7jv
+  and https://developer.apple.com/documentation/swiftui/accessibilitytraits/isselected .
+  Actual full keyboard/VoiceOver/display/stress evidence remains a release gate.
 - Current owner scope 2026-10-18 supersedes the previous release deferrals:
   include Mesh in v2.7's visual launch story. Preserve the August 19 choice of
   a base color plus layered radial color points. First deliverable: agree the

@@ -185,7 +185,9 @@ payment and license records live outside the repository; use sanitized summaries
       `COLOR-MATRIX-VERIFICATION-v2.7.md`.
 - [ ] FEAT-033 Mesh: base plus editable radial points; numeric/on-object editing,
       layering/radii/opacity, save/reopen/undo and native/CSS/SVG/PNG/PDF fidelity
-      verified; EXP-authored re-import retains editable points.
+      verified; EXP-authored re-import retains editable points. Local editable
+      slice passes; owner review/full matrix remain open. Evidence and limits:
+      `MESH-FILL-VERIFICATION-v2.7.md`.
 - [ ] Both: panel-fit, keyboard/VoiceOver, appearance, shared thumbnail target,
       component-state/style-library behavior, real stress performance and owner
       acceptance recorded. No universal filter-graph or third-party mesh claim.

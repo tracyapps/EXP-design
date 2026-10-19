@@ -132,6 +132,9 @@ enum SVGImporter {
     private final class FilterWarnings { var values: [String] = [] }
     private struct Context {
         var gradients: [String: GradientFill] = [:]
+        var meshes: [String: MeshFill] = [:]
+        var meshBounds: [String: CGRect] = [:]
+        var meshStylesAreStatic = true
         /// `<filter id>` → the Effects we could reconstruct from its primitives
         /// (feTurbulence noise/dissolve chains, drop/inner shadow chains).
         var filters: [String: [Effect]] = [:]
@@ -266,9 +269,93 @@ enum SVGImporter {
                                  inherited: Style, ctx: Context, depth: Int) -> [Node] {
         // A child point maps as parentCTM(elementTransform(point)).
         let local = transform(el).concatenating(parentCTM)
-        let style = resolveStyle(el, inherited: inherited, ctx: ctx)
+        var style = resolveStyle(el, inherited: inherited, ctx: ctx)
         let name = el.name ?? ""
+        func meshID(_ paint: Paint?,property: String) -> String? {
+            guard let mesh = paint?.meshValue else { return nil }
+            var carrier: XMLElement? = el
+            while let current = carrier {
+                if let raw = resolvedProperties(for: current,ctx: ctx)[property],raw.hasPrefix("url("),
+                   let hash = raw.firstIndex(of: "#"),let close = raw[hash...].firstIndex(of: ")") {
+                    let id = String(raw[raw.index(after: hash)..<close]).trimmingCharacters(in: CharacterSet(charactersIn: "'\" "))
+                    if ctx.meshes[id] == mesh { return id }
+                }
+                carrier = current.parent as? XMLElement
+            }
+            return ctx.meshes.first(where: { $0.value == mesh })?.key
+        }
+        func retainedPattern(_ paint: Paint?,property: String) -> Paint? {
+            guard let id = meshID(paint,property: property),let source = ctx.patterns[id] else { return paint }
+            return .pattern(source.reference)
+        }
+        // A user-space tile can collapse only when its placement still agrees
+        // with the carrier's logical editing frame. Changed placement must not
+        // be silently replaced by normalized point metadata.
+        if style.fill?.isMesh == true || style.stroke?.isMesh == true {
+            let bounds: CGRect?
+            switch name {
+            case "rect":
+                bounds = CGRect(x: length(el,"x",.horizontal,ctx),y: length(el,"y",.vertical,ctx),width: length(el,"width",.horizontal,ctx),height: length(el,"height",.vertical,ctx))
+            case "ellipse","circle":
+                let rx = length(el,name == "circle" ? "r" : "rx",.horizontal,ctx)
+                let ry = length(el,name == "circle" ? "r" : "ry",.vertical,ctx)
+                bounds = CGRect(x: length(el,"cx",.horizontal,ctx)-rx,y: length(el,"cy",.vertical,ctx)-ry,width: rx*2,height: ry*2)
+            case "path":
+                let points = SVGPath.parse(el.attribute(forName: "d")?.stringValue ?? "").flatMap { $0.points }
+                bounds = points.isEmpty ? nil : pointsBounds(points)
+            case "polygon","polyline":
+                let values = numbers(el.attribute(forName: "points")?.stringValue ?? "")
+                let points = stride(from: 0,to: max(0,values.count-1),by: 2).map { PathPoint(point: CGPoint(x: values[$0],y: values[$0+1])) }
+                bounds = points.isEmpty ? nil : pointsBounds(points)
+            default: bounds = nil
+            }
+            if let bounds {
+                func aligned(_ paint: Paint?,property: String) -> Bool {
+                    guard let id = meshID(paint,property: property) else { return true }
+                    guard let placement = ctx.meshBounds[id] else { return ["rect","ellipse","circle"].contains(name) }
+                    // Existing SVG geometry serialization rounds to .01 points;
+                    // a path extent can accumulate two rounded endpoints.
+                    return zip([placement.minX,placement.minY,placement.width,placement.height],[bounds.minX,bounds.minY,bounds.width,bounds.height]).allSatisfy { abs($0-$1) <= 0.02 }
+                }
+                if !aligned(style.fill,property: "fill") {
+                    style.fill = retainedPattern(style.fill,property: "fill")
+                    ctx.filterWarnings.values.append("Mesh tile placement differs from its carrier frame; retained supported pattern artwork.")
+                }
+                if !aligned(style.stroke,property: "stroke") {
+                    style.stroke = retainedPattern(style.stroke,property: "stroke")
+                    ctx.filterWarnings.values.append("Mesh outline placement differs from its carrier frame; retained supported pattern artwork.")
+                }
+            }
+        }
+        if style.fill?.isMesh == true && style.fillOpacity != 1 {
+            style.fill = retainedPattern(style.fill,property: "fill")
+            ctx.filterWarnings.values.append("Separate Mesh fill opacity is outside the editable collapse contract; retained supported pattern artwork.")
+        }
+        if style.stroke?.isMesh == true && style.strokeOpacity != 1 {
+            style.stroke = retainedPattern(style.stroke,property: "stroke")
+            ctx.filterWarnings.values.append("Separate Mesh stroke opacity is outside the editable collapse contract; retained supported pattern artwork.")
+        }
 
+        if (style.fill?.isMesh == true || style.stroke?.isMesh == true),!isAxisAligned(local),
+           ["rect","ellipse","circle","path","polygon","polyline"].contains(name) {
+            let sx = hypot(local.a,local.b),sy = hypot(local.c,local.d)
+            let dot = local.a*local.c + local.b*local.d
+            let scalable = ["rect","ellipse","circle"].contains(name) || (abs(sx-1) < 1e-8 && abs(sy-1) < 1e-8)
+            if sx > 0,sy > 0,abs(dot) <= sx*sy*1e-8,scalable {
+                let copy = el.copy() as! XMLElement; copy.removeAttribute(forName: "transform")
+                var result = rawNodes(for: copy,ctm: .identity,inherited: inherited,ctx: ctx,depth: depth+1)
+                for i in result.indices {
+                    let center = CGPoint(x: result[i].frame.midX,y: result[i].frame.midY).applying(local)
+                    let size = CGSize(width: result[i].frame.width*sx,height: result[i].frame.height*sy)
+                    result[i].frame = CGRect(x: center.x-size.width/2,y: center.y-size.height/2,width: size.width,height: size.height)
+                    result[i].rotation = atan2(local.b,local.a)*180 / .pi
+                    result[i].flipV = local.a*local.d-local.b*local.c < 0
+                }
+                return result
+            }
+            style.fill = retainedPattern(style.fill,property: "fill"); style.stroke = retainedPattern(style.stroke,property: "stroke")
+            ctx.filterWarnings.values.append("Skewed or nonuniformly scaled vector Mesh carrier cannot retain editable paint geometry exactly; retained supported pattern artwork.")
+        }
         switch name {
         case "g", "svg", "a", "symbol":
             var kids: [Node] = []
@@ -710,6 +797,11 @@ enum SVGImporter {
         if v.hasPrefix("url(") {
             let id = String(v.dropFirst(4).drop(while: { $0 == "#" })
                 .prefix(while: { $0 != ")" && $0 != "#" }))
+            if let mesh = ctx.meshes[id] {
+                if opacity == 1 { return .mesh(mesh) }
+                ctx.filterWarnings.values.append("Mesh paint with separate fill/stroke opacity is outside the editable collapse contract; retained supported pattern artwork.")
+                return ctx.patterns[id].map { .pattern($0.reference) }
+            }
             if let g = ctx.gradients[id] { return .gradient(g) }
             if let pattern = ctx.patterns[id] { return .pattern(pattern.reference) }
             // FEAT-062. An unresolvable paint reference used to become SOLID BLACK
@@ -742,10 +834,79 @@ enum SVGImporter {
     /// order, so a pattern whose content references an EARLIER pattern resolves
     /// and one referencing a later pattern falls back; that ordering dependency
     /// is a known limit, not an accident.
+    /// Collapse only EXP's canonical bounded visual graph. Metadata alone is
+    /// never evidence that the current SVG still has those colors or positions.
+    private static func verifiedMesh(_ element: XMLElement,id: String,payload: String,ctx: Context) -> MeshFill? {
+        let bounds: CGRect?
+        if element.attribute(forName: "patternUnits")?.stringValue == "userSpaceOnUse" {
+            guard let x = Double(element.attribute(forName: "x")?.stringValue ?? ""),
+                  let y = Double(element.attribute(forName: "y")?.stringValue ?? ""),
+                  let w = Double(element.attribute(forName: "width")?.stringValue ?? ""),
+                  let h = Double(element.attribute(forName: "height")?.stringValue ?? ""),
+                  [x,y,w,h].allSatisfy({ $0.isFinite }),w > 0,h > 0 else { return nil }
+            bounds = CGRect(x: x,y: y,width: w,height: h)
+        } else { bounds = nil }
+        guard ctx.meshStylesAreStatic,let mesh = try? MeshFill.fromMetadata(payload),
+              let server = try? mesh.svgPattern(name: id,bounds: bounds),
+              let doc = try? XMLDocument(xmlString: "<svg xmlns=\"http://www.w3.org/2000/svg\"><defs>\(server.definition)</defs></svg>",options: []),
+              let expected = try? doc.nodes(forXPath: "//*[local-name()='pattern' or local-name()='radialGradient']") else { return nil }
+        func canonical(_ el: XMLElement) -> String {
+            let copy = el.copy() as! XMLElement
+            func clean(_ node: XMLNode) {
+                for child in node.children ?? [] {
+                    if child.kind == .text && (child.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { child.detach() }
+                    else { clean(child) }
+                }
+            }
+            clean(copy)
+            return copy.canonicalXMLStringPreservingComments(false)
+        }
+        for case let wanted as XMLElement in expected {
+            guard let key = wanted.attribute(forName: "id")?.stringValue,
+                  let actual = key == id ? element : ctx.elementsByID[key],
+                  canonical(actual) == canonical(wanted) else { return nil }
+            var ancestor = actual.parent as? XMLElement
+            while let node = ancestor {
+                if ["style","opacity","fill-opacity","stroke-opacity","stop-color","stop-opacity","color-interpolation"].contains(where: { node.attribute(forName: $0) != nil }) { return nil }
+                ancestor = node.parent as? XMLElement
+            }
+        }
+        return mesh
+    }
+
     private static func collectPatterns(in root: XMLElement, into ctx: inout Context) {
         guard let all = try? root.nodes(forXPath: "//*[local-name()='pattern']") else { return }
+        // Only EXP's inert root color variables are safe to ignore. Arbitrary
+        // stylesheets or animation may override otherwise canonical attributes.
+        let styles = (try? root.nodes(forXPath: "//*[local-name()='style']")) ?? []
+        ctx.meshStylesAreStatic = styles.allSatisfy { style in
+            let text = (style.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard let open = text.firstIndex(of: "{"),text.hasSuffix("}"),text[..<open].trimmingCharacters(in: .whitespacesAndNewlines) == ":root" else { return false }
+            let body = text[text.index(after: open)..<text.index(before: text.endIndex)]
+            guard !body.contains("{"),!body.contains("}") else { return false }
+            return body.split(separator: ";").allSatisfy { declaration in
+                let parts = declaration.split(separator: ":",maxSplits: 1)
+                guard parts.count == 2 else { return declaration.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                let name = parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
+                let value = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+                return name.hasPrefix("--") && name.dropFirst(2).allSatisfy { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }
+                    && value.hasPrefix("#") && [4,5,7,9].contains(value.count) && value.dropFirst().allSatisfy { $0.isHexDigit }
+            }
+        }
+        let dynamic = (try? root.nodes(forXPath: "//*[local-name()='animate' or local-name()='animateTransform' or local-name()='animateMotion' or local-name()='set'] | //processing-instruction('xml-stylesheet')")) ?? []
+        ctx.meshStylesAreStatic = ctx.meshStylesAreStatic && dynamic.isEmpty
         for case let el as XMLElement in all {
             guard let id = el.attribute(forName: "id")?.stringValue, !id.isEmpty else { continue }
+            if let payload = el.attribute(forName: "data-exp-mesh-v1")?.stringValue {
+                if let mesh = verifiedMesh(el, id: id, payload: payload,ctx: ctx) {
+                    ctx.meshes[id] = mesh
+                    if el.attribute(forName: "patternUnits")?.stringValue == "userSpaceOnUse" {
+                        ctx.meshBounds[id] = CGRect(x: num(el,"x"),y: num(el,"y"),width: num(el,"width"),height: num(el,"height"))
+                    }
+                } else {
+                    ctx.filterWarnings.values.append("Mesh metadata did not match its visible SVG paint or used unsupported styles/animation; retained supported pattern artwork instead.")
+                }
+            }
             let width = length(el, "width", .horizontal, ctx)
             let height = length(el, "height", .vertical, ctx)
             guard width > 0.01, height > 0.01 else { continue }

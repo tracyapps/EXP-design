@@ -53,6 +53,15 @@ struct PatternResolver {
 }
 
 enum PaintRender {
+    private(set) static var meshFailureGeneration: UInt64 = 0
+    private static func mesh(_ value: MeshFill, bounds: CGRect, ctx: CGContext, pdf: Bool) {
+        do { try drawMesh(value,in: bounds,ctx: ctx,pdfSafeAlpha: pdf) }
+        catch {
+            meshFailureGeneration &+= 1
+            ctx.setFillColor(NSColor.systemRed.cgColor); ctx.fill(bounds)
+        }
+    }
+
 
     /// Fill an `NSBezierPath` (already in the current context's coordinates) with
     /// a paint. `bounds` is the path's bounding rect, used to place the gradient.
@@ -68,6 +77,10 @@ enum PaintRender {
         case .solid(let c):
             nsColor(c).setFill()
             path.fill()
+        case .mesh(let m):
+            ctx.saveGState(); path.addClip()
+            mesh(m,bounds: bounds,ctx: ctx,pdf: pdfSafeAlpha)
+            ctx.restoreGState()
         case .gradient(let g):
             ctx.saveGState()
             path.addClip()
@@ -217,6 +230,9 @@ enum PaintRender {
         case .solid(let c):
             ctx.setFillColor(cgColor(c))
             ctx.fill(cover)
+        case .mesh(let m):
+            do { try drawMeshStroke(m,bounds: bounds,cover: cover,ctx: ctx) }
+            catch { meshFailureGeneration &+= 1; ctx.setFillColor(NSColor.systemRed.cgColor); ctx.fill(cover) }
         case .gradient(let g):
             ctx.saveGState()
             drawGradient(g, in: bounds, ctx: ctx, pdfSafeAlpha: pdfSafeAlpha)
@@ -268,6 +284,7 @@ enum PaintRender {
         case .solid(let c):
             nsColor(c).setFill()
             ctx.fill(rect)
+        case .mesh(let m): mesh(m,bounds: rect,ctx: ctx,pdf: pdfSafeAlpha)
         case .gradient(let g):
             ctx.saveGState()
             ctx.clip(to: rect)
@@ -546,5 +563,52 @@ extension PaintRender {
                 ctx.restoreGState()
             } else { radial(in: ctx) }
         }
+    }
+}
+
+extension PaintRender {
+    static func meshPreview(_ mesh: MeshFill, size: CGSize) -> CGImage? {
+        guard size.width.isFinite,size.height.isFinite,size.width > 0,size.height > 0 else { return nil }
+        let w = min(256,max(1,Int(min(256,size.width)))), h = min(256,max(1,Int(min(256,size.height))))
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let ctx = CGContext(data: nil,width: w,height: h,bitsPerComponent: 8,bytesPerRow: 0,
+            space: space,bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        ctx.translateBy(x: 0,y: CGFloat(h)); ctx.scaleBy(x: 1,y: -1)
+        guard (try? drawMesh(mesh,in: CGRect(x: 0,y: 0,width: w,height: h),ctx: ctx)) != nil else { return nil }
+        return ctx.makeImage()
+    }
+}
+
+extension PaintRender {
+    private static let meshStrokeTiles: NSCache<NSString,CGImage> = {
+        let cache = NSCache<NSString,CGImage>(); cache.totalCostLimit = 32 << 20; cache.countLimit = 32; return cache
+    }()
+    /// Match the SVG pattern paint server on an outline, including the portions
+    /// outside its geometry box: the completed unit mesh repeats at box edges.
+    private static func drawMeshStroke(_ mesh: MeshFill,bounds: CGRect,cover: CGRect,ctx: CGContext) throws {
+        try mesh.validate()
+        guard [bounds.width,bounds.height,bounds.width*bounds.height,cover.minX,cover.minY,cover.maxX,cover.maxY].allSatisfy(\.isFinite),bounds.width > 0,bounds.height > 0 else { throw MeshFill.ValidationError.invalidData }
+        let scale = min(4,max(1,hypot(ctx.ctm.a,ctx.ctm.b)),4096/max(bounds.width,bounds.height),sqrt(4_000_000/(bounds.width*bounds.height)))
+        let w = max(1,Int(min(4096,ceil(bounds.width*scale)))),h = max(1,Int(min(4096,ceil(bounds.height*scale))))
+        let key = "\(try mesh.metadata()):\(w)x\(h)" as NSString
+        let image: CGImage
+        if let hit = meshStrokeTiles.object(forKey: key) { image = hit }
+        else {
+            guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+                  let tile = CGContext(data: nil,width: w,height: h,bitsPerComponent: 8,bytesPerRow: 0,space: space,bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { throw MeshFill.ValidationError.invalidData }
+            tile.translateBy(x: 0,y: CGFloat(h)); tile.scaleBy(x: CGFloat(w)/bounds.width,y: -CGFloat(h)/bounds.height)
+            try drawMesh(mesh,in: CGRect(origin: .zero,size: bounds.size),ctx: tile)
+            guard let output = tile.makeImage() else { throw MeshFill.ValidationError.invalidData }
+            image = output; meshStrokeTiles.setObject(image,forKey: key,cost: image.bytesPerRow*image.height)
+        }
+        let x0 = floor((cover.minX-bounds.minX)/bounds.width),x1 = ceil((cover.maxX-bounds.minX)/bounds.width)
+        let y0 = floor((cover.minY-bounds.minY)/bounds.height),y1 = ceil((cover.maxY-bounds.minY)/bounds.height)
+        guard [x0,x1,y0,y1].allSatisfy(\.isFinite),abs(x0) < 40000,abs(x1) < 40000,abs(y0) < 40000,abs(y1) < 40000,
+              (x1-x0+1)*(y1-y0+1) <= 40000 else { throw MeshFill.ValidationError.invalidData }
+        for y in Int(y0)...Int(y1) { for x in Int(x0)...Int(x1) {
+            let rect = bounds.offsetBy(dx: CGFloat(x)*bounds.width,dy: CGFloat(y)*bounds.height)
+            ctx.saveGState(); ctx.translateBy(x: rect.minX,y: rect.maxY); ctx.scaleBy(x: 1,y: -1)
+            ctx.draw(image,in: CGRect(origin: .zero,size: rect.size)); ctx.restoreGState()
+        }}
     }
 }

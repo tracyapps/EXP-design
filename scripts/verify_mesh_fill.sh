@@ -17,6 +17,9 @@ xcrun swiftc -framework WebKit \
   "$root/EXP [design]/UI/Typography.swift" \
   "$root/EXP [design]/Model/SVGImporter.swift" \
   "$root/EXP [design]/Export/ExportRenderer.swift" \
+  "$root/EXP [design]/Model/SelectionTransform.swift" \
+  "$root/EXP [design]/Model/InteropCodec.swift" \
+  "$root/EXP [design]/Model/RenderedHTMLImporter.swift" \
   "$root/scripts/MeshFillCheck.swift" -o "$app/Contents/MacOS/MeshFillCheck"
 cat > "$app/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>

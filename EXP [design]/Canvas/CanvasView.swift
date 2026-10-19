@@ -237,6 +237,7 @@ final class CanvasNSView: NSView {
         // a stop is addressed by its own id because `sortedStops` reorders.
         case gradientEnd(id: UUID, movingStart: Bool)
         case gradientStop(id: UUID, stopID: UUID)
+        case meshPoint(id: UUID, pointID: UUID, radius: Bool)
         case marquee(startView: CGPoint, additive: Bool)
         // node tool: box-select points of the path currently being edited.
         case pointMarquee(startView: CGPoint, additive: Bool)
@@ -3584,6 +3585,96 @@ final class CanvasNSView: NSView {
                 gradientUnitToView(u1, n, chain: chain))
     }
 
+    private var meshDragOriginal: MeshFill?
+
+    private func meshSelection() -> (id: UUID,node: Node,mesh: MeshFill)? {
+        guard editingNodeID == nil, let id = app?.singleSelectedNodeID,
+              let n = node(id), !n.isLocked, n.frame.width > 0,n.frame.height > 0,
+              let m = n.layerPaintStyle?.fill?.meshValue else { return nil }
+        return (id,n,m)
+    }
+    private func setMeshFill(_ mesh: MeshFill,on id: UUID) {
+        updateNode(id) { value in
+            guard var style = value.layerPaintStyle, style.fill != nil else { return }
+            style.fill = .mesh(mesh); _ = value.applyPaintStyle(style)
+        }
+    }
+    private func hitMesh(_ p: CGPoint) -> (UUID,UUID,Bool)? {
+        guard app?.tool == .select,let h = meshSelection() else { return nil }
+        switch h.node.content { case .rectangle,.ellipse,.polygon,.path: break; default: return nil }
+        let chain = ancestorGroups(of: h.id)
+        if let point = h.mesh.points.first(where: { $0.id == app?.selectedGradientStopID }) {
+            let radius = gradientUnitToView(CGPoint(x: point.position.x + point.radius,y: point.position.y),h.node,chain: chain)
+            if hypot(p.x-radius.x,p.y-radius.y) <= handleGrab { return (h.id,point.id,true) }
+        }
+        for point in h.mesh.points.reversed() {
+            let center = gradientUnitToView(point.position,h.node,chain: chain)
+            if hypot(p.x-center.x,p.y-center.y) <= handleGrab { return (h.id,point.id,false) }
+        }
+        return nil
+    }
+    private func drawMeshHandles(in ctx: CGContext) {
+        guard app?.tool == .select,let h = meshSelection() else { return }
+        switch h.node.content { case .rectangle,.ellipse,.polygon,.path: break; default: return }
+        let chain = ancestorGroups(of: h.id)
+        for point in h.mesh.points {
+            let center = gradientUnitToView(point.position,h.node,chain: chain)
+            let selected = point.id == app?.selectedGradientStopID
+            if selected {
+                let radius = gradientUnitToView(CGPoint(x: point.position.x+point.radius,y: point.position.y),h.node,chain: chain)
+                ctx.saveGState(); ctx.setStrokeColor(NSColor.white.withAlphaComponent(0.7).cgColor); ctx.setLineWidth(1)
+                ctx.setLineDash(phase: 0,lengths: [4,3])
+                for step in 0...64 {
+                    let angle = Double(step) * .pi/32
+                    let u = CGPoint(x: point.position.x + cos(angle)*point.radius,y: point.position.y + sin(angle)*point.radius)
+                    let q = gradientUnitToView(u,h.node,chain: chain)
+                    if step == 0 { ctx.move(to: q) } else { ctx.addLine(to: q) }
+                }
+                ctx.strokePath(); ctx.setLineDash(phase: 0,lengths: [])
+                ctx.move(to: center); ctx.addLine(to: radius); ctx.strokePath(); ctx.restoreGState()
+                drawGradientKnob(at: radius,fill: .white,radius: 4,in: ctx)
+            }
+            drawGradientKnob(at: center,fill: PaintRender.nsColor(point.color),radius: 5,isSelected: selected,in: ctx)
+        }
+    }
+    private func meshCommand(_ title: String,_ change: (inout MeshFill) -> Void) {
+        guard let h = meshSelection() else { return }
+        var m = h.mesh; change(&m); guard m != h.mesh,(try? m.validate()) != nil else { return }
+        dragBaseline = document?.model; gestureUndoName = title
+        setMeshFill(m,on: h.id); registerUndoForGesture(); dragBaseline = nil; needsDisplay = true
+    }
+    @objc func applyMeshFillAction(_ sender: Any?) {
+        guard let id = app?.singleSelectedNodeID, let n = node(id),!n.isLocked,n.frame.width > 0,n.frame.height > 0,
+              n.layerPaintStyle?.fill != nil else { return }
+        dragBaseline = document?.model; gestureUndoName = "Use Mesh Fill"
+        guard n.layerPaintStyle?.fill?.isMesh != true else { dragBaseline = nil; return }
+        setMeshFill(MeshFill.seeded(base: n.layerPaintStyle?.fill?.representativeColor ?? .white),on: id)
+        registerUndoForGesture(); dragBaseline = nil
+        app?.selectedGradientStopID = node(id)?.layerPaintStyle?.fill?.meshValue?.points.first?.id; needsDisplay = true
+    }
+    @objc func addMeshPointAction(_ sender: Any?) {
+        meshCommand("Add Mesh Point") { mesh in
+            guard mesh.points.count < MeshFill.maximumPoints else { return }
+            let requested = ((sender as? NSMenuItem)?.representedObject as? NSValue)?.pointValue ?? CGPoint(x: 0.5,y: 0.5)
+            let position = CGPoint(x: min(3,max(-2,requested.x)),y: min(3,max(-2,requested.y)))
+            let p = MeshPoint(position: position,radius: 0.65,color: RGBAColor(r: 0.6,g: 0.2,b: 1,a: 1))
+            mesh.points.append(p); app?.selectedGradientStopID = p.id
+        }
+    }
+    @objc func removeMeshPointAction(_ sender: Any?) {
+        meshCommand("Remove Mesh Point") { mesh in
+            mesh.points.removeAll { $0.id == app?.selectedGradientStopID }; app?.selectedGradientStopID = mesh.points.first?.id
+        }
+    }
+    @objc func meshPointBackAction(_ sender: Any?) { moveMeshPoint(-1) }
+    @objc func meshPointFrontAction(_ sender: Any?) { moveMeshPoint(1) }
+    private func moveMeshPoint(_ direction: Int) {
+        meshCommand("Reorder Mesh Point") { mesh in
+            guard let i = mesh.points.firstIndex(where: { $0.id == app?.selectedGradientStopID }),mesh.points.indices.contains(i+direction) else { return }
+            mesh.points.swapAt(i,i+direction)
+        }
+    }
+
     private static func lerp(_ a: CGPoint, _ b: CGPoint, _ t: CGFloat) -> CGPoint {
         CGPoint(x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t)
     }
@@ -5534,7 +5625,7 @@ final class CanvasNSView: NSView {
                 drawSelectionTransformBox(box.ink, chain: space.chain, in: ctx)
             }
         }
-        perf.measure("chrome-gradient-line") { drawGradientHandles(in: ctx) }
+        perf.measure("chrome-gradient-line") { drawGradientHandles(in: ctx); drawMeshHandles(in: ctx) }
         // Path anchors + handles: while editing points (node tool) or
         // while the pen is drawing.
         if app.tool == .node, let id = app.singleSelectedNodeID, let n = node(id),
@@ -6484,6 +6575,7 @@ final class CanvasNSView: NSView {
     /// instances composite children, so they always keep it.
     private func isSinglePaintOp(_ node: Node) -> Bool {
         guard !node.effects.contains(where: { $0.isEnabled }) else { return false }
+        if node.layerPaintStyle?.fill?.isMesh == true || node.layerPaintStyle?.stroke.isMesh == true { return false }
         func strokeOp(_ w: CGFloat, _ p: Paint) -> Bool {
             guard w > 0 else { return false }
             if case .solid(let c) = p { return c.a > 0 }
@@ -6991,13 +7083,13 @@ final class CanvasNSView: NSView {
                                                      space: patternSpace, in: ctx)
                 } else { cached = false }
                 if !cached {
-                    PaintRender.fill(ps.fill, path: bez, bounds: bez.bounds, in: ctx, patterns: patterns,
+                    PaintRender.fill(ps.fill, path: bez, bounds: ps.fill.isMesh ? rect : bez.bounds, in: ctx, patterns: patterns,
                                      patternSpace: patternSpace)
                 }
             }
             canvasStroke(bez, width: ps.strokeWidth * app.zoom,
                          alignment: ps.effectiveStrokeAlignment, paint: ps.stroke,
-                         bounds: bez.bounds, in: ctx, join: ps.strokeJoin.cgLineJoin,
+                         bounds: ps.stroke.isMesh ? rect : bez.bounds, in: ctx, join: ps.strokeJoin.cgLineJoin,
                          cap: ps.strokeCap.cgLineCap, miterLimit: ps.strokeMiterLimit,
                          pattern: ps.strokePattern)
             if ps.strokeWidth > 0, let tangents = ps.endpointTangents {
@@ -8174,6 +8266,7 @@ final class CanvasNSView: NSView {
         case .select:
             // The cursor is what tells you the line is live: crosshair = "click adds a
             // stop here", open hand = "grab this knob".
+            if hitMesh(p) != nil { return .openHand }
             if let g = hitTestGradientHandle(atViewPoint: p) {
                 if case .line = g.hit { return .crosshair }
                 return .openHand
@@ -8266,6 +8359,12 @@ final class CanvasNSView: NSView {
     }
 
     override func keyDown(with event: NSEvent) {
+        if event.keyCode == 53,case .meshPoint = dragMode {
+            if let baseline = dragBaseline { document?.model = baseline }
+            meshDragOriginal = nil; dragBaseline = nil; dragMode = .none; didEdit = false
+            needsDisplay = true; return
+        }
+
         if app?.knifeLinePreview != nil {
             if event.keyCode == 36 { applyKnifeLineAction(nil); return }
             if event.keyCode == 53 { cancelKnifeLineAction(nil); return }
@@ -8514,6 +8613,13 @@ final class CanvasNSView: NSView {
             gestureUndoName = "Edit Line"
             dragMode = .lineEndpoint(id: id, movingStart: movingStart, fixedDoc: movingStart ? b : a)
             return
+        }
+
+        if let (id,point,radius) = hitMesh(p) {
+            dragBaseline = document.model; gestureUndoName = "Edit Mesh Point"; didEdit = false
+            meshDragOriginal = meshSelection()?.mesh
+            app.selectedGradientStopID = point; dragMode = .meshPoint(id: id,pointID: point,radius: radius)
+            needsDisplay = true; return
         }
 
         // FEAT-032: the gradient line. Tested before the selection chrome because
@@ -9128,6 +9234,15 @@ final class CanvasNSView: NSView {
         case .pathPointGroup(let nodeID, let startLocal, let originals):
             pathPointGroupDrag(p, nodeID: nodeID, startLocal: startLocal, originals: originals, shift: shift)
 
+        case .meshPoint(let id,let pointID,let radius):
+            guard let h = meshSelection(),h.id == id,var mesh = node(id)?.layerPaintStyle?.fill?.meshValue,
+                  let i = mesh.points.firstIndex(where: { $0.id == pointID }) else { return }
+            let unit = gradientViewToUnit(p,h.node,chain: ancestorGroups(of: id))
+            if radius {
+                mesh.points[i].radius = min(4,max(0.005,hypot(unit.x-mesh.points[i].position.x,unit.y-mesh.points[i].position.y)))
+            } else { mesh.points[i].position = CGPoint(x: min(3,max(-2,unit.x)),y: min(3,max(-2,unit.y))) }
+            if mesh != h.mesh { setMeshFill(mesh,on: id); didEdit = true; needsDisplay = true }
+
         case .gradientEnd(let id, let movingStart):
             guard let n = node(id), let g0 = linearGradientFill(of: n) else { return }
             let rect = CGRect(origin: .zero, size: n.frame.size)
@@ -9315,6 +9430,9 @@ final class CanvasNSView: NSView {
 
         case .gradientEnd:
             if didEdit { registerUndoForGesture() }
+        case .meshPoint(let id,_,_):
+            if didEdit,let original = meshDragOriginal,node(id)?.layerPaintStyle?.fill?.meshValue != original { registerUndoForGesture() }
+            meshDragOriginal = nil
 
         case .gradientStop(let id, let stopID):
             if didEdit { registerUndoForGesture() }
@@ -13517,6 +13635,16 @@ final class CanvasNSView: NSView {
         }
         menu.addItem(.separator())
 
+        if let (_,point,_) = hitMesh(p) {
+            app?.selectedGradientStopID = point; needsDisplay = true
+            for (title,selector) in [("Add Mesh Point",#selector(addMeshPointAction(_:))),
+                ("Remove Mesh Point",#selector(removeMeshPointAction(_:))),
+                ("Move Mesh Point Back",#selector(meshPointBackAction(_:))),
+                ("Move Mesh Point Front",#selector(meshPointFrontAction(_:)))] {
+                let item = NSMenuItem(title: title,action: selector,keyEquivalent: ""); item.target = self; menu.addItem(item)
+            }
+            return menu
+        }
         // Right-click anywhere on the gradient line → a gradient menu (FEAT-045).
         // First, like the path-anchor case below, because it is chrome sitting on top
         // of the shape. The BARE LINE gets a menu too, not just the stops: paste puts
@@ -13603,6 +13731,12 @@ final class CanvasNSView: NSView {
             menu.addItem(.separator())
             // Three independent appearance channels, validated against their
             // matching session clipboard and the current selection.
+            add(menu,"Use Mesh Fill",#selector(applyMeshFillAction(_:)))
+            add(menu,"Add Mesh Point Here",#selector(addMeshPointAction(_:)))
+            if let h = meshSelection() { menu.items.last?.representedObject = NSValue(point: gradientViewToUnit(p,h.node,chain: ancestorGroups(of: h.id))) }
+            add(menu,"Remove Mesh Point",#selector(removeMeshPointAction(_:)))
+            add(menu,"Move Mesh Point Back",#selector(meshPointBackAction(_:)))
+            add(menu,"Move Mesh Point Front",#selector(meshPointFrontAction(_:)))
             add(menu, "Add Duotone / Color Matrix", #selector(addColorMatrixAction(_:)))
             add(menu, "Reset Color Matrix", #selector(resetColorMatrixAction(_:)))
             add(menu, "Copy Effects", #selector(copyLayerStyle(_:)))
@@ -13924,6 +14058,16 @@ extension CanvasNSView: NSMenuItemValidation {
              #selector(flipHorizontalAction(_:)), #selector(flipVerticalAction(_:)),
              #selector(copyLayerStyle(_:)):
             return hasNodes
+        case #selector(applyMeshFillAction(_:)):
+            guard let id = app?.singleSelectedNodeID,let n = node(id) else { return false }
+            return !n.isLocked && n.frame.width > 0 && n.frame.height > 0 && n.layerPaintStyle?.fill != nil && n.layerPaintStyle?.fill?.isMesh != true
+        case #selector(addMeshPointAction(_:)):
+            return meshSelection().map { $0.mesh.points.count < MeshFill.maximumPoints } ?? false
+        case #selector(removeMeshPointAction(_:)),#selector(meshPointBackAction(_:)),#selector(meshPointFrontAction(_:)):
+            guard let mesh = meshSelection()?.mesh,let i = mesh.points.firstIndex(where: { $0.id == app?.selectedGradientStopID }) else { return false }
+            if item.action == #selector(meshPointBackAction(_:)) { return i > 0 }
+            if item.action == #selector(meshPointFrontAction(_:)) { return i < mesh.points.count-1 }
+            return true
         case #selector(addColorMatrixAction(_:)):
             guard let id = app?.singleSelectedNodeID, let n = node(id) else { return false }
             return !n.isLocked && n.frame.width > 0 && n.frame.height > 0 && n.effects.filter { $0.kind == .colorMatrix }.count < 32

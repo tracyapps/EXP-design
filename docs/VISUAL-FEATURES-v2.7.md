@@ -109,6 +109,16 @@ duplicate/components/states/library, one-step Undo and save/reopen, real browser
 CSS/SVG versus native pixels, PNG/PDF and EXP-authored re-import, stress-document
 interactive performance and transparent edge inspection.
 
+## Editable Mesh integration — October 18
+
+FEAT-033 is implemented/local checked and awaits owner acceptance.
+`MESH-FILL-VERIFICATION-v2.7.md` supersedes the hidden foundation's "not exposed"
+status. It records the picker, numeric/point commands and handles, strict own
+SVG/CSS restoration, shared rendering/export budgets, real native UI evidence
+and remaining owner/AT/display/stress gates. The owner accepted the rendering
+preview; that does not close the editable feature gate. No next document-mutating
+slice starts while this owner review is open.
+
 ## Current evidence and limits
 
 **Current integration:** editable FEAT-073 is implemented/local checked and owner

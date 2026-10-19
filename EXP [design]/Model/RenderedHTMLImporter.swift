@@ -89,6 +89,8 @@ nonisolated struct RenderedHTMLComputedStyle: Codable, Equatable, Sendable {
 
     var backgroundColor: String = "rgba(0, 0, 0, 0)"
     var backgroundImage: String = "none"
+    var meshMetadata: String? = nil
+    var meshCSSVerified: Bool? = nil
     var backgroundRepeat: String = "repeat"
     var backgroundSize: String = "auto"
     var backgroundPosition: String = "0% 0%"
@@ -194,6 +196,29 @@ nonisolated enum RenderedHTMLExtractionScript {
         const cs = getComputedStyle(el, pseudo);
         const result = {};
         styleNames.forEach(name => result[name] = cs[name] || "");
+        const rawMesh = cs.getPropertyValue("--exp-mesh-v1").trim();
+        if (rawMesh && rawMesh.length <= 24002) {
+          result.meshMetadata = rawMesh.startsWith('"') && rawMesh.endsWith('"') ? rawMesh.slice(1,-1) : rawMesh;
+          result.meshCSSVerified = false;
+          try {
+            const m = JSON.parse(atob(result.meshMetadata));
+            const channel = c => c && [c.r,c.g,c.b,c.a].every(v => Number.isFinite(v) && v >= 0 && v <= 1);
+            if (m.version !== 1 || !channel(m.base) || !Array.isArray(m.points) || m.points.length > 8) throw 0;
+            const rgba = (c,a=1) => `rgba(${c.r*255}, ${c.g*255}, ${c.b*255}, ${c.a*a})`;
+            const layers = m.points.slice().reverse().map(p => {
+              if (!channel(p.color) || !Array.isArray(p.position) || p.position.length !== 2 ||
+                  !p.position.every(v => Number.isFinite(v) && v >= -2 && v <= 3) ||
+                  !Number.isFinite(p.radius) || p.radius < .005 || p.radius > 4 ||
+                  !Number.isFinite(p.opacity) || p.opacity < 0 || p.opacity > 1) throw 0;
+              return `radial-gradient(ellipse ${p.radius*100}% ${p.radius*100}% at ${p.position[0]*100}% ${p.position[1]*100}%, ${rgba(p.color,p.opacity)} 0%, ${rgba(p.color,0)} 100%)`;
+            });
+            layers.push(rgba(m.base));
+            const probe = document.createElement('span'); probe.style.background = layers.join(', ');
+            result.meshCSSVerified = probe.style.backgroundImage === cs.backgroundImage &&
+              probe.style.backgroundColor === cs.backgroundColor && cs.backgroundSize.split(',').every(v => v.trim() === 'auto') &&
+              cs.backgroundPosition.split(',').every(v => v.trim() === '0% 0%') && cs.backgroundRepeat.split(',').every(v => v.trim() === 'repeat');
+          } catch (_) { /* Invalid or stale metadata never overrides visible CSS. */ }
+        }
         return result;
       };
       const attributes = el => {
@@ -715,6 +740,9 @@ struct RenderedHTMLImporter {
                 + notedQueries.joined(separator: "\n")
                 + (omittedQueries > 0 ? "\n… \(omittedQueries) additional matches omitted from Notes." : "")
             let notes = "Rendered HTML import from \(snapshot.sourceURL) at \(Int(width)) × \(Int(snapshot.viewport.renderHeight)) CSS px. Responsive rules were resolved into this static artboard.\(responsive)"
+            if snapshot.root.style.meshMetadata != nil,verifiedMesh(snapshot.root.style) == nil {
+                report.add(.warning,.unsupported,category: "Mesh fill",message: "Mesh metadata did not match the visible CSS background; the resolved supported paint was retained.",location: snapshot.root.path)
+            }
             let artboard = Artboard(name: boardName,
                                     frame: CGRect(origin: boardOrigin,
                                                   size: CGSize(width: width, height: height)),
@@ -1374,7 +1402,10 @@ struct RenderedHTMLImporter {
     private func surfaceNode(_ element: RenderedHTMLElement,
                              backgroundImageHandled: Bool,
                              report: inout InteropImportReport) -> Node? {
-        let fill = paint(backgroundColor: element.style.backgroundColor,
+        if element.style.meshMetadata != nil,verifiedMesh(element.style) == nil {
+            report.add(.warning,.unsupported,category: "Mesh fill",message: "Mesh metadata did not match the visible CSS background; it was not collapsed into editable points.",location: element.path)
+        }
+        let fill = paint(mesh: verifiedMesh(element.style),backgroundColor: element.style.backgroundColor,
                          backgroundImage: element.style.backgroundImage,
                          backgroundImageHandled: backgroundImageHandled,
                          location: element.path, report: &report)
@@ -2048,15 +2079,21 @@ struct RenderedHTMLImporter {
         runs.append(run)
     }
 
+    private func verifiedMesh(_ style: RenderedHTMLComputedStyle) -> MeshFill? {
+        guard style.meshCSSVerified == true,let payload = style.meshMetadata else { return nil }
+        return try? MeshFill.fromMetadata(payload)
+    }
     private func backgroundPaint(_ style: RenderedHTMLComputedStyle) -> Paint {
+        if let mesh = verifiedMesh(style) { return .mesh(mesh) }
         if let gradient = gradient(style.backgroundImage) { return gradient }
         return .solid(cssColor(style.backgroundColor) ?? .white)
     }
 
-    private func paint(backgroundColor: String, backgroundImage: String,
+    private func paint(mesh: MeshFill? = nil,backgroundColor: String, backgroundImage: String,
                        backgroundImageHandled: Bool,
                        location: String,
                        report: inout InteropImportReport) -> Paint? {
+        if let mesh { report.mapped("Mesh fill"); return .mesh(mesh) }
         if let gradient = gradient(backgroundImage) {
             report.mapped("Gradient")
             return gradient

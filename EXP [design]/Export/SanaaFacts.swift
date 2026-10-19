@@ -820,6 +820,7 @@ enum SanaaFacts {
             guard blendMode == .normal else {
                 return .unresolved("A backing layer uses a non-normal blend mode; adjacent color cannot be reduced to one pair.")
             }
+            if paint.isMesh { return .unresolved("Mesh backing needs spatial sampling; a base color is not a contrast result.") }
             if case .gradient(let fill) = paint {
                 guard rect.width > 0, rect.height > 0 else {
                     return .unresolved("A gradient backing has empty geometry and cannot be sampled.")
@@ -951,6 +952,7 @@ enum SanaaFacts {
 
     private static func artboardBacking(_ artboard: Artboard) -> Backing {
         switch artboard.background {
+        case .mesh: return .unresolved("Mesh backing needs spatial sampling; no single contrast color is assumed.")
         case .pattern:
             // FEAT-062. A pattern tile has no single backing colour, so contrast
             // against it cannot be computed from a paint alone. `unresolved` is the

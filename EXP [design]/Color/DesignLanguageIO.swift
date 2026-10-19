@@ -266,6 +266,7 @@ enum DesignLanguageIO {
     static func css(for paint: Paint) -> String {
         switch paint {
         case .solid(let c):    return ColorMath.string(c, .hex)
+        case .mesh(let m): return (try? m.cssBackground()) ?? "none"
         case .gradient(let g): return cssGradient(g)
         case .pattern(let p):
             // FEAT-062. A pattern tile has no CSS colour value. Its fallback hex
@@ -634,6 +635,8 @@ enum DesignLanguageIO {
                     ["color": ColorMath.string($0.color, .hex), "position": Double($0.position)]
                 }
                 gradients[name] = ["$type": "gradient", "$value": stops]
+            case .mesh(let m):
+                gradients[name] = ["$type": "exp-mesh-v1", "$value": (try? m.metadata()) ?? ""]
             case .pattern:
                 // FEAT-062. The W3C Design Tokens format has no pattern type, and
                 // writing one out as a flat `$type: color` would be a lie a
@@ -719,6 +722,9 @@ enum DesignLanguageIO {
             state.assets.append(DesignAsset(name: name, categoryID: categoryID,
                                             value: .gradient(gradient),
                                             provenance: "import: design tokens"))
+        case "exp-mesh-v1":
+            guard let payload = value as? String,let mesh = try? MeshFill.fromMetadata(payload) else { return }
+            state.assets.append(DesignAsset(name: name,categoryID: categoryID,value: .mesh(mesh),provenance: "import: EXP mesh token"))
         case "typography", "font":
             guard let style = dtcgTypography(value, name: name, categoryID: categoryID) else { return }
             state.typeStyles.append(style)

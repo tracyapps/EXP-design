@@ -548,6 +548,10 @@ struct ExportRenderer {
         switch paint {
         case .solid(let c):
             return fillAttr(c)
+        case .mesh(let m):
+            guard let pattern = try? m.svgPattern(name: "mesh\(defs.count)",bounds: rect) else { return " fill=\"none\"" }
+            defs.append(pattern.definition)
+            return " fill=\"url(#\(pattern.id))\""
         case .gradient(let g):
             let id = "grad\(defs.count)"
             defs.append(svgGradientDef(g, id: id, rect: rect))
@@ -719,6 +723,10 @@ struct ExportRenderer {
         switch paint {
         case .solid(let c):
             return strokeAttr(c, width, pattern, cap: cap)
+        case .mesh(let m):
+            guard let server = try? m.svgPattern(name: "mesh\(defs.count)",bounds: rect) else { return " stroke=\"none\"" }
+            defs.append(server.definition)
+            return " stroke=\"url(#\(server.id))\" stroke-width=\"\(num(width))\"" + strokeRhythmAttr(pattern,width: width,cap: cap)
         case .gradient(let g):
             let id = "grad\(defs.count)"
             defs.append(svgGradientDef(g, id: id, rect: rect))
@@ -964,7 +972,12 @@ final class PatternTileStore {
 }
 
 final class ExportRenderView: NSView {
-    private(set) var matrixRenderFailed = false
+    private var matrixFailed = false
+    private let meshFailureAtStart = PaintRender.meshFailureGeneration
+    private(set) var matrixRenderFailed: Bool {
+        get { matrixFailed || PaintRender.meshFailureGeneration != meshFailureAtStart }
+        set { matrixFailed = newValue }
+    }
     var rasterEffectScale: CGFloat = 1
     let document: Document
     /// nil for a view that rasterises loose nodes rather than an artboard — see
@@ -1073,6 +1086,7 @@ final class ExportRenderView: NSView {
     /// Mirrors CanvasView.isSinglePaintOp — one fill OR one stroke, no effects.
     private func exportIsSinglePaintOp(_ node: Node) -> Bool {
         guard !node.effects.contains(where: { $0.isEnabled }) else { return false }
+        if node.layerPaintStyle?.fill?.isMesh == true || node.layerPaintStyle?.stroke.isMesh == true { return false }
         func strokeOp(_ w: CGFloat, _ p: Paint) -> Bool {
             guard w > 0 else { return false }
             if case .solid(let c) = p { return c.a > 0 }
@@ -1128,6 +1142,28 @@ final class ExportRenderView: NSView {
                     deviceScale: self.rasterEffectScale, preview: false,
                     contentBounds: self.exportPaintBounds(source, offset: offset), in: ctx) { target, _ in
                     self.drawExportNode(source, offset: offset, in: target)
+                }
+            } catch { matrixRenderFailed = true }
+            return
+        }
+        // Quartz PDF transparency groups shift colors in a multi-point mesh.
+        // Capture only this bounded node when opacity/blending needs atomic
+        // compositing; unit-opacity mesh PDF keeps vector color + coverage masks.
+        let hasMesh = node.layerPaintStyle?.fill?.isMesh == true || node.layerPaintStyle?.stroke.isMesh == true
+        if hasMesh && (node.opacity < 0.999 || node.blendMode != .normal) {
+            var source = node
+            source.opacity = 1; source.blendMode = .normal
+            source.rotation = 0; source.flipH = false; source.flipV = false
+            let bounds = exportPaintBounds(source,offset: offset)
+            var capture = Effect(kind: .colorMatrix); capture.colorMatrix = .identity
+            capture.colorMatrixRegion = ColorMatrixRegion(x: 0,y: 0,width: 1,height: 1)
+            ctx.saveGState(); defer { ctx.restoreGState() }
+            ctx.setAlpha(CGFloat(max(0,min(1,node.opacity)))); ctx.setBlendMode(node.blendMode.cg)
+            ctx.translateBy(x: rect.midX,y: rect.midY); ctx.rotate(by: CGFloat(node.rotation * .pi/180))
+            ctx.scaleBy(x: node.flipH ? -1 : 1,y: node.flipV ? -1 : 1); ctx.translateBy(x: -rect.midX,y: -rect.midY)
+            do {
+                try EffectsRender.drawMatrixLayer(capture,frame: bounds,deviceScale: rasterEffectScale,preview: false,in: ctx) { target,_ in
+                    self.drawExportNode(source,offset: offset,in: target)
                 }
             } catch { matrixRenderFailed = true }
             return
@@ -1523,7 +1559,7 @@ final class ExportRenderView: NSView {
         case .path(let ps):
             let path = Self.nsPath(ps, origin: rect.origin)
             if ps.isMultiContour || (ps.closed && ps.points.count >= 2) {
-                PaintRender.fill(ps.fill, path: path, bounds: path.bounds, in: ctx,
+                PaintRender.fill(ps.fill, path: path, bounds: ps.fill.isMesh ? rect : path.bounds, in: ctx,
                                  pdfSafeAlpha: true, patterns: patterns,
                                  patternSpace: patternSpace)
             }

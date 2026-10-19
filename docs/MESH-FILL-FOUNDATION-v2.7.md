@@ -1,5 +1,8 @@
 # Mesh fill foundation — FEAT-033, October 18
 
+**Historical foundation receipt.** Editable integration now lives in
+`MESH-FILL-VERIFICATION-v2.7.md`; the original scope/evidence below remains for traceability.
+
 Color Matrix is owner-accepted, including exports. Mesh is the next selected
 feature. This slice proves shared model/drawing/serialization primitives; **it does
 not add a Paint case, app fill-picker option, Inspector or canvas handles yet**.

@@ -267,6 +267,7 @@ enum Paint: Codable, Equatable, Sendable {
     case solid(RGBAColor)
     case gradient(GradientFill)
     case pattern(PatternRef)
+    case mesh(MeshFill)
 
     /// A single representative color (the solid value, or the first stop) — used
     /// where one color is needed (swatches, solid overrides, fallbacks).
@@ -274,11 +275,14 @@ enum Paint: Codable, Equatable, Sendable {
         switch self {
         case .solid(let c): return c
         case .gradient(let g): return g.sortedStops.first?.color ?? .white
+        case .mesh(let m): return m.base
         case .pattern(let p): return p.fallback
         }
     }
     var isGradient: Bool { if case .gradient = self { return true }; return false }
     var gradientValue: GradientFill? { if case .gradient(let g) = self { return g }; return nil }
+    var meshValue: MeshFill? { if case .mesh(let m) = self { return m }; return nil }
+    var isMesh: Bool { meshValue != nil }
     var isPattern: Bool { if case .pattern = self { return true }; return false }
     var patternValue: PatternRef? { if case .pattern(let p) = self { return p }; return nil }
 
@@ -288,13 +292,14 @@ enum Paint: Codable, Equatable, Sendable {
 
     // MARK: Codable (flat = bare RGBAColor; gradient = tagged)
 
-    private enum CodingKeys: String, CodingKey { case kind, gradient, pattern }
+    private enum CodingKeys: String, CodingKey { case kind, gradient, pattern, mesh }
 
     init(from decoder: Decoder) throws {
         // Legacy / flat: a bare {r,g,b,a} object decodes as RGBAColor.
         if let c = try? RGBAColor(from: decoder) { self = .solid(c); return }
         let ct = try decoder.container(keyedBy: CodingKeys.self)
         let kind = (try? ct.decodeIfPresent(String.self, forKey: .kind)) ?? nil
+        if kind == "mesh" { self = .mesh(try ct.decode(MeshFill.self, forKey: .mesh)); return }
         if kind == "gradient", let g = try? ct.decode(GradientFill.self, forKey: .gradient) {
             self = .gradient(g)
         } else if kind == "pattern", let p = try? ct.decode(PatternRef.self, forKey: .pattern) {
@@ -312,6 +317,9 @@ enum Paint: Codable, Equatable, Sendable {
             var ct = encoder.container(keyedBy: CodingKeys.self)
             try ct.encode("gradient", forKey: .kind)
             try ct.encode(g, forKey: .gradient)
+        case .mesh(let m):
+            var ct = encoder.container(keyedBy: CodingKeys.self)
+            try ct.encode("mesh",forKey: .kind); try ct.encode(m,forKey: .mesh)
         case .pattern(let p):
             // An older build reading this falls through the decoder's unknown-kind
             // branch to `.solid(.white)` rather than throwing, so a v2.5 document
@@ -341,6 +349,11 @@ struct MeshFill: Codable, Equatable, Sendable {
     var points: [MeshPoint]
     var version = 1
 
+    static func seeded(base: RGBAColor) -> Self {
+        MeshFill(base: base,points: [
+            MeshPoint(position: CGPoint(x: 0.25,y: 0.25),radius: 0.8,color: RGBAColor(r: 1,g: 0.05,b: 0.4,a: 1)),
+            MeshPoint(position: CGPoint(x: 0.8,y: 0.7),radius: 0.85,color: RGBAColor(r: 0,g: 0.8,b: 1,a: 1))])
+    }
     enum ValidationError: Error { case invalidData }
     private enum CodingKeys: String, CodingKey { case version, base, points }
     init(base: RGBAColor, points: [MeshPoint] = []) { self.base = base; self.points = points }
@@ -400,10 +413,16 @@ struct MeshFill: Codable, Equatable, Sendable {
     }
     /// A unit-space pattern is a paint server, so the same mesh works for fills,
     /// backgrounds and stroke outlines without duplicating carrier geometry.
-    /// IDs derive only from UUIDs; metadata contains no executable strings.
+    /// App exports place the unit tile in the logical editing frame explicitly,
+    /// so curved ink bounds cannot move its points. Metadata is data-only.
     func svgPattern(id: UUID) throws -> (id: String, definition: String) {
         try validate()
-        let name = "mesh" + id.uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+        return try svgPattern(name: "mesh" + id.uuidString.replacingOccurrences(of: "-", with: "").lowercased())
+    }
+    func svgPattern(name: String, bounds: CGRect? = nil) throws -> (id: String, definition: String) {
+        try validate()
+        guard name.count <= 100, name.first?.isLetter == true,
+              name.utf8.allSatisfy({ (65...90).contains($0) || (97...122).contains($0) || (48...57).contains($0) || $0 == 45 || $0 == 95 }) else { throw ValidationError.invalidData }
         func rgb(_ c: RGBAColor) -> String { "rgb(\(c.r * 255),\(c.g * 255),\(c.b * 255))" }
         var defs = "", layers = "<rect width=\"1\" height=\"1\" fill=\"\(rgb(base))\" fill-opacity=\"\(base.a)\"/>"
         for (i,p) in points.enumerated() {
@@ -411,7 +430,13 @@ struct MeshFill: Codable, Equatable, Sendable {
             defs += "<radialGradient id=\"\(gradient)\" cx=\"\(p.position.x)\" cy=\"\(p.position.y)\" r=\"\(p.radius)\" color-interpolation=\"sRGB\"><stop offset=\"0\" stop-color=\"\(rgb(p.color))\" stop-opacity=\"\(p.color.a * p.opacity)\"/><stop offset=\"1\" stop-color=\"\(rgb(p.color))\" stop-opacity=\"0\"/></radialGradient>"
             layers += "<rect width=\"1\" height=\"1\" fill=\"url(#\(gradient))\"/>"
         }
+        let placement: String
+        if let bounds {
+            guard [bounds.minX,bounds.minY,bounds.width,bounds.height].allSatisfy({ $0.isFinite }),
+                  bounds.width > 0,bounds.height > 0 else { throw ValidationError.invalidData }
+            placement = "patternUnits=\"userSpaceOnUse\" x=\"\(bounds.minX)\" y=\"\(bounds.minY)\" width=\"\(bounds.width)\" height=\"\(bounds.height)\""
+        } else { placement = "patternUnits=\"objectBoundingBox\" width=\"1\" height=\"1\"" }
         let metadata = try metadata()
-        return (name, defs + "<pattern id=\"\(name)\" patternUnits=\"objectBoundingBox\" width=\"1\" height=\"1\" viewBox=\"0 0 1 1\" preserveAspectRatio=\"none\" data-exp-mesh-v1=\"\(metadata)\">\(layers)</pattern>")
+        return (name, defs + "<pattern id=\"\(name)\" \(placement) viewBox=\"0 0 1 1\" preserveAspectRatio=\"none\" data-exp-mesh-v1=\"\(metadata)\">\(layers)</pattern>")
     }
 }

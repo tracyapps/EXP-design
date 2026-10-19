@@ -235,6 +235,13 @@ private struct EditCommandItems: View {
             .disabled(menu?.canDuplicate != true)
         Button("Duplicate Effect") { sendEditorAction("duplicateSelectedEffectAction:") }
             .disabled(menu?.canDuplicateEffect != true)
+        Menu("Mesh Fill") {
+            Button("Use Mesh Fill") { sendEditorAction("applyMeshFillAction:") }.disabled(menu?.canUseMesh != true)
+            Button("Add Color Point") { sendEditorAction("addMeshPointAction:") }.disabled(menu?.canAddMeshPoint != true)
+            Button("Remove Color Point") { sendEditorAction("removeMeshPointAction:") }.disabled(menu?.canRemoveMeshPoint != true)
+            Button("Move Point Back") { sendEditorAction("meshPointBackAction:") }.disabled(menu?.canMeshBack != true)
+            Button("Move Point Front") { sendEditorAction("meshPointFrontAction:") }.disabled(menu?.canMeshFront != true)
+        }
         Button("Add Duotone / Color Matrix") { sendEditorAction("addColorMatrixAction:") }
             .disabled(menu?.canAddColorMatrix != true)
         Button("Reset Color Matrix") { sendEditorAction("resetColorMatrixAction:") }
