@@ -234,11 +234,12 @@ extension View {
     func expModalGlass()   -> some View { expGlass(.thick,  cornerRadius: EXPMetric.radiusPanel) }
 
     /// Paint palettes persist through canvas interaction but belong to the app's
-    /// ordinary window stack. A global menu level would cover editors and other apps.
+    /// floating palette stack, with AppKit hiding the window on deactivation.
+    /// The primary palette also closes at settings/source-editor handoff.
     func expPaintWindowLevel() -> some View {
         background(EXPWindowReader { window in
-            window?.level = .normal
-            (window as? NSPanel)?.hidesOnDeactivate = true
+            window?.level = .floating
+            window?.hidesOnDeactivate = true
         })
     }
 

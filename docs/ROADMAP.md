@@ -1328,7 +1328,9 @@ from the appcast; a development plan does not change the published release.
       `POLYGON-ROUNDING-v2.7.md`. Gradient review remains separate.
 - [ ] Owner accepts BUG-076 / BUG-077 / FEAT-075 pattern polish: seamless fractional
       tiles, per-fill scale/Undo/save/export and app-local persistent palette ordering.
-      Local checks pass; `PATTERN-POLISH-v2.7.md` records evidence and owner steps.
+      Follow-up BUG-079/080 covers per-fill fixed-size anchoring and real SVG phase/
+      viewBox/precision. `PATTERN-PLACEMENT-v2.7.md` records current owner steps;
+      old imported Shape fractions need one explicit Keep imported tile size fixed.
 - [ ] Owner accepts BUG-078 canvas-axis Flip repair. Rotated bowtie-triangle report
       identifies local-axis command behavior; shared helper now adjusts local flags
       and rotation. Native polygon/converted-path plus Undo/Redo and bounded geometry/
@@ -3502,6 +3504,23 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-10-19 — Per-fill pattern anchors, precision and real SVG repair [internal].**
+  Owner's real a11ycat report exposes BUG-079 shared anchoring/stretch and BUG-080
+  document phase/viewBox export mismatch. Placement now belongs to the fill with
+  fixed physical tile size; existing imported fractions keep appearance until an
+  explicit anchor/fix-size choice. Native independent-fill/resize/Undo/save checks
+  pass. SVG translates the lattice with the artboard and uses EXP's tile fitting;
+  owner board/crop native versus WebKit mean channel errors are 0.476/0.861 of 255.
+  No Mesh blend rewrite needed. Fractional 135% check catches tiled-image pixel
+  rounding; noDistortion pattern with copy cell drawing passes both precision and
+  constant transparent coverage. 96 pattern checks, Mesh integration, real stress
+  cached/live parity, Handoff/appearance/interface policy and app/thumbnail build
+  pass. BUG-077 palettes float above normal peers, hide on deactivation and dismiss
+  for Settings/editor/Sanaa response handoff. Native handoffs/menu raising pass;
+  physical Sanaa overlap/app-switch/multi-monitor and full owner matrix stay open.
+  Original user files unchanged; `PATTERN-PLACEMENT-v2.7.md` has receipts/limits.
+  Local commit only; no push, deployment or release.
 
 - **2026-10-19 — Rotated polygon/path Flip axes [internal].**
   Owner clarifies BUG-078 concerns rotated three-sided bowtie halves. Previous

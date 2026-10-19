@@ -49,7 +49,7 @@ private final class Page: NSObject, WKNavigationDelegate {
             new Promise((_, reject) => setTimeout(() => reject(new Error('SVG pixel timeout')), 15000))
           ]);
           const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;
-          const context = canvas.getContext('2d'); context.drawImage(img, 0, 0);
+          const context = canvas.getContext('2d'); context.drawImage(img, 0, 0, width, height);
           return Array.from(context.getImageData(0,0,width,height).data);
           """, arguments: ["svg": svg, "width": width, "height": height], in: nil, contentWorld: .page)
         guard let values = result as? [NSNumber], values.count == width * height * 4 else { throw NSError(domain: "Mesh.InvalidWebKitPixels", code: 1) }
@@ -237,9 +237,142 @@ private final class Page: NSObject, WKNavigationDelegate {
         }
     }
 
+    @MainActor static func checkPatternExportRegression(_ page: Page) async throws {
+        var problems: [String] = []
+        for (name,origin,tileSize,overlay) in [
+            ("document-offset",CGPoint(x: 137,y: 211),CGSize(width: 16,height: 20),false),
+            ("unequal-viewbox",CGPoint.zero,CGSize(width: 32,height: 20),false),
+            ("mesh-over-pattern",CGPoint(x: 137,y: 211),CGSize(width: 32,height: 20),true)
+        ] {
+            let input = """
+            <svg xmlns="http://www.w3.org/2000/svg" width="128" height="80"><defs>
+            <pattern id="p" patternUnits="userSpaceOnUse" width="\(tileSize.width)" height="\(tileSize.height)" viewBox="0 0 16 20">
+            <rect width="16" height="20" fill="#9955dd"/><rect width="8" height="10" fill="#22cc66"/>
+            </pattern></defs><rect width="128" height="80" fill="url(#p)"/></svg>
+            """
+            let imported = SVGImporter.importDocument(from: Data(input.utf8))!,source = imported.patterns[0]
+            let board = Artboard(name: name,frame: CGRect(origin: origin,size: CGSize(width: 128,height: 80)))
+            var nodes = [Node(name: "Pattern",frame: board.frame,content: .rectangle(RectangleShape(fill: .pattern(source.reference),strokeWidth: 0)))]
+            if overlay {
+                let mesh = MeshFill(base: RGBAColor(r: 0.4,g: 0.1,b: 0.8,a: 0.8),points: [MeshPoint(position: CGPoint(x: 0.6,y: 0.3),radius: 0.85,color: RGBAColor(r: 1,g: 0.8,b: 0.1,a: 0.7))])
+                nodes.append(Node(name: "Mesh overlay",frame: board.frame.insetBy(dx: 13,dy: 9),blendMode: .overlay,content: .ellipse(EllipseShape(fill: .mesh(mesh),strokeWidth: 0))))
+            }
+            var doc = Document(artboards: [board],nodes: nodes);doc.patterns = [source]
+            let renderer = ExportRenderer(document: doc),svg = renderer.svgString(for: board)
+            let browser = try await page.sample(svg,width: 128,height: 80)
+            let native = pixels(NSBitmapImageRep(data: renderer.pngData(for: board,scale: 1,transparentBackground: true)!)!.cgImage!)
+            let mean = Double(zip(native,browser).map { abs($0-$1) }.reduce(0,+))/Double(native.count)
+            print("PATTERN EXPORT \(name): mean channel difference \(mean)")
+            if mean >= 3 { problems.append(name) }
+        }
+        if let flag = CommandLine.arguments.firstIndex(of: "--owner-pattern-file"),CommandLine.arguments.count > flag+1 {
+            let file = URL(fileURLWithPath: CommandLine.arguments[flag+1])
+            let doc = try JSONDecoder().decode(Document.self,from: Data(contentsOf: file))
+            guard let board = doc.pages.flatMap(\.artboards).first(where: { $0.name == "a11ycat-square" }) else { fail("owner artboard missing") }
+            let renderer = ExportRenderer(document: doc),svg = renderer.svgString(for: board)
+            let png = renderer.pngData(for: board,scale: 0.5,transparentBackground: true)!
+            let native = pixels(NSBitmapImageRep(data: png)!.cgImage!)
+            let browser = try await page.sample(svg,width: 540,height: 540)
+            let mean = Double(zip(native,browser).map { abs($0-$1) }.reduce(0,+))/Double(native.count)
+            print("OWNER PATTERN EXPORT: native/SVG mean channel difference \(mean)")
+            // The black cat dominates the full-board average. Measure the bowtie
+            // independently so a misplaced repeat cannot hide in that average.
+            var bowtieDifference = 0, bowtieChannels = 0
+            for y in 401..<540 { for x in 55..<479 { for channel in 0..<4 {
+                let i = (y*540+x)*4+channel
+                bowtieDifference += abs(native[i]-browser[i]); bowtieChannels += 1
+            }}}
+            let bowtieMean = Double(bowtieDifference)/Double(bowtieChannels)
+            print("OWNER BOWTIE EXPORT: native/SVG mean channel difference \(bowtieMean)")
+            if bowtieMean >= 3 { problems.append("owner-bowtie") }
+
+            let directory = file.deletingLastPathComponent()
+            try png.write(to: directory.appendingPathComponent("owner-current-native.png"))
+            try Data(svg.utf8).write(to: directory.appendingPathComponent("owner-current.svg"))
+            // Write the exact WebKit sample too, without screenshots/resizing.
+            let ctx = CGContext(data: nil,width: 540,height: 540,bitsPerComponent: 8,bytesPerRow: 2160,space: space,bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            let bytes = ctx.data!.assumingMemoryBound(to: UInt8.self)
+            for i in browser.indices { bytes[i] = UInt8(browser[i]) }
+            let image = ctx.makeImage()!
+            try NSBitmapImageRep(cgImage: image).representation(using: .png,properties: [:])!.write(to: directory.appendingPathComponent("owner-current-webkit.png"))
+            if mean >= 3 { problems.append("owner-artwork") }
+        }
+        require(problems.isEmpty,"pattern export discrepancies: \(problems.joined(separator: ", "))")
+    }
+
+    @MainActor static func checkPatternPlacement(_ page: Page) async throws {
+        for relative in [false,true] {
+            let units = relative ? "objectBoundingBox" : "userSpaceOnUse"
+            let input = """
+            <svg xmlns="http://www.w3.org/2000/svg" width="80" height="90"><defs><pattern id="p" patternUnits="\(units)" width="\(relative ? "0.25" : "16")" height="\(relative ? "0.5" : "20")" viewBox="0 0 16 20"><rect width="16" height="20" fill="#9955dd" fill-opacity="0.5"/><rect width="8" height="10" fill="#22cc66" fill-opacity="0.5"/></pattern></defs><rect width="80" height="90" fill="url(#p)"/></svg>
+            """
+            let imported = SVGImporter.importDocument(from: Data(input.utf8))!
+            let source = imported.patterns[0],legacy = source.reference
+            let frame = CGRect(x: 154,y: 236,width: 80,height: 90)
+            var local = legacy.anchored(.shape,source: source,reference: frame.size)!
+            local.scale = 1.35
+            let documentRef = local.anchored(.document,source: source,reference: CGSize(width: 999,height: 2))!
+            require(legacy.placement == nil && documentRef.placement?.anchor == .document && local.placement?.anchor == .shape,"placement applies to each independent paint")
+            let base = local.tileGeometry(source: source,bounds: frame)
+            let resize = local.tileGeometry(source: source,bounds: CGRect(x: frame.minX,y: frame.minY,width: 190,height: 31))
+            require(base.size == resize.size && base.origin == resize.origin,"nonuniform layer resize must not stretch or shift the tile")
+            let moved = local.tileGeometry(source: source,bounds: frame.offsetBy(dx: 7,dy: 11))
+            require(moved.origin == CGPoint(x: base.origin.x+7,y: base.origin.y+11),"shape anchor follows layer movement")
+            let global = documentRef.tileGeometry(source: source,bounds: frame)
+            require(global.origin == documentRef.tileGeometry(source: source,bounds: frame.offsetBy(dx: 7,dy: 11)).origin,"document anchor keeps fixed phase")
+            require(base.size == (relative ? CGSize(width: 20,height: 45) : CGSize(width: 16,height: 20)),"fixed conversion basis matches original physical tile")
+            require(try JSONDecoder().decode(PatternRef.self,from: JSONEncoder().encode(local)) == local,"placement save/reopen")
+            let board = Artboard(name: "Two anchors",frame: CGRect(x: 137,y: 211,width: 256,height: 160))
+            let nodes = [Node(name: "Shape anchor",frame: frame,content: .rectangle(RectangleShape(fill: .pattern(local),strokeWidth: 0))),Node(name: "Document anchor",frame: CGRect(x: 260,y: 229,width: 109,height: 126),content: .rectangle(RectangleShape(fill: .pattern(documentRef),strokeWidth: 0)))]
+            var doc = Document(artboards: [board],nodes: nodes);doc.patterns = [source]
+            let store = PatternTileStore(),resolver = store.resolver(document: doc)
+            let resolved = resolver.resolve(local,frame,1)!
+            require(resolved.tileSize == CGSize(width: base.size.width * 1.35,height: base.size.height * 1.35),"scale combines with fixed placement size")
+            var transformed = source
+            transformed.transform = AffineValue(CGAffineTransform(rotationAngle: 0.17).scaledBy(x: 1.1,y: 0.9))
+            var transformedDoc = doc; transformedDoc.patterns = [transformed]
+            let transformedStore = PatternTileStore(),transformedResolver = transformedStore.resolver(document: transformedDoc)
+            let atStart = transformedResolver.resolve(local,frame,1)!
+            let atEnd = transformedResolver.resolve(local,frame.offsetBy(dx: 7,dy: 11),1)!
+            let startOrigin = atStart.origin.applying(atStart.transform), endOrigin = atEnd.origin.applying(atEnd.transform)
+            require(abs(endOrigin.x-startOrigin.x-7) < 0.000001 && abs(endOrigin.y-startOrigin.y-11) < 0.000001,"Shape placement follows document movement even with a rotated pattern transform")
+            let transformedRenderer = ExportRenderer(document: transformedDoc)
+            let transformedNative = pixels(NSBitmapImageRep(data: transformedRenderer.pngData(for: board,scale: 1,transparentBackground: true)!)!.cgImage!)
+            let transformedBrowser = try await page.sample(transformedRenderer.svgString(for: board),width: 256,height: 160)
+            let transformedMean = Double(zip(transformedNative,transformedBrowser).map { abs($0-$1) }.reduce(0,+))/Double(transformedNative.count)
+            require(transformedMean < 3,"transformed per-fill native/SVG drift: \(transformedMean)")
+            print("PASS: rotated lattice follows layer movement, native/SVG \(units), mean \(transformedMean)")
+            let renderer = ExportRenderer(document: doc),svg = renderer.svgString(for: board)
+            let native = pixels(NSBitmapImageRep(data: renderer.pngData(for: board,scale: 1,transparentBackground: true)!)!.cgImage!)
+            let browser = try await page.sample(svg,width: 256,height: 160)
+            let mean = Double(zip(native,browser).map { abs($0-$1) }.reduce(0,+))/Double(native.count)
+            if mean >= 3 {
+                let c = CGContext(data: nil,width: 256,height: 160,bitsPerComponent: 8,bytesPerRow: 1024,space: space,bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+                c.translateBy(x: 0,y: 160); c.scaleBy(x: 1,y: -1)
+                let old = NSGraphicsContext.current; NSGraphicsContext.current = NSGraphicsContext(cgContext: c,flipped: true)
+                for node in nodes {
+                    let r = node.frame.offsetBy(dx: -board.frame.minX,dy: -board.frame.minY)
+                    PaintRender.fill(node.layerPaintStyle!.fill!,path: NSBezierPath(rect: r),bounds: r,in: c,patterns: resolver,patternSpace: CGAffineTransform(translationX: -board.frame.minX,y: -board.frame.minY))
+                }
+                NSGraphicsContext.current = old
+                let direct = pixels(c.makeImage()!)
+                let directMean = Double(zip(direct,browser).map { abs($0-$1) }.reduce(0,+))/Double(direct.count)
+                print("FRACTIONAL DIAGNOSTIC direct bitmap/SVG mean \(directMean), PDF PNG/SVG \(mean), tile \(resolved.image.width)x\(resolved.image.height), period \(resolved.tileSize)")
+            }
+            require(mean < 3,"per-fill anchored native/SVG drift \(units): \(mean)")
+            require(svg.components(separatedBy: "<pattern ").count == 3,"distinct anchors of shared source export separately")
+            var styled = nodes[1]; _ = styled.applyPaintStyle(nodes[0].layerPaintStyle!)
+            require(styled.layerPaintStyle?.fill?.patternValue == local,"appearance preserves fill anchor and frozen size")
+            print("PASS: per-fill anchors, fixed-size resize/move, scale, appearance, codec and native/SVG \(units), mean \(mean)")
+        }
+    }
+
     @MainActor static func checks() async throws {
         _ = NSApplication.shared; NSApp.setActivationPolicy(.prohibited)
         let page = Page(); try await page.load()
+        try await checkPatternExportRegression(page)
+        try await checkPatternPlacement(page)
+        if CommandLine.arguments.contains("--pattern-regression-only") { return }
         try await checkPatternScale(page)
         try await checkFlipRendering(page)
         defer { page.window?.close() }

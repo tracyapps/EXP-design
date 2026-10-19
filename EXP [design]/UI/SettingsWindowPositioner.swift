@@ -25,6 +25,7 @@ struct EXPSettingsWindowPositioner: NSViewRepresentable {
 
         private func present() {
             guard let window else { return }
+            PaintPopoverActivity.shared.dismiss()
             window.level = .normal
             if let anchor = PanelHub.shared.activeEditorWindow,
                let screen = anchor.screen,

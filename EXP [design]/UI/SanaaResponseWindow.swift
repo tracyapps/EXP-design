@@ -584,6 +584,7 @@ final class SanaaResponseWindowManager: NSObject, NSWindowDelegate {
     private var closingAll = false
 
     func open(entryID: UUID) {
+        PaintPopoverActivity.shared.dismiss()
         if let window = controllers[entryID]?.window {
             window.makeKeyAndOrderFront(nil)
             return

@@ -34,6 +34,36 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 
 ## 🐞 Bugs
 
+### BUG-080 — SVG pattern phase/viewBox and fractional repeat mismatch
+- Type: bug
+- Priority: P1 — owner artwork report October 19, 2026
+- Area: export · color · canvas
+- Status: needs-verify
+- Confirmed causes: SVG loses document-space artboard offset and defaults to meet
+  viewBox fitting while EXP stretches the tile; native tiled images round fractional
+  repeat periods. Mesh overlays themselves match after those pattern corrections.
+- Fix/evidence: artboard-aware pattern transforms, explicit tile fitting, exact
+  noDistortion lattice with constant translucent coverage. Real a11ycat board/crop
+  WebKit/native mean differences 0.476/0.861 per channel; Quick Look renders repair.
+  96 pattern checks and dense document cached/live parity pass. Original files intact.
+- Acceptance: owner re-export/browser/Quick Look, nested/rotated/pattern-stroke matrix.
+  `PATTERN-PLACEMENT-v2.7.md` records receipts, standards and limits.
+
+### BUG-079 — Shape pattern stretching and shared anchoring scope
+- Type: bug
+- Priority: P1 — owner report October 19, 2026
+- Area: model · color · inspector · canvas
+- Status: needs-verify
+- Confirmed cause: anchoring edits the shared PatternSource units, and Shape uses
+  objectBoundingBox fractions, so all uses change and motifs stretch during resize.
+- Fix: per-reference placement, frozen physical tile basis on explicit anchor change;
+  fill picker/Object/context routes change only selected paint. Shared editor owns
+  artwork/dimensions. Old imported fractions remain unchanged until explicit
+  anchoring or Keep imported tile size fixed; no silent legacy rewrite.
+- Evidence: native independent fills/nonuniform resize/Undo/save, fixed-size model
+  checks, codec/appearance and 135% native/SVG parity. Owner two-fill test and
+  full library/instance/stroke/AT matrix remain. `PATTERN-PLACEMENT-v2.7.md`.
+
 ### BUG-078 — Flip uses local axes on rotated triangles/paths
 - Type: bug
 - Priority: P2 — owner report October 19, 2026
@@ -59,12 +89,13 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Area: color · chrome · windows
 - Status: needs-verify
 - Confirmed cause: persistent application-defined palette inherited the old global
-  popUpMenu level. Paint/color/stop palettes now use normal ordering; primary paint
-  palettes dismiss on app deactivation and pattern-editor handoff. Clear presentation
-  before closing so a document update cannot re-open the old palette.
+  popUpMenu level. First repair used normal ordering, then owner found it below
+  Sanaa. Current paint/color/stop palettes float above normal EXP peers, hide on
+  app deactivation and dismiss on Settings/source-editor/Sanaa response handoff.
+  Clear presentation before closing so document updates cannot re-open the palette.
 - Acceptance: Canvas editing keeps the palette; pattern editing and app switching
   dismiss it; native handoff/return/Done verified, owner multi-display check remains.
-- Evidence: `PATTERN-POLISH-v2.7.md`; build and transient-surface contract pass.
+- Evidence: `PATTERN-PLACEMENT-v2.7.md`; build, native handoffs and transient-surface contract pass.
 
 ### BUG-076 — Thin gaps between fractional pattern repeats
 - Type: bug
@@ -3829,6 +3860,10 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   Stage D landed first.
 
 ### FEAT-064 — Per-pattern anchoring (tile follows the shape, or the document)
+- **v2.7 revision, October 19, 2026:** owner requests independent anchoring and
+  fixed-size motifs on resize. BUG-079 supersedes the shared authoring control
+  described below; imported legacy SVG fractions remain unchanged until explicit
+  placement/fix-size choice. `PATTERN-PLACEMENT-v2.7.md` is the current contract.
 - Type: feature
 - Priority: P2
 - Area: paint · inspector · import · export

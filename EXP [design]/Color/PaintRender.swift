@@ -319,6 +319,12 @@ enum PaintRender {
     /// Returns false when the pattern cannot be drawn — unresolvable reference,
     /// degenerate tile or singular transform — so
     /// the caller can paint the fallback instead.
+    private final class PatternCell {
+        let image: CGImage
+        let size: CGSize
+        init(image: CGImage,size: CGSize) { self.image = image; self.size = size }
+    }
+
     private static func tilePattern(_ ref: PatternRef, bounds: CGRect, in ctx: CGContext,
                                     resolver: PatternResolver?,
                                     space: CGAffineTransform) -> Bool {
@@ -371,7 +377,34 @@ enum PaintRender {
         // Flip the lattice once so its image remains upright in model y-down space.
         ctx.translateBy(x: ox, y: oy + th)
         ctx.scaleBy(x: 1, y: -1)
-        ctx.draw(pattern.image,in: CGRect(x: 0, y: 0, width: tw, height: th),byTiling: true)
+        // draw(..., byTiling: true) rounds the device repeat interval (21.6
+        // points becomes 22 at 1x), accumulating phase drift versus SVG. A
+        // no-distortion pattern distributes pixel coverage while retaining the
+        // requested lattice spacing. Its matrix maps to the context's base space.
+        let cell = PatternCell(image: pattern.image,size: CGSize(width: tw,height: th))
+        let info = Unmanaged.passRetained(cell).toOpaque()
+        var callbacks = CGPatternCallbacks(version: 0,drawPattern: { info,target in
+            guard let info else { return }
+            let cell = Unmanaged<PatternCell>.fromOpaque(info).takeUnretainedValue()
+            target.interpolationQuality = .high
+            target.setShouldAntialias(false)
+            // Quartz may overlap rounded cell extents in noDistortion mode.
+            // Replace the cell pixels, including transparent ones, so repeat
+            // edges cannot accumulate alpha. The enclosing fill still uses
+            // the caller's compositing mode.
+            target.setBlendMode(.copy)
+            target.draw(cell.image,in: CGRect(origin: .zero,size: cell.size))
+        },releaseInfo: { info in
+            if let info { Unmanaged<PatternCell>.fromOpaque(info).release() }
+        })
+        guard let tiled = CGPattern(info: info,bounds: CGRect(x: 0,y: 0,width: tw,height: th),
+            matrix: ctx.ctm,xStep: tw,yStep: th,tiling: .noDistortion,isColored: true,callbacks: &callbacks),
+              let colorSpace = CGColorSpace(patternBaseSpace: nil) else { return false }
+        ctx.setFillColorSpace(colorSpace)
+        ctx.setPatternPhase(.zero)
+        var alpha: CGFloat = 1
+        ctx.setFillPattern(tiled,colorComponents: &alpha)
+        ctx.fill(ctx.boundingBoxOfClipPath)
         return true
     }
 

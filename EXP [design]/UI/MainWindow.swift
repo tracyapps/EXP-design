@@ -5179,7 +5179,7 @@ struct RightPanel: View {
             }
             Divider()
             InspectorSectionTitle(title: "Stroke", icon: "pencil.line")
-            PaintWell(label: "Paint", paint: shapeStrokeBinding)
+            PaintWell(label: "Paint", paint: shapeStrokeBinding,gradientSize: selectedNode?.frame.size)
             HStack(spacing: 8) {
                 Text("Width").foregroundStyle(EXPColor.textSecondary).font(.callout)
                 TextField("Stroke width", value: strokeWidthShapeBinding, format: .number.precision(.fractionLength(0)))
@@ -5476,7 +5476,7 @@ extension RightPanel {
                 }
                 Divider()
                 InspectorSectionTitle(title: "Stroke", icon: "pencil.line")
-                PaintWell(label: "Paint", paint: pathStrokeBinding)
+                PaintWell(label: "Paint", paint: pathStrokeBinding,gradientSize: selectedNode?.frame.size)
                 HStack(spacing: 8) {
                     Text("Width").foregroundStyle(EXPColor.textSecondary).font(.callout)
                     TextField("Path stroke width", value: pathStrokeWidthBinding, format: .number.precision(.fractionLength(0)))

@@ -363,6 +363,10 @@ private struct ObjectCommandItems: View {
                 .disabled(menu?.canCreateComponent != true)
             Button("Pattern Scale…") { sendEditorAction("setPatternScaleAction:") }
                 .disabled(menu?.canSetPatternScale != true)
+            Menu("Pattern Anchoring") {
+                Button("Document") { sendEditorAction("setPatternUnitsDocumentAction:") }
+                Button("Shape — Fixed Tile Size") { sendEditorAction("setPatternUnitsShapeAction:") }
+            }.disabled(menu?.canSetPatternScale != true)
             Button("Edit Pattern…") { sendEditorAction("editPatternAction:") }
                 .disabled(menu?.canEditPattern != true)
             Button("Duplicate Pattern") { sendEditorAction("duplicatePatternAction:") }

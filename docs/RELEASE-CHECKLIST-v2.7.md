@@ -194,7 +194,9 @@ payment and license records live outside the repository; use sanitized summaries
       document combinations remain. `POLYGON-ROUNDING-v2.7.md`.
 - [ ] BUG-076 / BUG-077 / FEAT-075 owner pattern review: repeats, scale/Undo/save/export,
       palette editor handoff and physical multi-display/app-switch behavior.
-      `PATTERN-POLISH-v2.7.md` records local evidence.
+      BUG-079/080 adds independent fixed-size anchoring and real-artwork SVG
+      phase/viewBox/fractional precision. `PATTERN-PLACEMENT-v2.7.md` records current
+      evidence and legacy opt-in. Physical Sanaa/monitor/app-switch review stays open.
 - [ ] BUG-078 rotated-triangle canvas-axis Flip owner review: polygon/path, both
       directions, Undo/save/export. Local native/geometry/render checks pass;
       `CANVAS-AXIS-FLIP-v2.7.md`. Prior stored artwork retains its appearance.

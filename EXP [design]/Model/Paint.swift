@@ -264,18 +264,41 @@ struct GradientFill: Codable, Equatable, Sendable {
     }
 }
 
-/// A shape fill / artboard background: flat color or gradient.
+enum PatternAnchor: String, Codable, Sendable { case document, shape }
+
+/// A per-fill anchor and the frozen conversion basis for imported SVG fractions.
+/// Tile artwork/size still live on the shared source; resizing a layer does not
+/// change this basis. Older references omit placement and retain SVG semantics.
+struct PatternPlacement: Codable, Equatable, Sendable {
+    let anchor: PatternAnchor
+    let referenceSize: CGSize
+    init(anchor: PatternAnchor, referenceSize: CGSize) {
+        self.anchor = anchor; self.referenceSize = referenceSize
+    }
+    private enum CodingKeys: String, CodingKey { case anchor, referenceSize }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        anchor = try c.decode(PatternAnchor.self,forKey: .anchor)
+        referenceSize = try c.decode(CGSize.self,forKey: .referenceSize)
+        guard referenceSize.width.isFinite,referenceSize.height.isFinite,
+              referenceSize.width > 0,referenceSize.height > 0 else {
+            throw DecodingError.dataCorruptedError(forKey: .referenceSize,in: c,debugDescription: "Pattern reference size must be positive and finite.")
+        }
+    }
+}
+
 /// A fill that paints a repeating tile from the document's pattern library
 /// (FEAT-062).
 ///
 /// Deliberately a REFERENCE, not the artwork itself. The tile lives once in
 /// `Document.patterns` as a `PatternSource`, exactly as a component's artwork
 /// lives once in `Document.sources` — so one pattern can back many layers,
-/// editing the tile updates every use, same-scale fills share an SVG `<pattern>`
-/// (different scales use separate defs), and `Paint` stays a small Equatable
+/// editing the tile updates every use, matching placement/scale fills share an
+/// SVG `<pattern>`, and `Paint` stays a small Equatable
 /// value type instead of becoming recursive (Paint → Node → Paint).
 struct PatternRef: Codable, Equatable, Sendable {
     var patternID: UUID
+    var placement: PatternPlacement? = nil
     /// Painted when the pattern cannot be resolved — a missing id, a document
     /// opened by an older build, a library that failed to load. Never optional:
     /// a fill must always be able to paint SOMETHING, and inventing a silent
@@ -296,10 +319,11 @@ struct PatternRef: Codable, Equatable, Sendable {
         self.fallback = fallback
         self.scale = Self.boundedScale(scale)
     }
-    private enum CodingKeys: String, CodingKey { case patternID, fallback, scale }
+    private enum CodingKeys: String, CodingKey { case patternID, fallback, scale, placement }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         patternID = try c.decode(UUID.self,forKey: .patternID)
+        placement = try c.decodeIfPresent(PatternPlacement.self,forKey: .placement)
         fallback = try c.decode(RGBAColor.self,forKey: .fallback)
         scale = try c.decodeIfPresent(CGFloat.self,forKey: .scale) ?? 1
         guard scale.isFinite, (0.01...100).contains(scale) else {
@@ -309,6 +333,7 @@ struct PatternRef: Codable, Equatable, Sendable {
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(patternID,forKey: .patternID)
+        try c.encodeIfPresent(placement,forKey: .placement)
         try c.encode(fallback,forKey: .fallback)
         if scale != 1 { try c.encode(scale,forKey: .scale) }
     }

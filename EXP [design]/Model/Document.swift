@@ -3906,6 +3906,50 @@ struct PatternSource: Identifiable, Codable, Sendable {
     }
 }
 
+extension PatternRef {
+    func anchor(for source: PatternSource) -> PatternAnchor {
+        placement?.anchor ?? (source.units == .objectBoundingBox ? .shape : .document)
+    }
+
+    /// Explicit authoring changes apply to this paint, never to the shared tile.
+    func anchored(_ anchor: PatternAnchor, source: PatternSource, reference: CGSize?) -> PatternRef? {
+        let basis: CGSize
+        if let placement { basis = placement.referenceSize }
+        else if source.units == .objectBoundingBox {
+            guard let reference,reference.width.isFinite,reference.height.isFinite,
+                  reference.width > 0,reference.height > 0 else { return nil }
+            basis = reference
+        } else { basis = CGSize(width: 1,height: 1) }
+        var copy = self; copy.placement = PatternPlacement(anchor: anchor,referenceSize: basis)
+        return copy
+    }
+
+    /// Base tile size and origin in document points, before per-fill scale and
+    /// source transform. Imported SVG fractions remain dynamic until explicitly
+    /// anchored; an authored placement freezes their conversion basis.
+    func tileGeometry(source: PatternSource, bounds: CGRect) -> (size: CGSize,origin: CGPoint) {
+        let basis = source.units == .objectBoundingBox
+            ? (placement?.referenceSize ?? bounds.size) : CGSize(width: 1,height: 1)
+        let size = CGSize(width: source.tileSize.width * basis.width,height: source.tileSize.height * basis.height)
+        let offset = source.units == .objectBoundingBox ? (source.tileOrigin ?? .zero) : .zero
+        var origin = CGPoint(x: offset.x * basis.width,y: offset.y * basis.height)
+        if anchor(for: source) == .shape {
+            var anchor = bounds.origin
+            if placement != nil {
+                // Place an authored tile at the layer in document space even
+                // when the source lattice is rotated/skewed. SVG fractions
+                // without placement retain their imported transform semantics.
+                var linear = source.transform.cg; linear.tx = 0; linear.ty = 0
+                if abs(linear.a * linear.d - linear.b * linear.c) > 1e-9 {
+                    anchor = anchor.applying(linear.inverted())
+                }
+            }
+            origin.x += anchor.x; origin.y += anchor.y
+        }
+        return (size,origin)
+    }
+}
+
 struct ComponentSource: Identifiable, Codable, Sendable {
     var id = UUID()
     var name: String

@@ -53,6 +53,8 @@ enum ExportFormat: String, CaseIterable {
 
 struct ExportRenderer {
     let document: Document
+    private var svgPatternOffset: CGPoint = .zero
+    init(document: Document) { self.document = document }
 
     func data(for artboard: Artboard, format: ExportFormat, scale: CGFloat,
               includeNotes: Bool = false, transparentPNGBackground: Bool = false) -> Data? {
@@ -183,10 +185,11 @@ struct ExportRenderer {
         // own `background` is intentionally NOT emitted — add a shape layer if
         // you want a real background.) PNG/PDF still fill via `drawBackground`.
         var body = ""
+        var renderer = self; renderer.svgPatternOffset = origin
         let page = document.page(containingArtboard: artboard.id)
         for node in page?.nodes ?? [] where node.isVisible
             && document.owningArtboard(of: node, on: page?.id)?.id == artboard.id {
-            body += svgElement(node, offset: origin, defs: &defs)
+            body += renderer.svgElement(node, offset: origin, defs: &defs)
         }
         let tokenStyle = svgTokenStyle()
         let defsBlock = defs.isEmpty ? "" : "<defs>\n\(defs.joined())</defs>\n"
@@ -567,7 +570,7 @@ struct ExportRenderer {
                 // exporter paint for the same case, so every surface agrees.
                 return fillAttr(ref.fallback)
             }
-            return " fill=\"url(#\(patternDef(source, scale: ref.scale, &defs)))\""
+            return " fill=\"url(#\(patternDef(source, ref: ref, bounds: rect ?? .zero, &defs)))\""
         }
     }
 
@@ -588,8 +591,24 @@ struct ExportRenderer {
     }
 
     /// Emit `source` into `defs` if it is not already there, and return its id.
-    private func patternDef(_ source: PatternSource, scale: CGFloat = 1, _ defs: inout [String]) -> String {
-        let id = patternDefID(source.id) + (scale == 1 ? "" : "s" + String(Double(scale).bitPattern,radix: 16))
+    private func patternDef(_ source: PatternSource, ref: PatternRef, bounds: CGRect, _ defs: inout [String]) -> String {
+        let scale = ref.scale
+        let explicit = ref.placement != nil
+        let geometry = ref.tileGeometry(source: source,bounds: bounds.offsetBy(dx: -svgPatternOffset.x,dy: -svgPatternOffset.y))
+        let units: PatternUnits = explicit ? .userSpaceOnUse : source.units
+        let tileSize = explicit ? geometry.size : source.tileSize
+        var transform = source.transform.cg
+        if units == .userSpaceOnUse {
+            let origin = explicit ? geometry.origin : .zero
+            transform = CGAffineTransform(translationX: origin.x,y: origin.y)
+                .concatenating(transform)
+                .concatenating(CGAffineTransform(translationX: svgPatternOffset.x,y: svgPatternOffset.y))
+        }
+        var id = patternDefID(source.id) + (scale == 1 ? "" : "s" + String(Double(scale).bitPattern,radix: 16))
+        if explicit || (units == .userSpaceOnUse && svgPatternOffset != .zero) {
+            let values = [tileSize.width,tileSize.height,transform.a,transform.b,transform.c,transform.d,transform.tx,transform.ty]
+            id += "p" + values.map { String(Double($0).bitPattern,radix: 16) }.joined(separator: "_")
+        }
         let marker = "id=\"\(id)\""
         if defs.contains(where: { $0.contains(marker) }) { return id }
 
@@ -601,28 +620,29 @@ struct ExportRenderer {
         let slot = defs.count
         defs.append("  <!-- \(marker) -->\n")
 
+        var tileRenderer = self; tileRenderer.svgPatternOffset = .zero
         var body = source.children.filter { $0.isVisible }
-            .map { svgElement($0, offset: .zero, defs: &defs) }.joined()
+            .map { tileRenderer.svgElement($0, offset: .zero, defs: &defs) }.joined()
 
         if scale != 1, source.viewBox == nil {
             body = "    <g transform=\"scale(\(patternNumber(scale)))\">\n\(body)    </g>\n"
         }
-        var attrs = " width=\"\(patternNumber(source.tileSize.width * scale))\" height=\"\(patternNumber(source.tileSize.height * scale))\""
-        attrs += " patternUnits=\"\(source.units.rawValue)\""
+        var attrs = " width=\"\(patternNumber(tileSize.width * scale))\" height=\"\(patternNumber(tileSize.height * scale))\""
+        attrs += " patternUnits=\"\(units.rawValue)\""
         // FEAT-064. `x`/`y` survive on the source only for objectBoundingBox
         // (user-space offsets are baked into the children at import), so they are
         // re-emitted only there — and always, so a declared offset round-trips
         // rather than silently re-anchoring the tile at the bounds corner.
-        if source.units == .objectBoundingBox, let o = source.tileOrigin {
+        if units == .objectBoundingBox, let o = source.tileOrigin {
             attrs += " x=\"\(patternNumber(o.x))\" y=\"\(patternNumber(o.y))\""
         }
-        let t = source.transform.cg
+        let t = transform
         if t != .identity {
             attrs += " patternTransform=\"matrix(\(patternNumber(t.a)) \(patternNumber(t.b)) \(patternNumber(t.c))"
                 + " \(patternNumber(t.d)) \(patternNumber(t.tx)) \(patternNumber(t.ty)))\""
         }
         if let box = source.viewBox {
-            attrs += " viewBox=\"\(patternNumber(box.minX)) \(patternNumber(box.minY))"
+            attrs += " preserveAspectRatio=\"none\" viewBox=\"\(patternNumber(box.minX)) \(patternNumber(box.minY))"
                 + " \(patternNumber(box.width)) \(patternNumber(box.height))\""
         }
         // `patternContentUnits` is left at its default (userSpaceOnUse), which is
@@ -760,7 +780,7 @@ struct ExportRenderer {
             guard let source = document.pattern(for: ref.patternID) else {
                 return strokeAttr(ref.fallback, width, pattern, cap: cap)
             }
-            return " stroke=\"url(#\(patternDef(source, scale: ref.scale, &defs)))\" stroke-width=\"\(num(width))\""
+            return " stroke=\"url(#\(patternDef(source, ref: ref, bounds: rect ?? .zero, &defs)))\" stroke-width=\"\(num(width))\""
                 + strokeRhythmAttr(pattern, width: width, cap: cap)
         }
     }
@@ -931,41 +951,14 @@ final class PatternTileStore {
                          document: Document) -> ResolvedPattern? {
         guard let source = document.patterns.first(where: { $0.id == ref.patternID })
         else { return nil }
-        switch source.units {
-        case .userSpaceOnUse:
-            guard let image = tile(source, scale: scale * ref.scale, document: document) else { return nil }
-            return ResolvedPattern(image: image, tileSize: CGSize(width: source.tileSize.width * ref.scale,height: source.tileSize.height * ref.scale),
-                                   transform: source.transform.cg)
-        case .objectBoundingBox:
-            // FEAT-064. The tile is a FRACTION of the filled shape's bounds: size
-            // the rasterisation and the lattice interval by this shape, and anchor
-            // at its origin (plus any fractional x/y the file declared). The tile
-            // image is rasterised through a source COPY carrying the effective
-            // size — `patternTile` scales viewBox content to fit the tile rect,
-            // which is exactly the semantics objectBoundingBox asks for, while
-            // `patternContentUnits`'s default (userSpaceOnUse) keeps content
-            // coordinates unscaled — also exactly right.
-            //
-            // SVG disables objectBoundingBox painting on a zero-area bounding box;
-            // declining here paints the ref's fallback, which is the honest
-            // degraded result rather than an invented lattice.
-            guard bounds.width > 0.01, bounds.height > 0.01,
-                  bounds.width.isFinite, bounds.height.isFinite else { return nil }
-            var effective = source
-            effective.tileSize = CGSize(width: source.tileSize.width * bounds.width,
-                                        height: source.tileSize.height * bounds.height)
-            guard effective.tileSize.width > 0.01, effective.tileSize.height > 0.01,
-                  effective.tileSize.width.isFinite, effective.tileSize.height.isFinite
-            else { return nil }
-            guard let image = tile(effective, scale: scale * ref.scale, document: document) else { return nil }
-            var origin = bounds.origin
-            if let o = source.tileOrigin {
-                origin.x += o.x * bounds.width
-                origin.y += o.y * bounds.height
-            }
-            return ResolvedPattern(image: image, tileSize: CGSize(width: effective.tileSize.width * ref.scale,height: effective.tileSize.height * ref.scale),
-                                   transform: source.transform.cg, origin: origin)
-        }
+        let geometry = ref.tileGeometry(source: source,bounds: bounds)
+        guard geometry.size.width.isFinite,geometry.size.height.isFinite,
+              geometry.size.width > 0.01,geometry.size.height > 0.01 else { return nil }
+        var effective = source; effective.tileSize = geometry.size
+        guard let image = tile(effective,scale: scale * ref.scale,document: document) else { return nil }
+        return ResolvedPattern(image: image,
+            tileSize: CGSize(width: geometry.size.width * ref.scale,height: geometry.size.height * ref.scale),
+            transform: source.transform.cg,origin: geometry.origin)
     }
 
     /// `source.tileSize` is the size to rasterise AT — the caller passes an

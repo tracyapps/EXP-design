@@ -5,6 +5,14 @@ Local implementation verified; owner review and the wider release matrix remain.
 Owner accepts the preceding polygon radius and point-menu behavior October 19:
 “corner radius works great. the menu also feels better.”
 
+## Follow-up supersedes two implementation choices
+
+The owner's next real-artwork review found rounded repeat spacing, shared anchor
+scope, SVG phase/viewBox mismatch and palette ordering below Sanaa. See
+`PATTERN-PLACEMENT-v2.7.md` for the current implementation and fresh evidence.
+The continuous tiled-image sampler and normal palette ordering described below
+are historical first-pass decisions, superseded by that follow-up.
+
 ## Behavior and scope
 
 - Fractional pattern tiles fill their entire rounded pixel bitmap. Repeats use

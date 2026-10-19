@@ -110,7 +110,6 @@ struct PatternLibrary {
     var image: (PatternRef) -> CGImage?
     var create: (@MainActor () -> UUID?)? = nil
     var edit: (@MainActor (UUID) -> Void)? = nil
-    var setUnits: (@MainActor (UUID, PatternUnits, CGSize?) -> Void)? = nil
 
     static let empty = PatternLibrary(sources: { [] }, image: { _ in nil })
 }
@@ -157,11 +156,7 @@ private struct EXPPatternLibraryProvider: ViewModifier {
             sources: { document.model.patterns },
             image: { PatternPreviewStore.shared.image(for: $0, document: document) },
             create: { PatternAuthoring.create(document: document, undoManager: undoManager) },
-            edit: { SourceEditorWindowManager.shared.open(patternID: $0, document: document, undoManager: undoManager) },
-            setUnits: { id, units, size in
-                document.setModel(document.model.settingPatternUnits(id, to: units, reference: size ?? .zero),
-                                  undoManager: undoManager, actionName: "Set Pattern Anchoring")
-            }))
+            edit: { SourceEditorWindowManager.shared.open(patternID: $0, document: document, undoManager: undoManager) }))
     }
 }
 
@@ -486,41 +481,35 @@ struct PaintEditor: View {
 
     // MARK: Pattern anchoring (FEAT-064)
 
-    /// Anchoring is deliberately NOT a paint property: the tile is shared by
-    /// every layer painted with it, so they all re-anchor together. The control
-    /// sits beside the pattern's own Edit button and says its scope, rather
-    /// than hiding a document-level change inside a per-layer fill picker. It
-    /// routes through the canvas action (the pattern id rides in
-    /// `representedObject`), so the inspector, the pattern editor header and
-    /// the context menu run ONE implementation with one undo name.
+    /// Placement belongs to this fill. The shared source owns tile artwork;
+    /// explicit placement preserves its physical repeat size during layer resize.
     @ViewBuilder private var anchoringControl: some View {
         if let id = paint.patternValue?.patternID,
            patternLibrary.sources().contains(where: { $0.id == id }) {
             HStack(spacing: 6) {
                 Text("Anchor").foregroundStyle(EXPColor.textSecondary).font(.callout)
                 Picker("Anchor", selection: anchoringBinding) {
-                    Text("Document").tag(PatternUnits.userSpaceOnUse)
-                    Text("Shape").tag(PatternUnits.objectBoundingBox)
+                    Text("Document").tag(PatternAnchor.document)
+                    Text("Shape").tag(PatternAnchor.shape)
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
                 .frame(maxWidth: 220)
                 .accessibilityLabel("Pattern anchoring")
-                .accessibilityHint("Anchoring applies to every layer using this pattern")
+                .accessibilityHint("Changes only this fill. Shape anchoring moves the pattern with the layer without stretching its tiles.")
             }
         }
     }
 
-    private var anchoringBinding: Binding<PatternUnits> {
-        Binding(
-            get: {
-                guard let id = paint.patternValue?.patternID else { return .userSpaceOnUse }
-                return patternLibrary.sources().first { $0.id == id }?.units ?? .userSpaceOnUse
-            },
-            set: { units in
-                guard let id = paint.patternValue?.patternID else { return }
-                patternLibrary.setUnits?(id, units, gradientSize)
-            })
+    private var anchoringBinding: Binding<PatternAnchor> {
+        Binding(get: {
+            guard let ref = paint.patternValue,let source = patternLibrary.sources().first(where: { $0.id == ref.patternID }) else { return .document }
+            return ref.anchor(for: source)
+        },set: { anchor in
+            guard let ref = paint.patternValue,let source = patternLibrary.sources().first(where: { $0.id == ref.patternID }),
+                  let next = ref.anchored(anchor,source: source,reference: gradientSize),next != ref else { return }
+            paint = .pattern(next)
+        })
     }
 
     // MARK: Pattern (FEAT-065b)
@@ -587,7 +576,13 @@ struct PaintEditor: View {
                     }
                     .accessibilityLabel("Edit this pattern's tile")
                     anchoringControl
-                    Text("Edits and anchoring apply everywhere this pattern is used.")
+                    if let ref = paint.patternValue,ref.placement == nil,
+                       patternLibrary.sources().first(where: { $0.id == ref.patternID })?.units == .objectBoundingBox {
+                        Button("Keep imported tile size fixed") { anchoringBinding.wrappedValue = anchoringBinding.wrappedValue }
+                            .disabled(gradientSize == nil)
+                            .help("Keeps this imported pattern's current repeat size when the layer is resized.")
+                    }
+                    Text("Tile artwork edits apply everywhere. Anchoring and scale apply only to this fill.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -806,7 +801,9 @@ private struct PersistentPaintPopover<Content: View>: NSViewRepresentable {
             popover = popup
             PaintPopoverActivity.shared.open(self,close: { [weak self] in self?.close() })
             popup.show(relativeTo: anchor.bounds,of: anchor,preferredEdge: .minX)
-            host.view.window?.level = .normal
+            host.view.window?.level = .floating
+            host.view.window?.hidesOnDeactivate = true
+            host.view.window?.orderFront(nil)
         }
         func close() {
             // Clear presentation before AppKit animates the close. A document

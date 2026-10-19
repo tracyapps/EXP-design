@@ -159,6 +159,7 @@ final class SourceEditorWindowManager {
     private var delegates: [UUID: SourceEditorWindowDelegate] = [:]
 
     func open(sourceID: UUID, document: ExpDocument, undoManager: UndoManager?) {
+        PaintPopoverActivity.shared.dismiss()
         if let existing = controllers[sourceID] {
             existing.showWindow(nil)
             existing.window?.makeKeyAndOrderFront(nil)
@@ -577,30 +578,6 @@ struct PatternEditorView: View {
         document.setModel(model, undoManager: undoManager, actionName: "Rename Pattern")
     }
 
-    /// Shared pattern properties commit against this editor's document even
-    /// while a header control, rather than the canvas, holds keyboard focus.
-    private var anchoringPicker: some View {
-        Picker("Anchoring", selection: anchoringBinding) {
-            Text("Document").tag(PatternUnits.userSpaceOnUse)
-            Text("Shape").tag(PatternUnits.objectBoundingBox)
-        }
-        .pickerStyle(.menu)
-        .labelsHidden()
-        .fixedSize()
-        .accessibilityLabel("Pattern anchoring")
-        .accessibilityHint("Anchoring applies to every layer using this pattern")
-    }
-
-    private var anchoringBinding: Binding<PatternUnits> {
-        Binding(
-            get: { pattern?.units ?? .userSpaceOnUse },
-            set: { units in
-                guard pattern?.units != units else { return }
-                document.setModel(document.model.settingPatternUnits(patternID, to: units, reference: .zero),
-                                  undoManager: undoManager, actionName: "Set Pattern Anchoring")
-            })
-    }
-
     var body: some View {
         VStack(spacing: 0) {
             HStack(alignment: .center, spacing: 10) {
@@ -624,7 +601,6 @@ struct PatternEditorView: View {
                         .accessibilityLabel("Pattern name")
                 }
                 Spacer()
-                anchoringPicker
                 Text("Edits apply everywhere this pattern is used")
                     .font(.system(size: EXPType.mini))
                     .foregroundStyle(EXPColor.textTertiary)
