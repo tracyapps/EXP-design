@@ -169,12 +169,7 @@ enum VectorPathGeometry {
                              strokeCap: .butt, strokeJoin: .miter)
 
         case .polygon(let s):
-            let rect = CGRect(origin: .zero, size: size)
-            return PathShape(points: s.vertices(in: rect).map { PathPoint(point: $0) },
-                             closed: true, fill: s.fill, stroke: s.stroke,
-                             strokeWidth: s.strokeWidth,
-                             strokeAlignment: s.strokeAlignment, strokePattern: s.strokePattern,
-                             strokeCap: .butt, strokeJoin: .miter)
+            return s.outline(in: CGRect(origin: .zero,size: size))
 
         case .line(let s):
             return PathShape(points: [PathPoint(point: s.start), PathPoint(point: s.end)],

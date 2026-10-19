@@ -771,6 +771,7 @@ struct EditorMenuModel {
 
     var canDuplicate: Bool
     var canDuplicateEffect: Bool
+    var canSetPolygonCornerRadius: Bool
     var canUseMesh: Bool
     var canAddMeshPoint: Bool
     var canRemoveMeshPoint: Bool
@@ -1042,6 +1043,9 @@ func makeEditorMenuModel(document: ExpDocument, app: AppState, scope: CanvasScop
         hasArtboards: hasArtboards,
         canDuplicate: hasNodes,
         canDuplicateEffect: singleNode?.effects.contains(where: { $0.id == app.selectedEffectID }) == true,
+        canSetPolygonCornerRadius: singleNode.map { n in
+            if case .polygon = n.content { return !n.isLocked }; return false
+        } ?? false,
         canUseMesh: singleNode.map { !$0.isLocked && $0.frame.width > 0 && $0.frame.height > 0 && $0.layerPaintStyle?.fill != nil && $0.layerPaintStyle?.fill?.isMesh != true } ?? false,
         canAddMeshPoint: singleNode.map { !$0.isLocked && ($0.layerPaintStyle?.fill?.meshValue.map { $0.points.count < MeshFill.maximumPoints } ?? false) } ?? false,
         canRemoveMeshPoint: singleNode.map { !$0.isLocked && $0.layerPaintStyle?.fill?.meshValue?.points.contains { $0.id == app.selectedGradientStopID } == true } ?? false,
@@ -5351,15 +5355,35 @@ struct RightPanel: View {
                 })
     }
 
-    /// Sides control for a selected polygon (3–25).
+    private var polygonRadiusBinding: Binding<Double> {
+        Binding(get: {
+            if case .polygon(let shape)? = selectedNode?.content { return Double(shape.cornerRadius) }
+            return 0
+        },set: { radius in
+            guard radius.isFinite else { return }
+            sendCanvasAction("setPolygonCornerRadiusAction:",from: NSNumber(value: min(1_000_000,max(0,radius))))
+        })
+    }
+
+    /// Editable polygon side count and uniform corner radius.
     @ViewBuilder private func polygonControls() -> some View {
-        HStack(spacing: 8) {
-            Text("Sides").foregroundStyle(EXPColor.textSecondary)
-            TextField("Polygon sides", value: polygonSidesBinding, format: .number.precision(.fractionLength(0)))
-                .textFieldStyle(.exp).frame(width: 48 * EXPType.scale).multilineTextAlignment(.trailing)
-                .numericStepping(polygonSidesBinding, min: 3, max: 25)
-            Stepper("Polygon sides", value: polygonSidesBinding, in: 3...25, step: 1).labelsHidden()
-            Spacer()
+        VStack(alignment: .leading,spacing: 8) {
+            HStack(spacing: 8) {
+                Text("Sides").foregroundStyle(EXPColor.textSecondary)
+                TextField("Polygon sides", value: polygonSidesBinding, format: .number.precision(.fractionLength(0)))
+                    .textFieldStyle(.exp).frame(width: 48 * EXPType.scale).multilineTextAlignment(.trailing)
+                    .numericStepping(polygonSidesBinding, min: 3, max: 25)
+                Stepper("Polygon sides", value: polygonSidesBinding, in: 3...25, step: 1).labelsHidden()
+                Spacer()
+            }
+            HStack(spacing: 8) {
+                Text("Corner radius").foregroundStyle(EXPColor.textSecondary)
+                TextField("Polygon corner radius",value: polygonRadiusBinding,format: .number.precision(.fractionLength(0...2)))
+                    .textFieldStyle(.exp).frame(width: 64 * EXPType.scale).multilineTextAlignment(.trailing)
+                    .numericStepping(polygonRadiusBinding,min: 0,max: 1_000_000)
+                    .help("Rounds the polygon's corners in document points. Oversized radii stop where adjacent corners meet.")
+                Spacer(minLength: 0)
+            }
         }
         .font(.callout)
         .padding(.horizontal, 12).padding(.bottom, 8)

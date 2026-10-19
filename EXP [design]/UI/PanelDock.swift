@@ -1100,7 +1100,7 @@ private struct ComponentSourcePreview: View {
                                     lineWidth: max(0.75, shape.strokeWidth * scale))
             }
         case .polygon(let shape):
-            let p = polygonPath(shape.vertices(in: rect))
+            let p = Path(ExportRenderView.nsPath(shape.outline(in: rect,radiusScale: scale),origin: .zero).cgPath)
             fill(p, with: shape.fill, in: &localContext)
             if shape.strokeWidth > 0 {
                 localContext.stroke(p, with: .color(shape.stroke.representativeColor.swiftUI),

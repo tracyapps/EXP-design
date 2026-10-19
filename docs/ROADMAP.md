@@ -1323,6 +1323,9 @@ from the appcast; a development plan does not change the published release.
       persistent editor, radial center/radius handles and padded icon/text navigation.
       `GRADIENT-EDITING-v2.7.md` records native checks and remaining matrix.
       Color grouping, full components/library, exports and keyboard/AT remain gates.
+- [ ] Owner accepts BUG-075 / FEAT-074 requested polish: point menu omits pattern
+      creation; polygon radius survives edit/Undo/side-count/resize/save/export.
+      Local checks: `POLYGON-ROUNDING-v2.7.md`. Gradient review remains separate.
 - [x] Report/roadmap reconciliation and execution plan written:
       `SELF-LAUNCH-PLAN-v2.7.md`; primary corrections in
       `SELF-LAUNCH-SOURCES-2026-10-16.md`; friend-facing brief in
@@ -3492,6 +3495,23 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-10-19 — Polygon radius and point-menu polish [internal].**
+  Owner explicitly requests these two additions while reviewing gradient edits;
+  that prior review remains open. BUG-075 moves generic pattern creation after
+  specialized point menus; native anchor menu now shows only Make Curved.
+  FEAT-074 adds a default-zero polygon radius, clamped shared cubic fillets and
+  Inspector/Object/context routes through one scoped Canvas action. Side count
+  stays editable; native appearance/save, path conversion, thumbnails, shadow/mask
+  silhouettes, SVG and embedded Handoff SVG carry the curved outline. The chosen
+  radius is remembered for subsequent polygons in this app session. Native radius
+  0→24 Undo/Redo and Object-dialog 24→32 Undo pass; saved JSON is checked. Rounded
+  solid/gradient/Mesh exports and old Handoff goldens pass. A zero-radius mask
+  golden caught an extra closing line; preserving its old builder fixed it without
+  changing expected output. App/thumbnail, geometry/appearance and vector checks
+  pass; full component/AT/display/paint/effects matrix and owner acceptance remain.
+  `POLYGON-ROUNDING-v2.7.md` records limits and receipts. Local commit only, no push
+  or live changes; no further document-changing slice inferred from this request.
 
 - **2026-10-19 — Gradient editing refinements [internal].**
   Owner accepts initial Mesh functionality and requests clearer selected points,

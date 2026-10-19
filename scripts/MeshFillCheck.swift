@@ -223,6 +223,27 @@ private final class Page: NSObject, WKNavigationDelegate {
             print("PASS: off-center elliptical radial codec/native/PDF/SVG/own import at alpha \(alpha), SVG error \(error), CSS \(cssError)")
         }
 
+        for paint in [Paint.solid(.black),Paint.gradient(GradientFill(angle: 35)),Paint.mesh(cases[3].1)] {
+            let polygon = PolygonShape(sides: 5,fill: paint,stroke: .black,strokeWidth: 2,cornerRadius: 9)
+            let node = Node(name: "Rounded polygon",frame: CGRect(x: 14,y: 9,width: 100,height: 62),content: .polygon(polygon))
+            let renderer = ExportRenderer(document: Document(artboards: [integrationBoard],nodes: [node]))
+            guard let png = renderer.pngData(for: integrationBoard,scale: 1,transparentBackground: true),let image = NSBitmapImageRep(data: png)?.cgImage else { fail("rounded polygon native export missing") }
+            let svg = renderer.svgString(for: integrationBoard)
+            require(svg.contains("<path d=") && svg.contains("C"),"rounded polygon SVG must contain real cubic geometry")
+            let browser = try await page.sample(svg,width: 128,height: 80),native = pixels(image)
+            var interior = 0
+            let outline = ExportRenderView.polygonPath(polygon,in: node.frame).cgPath
+            let strokeEdge = outline.copy(strokingWithWidth: polygon.strokeWidth+4,lineCap: .butt,lineJoin: .miter,miterLimit: 4)
+            // Filled pixels at the stroke's antialiased edge are still opaque;
+            // exclude that narrow edge from color interpolation comparison.
+            for pixel in 0..<(128*80) where native[pixel*4+3] == 255 && browser[pixel*4+3] == 255 {
+                if strokeEdge.contains(CGPoint(x: Double(pixel%128)+0.5,y: Double(pixel/128)+0.5)) { continue }
+                for channel in 0..<3 { interior = max(interior,abs(native[pixel*4+channel]-browser[pixel*4+channel])) }
+            }
+            let mean = Double(zip(native,browser).reduce(0) { $0+abs($1.0-$1.1) })/Double(native.count)
+            require(interior <= 8 && mean <= 2,"rounded polygon native/SVG interior \(interior), mean \(mean)")
+            print("PASS: rounded polygon native/PDF/SVG paint, interior \(interior), mean \(mean)")
+        }
         let integrationMesh = cases[3].1
         var integrationNode = Node(name: "Mesh shape",frame: integrationBoard.frame,
             content: .rectangle(RectangleShape(fill: .mesh(integrationMesh),strokeWidth: 0)))

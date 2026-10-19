@@ -2569,7 +2569,7 @@ extension Node {
         case .ellipse(let shape):
             return LayerPaintStyle(fill: shape.fill, stroke: shape.stroke, strokeWidth: shape.strokeWidth, strokeAlignment: shape.strokeAlignment, strokePattern: shape.strokePattern)
         case .polygon(let shape):
-            return LayerPaintStyle(fill: shape.fill, stroke: shape.stroke, strokeWidth: shape.strokeWidth, strokeAlignment: shape.strokeAlignment, strokePattern: shape.strokePattern)
+            return LayerPaintStyle(fill: shape.fill, stroke: shape.stroke, strokeWidth: shape.strokeWidth, strokeAlignment: shape.strokeAlignment, strokePattern: shape.strokePattern,cornerRadius: shape.cornerRadius)
         case .path(let shape):
             return LayerPaintStyle(fill: shape.fill, stroke: shape.stroke, strokeWidth: shape.strokeWidth, strokeAlignment: shape.strokeAlignment, strokePattern: shape.strokePattern, strokeCap: shape.strokeCap, strokeJoin: shape.strokeJoin, strokeMiterLimit: shape.strokeMiterLimit, startMarker: shape.startMarker, endMarker: shape.endMarker)
         case .line(let shape):
@@ -2613,6 +2613,7 @@ extension Node {
             shape.strokeWidth = style.strokeWidth
             shape.strokeAlignment = style.strokeAlignment
             shape.strokePattern = style.strokePattern
+            if let radius = style.cornerRadius { shape.cornerRadius = radius.isFinite ? Swift.max(0,radius) : 0 }
             content = .polygon(shape)
         case .path(var shape):
             if let value = style.fill { shape.fill = value }
@@ -3216,6 +3217,7 @@ struct EllipseShape: Codable, Sendable {
 /// the box reshapes it like rectangle/ellipse.
 struct PolygonShape: Codable, Sendable {
     var sides: Int = 3
+    var cornerRadius: CGFloat = 0
     var fill: Paint = .white
     var stroke: Paint = .black
     var strokeWidth: CGFloat = 0
@@ -3224,18 +3226,21 @@ struct PolygonShape: Codable, Sendable {
     var strokePattern: StrokePattern = .solid
 
     enum CodingKeys: String, CodingKey {
-        case sides, fill, stroke, strokeWidth, strokeAlignment, strokePattern
+        case sides, fill, stroke, strokeWidth, strokeAlignment, strokePattern, cornerRadius
     }
 
     init(sides: Int = 3, fill: Paint = .white, stroke: Paint = .black, strokeWidth: CGFloat = 0,
-         strokeAlignment: StrokeAlignment = .center, strokePattern: StrokePattern = .solid) {
+         strokeAlignment: StrokeAlignment = .center, strokePattern: StrokePattern = .solid, cornerRadius: CGFloat = 0) {
         self.sides = Swift.min(25, Swift.max(3, sides))
+        self.cornerRadius = cornerRadius.isFinite ? Swift.max(0,cornerRadius) : 0
         self.fill = fill; self.stroke = stroke; self.strokeWidth = strokeWidth
         self.strokeAlignment = strokeAlignment; self.strokePattern = strokePattern
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         sides = Swift.min(25, Swift.max(3, try c.decodeIfPresent(Int.self, forKey: .sides) ?? 3))
+        let radius = try c.decodeIfPresent(CGFloat.self,forKey: .cornerRadius) ?? 0
+        cornerRadius = radius.isFinite ? Swift.max(0,radius) : 0
         fill = try c.decodeIfPresent(Paint.self, forKey: .fill) ?? .white
         stroke = try c.decodeIfPresent(Paint.self, forKey: .stroke) ?? .black
         strokeWidth = try c.decodeIfPresent(CGFloat.self, forKey: .strokeWidth) ?? 0
@@ -3244,6 +3249,7 @@ struct PolygonShape: Codable, Sendable {
     }
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
+        if cornerRadius > 0 { try c.encode(cornerRadius,forKey: .cornerRadius) }
         try c.encode(sides, forKey: .sides); try c.encode(fill, forKey: .fill)
         try c.encode(stroke, forKey: .stroke); try c.encode(strokeWidth, forKey: .strokeWidth)
         try c.encode(strokeAlignment, forKey: .strokeAlignment)
@@ -3259,6 +3265,47 @@ struct PolygonShape: Codable, Sendable {
             return CGPoint(x: cx + rx * cos(a), y: cy + ry * sin(a))
         }
     }
+    /// Circular fillets, represented by cubic arcs. A shared radius is capped
+    /// before adjacent tangencies meet; the node remains an editable polygon.
+    func outlinePoints(in rect: CGRect,radiusScale: CGFloat = 1) -> [PathPoint] {
+        let vertices = vertices(in: rect)
+        guard cornerRadius.isFinite,radiusScale.isFinite,cornerRadius > 0,radiusScale > 0,
+              rect.width > 0,rect.height > 0 else { return vertices.map { PathPoint(point: $0) } }
+        struct Corner {
+            var point: CGPoint; var incoming: CGVector; var outgoing: CGVector
+            var angle: CGFloat; var maximumRadius: CGFloat
+        }
+        var corners: [Corner] = []
+        for i in vertices.indices {
+            let point = vertices[i],previous = vertices[(i+vertices.count-1)%vertices.count],next = vertices[(i+1)%vertices.count]
+            let before = hypot(previous.x-point.x,previous.y-point.y),after = hypot(next.x-point.x,next.y-point.y)
+            guard before > 1e-8,after > 1e-8 else { return vertices.map { PathPoint(point: $0) } }
+            let u = CGVector(dx: (previous.x-point.x)/before,dy: (previous.y-point.y)/before)
+            let v = CGVector(dx: (next.x-point.x)/after,dy: (next.y-point.y)/after)
+            let angle = acos(Swift.max(-1,Swift.min(1,u.dx*v.dx+u.dy*v.dy)))
+            guard angle > 1e-8,angle < .pi-1e-8 else { return vertices.map { PathPoint(point: $0) } }
+            corners.append(Corner(point: point,incoming: u,outgoing: v,angle: angle,maximumRadius: Swift.min(before,after)/2*tan(angle/2)))
+        }
+        let radius = Swift.min(cornerRadius*radiusScale,corners.map(\.maximumRadius).min() ?? 0)
+        guard radius.isFinite,radius > 0 else { return vertices.map { PathPoint(point: $0) } }
+        return corners.flatMap { corner -> [PathPoint] in
+            let distance = radius/tan(corner.angle/2)
+            let handle = 4/3*tan((.pi-corner.angle)/4)*radius
+            let u = corner.incoming,v = corner.outgoing,p = corner.point
+            let entry = CGPoint(x: p.x+u.dx*distance,y: p.y+u.dy*distance)
+            let exit = CGPoint(x: p.x+v.dx*distance,y: p.y+v.dy*distance)
+            var first = PathPoint(point: entry),last = PathPoint(point: exit)
+            first.controlOut = CGPoint(x: entry.x-u.dx*handle,y: entry.y-u.dy*handle)
+            last.controlIn = CGPoint(x: exit.x-v.dx*handle,y: exit.y-v.dy*handle)
+            return [first,last]
+        }
+    }
+    func outline(in rect: CGRect,radiusScale: CGFloat = 1) -> PathShape {
+        PathShape(points: outlinePoints(in: rect,radiusScale: radiusScale),closed: true,
+                  fill: fill,stroke: stroke,strokeWidth: strokeWidth,strokeAlignment: strokeAlignment,
+                  strokePattern: strokePattern,strokeCap: .butt,strokeJoin: .miter)
+    }
+
 }
 
 /// A straight line. Endpoints are in the node's LOCAL space (relative to

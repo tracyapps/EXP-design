@@ -551,6 +551,7 @@ final class AppState {
     /// Side count used when drawing a NEW polygon (default 3 = triangle). Editing a
     /// polygon's Sides in the Inspector updates this so the next one matches.
     var polygonSides: Int = 3
+    var polygonCornerRadius: CGFloat = 0
 
     /// What align operations measure against: the selection's own bounding box, or
     /// the artboard the selection sits in (Illustrator-style "Align to"). Session

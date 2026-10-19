@@ -189,6 +189,9 @@ payment and license records live outside the repository; use sanitized summaries
       slice passes; initial functionality owner-accepted October 19. Requested gradient
       refinements and full matrix remain open. Evidence and limits:
       `MESH-FILL-VERIFICATION-v2.7.md`, `GRADIENT-EDITING-v2.7.md`.
+- [ ] BUG-075 / FEAT-074 owner review: contextual point menu and editable polygon
+      rounding. Local geometry/codec/export/appearance/native checks pass; real
+      document combinations remain. `POLYGON-ROUNDING-v2.7.md`.
 - [ ] Both: panel-fit, keyboard/VoiceOver, appearance, shared thumbnail target,
       component-state/style-library behavior, real stress performance and owner
       acceptance recorded. No universal filter-graph or third-party mesh claim.

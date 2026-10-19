@@ -427,6 +427,15 @@ private struct HTMLWriter {
                 ? "span" : text.contentRole.htmlTag
             return "\(indent)<\(tag)\(attributes(attrs))>\(runs)</\(tag)>"
 
+        case .polygon(let polygon) where polygon.cornerRadius > 0:
+            var attrs = common
+            attrs.append(Attribute(name: "class",value: "exp-node exp-path"))
+            attrs.append(Attribute(name: "data-exp-content",value: "polygon"))
+            append(relationships,to: &attrs)
+            let tag = phrasingOnly ? "span" : "div"
+            let path = polygon.outline(in: CGRect(origin: .zero,size: node.frame.size))
+            return "\(indent)<\(tag)\(attributes(attrs))>\(svg(path: path,domID: id,size: node.frame.size,frameGradients: true))</\(tag)>"
+
         case .path(let path):
             var attrs = common
             attrs.append(Attribute(name: "class", value: "exp-node exp-path"))
@@ -717,7 +726,9 @@ private struct HTMLWriter {
         }
 
         if let style = node.layerPaintStyle, style.strokeWidth > 0,style.stroke.isMesh {
-            if case .path = node.content {} else {
+            let svgStroke: Bool
+            switch node.content { case .path: svgStroke = true; case .polygon(let shape): svgStroke = shape.cornerRadius > 0; default: svgStroke = false }
+            if !svgStroke {
                 report("meshStroke","The mesh stroke is preserved in design.json and native/SVG exports; CSS borders use its base-color fallback.")
             }
         }
@@ -757,7 +768,10 @@ private struct HTMLWriter {
                 reportStrokeAlignment(shape.strokeAlignment)
             }
         case .polygon(let shape):
-            if shape.strokeWidth > 0 {
+            if shape.cornerRadius > 0,shape.strokeWidth > 0,shape.strokeAlignment != .center {
+                reportStrokeAlignment(shape.strokeAlignment)
+            }
+            if shape.cornerRadius == 0,shape.strokeWidth > 0 {
                 report("polygonStroke",
                        "The polygon fill is preserved with clip-path, but its stroke is not reproduced in semantic CSS.")
             }
@@ -893,7 +907,7 @@ private struct HTMLWriter {
         }.joined()
     }
 
-    private func svg(path: PathShape, domID: String, size: CGSize) -> String {
+    private func svg(path: PathShape, domID: String, size: CGSize,frameGradients: Bool = false) -> String {
         let width = max(0.0001, size.width)
         let height = max(0.0001, size.height)
         let fills = path.isMultiContour || path.closed
@@ -914,7 +928,7 @@ private struct HTMLWriter {
                 let gradientID = "\(domID)-fill"
                 definitions = svgGradient(gradient, id: gradientID,
                                           rect: CGRect(x: 0, y: 0,
-                                                       width: width, height: height))
+                                                       width: width, height: height),userSpaceRadial: frameGradients)
                 fill = "url(#\(gradientID))"
                 fillOpacity = "1"
             case .pattern(let ref):
@@ -931,6 +945,11 @@ private struct HTMLWriter {
         var strokePaint = "var(--exp-path-stroke, \(svgColor(path.stroke.representativeColor)))"
         if let mesh = path.stroke.meshValue,let server = try? mesh.svgPattern(name: "\(domID)-mesh-stroke",bounds: CGRect(x: 0,y: 0,width: width,height: height)) {
             definitions += server.definition; strokePaint = "url(#\(server.id))"
+        }
+        if frameGradients,let gradient = path.stroke.gradientValue {
+            let id = "\(domID)-stroke"
+            definitions += svgGradient(gradient,id: id,rect: CGRect(x: 0,y: 0,width: width,height: height),userSpaceRadial: true)
+            strokePaint = "url(#\(id))"
         }
         let stroke = path.strokeWidth > 0
             ? " stroke=\"\(strokePaint)\" stroke-width=\"\(number(path.strokeWidth))\"\(svgStrokePattern(path.strokePattern, width: path.strokeWidth))"
@@ -975,7 +994,7 @@ private struct HTMLWriter {
     }
 
     private func svgGradient(_ gradient: GradientFill, id: String,
-                             rect: CGRect) -> String {
+                             rect: CGRect,userSpaceRadial: Bool = false) -> String {
         let stops = gradient.sortedStops.map { stop in
             "<stop offset=\"\(number(stop.position * 100))%\" stop-color=\"\(svgColor(stop.color))\"/>"
         }.joined()
@@ -985,6 +1004,9 @@ private struct HTMLWriter {
             return "<linearGradient id=\"\(id)\" gradientUnits=\"userSpaceOnUse\" x1=\"\(number(points.0.x))\" y1=\"\(number(points.0.y))\" x2=\"\(number(points.1.x))\" y2=\"\(number(points.1.y))\">\(stops)</linearGradient>"
         case .radial:
             if let radial = gradient.radial,radial.isValid {
+                if userSpaceRadial {
+                    return "<radialGradient id=\"\(id)\" gradientUnits=\"userSpaceOnUse\" cx=\"0\" cy=\"0\" r=\"1\" gradientTransform=\"matrix(\(radial.radius.width*rect.width) 0 0 \(radial.radius.height*rect.height) \(rect.minX+radial.center.x*rect.width) \(rect.minY+radial.center.y*rect.height))\">\(stops)</radialGradient>"
+                }
                 return "<radialGradient id=\"\(id)\" cx=\"0\" cy=\"0\" r=\"1\" gradientTransform=\"matrix(\(radial.radius.width) 0 0 \(radial.radius.height) \(radial.center.x) \(radial.center.y))\">\(stops)</radialGradient>"
             }
             let radius = hypot(rect.width / 2, rect.height / 2)
@@ -1360,6 +1382,7 @@ private struct CSSWriter {
                 + border(color: shape.stroke, width: shape.strokeWidth,
                          pattern: shape.strokePattern)
         case .polygon(let shape):
+            if shape.cornerRadius > 0 { return [] } // Its embedded SVG carries exact curved paint.
             let points = shape.vertices(in: CGRect(origin: .zero, size: node.frame.size))
             let pairs = points.map {
                 "\(number(node.frame.width == 0 ? 0 : $0.x / node.frame.width * 100))% \(number(node.frame.height == 0 ? 0 : $0.y / node.frame.height * 100))%"

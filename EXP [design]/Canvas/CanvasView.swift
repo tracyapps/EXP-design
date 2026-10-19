@@ -856,6 +856,10 @@ final class CanvasNSView: NSView {
     }
 
     /// A closed bezier through polygon vertices (shared shape: build once, fill/stroke).
+    static func polygonBezier(_ shape: PolygonShape,in rect: CGRect,scale: CGFloat) -> NSBezierPath {
+        shape.cornerRadius > 0 ? ExportRenderView.nsPath(shape.outline(in: rect,radiusScale: scale),origin: .zero) : polygonBezier(shape.vertices(in: rect))
+    }
+
     static func polygonBezier(_ verts: [CGPoint]) -> NSBezierPath {
         let path = NSBezierPath()
         guard let first = verts.first else { return path }
@@ -7013,7 +7017,7 @@ final class CanvasNSView: NSView {
             return Silhouette(rect: rect,
                               shape: .perCornerRect(s.effectiveRadii.scaled(by: app.zoom)))
         case .ellipse:          return Silhouette(rect: rect, shape: .oval)
-        case .polygon(let s):   return Silhouette(rect: rect, shape: .custom(Self.polygonBezier(s.vertices(in: rect)).cgPath))
+        case .polygon(let s):   return Silhouette(rect: rect, shape: .custom(Self.polygonBezier(s,in: rect,scale: app.zoom).cgPath))
         case .path(let ps) where ps.closed && ps.points.count >= 2:
             return Silhouette(rect: rect, shape: .custom(bezierPath(for: ps, frameOrigin: frameDoc.origin).cgPath))
         case .image:            return Silhouette(rect: rect, shape: .roundRect(radius: 0))
@@ -7051,7 +7055,7 @@ final class CanvasNSView: NSView {
                          alignment: shape.strokeAlignment, paint: shape.stroke,
                          bounds: rect, in: ctx, pattern: shape.strokePattern)
         case .polygon(let shape):
-            let path = Self.polygonBezier(shape.vertices(in: rect))
+            let path = Self.polygonBezier(shape,in: rect,scale: app.zoom)
             PaintRender.fill(shape.fill, path: path, bounds: rect, in: ctx, patterns: patterns,
                              patternSpace: patternSpace)
             canvasStroke(path, width: shape.strokeWidth * app.zoom,
@@ -8181,6 +8185,36 @@ final class CanvasNSView: NSView {
     @objc func textToolAction(_ s: Any?)       { setTool(.text) }
     @objc func rectangleToolAction(_ s: Any?)  { setTool(.rectangle) }
     @objc func ellipseToolAction(_ s: Any?)    { setTool(.ellipse) }
+    @objc func setPolygonCornerRadiusAction(_ sender: Any?) {
+        guard let id = app?.singleSelectedNodeID,let n = node(id),!n.isLocked,
+              case .polygon(let polygon) = n.content else { return }
+        if let number = sender as? NSNumber {
+            let radius = number.doubleValue
+            guard radius.isFinite,radius >= 0,radius <= 1_000_000,CGFloat(radius) != polygon.cornerRadius else { return }
+            var nodes = currentNodes
+            Self.mutateNested(id,in: &nodes) { node in
+                guard case .polygon(var shape) = node.content else { return }
+                shape.cornerRadius = CGFloat(radius); node.content = .polygon(shape)
+            }
+            app?.polygonCornerRadius = CGFloat(radius)
+            commitNodes(nodes,actionName: "Polygon Corner Radius"); needsDisplay = true
+            return
+        }
+        guard let window else { return }
+        let alert = NSAlert(); alert.messageText = "Polygon corner radius"
+        alert.informativeText = "Radius in document points. Large values stop where neighboring corners meet."
+        let field = NSTextField(string: String(Double(polygon.cornerRadius)))
+        field.frame = CGRect(x: 0,y: 0,width: 240,height: 26)
+        field.setAccessibilityLabel("Polygon corner radius")
+        alert.accessoryView = field; alert.addButton(withTitle: "Apply"); alert.addButton(withTitle: "Cancel")
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn,let radius = Double(field.stringValue.trimmingCharacters(in: .whitespaces)),radius.isFinite,radius >= 0,radius <= 1_000_000 else { return }
+            guard self?.app?.singleSelectedNodeID == id else { return }
+            self?.setPolygonCornerRadiusAction(NSNumber(value: radius))
+        }
+        window.attachedSheet?.makeFirstResponder(field)
+    }
+
     @objc func polygonToolAction(_ s: Any?)    { setTool(.polygon) }
     @objc func lineToolAction(_ s: Any?)       { setTool(.line) }
     @objc func artboardToolAction(_ s: Any?)   { setTool(.artboard) }
@@ -10071,7 +10105,7 @@ final class CanvasNSView: NSView {
             return Node(name: "Ellipse", frame: frame, content: .ellipse(EllipseShape(fill: fill)))
         case .polygon:
             let sides = app?.polygonSides ?? 3
-            return Node(name: "Polygon", frame: frame, content: .polygon(PolygonShape(sides: sides, fill: fill)))
+            return Node(name: "Polygon", frame: frame, content: .polygon(PolygonShape(sides: sides, fill: fill,cornerRadius: app?.polygonCornerRadius ?? 0)))
         default:
             return Node(name: "Rectangle", frame: frame, content: .rectangle(RectangleShape(fill: fill, cornerRadius: 0)))
         }
@@ -13687,12 +13721,6 @@ final class CanvasNSView: NSView {
         let p = convert(event.locationInWindow, from: nil)
         let menu = NSMenu()
 
-        add(menu, "New Empty Pattern…", #selector(newEmptyPatternAction(_:)))
-        if isSourceScope {
-            add(menu, "Fit Source to Artwork", #selector(fitSourceToArtworkAction(_:)))
-        }
-        menu.addItem(.separator())
-
         if let (_,point,_) = hitMesh(p) {
             app?.selectedGradientStopID = point; needsDisplay = true
             for (title,selector) in [("Add Mesh Point",#selector(addMeshPointAction(_:))),
@@ -13756,6 +13784,12 @@ final class CanvasNSView: NSView {
             return menu
         }
 
+        add(menu, "New Empty Pattern…", #selector(newEmptyPatternAction(_:)))
+        if isSourceScope {
+            add(menu, "Fit Source to Artwork", #selector(fitSourceToArtworkAction(_:)))
+        }
+        menu.addItem(.separator())
+
         // Target the node the menu acts on: if a currently-selected node is under the
         // cursor (e.g. a drilled-in child of a group), keep it; otherwise select the
         // top-level node. This stops a right-click on a nested item from jumping focus
@@ -13789,6 +13823,7 @@ final class CanvasNSView: NSView {
             menu.addItem(.separator())
             // Three independent appearance channels, validated against their
             // matching session clipboard and the current selection.
+            if case .polygon = hit.content { add(menu,"Polygon Corner Radius…",#selector(setPolygonCornerRadiusAction(_:))) }
             add(menu,"Use Mesh Fill",#selector(applyMeshFillAction(_:)))
             add(menu,"Add Mesh Point Here",#selector(addMeshPointAction(_:)))
             if let h = meshSelection() { menu.items.last?.representedObject = NSValue(point: gradientViewToUnit(p,h.node,chain: ancestorGroups(of: h.id))) }
@@ -14116,6 +14151,9 @@ extension CanvasNSView: NSMenuItemValidation {
              #selector(flipHorizontalAction(_:)), #selector(flipVerticalAction(_:)),
              #selector(copyLayerStyle(_:)):
             return hasNodes
+        case #selector(setPolygonCornerRadiusAction(_:)):
+            guard let id = app?.singleSelectedNodeID,let n = node(id),!n.isLocked else { return false }
+            if case .polygon = n.content { return true }; return false
         case #selector(applyMeshFillAction(_:)):
             guard let id = app?.singleSelectedNodeID,let n = node(id) else { return false }
             return !n.isLocked && n.frame.width > 0 && n.frame.height > 0 && n.layerPaintStyle?.fill != nil && n.layerPaintStyle?.fill?.isMesh != true

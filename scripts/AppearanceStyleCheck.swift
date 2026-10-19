@@ -97,6 +97,28 @@ private func rectangle(_ name: String) -> Node {
         require(meshTargets[0].layerPaintStyle?.fill?.meshValue == mesh,"Mesh paste must preserve editable points and stable local IDs")
         let meshDecoded = try JSONDecoder().decode([Node].self,from: encoded(meshTargets))
         require(meshDecoded[0].layerPaintStyle?.fill?.meshValue == mesh,"Mesh appearance must survive codec")
+        let polygon = PolygonShape(sides: 4,cornerRadius: 10)
+        let square = CGRect(x: 0,y: 0,width: 100,height: 100)
+        let rounded = polygon.outlinePoints(in: square)
+        require(rounded.count == 8 && rounded.filter { $0.controlOut != nil }.count == 4,"each rounded polygon vertex has one cubic fillet")
+        // A point-up square is a diamond: 90-degree turns have tangent distance r.
+        require(abs(hypot(rounded[0].point.x-50,rounded[0].point.y)-10) < 1e-7,"10-point radius must trim ten points along a right-angle edge")
+        let sharp = PolygonShape(sides: 4).outlinePoints(in: square)
+        require(sharp.count == 4 && sharp.allSatisfy { $0.controlIn == nil && $0.controlOut == nil },"radius zero retains sharp geometry")
+        let legacyPolygon = try JSONDecoder().decode(PolygonShape.self,from: Data("{\"sides\":5}".utf8))
+        require(legacyPolygon.cornerRadius == 0,"legacy polygons keep sharp corners")
+        let decodedPolygon = try JSONDecoder().decode(PolygonShape.self,from: encoded(polygon))
+        require(decodedPolygon.cornerRadius == 10 && decodedPolygon.sides == 4,"polygon radius and editable side count survive save")
+        for sides in [3,4,8,25] {
+            let oversize = PolygonShape(sides: sides,cornerRadius: 1_000_000).outlinePoints(in: CGRect(x: 5,y: 7,width: 120,height: 45))
+            require(oversize.count == sides*2 && oversize.allSatisfy { $0.point.x.isFinite && $0.point.y.isFinite },"oversized radius must remain finite and bounded")
+        }
+        var polygonNode = Node(name: "Rounded",frame: square,content: .polygon(polygon))
+        var polygonStyle = polygonNode.layerPaintStyle!
+        polygonStyle.cornerRadius = 16; _ = polygonNode.applyPaintStyle(polygonStyle)
+        if case .polygon(let shape) = polygonNode.content { require(shape.cornerRadius == 16,"appearance carries polygon radius") }
+        else { require(false,"radius must retain polygon editability") }
+        print("PASS: polygon radius, circular tangent geometry, clamping, legacy codec and editable appearance")
         print("PASS: Mesh appearance copy/paste retains editable point data and codec")
         print("PASS: paint/effects/combined channels, gradient geometry, corners, paths, nested folders, protected branches, padding, text, type styles, 800-icon batch, round-trip")
         if let output = CommandLine.arguments.dropFirst().first {

@@ -34,6 +34,18 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 
 ## 🐞 Bugs
 
+### BUG-075 — Pattern creation leaks into a path-anchor menu
+- Type: bug
+- Priority: P2 — owner-requested v2.7 polish, 2026-10-19
+- Area: canvas · menus
+- Status: needs-verify
+- Repro/Detail: Right-click a path anchor to choose Make Curved/Make Corner;
+  New Empty Pattern appeared above that unrelated point command. Confirmed cause:
+  generic creation items were added before the specialized point branches returned.
+- Fix: General creation items follow all specialized point branches. Native fixture
+  right-click now shows only Make Curved. `POLYGON-ROUNDING-v2.7.md` records proof.
+- Acceptance: Both point states omit pattern creation; general canvas menu retains it.
+
 ### BUG-074 — Undo with artboard notes open crashes in native text undo
 - Type: bug
 - Priority: P1
@@ -3177,6 +3189,23 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   both fixed on the reported PNG document.
 
 ## ✨ Features
+
+### FEAT-074 — Editable polygon corner radius
+- Type: feature
+- Priority: P2 — owner-requested v2.7 polish, 2026-10-19
+- Area: model · canvas · inspector · export
+- Status: needs-verify
+- Repro/Detail: Add a radius beside polygon side count without converting the shape
+  to a path. Shared circular fillets clamp before adjacent corners overlap; zero
+  and old files stay sharp. Native appearance, path conversion, silhouettes and
+  exports carry the outline. Inspector/Object/context routes share one Canvas action.
+- Acceptance: Owner checks numeric edits/Undo, side count, resize, save/reopen,
+  conversion and exports on real artwork; full AT/component/library matrix remains.
+- Evidence: `POLYGON-ROUNDING-v2.7.md`; unsigned app/thumbnail, codec/geometry,
+  appearance, pixel/export, semantic and isolated native UI checks pass.
+- Naming: Descriptive field/dialog label follows Apple accessibilityLabel:
+  https://developer.apple.com/documentation/swiftui/view/accessibilitylabel(_:)-1d7jv .
+  ARIA mappings unchanged; full VoiceOver interaction is not claimed.
 
 ### FEAT-073 — Color Matrix sliders and image duotone
 - Type: feature

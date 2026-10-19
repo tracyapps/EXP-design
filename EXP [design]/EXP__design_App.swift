@@ -406,6 +406,8 @@ private struct ObjectCommandItems: View {
                 .disabled(menu?.canEditRelationships != true)
         }
         Divider()
+        Button("Polygon Corner Radius…") { sendEditorAction("setPolygonCornerRadiusAction:") }
+            .disabled(menu?.canSetPolygonCornerRadius != true)
         Menu("Path") {
             Button("Convert to Path") { sendEditorAction("convertToPathAction:") }
                 .disabled(menu?.canConvertToPath != true)

@@ -246,17 +246,20 @@ struct ExportRenderer {
             }
         case .polygon(let s):
             let pts = s.vertices(in: f).map { "\(num($0.x)),\(num($0.y))" }.joined(separator: " ")
+            let polygon = s.cornerRadius > 0
+                ? "<path d=\"\(svgPathData(s.outline(in: CGRect(origin: .zero,size: f.size)),origin: f.origin))\""
+                : "<polygon points=\"\(pts)\""
             if s.strokeWidth > 0, s.strokeAlignment != .center {
                 // Same trick as the canvas: 2× width clipped/masked to one side.
-                let shape = "<polygon points=\"\(pts)\""
-                inner = "\(shape)\(paintFillAttr(s.fill, &defs, rect: f))/>\n"
+                let shape = polygon
+                inner = "\(shape)\(paintFillAttr(s.fill, &defs, rect: f,userSpaceGradient: s.cornerRadius > 0))/>\n"
                     + svgAlignedStrokeCopy(shape: shape, closer: "/>", bounds: f,
                                            stroke: s.stroke, width: s.strokeWidth,
                                            alignment: s.strokeAlignment,
                                            pattern: s.strokePattern,
-                                           join: "miter", defs: &defs)
+                                           join: "miter", defs: &defs,userSpaceGradient: s.cornerRadius > 0)
             } else {
-                inner = "<polygon points=\"\(pts)\"\(paintFillAttr(s.fill, &defs, rect: f))\(strokePaintAttr(s.stroke, s.strokeWidth, s.strokePattern, defs: &defs, rect: f)) stroke-linejoin=\"miter\"/>\n"
+                inner = "\(polygon)\(paintFillAttr(s.fill, &defs, rect: f,userSpaceGradient: s.cornerRadius > 0))\(strokePaintAttr(s.stroke, s.strokeWidth, s.strokePattern, defs: &defs, rect: f,userSpaceGradient: s.cornerRadius > 0)) stroke-linejoin=\"miter\"/>\n"
             }
         case .line(let ls):
             let a = CGPoint(x: f.minX + ls.start.x, y: f.minY + ls.start.y)
@@ -544,7 +547,7 @@ struct ExportRenderer {
     /// have no single frame to speak of; without it the gradient falls back to the
     /// unit square, which is exact for a square element and for 0/90° in any element.
     private func paintFillAttr(_ paint: Paint, _ defs: inout [String],
-                               rect: CGRect? = nil) -> String {
+                               rect: CGRect? = nil,userSpaceGradient: Bool = false) -> String {
         switch paint {
         case .solid(let c):
             return fillAttr(c)
@@ -554,7 +557,7 @@ struct ExportRenderer {
             return " fill=\"url(#\(pattern.id))\""
         case .gradient(let g):
             let id = "grad\(defs.count)"
-            defs.append(svgGradientDef(g, id: id, rect: rect))
+            defs.append(svgGradientDef(g, id: id, rect: rect,userSpace: userSpaceGradient))
             return " fill=\"url(#\(id))\""
         case .pattern(let ref):
             guard let source = document.pattern(for: ref.patternID) else {
@@ -618,10 +621,18 @@ struct ExportRenderer {
         return id
     }
 
-    private func svgGradientDef(_ g: GradientFill, id: String, rect: CGRect? = nil) -> String {
+    private func svgGradientDef(_ g: GradientFill, id: String, rect: CGRect? = nil,userSpace: Bool = false) -> String {
         let stops = g.sortedStops.map { stop -> String in
             "    <stop offset=\"\(num(CGFloat(stop.position)))\" stop-color=\"\(hex(stop.color))\"\(opacityAttr("stop-opacity", stop.color.a))/>\n"
         }.joined()
+        if userSpace,let rect {
+            if g.kind == .linear {
+                let (start,end) = g.linearPoints(in: rect)
+                return "<linearGradient id=\"\(id)\" gradientUnits=\"userSpaceOnUse\" x1=\"\(start.x)\" y1=\"\(start.y)\" x2=\"\(end.x)\" y2=\"\(end.y)\">\(stops)</linearGradient>"
+            }
+            let radial = g.radialGeometry(in: rect)
+            return "<radialGradient id=\"\(id)\" gradientUnits=\"userSpaceOnUse\" cx=\"0\" cy=\"0\" r=\"1\" gradientTransform=\"matrix(\(radial.radius.width*rect.width) 0 0 \(radial.radius.height*rect.height) \(rect.minX+radial.center.x*rect.width) \(rect.minY+radial.center.y*rect.height))\">\(stops)</radialGradient>"
+        }
         switch g.kind {
         case .linear:
             // FEAT-032. Two fixes in one line: it emits the EXPLICIT gradient line
@@ -721,7 +732,7 @@ struct ExportRenderer {
     private func strokePaintAttr(_ paint: Paint, _ width: CGFloat,
                                  _ pattern: StrokePattern = .solid,
                                  cap: StrokeLineCap? = nil,
-                                 defs: inout [String], rect: CGRect? = nil) -> String {
+                                 defs: inout [String], rect: CGRect? = nil,userSpaceGradient: Bool = false) -> String {
         guard width > 0 else { return "" }
         switch paint {
         case .solid(let c):
@@ -732,7 +743,7 @@ struct ExportRenderer {
             return " stroke=\"url(#\(server.id))\" stroke-width=\"\(num(width))\"" + strokeRhythmAttr(pattern,width: width,cap: cap)
         case .gradient(let g):
             let id = "grad\(defs.count)"
-            defs.append(svgGradientDef(g, id: id, rect: rect))
+            defs.append(svgGradientDef(g, id: id, rect: rect,userSpace: userSpaceGradient))
             return " stroke=\"url(#\(id))\" stroke-width=\"\(num(width))\""
                 + strokeRhythmAttr(pattern, width: width, cap: cap)
         case .pattern(let ref):
@@ -804,8 +815,8 @@ struct ExportRenderer {
                                       stroke: Paint, width: CGFloat,
                                       alignment: StrokeAlignment, pattern: StrokePattern,
                                       join: String, miterLimit: CGFloat = 4,
-                                      defs: inout [String]) -> String {
-        var strokeAttrs = " fill=\"none\"\(strokePaintAttr(stroke, width * 2, pattern, defs: &defs, rect: bounds)) stroke-linejoin=\"\(join)\""
+                                      defs: inout [String],userSpaceGradient: Bool = false) -> String {
+        var strokeAttrs = " fill=\"none\"\(strokePaintAttr(stroke, width * 2, pattern, defs: &defs, rect: bounds,userSpaceGradient: userSpaceGradient)) stroke-linejoin=\"\(join)\""
         if join == "miter", abs(miterLimit - 4) > 0.001 {
             strokeAttrs += " stroke-miterlimit=\"\(num(miterLimit))\""
         }
@@ -1484,7 +1495,7 @@ final class ExportRenderView: NSView {
         case .rectangle(let s):
             return Silhouette(rect: rect, shape: .perCornerRect(s.effectiveRadii))
         case .ellipse:          return Silhouette(rect: rect, shape: .oval)
-        case .polygon(let s):   return Silhouette(rect: rect, shape: .custom(Self.polygonPath(s.vertices(in: rect)).cgPath))
+        case .polygon(let s):   return Silhouette(rect: rect, shape: .custom(Self.polygonPath(s,in: rect).cgPath))
         case .path(let ps) where ps.closed && ps.points.count >= 2:
             return Silhouette(rect: rect, shape: .custom(Self.nsPath(ps, origin: rect.origin).cgPath))
         case .image:            return Silhouette(rect: rect, shape: .roundRect(radius: 0))
@@ -1529,7 +1540,7 @@ final class ExportRenderView: NSView {
             exportStroke(path, width: s.strokeWidth, alignment: s.strokeAlignment,
                          paint: s.stroke, bounds: rect, in: ctx, pattern: s.strokePattern)
         case .polygon(let s):
-            let path = Self.polygonPath(s.vertices(in: rect))
+            let path = Self.polygonPath(s,in: rect)
             PaintRender.fill(s.fill, path: path, bounds: rect, in: ctx, pdfSafeAlpha: true,
                              patterns: patterns, patternSpace: patternSpace)
             exportStroke(path, width: s.strokeWidth, alignment: s.strokeAlignment,
@@ -1784,12 +1795,16 @@ final class ExportRenderView: NSView {
         case .ellipse:
             path.addPath(CGPath(ellipseIn: r, transform: nil), transform: m)
         case .polygon(let s):
-            path.addPath(Self.polygonPath(s.vertices(in: r)).cgPath, transform: m)
+            path.addPath(Self.polygonPath(s,in: r).cgPath, transform: m)
         case .path(let ps) where ps.isMultiContour || (ps.closed && ps.points.count >= 2):
             path.addPath(nsPath(ps, origin: r.origin).cgPath, transform: m)
         default:
             path.addPath(CGPath(rect: r, transform: nil), transform: m)
         }
+    }
+
+    static func polygonPath(_ shape: PolygonShape,in rect: CGRect) -> NSBezierPath {
+        shape.cornerRadius > 0 ? nsPath(shape.outline(in: rect),origin: .zero) : polygonPath(shape.vertices(in: rect))
     }
 
     static func polygonPath(_ verts: [CGPoint]) -> NSBezierPath {
