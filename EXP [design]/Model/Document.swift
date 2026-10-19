@@ -2773,6 +2773,46 @@ struct ColorMatrix: Codable, Equatable, Hashable, Sendable {
     }
 }
 
+/// Normalized filter region relative to the layer frame. Explicit SVG user-space
+/// export avoids group objectBoundingBox differences. Default matches EXP's other
+/// filters; imported objectBoundingBox regions retain their own finite geometry.
+struct ColorMatrixRegion: Codable, Equatable, Sendable {
+    var x: Double = -0.5
+    var y: Double = -0.5
+    var width: Double = 2
+    var height: Double = 2
+    var isValid: Bool {
+        [x,y,width,height].allSatisfy(\.isFinite) && width > 0 && height > 0
+    }
+    func rect(in frame: CGRect) -> CGRect {
+        CGRect(x: frame.minX + x * frame.width, y: frame.minY + y * frame.height,
+               width: width * frame.width, height: height * frame.height)
+    }
+}
+
+struct DuotoneSettings: Codable, Equatable, Sendable {
+    var shadows = RGBAColor(r: 0.08, g: 0.03, b: 0.26)
+    var highlights = RGBAColor(r: 0.95, g: 0.88, b: 0.55)
+    var strength: Double = 1
+    init() {}
+    enum CodingKeys: String, CodingKey { case shadows, highlights, strength }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let defaults = DuotoneSettings()
+        shadows = try c.decodeIfPresent(RGBAColor.self, forKey: .shadows) ?? defaults.shadows
+        highlights = try c.decodeIfPresent(RGBAColor.self, forKey: .highlights) ?? defaults.highlights
+        strength = try c.decodeIfPresent(Double.self, forKey: .strength) ?? 1
+        guard [shadows.r,shadows.g,shadows.b,highlights.r,highlights.g,highlights.b,strength].allSatisfy({ $0.isFinite && (0...1).contains($0) }) else {
+            throw DecodingError.dataCorruptedError(forKey: .strength, in: c, debugDescription: "Duotone colors and strength must be finite values from 0 to 1.")
+        }
+    }
+    var matrix: ColorMatrix {
+        // Stored values are validated during decoding; UI swatches/strength
+        // remain in the same unit range.
+        (try? ColorMatrix.duotone(shadows: shadows, highlights: highlights, strength: strength)) ?? .identity
+    }
+}
+
 /// A post-composite visual effect on a node. Drop + inner shadow mirror CSS
 /// `box-shadow` (offset x/y, blur, spread). Layer blur mirrors SVG
 /// `feGaussianBlur` on SourceGraphic. Noise + dissolve are procedural
@@ -2787,7 +2827,7 @@ struct ColorMatrix: Codable, Equatable, Hashable, Sendable {
 ///                sets clump size; amount is the fraction dissolved away.
 struct Effect: Identifiable, Codable, Sendable {
     enum Kind: String, Codable, Sendable, CaseIterable {
-        case dropShadow, innerShadow, layerBlur, backgroundBlur, noise, dissolve
+        case dropShadow, innerShadow, layerBlur, backgroundBlur, noise, dissolve, colorMatrix
     }
     /// SVG `feTurbulence type=` — fractalNoise is smoother (signed octaves
     /// averaged around mid-gray, ideal for grain overlays); turbulence takes
@@ -2815,6 +2855,25 @@ struct Effect: Identifiable, Codable, Sendable {
     var monochrome: Bool = true    // grayscale grain vs independent RGB channels
     var amount: CGFloat = 0.35     // noise: overlay opacity 0–1; dissolve: fraction gone 0–1
     var blend: BlendMode = .normal // per-effect blend (noise only; node blend is separate)
+
+    // Optional fields preserve the byte representation of all pre-matrix effects.
+    var colorMatrix: ColorMatrix? = nil
+    var duotone: DuotoneSettings? = nil
+    var colorMatrixRegion: ColorMatrixRegion? = nil
+
+    var effectiveMatrix: ColorMatrix { duotone?.matrix ?? colorMatrix ?? .identity }
+    var effectiveMatrixRegion: ColorMatrixRegion { colorMatrixRegion ?? ColorMatrixRegion() }
+    var matrixValidationMessage: String? {
+        guard effectiveMatrixRegion.isValid else { return "Invalid Color Matrix filter region." }
+        if let d = duotone,
+           ![d.shadows.r,d.shadows.g,d.shadows.b,d.highlights.r,d.highlights.g,d.highlights.b,d.strength].allSatisfy(\.isFinite) {
+            return "Color Matrix needs finite colors and strength."
+        }
+        if effectiveMatrix.values.contains(where: { abs($0) > 4096 }) {
+            return "This matrix exceeds the native coefficient limit (±4096). Values are preserved in SVG; reduce coefficients to preview in EXP."
+        }
+        return nil
+    }
 
     nonisolated init(id: UUID = UUID(), kind: Kind = .dropShadow,
          color: RGBAColor = RGBAColor(r: 0, g: 0, b: 0, a: 0.33),
@@ -2848,6 +2907,9 @@ struct Effect: Identifiable, Codable, Sendable {
         monochrome = try c.decodeIfPresent(Bool.self, forKey: .monochrome) ?? true
         amount = try c.decodeIfPresent(CGFloat.self, forKey: .amount) ?? 0.35
         blend = try c.decodeIfPresent(BlendMode.self, forKey: .blend) ?? .normal
+        colorMatrix = try c.decodeIfPresent(ColorMatrix.self, forKey: .colorMatrix)
+        duotone = try c.decodeIfPresent(DuotoneSettings.self, forKey: .duotone)
+        colorMatrixRegion = try c.decodeIfPresent(ColorMatrixRegion.self, forKey: .colorMatrixRegion)
     }
 }
 

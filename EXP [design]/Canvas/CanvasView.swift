@@ -478,6 +478,7 @@ final class CanvasNSView: NSView {
     }
 
     @objc private func noiseTileBecameReady() {
+        matrixPixelDependencyGeneration &+= 1
         panZoomSnapshot = nil
         needsDisplay = true
     }
@@ -3998,6 +3999,32 @@ final class CanvasNSView: NSView {
     /// FEAT-023 responder-chain route for Edit ▸ Duplicate Effect. The Inspector
     /// records the last edited row in AppState; this action performs the same
     /// adjacent-copy operation as its overflow/context menus in one undo step.
+    @objc func addColorMatrixAction(_ sender: Any?) {
+        guard let app, let id = app.singleSelectedNodeID, let target = node(id),
+              !target.isLocked, target.frame.width > 0, target.frame.height > 0,
+              target.effects.filter({ $0.kind == .colorMatrix }).count < 32 else { return }
+        var nodes = currentNodes
+        var effect = Effect(kind: .colorMatrix)
+        effect.duotone = DuotoneSettings(); effect.colorMatrix = effect.duotone?.matrix
+        let added = effect
+        guard Self.mutateNested(id, in: &nodes, { $0.effects.append(added) }) else { return }
+        commitNodes(nodes, actionName: "Add Duotone / Color Matrix")
+        app.selectedEffectID = added.id
+    }
+
+    @objc func resetColorMatrixAction(_ sender: Any?) {
+        guard let app, let id = app.singleSelectedNodeID, let target = node(id), !target.isLocked,
+              let effectID = (sender as? UUID) ?? (sender as? NSUUID).map({ $0 as UUID }) ?? app.selectedEffectID,
+              target.effects.contains(where: { $0.id == effectID && $0.kind == .colorMatrix }) else { return }
+        var nodes = currentNodes
+        guard Self.mutateNested(id, in: &nodes, { value in
+            guard let i = value.effects.firstIndex(where: { $0.id == effectID }) else { return }
+            value.effects[i].duotone = nil; value.effects[i].colorMatrix = .identity
+        }) else { return }
+        commitNodes(nodes, actionName: "Reset Color Matrix")
+        app.selectedEffectID = effectID
+    }
+
     @objc func duplicateSelectedEffectAction(_ sender: Any?) {
         guard let app, let nodeID = app.singleSelectedNodeID,
               let effectID = app.selectedEffectID else { return }
@@ -6338,6 +6365,10 @@ final class CanvasNSView: NSView {
         for e in node.effects where e.isEnabled && e.kind == .layerBlur {
             doc = max(doc, e.blur * 3)
         }
+        for e in node.effects where e.isEnabled && e.kind == .colorMatrix && e.effectiveMatrixRegion.isValid {
+            let r = e.effectiveMatrixRegion.rect(in: CGRect(origin: .zero, size: node.frame.size))
+            doc = max(doc, max(max(-r.minX, -r.minY), max(r.maxX-node.frame.width, r.maxY-node.frame.height)))
+        }
         var margin = doc * z + 2
         if node.rotation != 0 {
             // Rotation about the centre can push the AABB out by up to half the
@@ -6482,6 +6513,10 @@ final class CanvasNSView: NSView {
     private func paintBoundsView(_ node: Node, offset: CGPoint) -> CGRect {
         let frameDoc = node.frame.offsetBy(dx: offset.x, dy: offset.y)
         let rect = docToView(frameDoc)
+        if let e = node.effects.last(where: { $0.isEnabled && $0.kind == .colorMatrix }), e.effectiveMatrixRegion.isValid {
+            let r = e.effectiveMatrixRegion.rect(in: rect)
+            return node.rotation == 0 ? r : r.insetBy(dx: -hypot(r.width,r.height), dy: -hypot(r.width,r.height))
+        }
         switch node.content {
         case .group(let children):
             let childOffset = CGPoint(x: frameDoc.minX, y: frameDoc.minY)
@@ -6506,8 +6541,46 @@ final class CanvasNSView: NSView {
         }
     }
 
+    private var matrixRenderPath: [UUID] = []
+    private var matrixPixelDependencyGeneration = 0
+    private var matrixCapturePixelScale: CGFloat?
+
     private func drawNode(_ node: Node, offset: CGPoint, in ctx: CGContext) {
         guard let app else { return }
+        if node.id == editingNodeID { return }
+        matrixRenderPath.append(node.id)
+        defer { matrixRenderPath.removeLast() }
+        if let index = node.effects.lastIndex(where: { $0.isEnabled && $0.kind == .colorMatrix }) {
+            let rect = docToView(node.frame.offsetBy(dx: offset.x, dy: offset.y))
+            guard node.effects.filter({ $0.isEnabled && $0.kind == .colorMatrix }).count <= 32 else {
+                EffectsRender.drawMatrixFailure(in: rect, context: ctx); return
+            }
+            var source = node
+            source.effects.remove(at: index)
+            source.opacity = 1; source.blendMode = .normal
+            source.rotation = 0; source.flipH = false; source.flipV = false
+            ctx.saveGState()
+            defer { ctx.restoreGState() }
+            ctx.setAlpha(CGFloat(max(0, min(1, node.opacity)))); ctx.setBlendMode(node.blendMode.cg)
+            ctx.translateBy(x: rect.midX, y: rect.midY)
+            ctx.rotate(by: CGFloat(node.rotation * .pi / 180))
+            ctx.scaleBy(x: node.flipH ? -1 : 1, y: node.flipV ? -1 : 1)
+            ctx.translateBy(x: -rect.midX, y: -rect.midY)
+            let key = "\(document.map(ObjectIdentifier.init).map(String.init(describing:)) ?? "none"):\(document?.resolveGeneration ?? 0):\(scope):\(app.activeComponentStateID?.uuidString ?? "base"):\(app.activeCanvasPageID?.uuidString ?? "page"):\(editingNodeID?.uuidString ?? "none"):\(matrixPixelDependencyGeneration):\(matrixRenderPath):\(offset) :\(app.zoom):\(capturingSnapshot):\(matrixCapturePixelScale ?? backingScale)"
+            do {
+                try EffectsRender.drawMatrixLayer(node.effects[index], frame: rect,
+                    deviceScale: matrixCapturePixelScale ?? backingScale, preview: true, cacheKey: key,
+                    contentBounds: self.paintBoundsView(source, offset: offset), in: ctx) { target, captureScale in
+                    let oldRegion = self.currentRenderRegion
+                    let oldScale = self.matrixCapturePixelScale
+                    self.currentRenderRegion = self.paintBoundsView(source, offset: offset)
+                    self.matrixCapturePixelScale = captureScale
+                    defer { self.currentRenderRegion = oldRegion; self.matrixCapturePixelScale = oldScale }
+                    self.drawNode(source, offset: offset, in: target)
+                }
+            } catch { EffectsRender.drawMatrixFailure(in: rect, context: ctx) }
+            return
+        }
         // The node being inline-edited is drawn by its NSTextView overlay instead
         // (true at any nesting depth).
         if node.id == editingNodeID { return }
@@ -7034,7 +7107,7 @@ final class CanvasNSView: NSView {
             let renderRegion = currentRenderRegion ?? bounds
             let visibleRect = rect.intersection(renderRegion)
             let sampleRect = visibleRect.isNull || visibleRect.isEmpty ? rect : visibleRect
-            let targetPx = max(sampleRect.width, sampleRect.height) * backingScale
+            let targetPx = max(sampleRect.width, sampleRect.height) * (matrixCapturePixelScale ?? backingScale)
             if let cg = cgImage(for: img, targetPx: targetPx) {
                 // The context is y-down (flipped view); CGImage draws y-up, so flip
                 // within the node's rect before drawing.
@@ -7265,6 +7338,7 @@ final class CanvasNSView: NSView {
                     guard let self else { return }
                     self.imageDecodesInFlight.remove(keyString)
                     if let boxed {
+                        self.matrixPixelDependencyGeneration &+= 1
                         self.imageCache.setObject(boxed.value, forKey: keyString as NSString,
                                                   cost: boxed.value.bytesPerRow * boxed.value.height)
                         if self.latestImageMipKeys.contains(keyString) {
@@ -10499,16 +10573,25 @@ final class CanvasNSView: NSView {
         // only an id, so these must be filed into `Document.patterns` in the SAME
         // commit as the artwork or the fills resolve to nothing.
         var importedPatterns: [PatternSource] = []
+        var importWarnings: [String] = []
         for item in imports {
             if let result = SVGImporter.importDocument(from: item.data) {
                 var group = result.group
                 if let name = item.name { group.name = name }
                 imported.append(group)
                 importedPatterns.append(contentsOf: result.patterns)
+                importWarnings.append(contentsOf: result.warnings)
             } else if let image = NSImage(data: item.data), image.size.width > 0, image.size.height > 0 {
                 imported.append(Node(name: item.name ?? "Image",
                                      frame: CGRect(origin: .zero, size: image.size),
                                      content: .image(ImageContent(data: item.data, naturalSize: image.size))))
+            }
+        }
+        if !importWarnings.isEmpty {
+            let notes = Array(Set(importWarnings)).sorted().prefix(8).joined(separator: "\n")
+            DispatchQueue.main.async {
+                let alert = NSAlert(); alert.messageText = "SVG import notes"
+                alert.informativeText = notes; alert.runModal()
             }
         }
         guard !imported.isEmpty else { return false }
@@ -13520,6 +13603,8 @@ final class CanvasNSView: NSView {
             menu.addItem(.separator())
             // Three independent appearance channels, validated against their
             // matching session clipboard and the current selection.
+            add(menu, "Add Duotone / Color Matrix", #selector(addColorMatrixAction(_:)))
+            add(menu, "Reset Color Matrix", #selector(resetColorMatrixAction(_:)))
             add(menu, "Copy Effects", #selector(copyLayerStyle(_:)))
             add(menu, "Copy Style", #selector(copyPaintStyle(_:)))
             add(menu, "Copy Style & Effects", #selector(copyFullStyle(_:)))
@@ -13839,6 +13924,12 @@ extension CanvasNSView: NSMenuItemValidation {
              #selector(flipHorizontalAction(_:)), #selector(flipVerticalAction(_:)),
              #selector(copyLayerStyle(_:)):
             return hasNodes
+        case #selector(addColorMatrixAction(_:)):
+            guard let id = app?.singleSelectedNodeID, let n = node(id) else { return false }
+            return !n.isLocked && n.frame.width > 0 && n.frame.height > 0 && n.effects.filter { $0.kind == .colorMatrix }.count < 32
+        case #selector(resetColorMatrixAction(_:)):
+            guard let id = app?.singleSelectedNodeID, let n = node(id), !n.isLocked else { return false }
+            return n.effects.contains { $0.id == app?.selectedEffectID && $0.kind == .colorMatrix }
         case #selector(duplicateSelectedEffectAction(_:)):
             guard let nodeID = app?.singleSelectedNodeID,
                   let effectID = app?.selectedEffectID else { return false }

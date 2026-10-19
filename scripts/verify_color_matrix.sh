@@ -15,6 +15,8 @@ xcrun swiftc -framework WebKit \
   "$root/EXP [design]/Color/PaintRender.swift" \
   "$root/EXP [design]/Color/TurbulenceNoise.swift" \
   "$root/EXP [design]/UI/Typography.swift" \
+  "$root/EXP [design]/Model/SVGImporter.swift" \
+  "$root/EXP [design]/Export/ExportRenderer.swift" \
   "$root/scripts/ColorMatrixCheck.swift" -o "$app/Contents/MacOS/ColorMatrixCheck"
 cat > "$app/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>

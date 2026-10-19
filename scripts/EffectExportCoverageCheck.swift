@@ -244,7 +244,9 @@ private enum EffectExportCoverageCheck {
         // backgroundBlur is globally feature-flagged off (canvas and every
         // exporter) — it is deliberately exempt until the flag ships on.
         let renderable = Effect.Kind.allCases.filter { $0 != .backgroundBlur }
+        var matrix = Effect(kind: .colorMatrix); matrix.duotone = DuotoneSettings()
         let params: [Effect.Kind: Effect] = [
+            .colorMatrix: matrix,
             .dropShadow: Effect(kind: .dropShadow, color: RGBAColor(r: 0, g: 0, b: 0, a: 0.8),
                                 dx: 12, dy: 12, blur: 16),
             .innerShadow: Effect(kind: .innerShadow, color: RGBAColor(r: 0, g: 0, b: 0, a: 0.8),
@@ -254,6 +256,7 @@ private enum EffectExportCoverageCheck {
             .dissolve: Effect(kind: .dissolve, amount: 0.5)
         ]
         let svgNeedles: [Effect.Kind: [String]] = [
+            .colorMatrix: ["feColorMatrix", "color-interpolation-filters"],
             .dropShadow: ["feOffset", "feFlood"],
             .innerShadow: ["feFlood"],
             .layerBlur: ["feGaussianBlur"],

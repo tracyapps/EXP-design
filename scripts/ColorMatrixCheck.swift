@@ -71,7 +71,7 @@ private final class Page: NSObject, WKNavigationDelegate {
     }
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { completion?.resume(); completion = nil }
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { completion?.resume(throwing: error); completion = nil }
-    func sample(_ svg: String) async throws -> [Int] {
+    func sample(_ svg: String, width: Int = 10, height: Int = 1) async throws -> [Int] {
         let result = try await web.callAsyncJavaScript("""
           const img = new Image();
           await Promise.race([
@@ -81,11 +81,11 @@ private final class Page: NSObject, WKNavigationDelegate {
             }),
             new Promise((_, reject) => setTimeout(() => reject(new Error('SVG pixel timeout')), 15000))
           ]);
-          const canvas = document.createElement('canvas'); canvas.width = 10; canvas.height = 1;
+          const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;
           const context = canvas.getContext('2d'); context.drawImage(img, 0, 0);
-          return Array.from(context.getImageData(0,0,10,1).data);
-          """, arguments: ["svg": svg], in: nil, contentWorld: .page)
-        guard let values = result as? [NSNumber], values.count == 40 else { throw NSError(domain: "ColorMatrix.InvalidWebKitPixels", code: 1) }
+          return Array.from(context.getImageData(0,0,width,height).data);
+          """, arguments: ["svg": svg, "width": width, "height": height], in: nil, contentWorld: .page)
+        guard let values = result as? [NSNumber], values.count == width * height * 4 else { throw NSError(domain: "ColorMatrix.InvalidWebKitPixels", code: 1) }
         var p = values.map(\.intValue)
         for i in stride(from: 0, to: p.count, by: 4) {
             for ch in 0..<3 { p[i+ch] = Int((Double(p[i+ch]) * Double(p[i+3]) / 255).rounded()) }
@@ -185,6 +185,143 @@ private enum ColorMatrixCheck {
             try JSONSerialization.data(withJSONObject: receipts, options: [.prettyPrinted,.sortedKeys])
                 .write(to: URL(fileURLWithPath: CommandLine.arguments[1]))
         }
+        try await integratedExportChecks(page)
         print("PASS: codec/validation/alpha/identity/cache/source distinction/resource guard")
     }
+    @MainActor private static func integratedExportChecks(_ page: Page) async throws {
+        let w = 64, h = 40
+        var source: [UInt8] = []
+        for y in 0..<h { for x in 0..<w {
+            let p: [UInt8] = x < 16 ? [255,0,0,255] : x < 32 ? [0,128,0,128] : x < 48 ? [0,0,0,0] : (y < 20 ? [0,0,255,255] : [255,255,255,255])
+            source += p
+        }}
+        let cg = CGImage(width: w, height: h, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: w*4, space: space,
+                         bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue).union(.byteOrder32Big),
+                         provider: CGDataProvider(data: Data(source) as CFData)!, decode: nil, shouldInterpolate: false, intent: .defaultIntent)!
+        let png = NSBitmapImageRep(cgImage: cg).representation(using: .png, properties: [:])!
+        let frame = CGRect(x: 16, y: 12, width: w, height: h)
+        let board = Artboard(name: "Matrix fixture", frame: CGRect(x: 0,y: 0,width: 96,height: 64), background: .solid(.clear))
+        var duo = Effect(kind: .colorMatrix); duo.duotone = DuotoneSettings()
+        var linear = Effect(kind: .colorMatrix)
+        var half = ColorMatrix.identity; half.workingSpace = .linearRGB
+        for i in [0,6,12] { half = try half.setting(i, to: 0.5) }
+        linear.colorMatrix = half
+        var bias = Effect(kind: .colorMatrix); bias.colorMatrix = try ColorMatrix.identity.setting(4, to: 0.2).setting(19, to: 0.2)
+        var identity = Effect(kind: .colorMatrix); identity.colorMatrix = .identity
+        func make(_ effects: [Effect]) -> Document {
+            Document(artboards: [board], nodes: [Node(name: "Matrix image", frame: frame, effects: effects,
+                content: .image(ImageContent(data: png, naturalSize: CGSize(width: w,height: h))))])
+        }
+        for (name, effects) in [("identity",[identity]),("duotone",[duo]),("linear",[linear]),("alpha bias",[bias]),("stacked",[duo,linear])] {
+            let doc = make(effects)
+            let renderer = ExportRenderer(document: doc)
+            guard let data = renderer.pngData(for: board, scale: 1, transparentBackground: true), let rep = NSBitmapImageRep(data: data), let nativeImage = rep.cgImage else { fail("integrated PNG failed") }
+            let native = pixels(nativeImage)
+            let svg = renderer.svgString(for: board)
+            let browser = try await page.sample(svg, width: 96, height: 64)
+            let error = zip(native,browser).map { abs($0-$1) }.max()!
+            if error > 4 {
+                let mismatch = zip(native,browser).enumerated().filter { abs($0.element.0-$0.element.1)>4 }.prefix(10).map { "x=\(($0.offset/4)%96) y=\(($0.offset/4)/96) ch=\($0.offset%4): \($0.element.0)/\($0.element.1)" }
+                fail("integrated \(name): PNG/PDF vs actual SVG max error \(error); \(mismatch)")
+            }
+            let saved = try JSONDecoder().decode(Document.self, from: JSONEncoder().encode(doc))
+            require(saved.nodes[0].effects[0].effectiveMatrix == effects[0].effectiveMatrix, "document matrix codec changed")
+            guard let imported = SVGImporter.importDocument(from: Data(svg.utf8)) else { fail("actual exported SVG failed import") }
+            require(imported.warnings.isEmpty, "own SVG import warnings: \(imported.warnings)")
+            let back = ExportRenderer(document: Document(artboards: [board], nodes: [imported.group]))
+            guard let roundtrip = back.pngData(for: board, scale: 1, transparentBackground: true), let roundImage = NSBitmapImageRep(data: roundtrip)?.cgImage else { fail("SVG roundtrip PNG failed") }
+            let roundError = zip(native,pixels(roundImage)).map { abs($0-$1) }.max()!
+            require(roundError <= 4, "integrated \(name): SVG import/native roundtrip max error \(roundError)")
+            print("PASS: integrated \(name), native PNG/PDF vs actual exported WebKit SVG \(error), SVG re-import \(roundError)")
+        }
+        // Matrix runs after the older effect family, regardless of its row
+        // position. Compare native composed pixels with filtering that baseline.
+        let noise = Effect(kind: .noise, amount: 0.25)
+        let base = ExportRenderer(document: make([noise]))
+        let combined = ExportRenderer(document: make([duo,noise]))
+        guard let baseData = base.pngData(for: board,scale: 1,transparentBackground: true),
+              let baseImage = NSBitmapImageRep(data: baseData)?.cgImage,
+              let combinedData = combined.pngData(for: board,scale: 1,transparentBackground: true),
+              let combinedImage = NSBitmapImageRep(data: combinedData)?.cgImage else { fail("mixed matrix/noise PNG failed") }
+        let expectedMixed = try EffectsRender.colorMatrixImage(baseImage,matrices: [duo.effectiveMatrix],useCache: false)
+        let mixedError = zip(pixels(expectedMixed),pixels(combinedImage)).map { abs($0-$1) }.max()!
+        require(mixedError <= 4, "matrix must follow noise; channel error \(mixedError)")
+        var pasted = [Node(name: "Target",frame: frame,content: .rectangle(RectangleShape()))]
+        let sourceNode = make([duo]).nodes[0]
+        require(Node.pasteAppearance(NodeAppearanceStyle(effects: sourceNode.layerStyle),to: [pasted[0].id],in: &pasted), "matrix effects paste failed")
+        require(pasted[0].effects[0].effectiveMatrix == duo.effectiveMatrix && pasted[0].effects[0].id != duo.id, "paste must retain coefficients with independent effect identity")
+        print("PASS: matrix after noise (\(mixedError) bytes), effect copy/paste with independent identity")
+        var invalid = duo; invalid.colorMatrix = try ColorMatrix.identity.setting(0, to: 1e100); invalid.duotone = nil
+        require(ExportRenderer(document: make([invalid])).data(for: board, format: .pdf, scale: 1) == nil, "failed filter must not report PDF success")
+        require(ExportRenderer(document: make([invalid])).pngData(for: board, scale: 1) == nil, "failed filter must not report PNG success")
+        // A failed matrix inside a pattern must reach the outer export instead
+        // of silently painting the pattern's representative fallback colour.
+        var patternChild = make([invalid]).nodes[0]
+        patternChild.frame = CGRect(x: 0,y: 0,width: 64,height: 40)
+        var pattern = PatternSource(name: "Filtered tile",children: [patternChild],tileSize: CGSize(width: 64,height: 40))
+        var patternDoc = Document(artboards: [board],nodes: [Node(name: "Pattern fill",frame: frame,
+            content: .rectangle(RectangleShape(fill: .pattern(pattern.reference),strokeWidth: 0)))])
+        patternDoc.patterns = [pattern]
+        require(ExportRenderer(document: patternDoc).data(for: board,format: .pdf,scale: 1) == nil,
+                "matrix failure in pattern must fail outer PDF")
+        require(ExportRenderer(document: patternDoc).pngData(for: board,scale: 1) == nil,
+                "matrix failure in pattern must fail outer PNG")
+        // viewBox points may be much larger than the actual raster tile. Filter
+        // capture density must follow that mapping, not assume one pixel/point.
+        patternChild.effects = [duo]
+        patternChild.frame = CGRect(x: 0,y: 0,width: 6000,height: 6000)
+        patternChild.content = .rectangle(RectangleShape(fill: .solid(.black),strokeWidth: 0))
+        pattern.children = [patternChild]
+        pattern.viewBox = patternChild.frame
+        pattern.tileSize = CGSize(width: 24,height: 24)
+        patternDoc.patterns = [pattern]
+        let patternRenderer = ExportRenderer(document: patternDoc)
+        guard let patternData = patternRenderer.pngData(for: board,scale: 1,transparentBackground: true),
+              let patternImage = NSBitmapImageRep(data: patternData)?.cgImage else {
+            fail("small viewBox-mapped pattern must render at tile density")
+        }
+        let browserPattern = try await page.sample(patternRenderer.svgString(for: board),width: 96,height: 64)
+        let patternError = zip(pixels(patternImage),browserPattern).map { abs($0-$1) }.max()!
+        if patternError > 4 {
+            try patternData.write(to: URL(fileURLWithPath: "/tmp/exp-matrix-pattern-native.png"))
+            try patternRenderer.svgString(for: board).write(toFile: "/tmp/exp-matrix-pattern.svg",atomically: true,encoding: .utf8)
+            let mismatch = zip(pixels(patternImage),browserPattern).enumerated().filter { abs($0.element.0-$0.element.1)>4 }.prefix(10).map { "x=\(($0.offset/4)%96) y=\(($0.offset/4)/96) ch=\($0.offset%4): \($0.element.0)/\($0.element.1)" }
+            fail("viewBox pattern native/SVG channel error \(patternError); \(mismatch)")
+        }
+        require(patternError <= 4,"viewBox pattern native/SVG channel error \(patternError)")
+        print("PASS: pattern matrix failures propagate; viewBox filter capture uses tile density, SVG error \(patternError)")
+        let unsupported = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"20\" height=\"20\"><defs><filter id=\"f\"><feOffset result=\"o\"/><feColorMatrix in=\"o\"/></filter></defs><rect width=\"20\" height=\"20\" filter=\"url(#f)\"/></svg>"
+        require(!(SVGImporter.importDocument(from: Data(unsupported.utf8))?.warnings.isEmpty ?? true), "unsupported graph must report omission")
+        rejects("invalid stored duotone strength") {
+            _ = try JSONDecoder().decode(DuotoneSettings.self,from: Data(#"{"strength":1e100}"#.utf8))
+        }
+        let opacitySVG = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"20\" height=\"20\"><defs><filter id=\"f\"><feColorMatrix values=\"\(ColorMatrix.identity.svgValues)\"/></filter></defs><g opacity=\"0.5\"><rect width=\"20\" height=\"20\" filter=\"url(#f)\"/></g></svg>"
+        require(!(SVGImporter.importDocument(from: Data(opacitySVG.utf8))?.warnings.isEmpty ?? true), "opacity ordering outside the bounded importer must be reported")
+        var huge = make([duo]); huge.nodes[0].frame.size = CGSize(width: 6000,height: 6000)
+        require(ExportRenderer(document: huge).data(for: board, format: .pdf, scale: 1) == nil, "oversized matrix export must fail before allocating")
+        for size in [CGSize(width: 1280,height: 32),CGSize(width: 32,height: 1280)] {
+            let tileBoard = Artboard(name: "Tile seams", frame: CGRect(origin: .zero,size: size), background: .solid(.clear))
+            let first = Node(name: "First", frame: CGRect(x: 0,y: 0,width: size.width,height: size.height/2), content: .rectangle(RectangleShape(fill: .solid(.black),strokeWidth: 0)))
+            let second = Node(name: "Second", frame: CGRect(x: 0,y: size.height/2,width: size.width,height: size.height/2), content: .rectangle(RectangleShape(fill: .solid(.white),strokeWidth: 0)))
+            let group = Node(name: "Group matrix", frame: tileBoard.frame, effects: [duo], content: .group(children: [first,second]))
+            let renderer = ExportRenderer(document: Document(artboards: [tileBoard],nodes: [group]))
+            guard let data = renderer.pngData(for: tileBoard,scale: 1,transparentBackground: true), let native = NSBitmapImageRep(data: data)?.cgImage else { fail("tile PNG failed") }
+            let browser = try await page.sample(renderer.svgString(for: tileBoard),width: Int(size.width),height: Int(size.height))
+            let error = zip(pixels(native),browser).map { abs($0-$1) }.max()!
+            require(error <= 4, "2D tile orientation/seam error \(error) at \(size)")
+        }
+        if CommandLine.arguments.count > 1 {
+            let directory = URL(fileURLWithPath: CommandLine.arguments[1]).deletingLastPathComponent()
+            var fixture = make([duo])
+            fixture.pages[0].artboards[0].frame.size = CGSize(width: 960,height: 640)
+            fixture.pages[0].nodes[0].frame = CGRect(x: 160,y: 120,width: 640,height: 400)
+            let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted,.sortedKeys]
+            let fixtureURL = directory.appendingPathComponent("matrix-editor.design")
+            if !FileManager.default.fileExists(atPath: fixtureURL.path) {
+                try encoder.encode(fixture).write(to: fixtureURL)
+            }
+        }
+        print("PASS: explicit raster-export failure, unsupported SVG graph reporting and 2D tile seams")
+    }
+
 }

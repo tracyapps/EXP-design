@@ -235,6 +235,10 @@ private struct EditCommandItems: View {
             .disabled(menu?.canDuplicate != true)
         Button("Duplicate Effect") { sendEditorAction("duplicateSelectedEffectAction:") }
             .disabled(menu?.canDuplicateEffect != true)
+        Button("Add Duotone / Color Matrix") { sendEditorAction("addColorMatrixAction:") }
+            .disabled(menu?.canAddColorMatrix != true)
+        Button("Reset Color Matrix") { sendEditorAction("resetColorMatrixAction:") }
+            .disabled(menu?.canResetColorMatrix != true)
         Menu("Move to Page") {
             ForEach(menu?.pageTransferChoices ?? []) { page in
                 Button(page.name) {

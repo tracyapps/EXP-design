@@ -151,6 +151,102 @@ enum EffectsRender {
         return output
     }
 
+    // Bound simultaneously live captures too: nested groups/matrix effects
+    // cannot each spend the full per-layer allowance at the same time.
+    private static var activeMatrixCapturePixels = 0
+
+    private static let matrixLayerCache: NSCache<NSString, CGImage> = {
+        let cache = NSCache<NSString, CGImage>()
+        cache.totalCostLimit = 64 << 20; cache.countLimit = 24
+        return cache
+    }()
+
+    /// Capture one finished layer in y-down user space, then filter in 1024px
+    /// tiles. Preview reduces resolution above 4MP; export NEVER reduces it and
+    /// fails explicitly above 16MP. No floating-point surface exceeds one tile.
+    static func drawMatrixLayer(_ effect: Effect, frame: CGRect, deviceScale: CGFloat,
+                                preview: Bool, cacheKey: String? = nil, contentBounds: CGRect? = nil, in ctx: CGContext,
+                                draw: (CGContext, CGFloat) -> Void) throws {
+        guard effect.matrixValidationMessage == nil else { throw MatrixRenderError.unsupportedCoefficient }
+        var bounds = effect.effectiveMatrixRegion.rect(in: frame)
+        // Transparent input outside the painted source stays transparent when
+        // alpha bias is nonpositive. Avoid spending 3/4 of an image's budget on
+        // that empty default filter margin; alpha-generating matrices keep it.
+        if effect.effectiveMatrix.values[19] <= 0, let contentBounds {
+            bounds = bounds.intersection(contentBounds)
+        }
+        guard !bounds.isNull, [bounds.minX,bounds.minY,bounds.width,bounds.height,deviceScale].allSatisfy(\.isFinite),
+              bounds.width > 0, bounds.height > 0, deviceScale > 0 else { throw MatrixRenderError.resourceLimit }
+        let budget: CGFloat = preview ? 4_194_304 : 16_777_216
+        var scale = deviceScale
+        let requestedW = ceil(bounds.width * scale), requestedH = ceil(bounds.height * scale)
+        guard requestedW.isFinite, requestedH.isFinite else { throw MatrixRenderError.resourceLimit }
+        if preview {
+            let fit = min(1, min(4096 / max(requestedW, requestedH),
+                                 (budget / max(1, requestedW * requestedH)).squareRoot()))
+            scale *= fit < 1 ? fit * 0.999 : 1
+        }
+        let w = ceil(bounds.width * scale), h = ceil(bounds.height * scale)
+        guard w > 0, h > 0, w <= 8192, h <= 8192, w * h <= budget else { throw MatrixRenderError.resourceLimit }
+        let width = Int(w), height = Int(h)
+        let key = cacheKey.map { "\($0):\(width)x\(height):\(effect.id):\(effect.effectiveMatrix.svgValues):\(effect.effectiveMatrix.workingSpace.rawValue):\(effect.effectiveMatrixRegion)" as NSString }
+        func composite(_ image: CGImage) {
+            ctx.saveGState()
+            ctx.translateBy(x: bounds.minX, y: bounds.maxY); ctx.scaleBy(x: 1, y: -1)
+            ctx.draw(image, in: CGRect(origin: .zero, size: bounds.size))
+            ctx.restoreGState()
+        }
+        if let key, let hit = matrixLayerCache.object(forKey: key) { composite(hit); return }
+        let liveBudget = preview ? 8_388_608 : 33_554_432
+        let pixels = width * height
+        guard activeMatrixCapturePixels + pixels <= liveBudget else { throw MatrixRenderError.resourceLimit }
+        activeMatrixCapturePixels += pixels
+        defer { activeMatrixCapturePixels -= pixels }
+        func bitmap() -> CGContext? {
+            CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+                      bytesPerRow: 0, space: matrixSRGB,
+                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        }
+        guard let source = bitmap() else { throw MatrixRenderError.renderFailed }
+        // Ceil-rounded bitmap dimensions must map back to the SAME capture
+        // bounds. Using the requested scale here leaves a fractional empty row/
+        // column, then shrinks the artwork when compositing the whole bitmap.
+        // Small viewBox-mapped pattern tiles made that error a visible seam.
+        let scaleX = CGFloat(width) / bounds.width, scaleY = CGFloat(height) / bounds.height
+        source.translateBy(x: 0, y: CGFloat(height)); source.scaleBy(x: scaleX, y: -scaleY)
+        source.translateBy(x: -bounds.minX, y: -bounds.minY)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: source, flipped: true)
+        draw(source, max(scaleX, scaleY))
+        NSGraphicsContext.restoreGraphicsState()
+        guard let image = source.makeImage(), let output = bitmap() else { throw MatrixRenderError.renderFailed }
+        output.setBlendMode(.copy)
+        for y in stride(from: 0, to: height, by: 1024) {
+            for x in stride(from: 0, to: width, by: 1024) {
+                let tileRect = CGRect(x: x, y: y, width: min(1024, width-x), height: min(1024, height-y))
+                guard let tile = image.cropping(to: tileRect) else { throw MatrixRenderError.renderFailed }
+                let filtered = try colorMatrixImage(tile, matrices: [effect.effectiveMatrix], useCache: false)
+                output.draw(filtered, in: CGRect(x: tileRect.minX, y: CGFloat(height)-tileRect.maxY,
+                                                 width: tileRect.width, height: tileRect.height))
+            }
+        }
+        guard let result = output.makeImage() else { throw MatrixRenderError.renderFailed }
+        if let key { matrixLayerCache.setObject(result, forKey: key, cost: result.bytesPerRow * result.height) }
+        composite(result)
+    }
+
+    /// Visible failure, never an unchanged image falsely suggesting success.
+    static func drawMatrixFailure(in rect: CGRect, context: CGContext) {
+        context.saveGState()
+        context.setFillColor(NSColor.systemRed.withAlphaComponent(0.15).cgColor)
+        context.fill(rect)
+        context.setStrokeColor(NSColor.systemRed.cgColor); context.setLineWidth(2)
+        context.stroke(rect)
+        context.move(to: rect.origin); context.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+        context.move(to: CGPoint(x: rect.maxX, y: rect.minY)); context.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
+        context.strokePath(); context.restoreGState()
+    }
+
     /// Whether the CANVAS preview can honour a shadow's `spread` for this node.
     ///
     /// BUG-034. `Silhouette.path(spread:)` above can only grow or shrink a

@@ -57,7 +57,9 @@ struct ExportRenderer {
     func data(for artboard: Artboard, format: ExportFormat, scale: CGFloat,
               includeNotes: Bool = false, transparentPNGBackground: Bool = false) -> Data? {
         switch format {
-        case .pdf: return pdfData(for: artboard, includeNotes: includeNotes)
+        case .pdf:
+            let pdf = pdfData(for: artboard, includeNotes: includeNotes)
+            return pdf.isEmpty ? nil : pdf
         case .png: return pngData(for: artboard, scale: scale,
                                   transparentBackground: transparentPNGBackground)
         case .jpg: return jpgData(for: artboard, scale: scale)
@@ -67,16 +69,19 @@ struct ExportRenderer {
 
     // MARK: PDF (vector via a flipped offscreen view)
 
-    func pdfData(for artboard: Artboard, drawBackground: Bool = true) -> Data {
+    func pdfData(for artboard: Artboard, drawBackground: Bool = true, rasterEffectScale: CGFloat = 1) -> Data {
         let view = ExportRenderView(document: document, artboard: artboard,
                                     drawBackground: drawBackground)
-        return view.dataWithPDF(inside: view.bounds)
+        view.rasterEffectScale = rasterEffectScale
+        let data = view.dataWithPDF(inside: view.bounds)
+        return view.matrixRenderFailed ? Data() : data
     }
 
     /// One artboard as PDF; when `includeNotes` and the board has notes, a second
     /// "speaker notes" page is appended (PowerPoint-style).
     func pdfData(for artboard: Artboard, includeNotes: Bool) -> Data {
         let boardPDF = pdfData(for: artboard)
+        guard !boardPDF.isEmpty else { return Data() }
         guard includeNotes, !artboard.notes.isEmpty, let notesPDF = notesPDFData(for: artboard) else {
             return boardPDF
         }
@@ -92,7 +97,9 @@ struct ExportRenderer {
     func multiPagePDFData(for artboards: [Artboard], includeNotes: Bool = false) -> Data? {
         let combined = PDFDocument()
         for artboard in artboards {
-            appendFirstPage(of: pdfData(for: artboard), to: combined)
+            let data = pdfData(for: artboard)
+            guard !data.isEmpty else { return nil }
+            appendFirstPage(of: data, to: combined)
             if includeNotes, !artboard.notes.isEmpty, let notesPDF = notesPDFData(for: artboard) {
                 appendFirstPage(of: notesPDF, to: combined)
             }
@@ -120,7 +127,7 @@ struct ExportRenderer {
         let w = artboard.frame.width, h = artboard.frame.height
         guard w > 0, h > 0,
               let image = NSImage(data: pdfData(for: artboard,
-                                                drawBackground: !transparentBackground)) else { return nil }
+                                                drawBackground: !transparentBackground, rasterEffectScale: scale)) else { return nil }
         guard let rep = NSBitmapImageRep(
             bitmapDataPlanes: nil,
             pixelsWide: Int(w * scale), pixelsHigh: Int(h * scale),
@@ -143,7 +150,7 @@ struct ExportRenderer {
     func jpgData(for artboard: Artboard, scale: CGFloat, quality: CGFloat = 0.9) -> Data? {
         let w = artboard.frame.width, h = artboard.frame.height
         guard w > 0, h > 0,
-              let image = NSImage(data: pdfData(for: artboard, drawBackground: true)) else { return nil }
+              let image = NSImage(data: pdfData(for: artboard, drawBackground: true, rasterEffectScale: scale)) else { return nil }
         guard let rep = NSBitmapImageRep(
             bitmapDataPlanes: nil,
             pixelsWide: Int(w * scale), pixelsHigh: Int(h * scale),
@@ -396,6 +403,25 @@ struct ExportRenderer {
         // Classes intentionally may repeat: unlike IDs, duplicate layer names are
         // valid and useful selectors in hand-edited SVG/CSS.
         let layerClass = svgLayerClass(node.name)
+        let matrices = node.effects.filter { $0.isEnabled && $0.kind == .colorMatrix }
+        if !matrices.isEmpty {
+            var filtered = "<g\(filter)>\n\(inner)</g>\n"
+            for effect in matrices {
+                let id = "matrix\(defs.count)"
+                let r = effect.effectiveMatrixRegion.rect(in: f)
+                let m = effect.effectiveMatrix
+                // WebKit otherwise narrows matrix evaluation to SourceGraphic's
+                // painted extent, losing alpha bias in the transparent margin.
+                // A transparent input with the full region changes no source
+                // pixels, but gives the primitive its specified evaluation area.
+                let extended = m.values[19] > 0
+                let prelude = extended ? "<feFlood flood-opacity=\"0\" result=\"matrixClear\"/><feMerge result=\"matrixSource\"><feMergeNode in=\"matrixClear\"/><feMergeNode in=\"SourceGraphic\"/></feMerge>" : ""
+                let input = extended ? "matrixSource" : "SourceGraphic"
+                defs.append("<filter id=\"\(id)\" filterUnits=\"userSpaceOnUse\" x=\"\(r.minX)\" y=\"\(r.minY)\" width=\"\(r.width)\" height=\"\(r.height)\">\(prelude)<feColorMatrix x=\"\(r.minX)\" y=\"\(r.minY)\" width=\"\(r.width)\" height=\"\(r.height)\" type=\"matrix\" in=\"\(input)\" values=\"\(m.svgValues)\" color-interpolation-filters=\"\(m.workingSpace.rawValue)\"/></filter>\n")
+                filtered = "<g filter=\"url(#\(id))\">\n\(filtered)</g>\n"
+            }
+            return "<g class=\"\(layerClass)\"\(transform)\(opacity)\(blend)>\n\(filtered)</g>\n"
+        }
         return "<g class=\"\(layerClass)\"\(transform)\(opacity)\(blend)\(filter)>\n\(inner)</g>\n"
     }
 
@@ -851,7 +877,11 @@ final class PatternTileStore {
     /// rather than assumed impossible.
     private var inFlight: Set<UUID> = []
 
-    init() {}
+    private let onMatrixFailure: (() -> Void)?
+
+    init(onMatrixFailure: (() -> Void)? = nil) {
+        self.onMatrixFailure = onMatrixFailure
+    }
 
     func removeAll() {
         tiles.removeAll(keepingCapacity: true)
@@ -922,7 +952,8 @@ final class PatternTileStore {
         inFlight.insert(source.id)
         defer { inFlight.remove(source.id) }
         guard let image = ExportRenderView.patternTile(source, document: document,
-                                                       scale: scale) else { return nil }
+                                                       scale: scale,
+                                                       onMatrixFailure: onMatrixFailure) else { return nil }
         tiles[key] = image
         order.append(key)
         while order.count > maxTiles, order.count > 1 {
@@ -933,6 +964,8 @@ final class PatternTileStore {
 }
 
 final class ExportRenderView: NSView {
+    private(set) var matrixRenderFailed = false
+    var rasterEffectScale: CGFloat = 1
     let document: Document
     /// nil for a view that rasterises loose nodes rather than an artboard — see
     /// the pattern-tile initialiser below. `draw(_:)` is an artboard render and
@@ -963,7 +996,9 @@ final class ExportRenderView: NSView {
 
     /// FEAT-062. One store per render, so an export can never reuse a tile built
     /// from an older version of the document.
-    private lazy var patternStore = PatternTileStore()
+    private lazy var patternStore = PatternTileStore { [weak self] in
+        self?.matrixRenderFailed = true
+    }
     fileprivate var patterns: PatternResolver { patternStore.resolver(document: document) }
 
     /// Document points → export coordinates. An artboard render is the document
@@ -997,6 +1032,10 @@ final class ExportRenderView: NSView {
     /// `paintBoundsView` (leaf margin / recursive group union / instance frame).
     private func exportPaintBounds(_ node: Node, offset: CGPoint) -> CGRect {
         let rect = node.frame.offsetBy(dx: offset.x, dy: offset.y)
+        if let e = node.effects.last(where: { $0.isEnabled && $0.kind == .colorMatrix }), e.effectiveMatrixRegion.isValid {
+            let r = e.effectiveMatrixRegion.rect(in: rect)
+            return node.rotation == 0 ? r : r.insetBy(dx: -hypot(r.width,r.height), dy: -hypot(r.width,r.height))
+        }
         switch node.content {
         case .group(let children):
             let childOffset = CGPoint(x: rect.minX, y: rect.minY)
@@ -1069,6 +1108,30 @@ final class ExportRenderView: NSView {
 
     private func drawExportNode(_ node: Node, offset: CGPoint, in ctx: CGContext) {
         let rect = node.frame.offsetBy(dx: offset.x, dy: offset.y)
+        if let index = node.effects.lastIndex(where: { $0.isEnabled && $0.kind == .colorMatrix }) {
+            guard node.effects.filter({ $0.isEnabled && $0.kind == .colorMatrix }).count <= 32 else {
+                matrixRenderFailed = true; return
+            }
+            var source = node
+            source.effects.remove(at: index)
+            source.opacity = 1; source.blendMode = .normal
+            source.rotation = 0; source.flipH = false; source.flipV = false
+            ctx.saveGState()
+            defer { ctx.restoreGState() }
+            ctx.setAlpha(CGFloat(max(0, min(1, node.opacity)))); ctx.setBlendMode(node.blendMode.cg)
+            ctx.translateBy(x: rect.midX, y: rect.midY)
+            ctx.rotate(by: CGFloat(node.rotation * .pi / 180))
+            ctx.scaleBy(x: node.flipH ? -1 : 1, y: node.flipV ? -1 : 1)
+            ctx.translateBy(x: -rect.midX, y: -rect.midY)
+            do {
+                try EffectsRender.drawMatrixLayer(node.effects[index], frame: rect,
+                    deviceScale: self.rasterEffectScale, preview: false,
+                    contentBounds: self.exportPaintBounds(source, offset: offset), in: ctx) { target, _ in
+                    self.drawExportNode(source, offset: offset, in: target)
+                }
+            } catch { matrixRenderFailed = true }
+            return
+        }
         let groupAlpha = max(0, min(1, CGFloat(node.opacity)))
         let needsGroup = groupAlpha < 0.999 || node.blendMode != .normal
         // Single-compositing-op nodes (one fill OR one stroke, no effects) get
@@ -1578,7 +1641,7 @@ final class ExportRenderView: NSView {
     /// tile-local image anyway; and BUG-062 was made of exactly this — one
     /// concept implemented twice, drifting apart until the exports disagreed.
     static func patternTile(_ source: PatternSource, document: Document,
-                            scale: CGFloat) -> CGImage? {
+                            scale: CGFloat, onMatrixFailure: (() -> Void)? = nil) -> CGImage? {
         let w = source.tileSize.width, h = source.tileSize.height
         guard w > 0.01, h > 0.01 else { return nil }
         let s = patternTileScale(source, scale: scale)
@@ -1611,8 +1674,17 @@ final class ExportRenderView: NSView {
         NSGraphicsContext.current = NSGraphicsContext(cgContext: bitmap, flipped: false)
         defer { NSGraphicsContext.current = previous }
         let view = ExportRenderView(document: document, tileSize: source.tileSize)
+        // Content points map through the tile's viewBox before reaching pixels.
+        // A large-coordinate source in a small tile must capture filters at that
+        // actual density rather than allocating a model-point-sized bitmap.
+        let transform = bitmap.ctm
+        view.rasterEffectScale = max(hypot(transform.a, transform.b), hypot(transform.c, transform.d))
         for node in source.children where node.isVisible {
             view.drawExportNode(node, offset: .zero, in: bitmap)
+        }
+        if view.matrixRenderFailed {
+            onMatrixFailure?()
+            return nil
         }
         return bitmap.makeImage()
     }

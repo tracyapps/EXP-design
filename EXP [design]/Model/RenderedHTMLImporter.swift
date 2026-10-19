@@ -816,8 +816,12 @@ struct RenderedHTMLImporter {
         if let asset = element.renderedAsset {
             let svgSource = editableSVGSource(asset)
             if let source = svgSource,
-               let imported = SVGImporter.importGroup(from: source),
-               imported.frame.width > 0, imported.frame.height > 0 {
+               let nativeImport = SVGImporter.importDocument(from: source),
+               nativeImport.group.frame.width > 0, nativeImport.group.frame.height > 0 {
+                let imported = nativeImport.group
+                for warning in nativeImport.warnings {
+                    report.add(.warning, .unsupported, category: "SVG filter", message: warning, location: element.path)
+                }
                 let sx = localFrame.width / imported.frame.width
                 let sy = localFrame.height / imported.frame.height
                 var vector = SelectionTransform.scaled(imported, about: .zero,
@@ -1313,10 +1317,8 @@ struct RenderedHTMLImporter {
         var unsupported = Set(nodes.compactMap { $0.name?.lowercased() }.filter {
             !supported.contains($0)
         })
-        // feColorMatrix is native only as the internal channel/alpha stage of
-        // EXP's turbulence effects. A general SourceGraphic 4x5 matrix is not
-        // silently claimed as supported; it remains the next native SVG-effect
-        // addition when a real import requires it.
+        // Pure unbranched matrix filters and turbulence-internal matrices are
+        // supported. Other graph inputs/regions still need an explicit warning.
         let turbulenceResults = Set(nodes.compactMap { node -> String? in
             guard let element = node as? XMLElement,
                   element.name?.lowercased() == "feturbulence" else { return nil }
@@ -1324,7 +1326,8 @@ struct RenderedHTMLImporter {
         })
         for case let matrix as XMLElement in nodes where matrix.name?.lowercased() == "fecolormatrix" {
             let input = matrix.attribute(forName: "in")?.stringValue ?? "SourceGraphic"
-            if !turbulenceResults.contains(input) {
+            let standalone = (matrix.parent as? XMLElement).map { SVGImporter.supportsColorMatrixFilter($0) } ?? false
+            if !turbulenceResults.contains(input) && !standalone {
                 unsupported.insert("feColorMatrix (general 4×5 matrix)")
             }
         }
@@ -1447,10 +1450,13 @@ struct RenderedHTMLImporter {
         let source = element.backgroundAsset?.data ?? dataURI(url)
         guard let source else { return nil }
         if let svg = sanitizedSVGData(source),
-           let imported = SVGImporter.importGroup(from: svg),
-           let vector = editableSVGBackground(imported, size: element.rect.size,
+           let nativeImport = SVGImporter.importDocument(from: svg),
+           let vector = editableSVGBackground(nativeImport.group, size: element.rect.size,
                                               style: element.style,
                                               location: element.path, report: &report) {
+            for warning in nativeImport.warnings {
+                report.add(.warning, .unsupported, category: "SVG filter", message: warning, location: element.path)
+            }
             report.mapped("Editable SVG background")
             reportSVGFeatures(svg, location: element.path, report: &report)
             return vector

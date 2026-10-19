@@ -3182,8 +3182,8 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: feature
 - Priority: P1 — selected for v2.7 on 2026-10-18
 - Area: color · effects · inspector · canvas · export · import
-- Status: in-progress — shared matrix/image engine and native/WebKit pixel proof
-  pass October 18; editor/effect/export/import integration and controls remain open
+- Status: needs-verify — native effect/duotone/all twenty controls, bounded raster
+  and SVG export/import implemented October 18; local checks pass, owner review open
 - Owner request: add the SVG color-matrix effect, including sliders, to make
   duotone images and provide another visual feature to demonstrate at launch.
 - Slice: friendly shadow/highlight colors and strength; Advanced exposes all
@@ -3202,6 +3202,14 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   labeled coefficient controls, numeric alternatives to dragging, one Undo per
   gesture, no default-width panel overflow. Shared targets/thumbnail/export,
   component states and appearance copy/paste require regression checks.
+- Implementation and owner checks: `COLOR-MATRIX-VERIFICATION-v2.7.md`.
+  Optional fields preserve old encodings; matrix runs after older effect kinds,
+  before opacity/blend/transform. Preview/export and aggregate capture budgets
+  are explicit; complex/rotated SVG graphs remain reported rather than guessed.
+- Native accessible naming checked against Apple accessibilityLabel and Slider
+  API/installed SDK: https://developer.apple.com/documentation/swiftui/view/accessibilitylabel(_:)-1d7jv .
+  Full input/output-channel labels use native control roles; actual VoiceOver/FKA
+  and the real-document/display/stress matrix remain unverified.
 - Plan, dated sequence and release acceptance: `VISUAL-FEATURES-v2.7.md`.
 - Sources reviewed 2026-10-18: W3C Filter Effects §9.6 and §10
   https://www.w3.org/TR/filter-effects-1/#feColorMatrixElement ; Apple CIColorMatrix

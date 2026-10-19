@@ -111,7 +111,14 @@ interactive performance and transparent edge inspection.
 
 ## Current evidence and limits
 
-October 18 source inventory confirms:
+**Current integration:** editable FEAT-073 is implemented/local checked and awaits
+owner acceptance. `COLOR-MATRIX-VERIFICATION-v2.7.md` is the current contract,
+including ordering, native/raster budgets, SVG graph/region/image limits, native
+UI receipts and remaining owner checks. Earlier probe/foundation text below is
+historical and does not describe the final exposed feature state.
+
+
+Initial October 18 source inventory, before integration, confirmed:
 
 - Paint currently supports solid, linear/radial gradient and pattern references;
   it has no Mesh representation.
@@ -138,7 +145,7 @@ The probe deliberately remains separate from shipping Effect/Paint types.
 
 ### Shared image-engine foundation — October 18
 
-`ColorMatrix` now lives beside `Effect` in the always-shared Document model;
+At foundation commit `8122c8b`, `ColorMatrix` lives beside `Effect` in the always-shared Document model;
 `EffectsRender.colorMatrixImage` accepts immutable CGImages/mips. Both compile
 into the app and thumbnail target. This is the first implementation seam, **not
 an exposed editor feature**. No Effect.Kind, document field, effect ordering,

@@ -19,6 +19,7 @@
 
 import Foundation
 import CoreGraphics
+import ImageIO
 
 enum SVGImporter {
 
@@ -30,6 +31,7 @@ enum SVGImporter {
     struct Import {
         var group: Node
         var patterns: [PatternSource]
+        var warnings: [String] = []
     }
 
     /// Parse SVG `data` into a single group Node (children in group-local coords),
@@ -83,7 +85,7 @@ enum SVGImporter {
         let used = ctx.patterns.values
             .filter { usedIDs.contains($0.id) }
             .sorted { $0.name < $1.name }
-        return Import(group: group, patterns: used)
+        return Import(group: group, patterns: used, warnings: Array(Set(ctx.filterWarnings.values)).sorted())
     }
 
     /// Pattern ids reached by any fill in the tree — transitively, so a pattern
@@ -127,11 +129,14 @@ enum SVGImporter {
 
     // MARK: Parsing context
 
+    private final class FilterWarnings { var values: [String] = [] }
     private struct Context {
         var gradients: [String: GradientFill] = [:]
         /// `<filter id>` → the Effects we could reconstruct from its primitives
         /// (feTurbulence noise/dissolve chains, drop/inner shadow chains).
         var filters: [String: [Effect]] = [:]
+        var matrixRegions: [String: (CGRect, Bool)] = [:]
+        var filterWarnings = FilterWarnings()
         /// SVG logos commonly define a mark once and place it through `<use>`.
         /// Retaining the referenced element is what keeps those logos editable.
         var elementsByID: [String: XMLElement] = [:]
@@ -223,7 +228,34 @@ enum SVGImporter {
         if let fx = filterEffects(el, ctx: ctx), !fx.isEmpty {
             out = out.map { n in
                 var n = n
-                n.effects.append(contentsOf: fx.map { var e = $0; e.id = UUID(); return e })
+                let properties = resolvedProperties(for: el, ctx: ctx)
+                let ref = properties["filter"] ?? ""
+                let id = ref.split(separator: "#").last.map { String($0.prefix { $0 != ")" && $0 != "'" && $0 != "\"" }) } ?? ""
+                let local = transform(el).concatenating(parentCTM)
+                n.effects.append(contentsOf: fx.compactMap { value -> Effect? in
+                    var e = value; e.id = UUID()
+                    if e.kind == .colorMatrix, let (r, userSpace) = ctx.matrixRegions[id] {
+                        // The older reader bakes inherited group opacity into
+                        // leaves. That cannot represent opacity AFTER a matrix
+                        // which changes alpha; report this seam instead of
+                        // silently claiming an equivalent filter composition.
+                        guard resolveStyle(el, inherited: inherited, ctx: ctx).opacity == 1 else {
+                            ctx.filterWarnings.values.append("Color Matrix with SVG carrier/group opacity is not supported by this editable importer; filter omitted.")
+                            return nil
+                        }
+                        guard isAxisAligned(local), local.a > 0, local.d > 0, n.frame.width > 0, n.frame.height > 0 else {
+                            ctx.filterWarnings.values.append("Color Matrix on a rotated/skewed/reflected or empty SVG carrier is not supported; filter omitted from editable geometry.")
+                            return nil
+                        }
+                        let region = userSpace ? r.applying(local) : r
+                        e.colorMatrixRegion = userSpace
+                            ? ColorMatrixRegion(x: (region.minX-n.frame.minX)/n.frame.width,
+                                                y: (region.minY-n.frame.minY)/n.frame.height,
+                                                width: region.width/n.frame.width, height: region.height/n.frame.height)
+                            : ColorMatrixRegion(x: r.minX, y: r.minY, width: r.width, height: r.height)
+                    }
+                    return e
+                })
                 return n
             }
         }
@@ -272,6 +304,37 @@ enum SVGImporter {
             let hasFill = !isClearPaint(style.resolvedFill)
             let closed = parsed.contains { $0.closed } || hasFill
             return pathNode(subs, style: style, name: "Path", closed: closed)
+
+        case "image":
+            let href = el.attribute(forName: "href")?.stringValue ?? el.attribute(forName: "xlink:href")?.stringValue ?? ""
+            guard href.hasPrefix("data:image/"), let comma = href.firstIndex(of: ","),
+                  href[..<comma].hasSuffix(";base64"), href.utf8.count <= 24_000_000,
+                  let bytes = Data(base64Encoded: String(href[href.index(after: comma)...])),
+                  let source = CGImageSourceCreateWithData(bytes as CFData, nil),
+                  let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+                  let iw = props[kCGImagePropertyPixelWidth] as? Double,
+                  let ih = props[kCGImagePropertyPixelHeight] as? Double, iw > 0, ih > 0,
+                  isAxisAligned(local) else { return [] }
+            let frame = CGRect(x: length(el, "x", .horizontal, ctx), y: length(el, "y", .vertical, ctx),
+                               width: length(el, "width", .horizontal, ctx), height: length(el, "height", .vertical, ctx))
+            guard frame.width > 0, frame.height > 0 else { return [] }
+            let aspect = el.attribute(forName: "preserveAspectRatio")?.stringValue ?? "xMidYMid meet"
+            guard !aspect.contains("slice") else { return [] }
+            var placement = CGRect(origin: .zero, size: frame.size)
+            if aspect != "none" {
+                let scale = min(frame.width/iw, frame.height/ih)
+                placement.size = CGSize(width: iw*scale, height: ih*scale)
+                placement.origin.x = aspect.contains("xMin") ? 0 : (frame.width-placement.width) * (aspect.contains("xMax") ? 1 : 0.5)
+                placement.origin.y = aspect.contains("YMin") ? 0 : (frame.height-placement.height) * (aspect.contains("YMax") ? 1 : 0.5)
+            }
+            let mapped = frame.applying(local)
+            let childFrame = CGRect(x: placement.minX*abs(local.a), y: placement.minY*abs(local.d),
+                                    width: placement.width*abs(local.a), height: placement.height*abs(local.d))
+            let child = Node(name: "Image", frame: childFrame,
+                             content: .image(ImageContent(data: bytes, naturalSize: CGSize(width: iw, height: ih))))
+            var result = Node(name: "Image", frame: mapped, opacity: style.opacity, content: .group(children: [child]))
+            result.flipH = local.a < 0; result.flipV = local.d < 0
+            return [result]
 
         case "rect":
             return rectNode(el, ctm: local, style: style, ctx: ctx)
@@ -516,7 +579,7 @@ enum SVGImporter {
         "stroke-opacity", "font-size", "font-family", "font-weight", "font-style",
         "stroke-linecap", "stroke-linejoin", "stroke-miterlimit",
         "stroke-dasharray", "marker-start", "marker-end",
-        "stop-color", "stop-opacity", "filter",
+        "stop-color", "stop-opacity", "filter", "color-interpolation-filters", "flood-opacity", "flood-color",
     ]
 
     /// EXP's exported marker carries an explicit semantic tag. For third-party
@@ -818,6 +881,79 @@ enum SVGImporter {
         return ctx.filters[String(id)]
     }
 
+    /// Shared recognition contract used by rendered-HTML import reporting too.
+    static func supportsColorMatrixFilter(_ filter: XMLElement) -> Bool {
+        var ctx = Context()
+        if let root = filter.rootDocument?.rootElement() { collectStylesheets(in: root, into: &ctx) }
+        return matrixFilter(filter, ctx: ctx) != nil
+    }
+
+    private static func matrixFilter(_ filter: XMLElement, ctx: Context) -> ([Effect], CGRect, Bool)? {
+        var prims = filter.children?.compactMap { $0 as? XMLElement } ?? []
+        guard !prims.isEmpty, prims.count <= 34, filter.attribute(forName: "href") == nil,
+              filter.attribute(forName: "xlink:href") == nil else { return nil }
+        let units = filter.attribute(forName: "filterUnits")?.stringValue ?? "objectBoundingBox"
+        guard units == "objectBoundingBox" || units == "userSpaceOnUse" else { return nil }
+        let userSpace = units == "userSpaceOnUse"
+        var numbers: [Double] = []
+        for (name, fallback) in [("x",-0.1),("y",-0.1),("width",1.2),("height",1.2)] {
+            // User-space percentages depend on the SVG viewport; bounded first
+            // slice accepts explicit lengths only. Object-box lengths are fractions.
+            let text = filter.attribute(forName: name)?.stringValue ?? (userSpace ? "" : String(fallback))
+            guard !text.isEmpty, !(userSpace && text.hasSuffix("%")),
+                  let v = Double(text.hasSuffix("%") ? String(text.dropLast()) : text), v.isFinite else { return nil }
+            numbers.append(text.hasSuffix("%") ? v/100 : v)
+        }
+        let region = CGRect(x: numbers[0], y: numbers[1], width: numbers[2], height: numbers[3])
+        guard region.width > 0, region.height > 0 else { return nil }
+        func space(_ node: XMLElement) -> String {
+            var cursor: XMLElement? = node
+            while let el = cursor {
+                if let value = resolvedProperties(for: el, ctx: ctx)["color-interpolation-filters"] { return value }
+                cursor = el.parent as? XMLElement
+            }
+            return "linearRGB"
+        }
+        var effects: [Effect] = []
+        var previous: String? = "SourceGraphic"
+        if prims.count >= 3, prims[0].name == "feFlood", prims[1].name == "feMerge" {
+            let flood = prims[0], merge = prims[1]
+            guard let clear = flood.attribute(forName: "result")?.stringValue,
+                  let merged = merge.attribute(forName: "result")?.stringValue,
+                  Double(resolvedProperties(for: flood, ctx: ctx)["flood-opacity"] ?? "1") == 0 else { return nil }
+            let inputs = merge.children?.compactMap { $0 as? XMLElement } ?? []
+            guard inputs.count == 2, inputs.allSatisfy({ $0.name == "feMergeNode" }),
+                  inputs[0].attribute(forName: "in")?.stringValue == clear,
+                  inputs[1].attribute(forName: "in")?.stringValue == "SourceGraphic",
+                  [flood,merge].allSatisfy({ element in ["x","y","width","height"].allSatisfy { element.attribute(forName: $0) == nil } }) else { return nil }
+            prims.removeFirst(2); previous = merged
+        }
+        guard prims.count <= 32 else { return nil }
+        for (index, primitive) in prims.enumerated() {
+            guard primitive.name == "feColorMatrix",
+                  (primitive.attribute(forName: "type")?.stringValue ?? "matrix") == "matrix",
+                  primitive.attribute(forName: "in2") == nil,
+                  let working = ColorMatrix.WorkingSpace(rawValue: space(primitive)) else { return nil }
+            let subregion = ["x","y","width","height"].map { primitive.attribute(forName: $0)?.stringValue }
+            if subregion.contains(where: { $0 != nil }) {
+                guard userSpace, (filter.attribute(forName: "primitiveUnits")?.stringValue ?? "userSpaceOnUse") == "userSpaceOnUse",
+                      zip(subregion, numbers).allSatisfy({ raw, expected in raw.flatMap(Double.init) == expected }) else { return nil }
+            }
+            if let input = primitive.attribute(forName: "in")?.stringValue {
+                guard input == previous else { return nil }
+            } else if index == 0 && previous == nil { previous = "SourceGraphic" }
+            let matrix: ColorMatrix
+            if let text = primitive.attribute(forName: "values")?.stringValue {
+                guard let parsed = try? ColorMatrix(svgValues: text, workingSpace: working) else { return nil }
+                matrix = parsed
+            } else { var identity = ColorMatrix.identity; identity.workingSpace = working; matrix = identity }
+            var e = Effect(kind: .colorMatrix); e.colorMatrix = matrix
+            effects.append(e)
+            previous = primitive.attribute(forName: "result")?.stringValue
+        }
+        return (effects, region, userSpace)
+    }
+
     /// Reconstruct Effects from every `<filter>` def we can understand. This is
     /// deliberately tolerant: it recognises the chains OUR exporter emits
     /// exactly, and degrades any other feTurbulence into a plain noise effect
@@ -829,6 +965,14 @@ enum SVGImporter {
             guard let id = filt.attribute(forName: "id")?.stringValue else { continue }
             let prims = filt.children?.compactMap { $0 as? XMLElement } ?? []
             var effects: [Effect] = []
+            if let (matrices, region, userSpace) = matrixFilter(filt, ctx: ctx) {
+                ctx.filters[id] = matrices; ctx.matrixRegions[id] = (region, userSpace)
+                continue
+            }
+            let turbulenceResults = Set(prims.filter { $0.name == "feTurbulence" }.compactMap { $0.attribute(forName: "result")?.stringValue })
+            if prims.contains(where: { $0.name == "feColorMatrix" && !turbulenceResults.contains($0.attribute(forName: "in")?.stringValue ?? "SourceGraphic") }) {
+                ctx.filterWarnings.values.append("Filter #\(id): this Color Matrix graph/region is not supported; its filter was omitted from editable geometry.")
+            }
 
             func attr(_ el: XMLElement, _ n: String) -> String? { el.attribute(forName: n)?.stringValue }
             func dnum(_ el: XMLElement, _ n: String, _ dflt: Double) -> Double {

@@ -358,7 +358,7 @@ private enum RenderedHTMLImporterCheck {
             <filter id="future"><feColorMatrix in="SourceGraphic" type="matrix" values="1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 1 0"/></filter>
             <symbol id="mark"><rect x="4" y="4" width="32" height="32" rx="6" fill="url(#g)" filter="url(#soft)"/></symbol>
           </defs>
-          <use href="#mark"/>
+          <use href="#mark" filter="url(#future)"/>
         </svg>
         """#.utf8)
         let svgElement = RenderedHTMLElement(
@@ -389,10 +389,25 @@ private enum RenderedHTMLImporterCheck {
                     return false
                 }),
                 "symbol/use geometry and standalone feGaussianBlur should remain editable")
-        require(svgResult.report.issues.contains(where: {
+        require(svgNodes.contains(where: { node in
+                    node.effects.contains { $0.kind == .colorMatrix && $0.effectiveMatrix.values == ColorMatrix.identityValues
+                        && $0.effectiveMatrix.workingSpace == .linearRGB }
+                }), "standalone matrix must remain an editable effect with SVG's default linearRGB")
+        require(!svgResult.report.issues.contains(where: {
                     $0.category == "SVG filter" && $0.message.contains("feColorMatrix")
-                }),
-                "general feColorMatrix should be named as a native-effect gap without flattening geometry\n\(svgResult.report.detailedText)")
+                }), "supported matrix must not be reported as unsupported")
+        var unsupportedSnapshot = svgSnapshot
+        let unsupportedSVG = String(decoding: svg,as: UTF8.self)
+            .replacingOccurrences(of: "<filter id=\"future\">",with: "<filter id=\"future\"><feOffset result=\"external\"/>")
+            .replacingOccurrences(of: "in=\"SourceGraphic\" type=\"matrix\"",with: "in=\"external\" type=\"matrix\"")
+        unsupportedSnapshot.root.children[0].renderedAsset?.data = Data(unsupportedSVG.utf8)
+        let unsupportedResult = try RenderedHTMLImporter().read(snapshotData: [JSONEncoder().encode(unsupportedSnapshot)])
+        require(unsupportedResult.report.issues.contains(where: {
+                    $0.category == "SVG filter" && $0.message.contains("feColorMatrix")
+                }), "matrix graphs outside the supported chain must retain an explicit warning")
+        require(unsupportedResult.payload.pages[0].nodes.flatMap(descendants).contains(where: {
+                    if case .rectangle = $0.content { return true }; return false
+                }), "unsupported graph must preserve editable geometry")
 
         print("ok: rendered HTML snapshots map responsive geometry, text, paint, and editable SVG symbol/use + layer blur")
     }

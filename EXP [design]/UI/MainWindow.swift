@@ -771,6 +771,8 @@ struct EditorMenuModel {
 
     var canDuplicate: Bool
     var canDuplicateEffect: Bool
+    var canAddColorMatrix: Bool
+    var canResetColorMatrix: Bool
     var canCopyStyle: Bool
     var canPasteStyle: Bool
     var canCopyPaintStyle: Bool
@@ -1035,6 +1037,8 @@ func makeEditorMenuModel(document: ExpDocument, app: AppState, scope: CanvasScop
         hasArtboards: hasArtboards,
         canDuplicate: hasNodes,
         canDuplicateEffect: singleNode?.effects.contains(where: { $0.id == app.selectedEffectID }) == true,
+        canAddColorMatrix: singleNode.map { !$0.isLocked && $0.frame.width > 0 && $0.frame.height > 0 && $0.effects.filter { $0.kind == .colorMatrix }.count < 32 } ?? false,
+        canResetColorMatrix: singleNode.map { !$0.isLocked && $0.effects.contains { $0.id == app.selectedEffectID && $0.kind == .colorMatrix } } ?? false,
         canCopyStyle: hasNodes,
         canPasteStyle: hasNodes && app.copiedLayerStyle != nil,
         canCopyPaintStyle: selectedNodes.contains { $0.layerPaintStyle != nil },
@@ -1290,6 +1294,8 @@ struct RightPanel: View {
     /// Inspector lives; a newly added or duplicated effect starts expanded so its
     /// editable copy is never hidden unexpectedly.
     @State private var collapsedEffectIDs: Set<UUID> = []
+    @State private var matrixGestureBaseline: Document?
+    @State private var matrixGestureChanged = false
     /// Per-corner radius accordion (v1.3) — same remembered-disclosure pattern.
     @AppStorage("inspector.corners.advancedOpen") private var cornersAdvancedOpen = false
 
@@ -3611,6 +3617,7 @@ struct RightPanel: View {
                     Button("Layer Blur") { addEffect(.layerBlur) }
                     Button("Noise") { addEffect(.noise) }
                     Button("Dissolve") { addEffect(.dissolve) }
+                    Button("Duotone / Color Matrix") { sendCanvasAction("addColorMatrixAction:") }
                     // Background Blur intentionally omitted — disabled for performance
                     // (see CanvasNSView.backgroundBlurEnabled). Re-add when reworked.
                 } label: { Image(systemName: "plus.circle") }
@@ -3661,6 +3668,7 @@ struct RightPanel: View {
                     Text("Blur").tag(Effect.Kind.layerBlur)
                     Text("Noise").tag(Effect.Kind.noise)
                     Text("Dissolve").tag(Effect.Kind.dissolve)
+                    Text("Matrix").tag(Effect.Kind.colorMatrix)
                     // Bg Blur can't be ADDED (disabled for performance — see
                     // CanvasNSView.backgroundBlurEnabled), but a LEGACY effect in
                     // an old document must still be a valid selection, or AppKit
@@ -3712,7 +3720,26 @@ struct RightPanel: View {
                 .accessibilityLabel("Actions for \(kindName) effect")
             }
             if !isCollapsed {
-            if effect.kind == .dropShadow || effect.kind == .innerShadow {
+            if effect.kind == .colorMatrix {
+                ColorMatrixControls(effect: effect, change: { next in
+                    app.selectedEffectID = next.id
+                    if matrixGestureBaseline != nil { undoManager?.disableUndoRegistration() }
+                    updateEffect(idx, action: "Edit Color Matrix") {
+                        $0.colorMatrix = next.colorMatrix; $0.duotone = next.duotone
+                    }
+                    if matrixGestureBaseline != nil {
+                        undoManager?.enableUndoRegistration(); matrixGestureChanged = true
+                    }
+                }, gesture: { active in
+                    if active {
+                        if matrixGestureBaseline == nil { matrixGestureBaseline = document.model; matrixGestureChanged = false }
+                    } else if let baseline = matrixGestureBaseline {
+                        matrixGestureBaseline = nil
+                        if matrixGestureChanged { document.registerUndo(restoring: baseline, undoManager: undoManager, actionName: "Edit Color Matrix") }
+                        matrixGestureChanged = false
+                    }
+                })
+            } else if effect.kind == .dropShadow || effect.kind == .innerShadow {
                 // Full labels above flexible fields: four fixed 40pt fields in one
                 // line were the panel's worst label-crushing case.
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 8),
@@ -3900,11 +3927,13 @@ struct RightPanel: View {
         case .backgroundBlur: return "Background Blur"
         case .noise: return "Noise"
         case .dissolve: return "Dissolve"
+        case .colorMatrix: return "Color Matrix"
         }
     }
 
     private func effectSummary(_ effect: Effect) -> String {
         switch effect.kind {
+        case .colorMatrix: return effect.duotone != nil ? "Duotone" : effect.effectiveMatrix.workingSpace.rawValue + " · 4 × 5"
         case .dropShadow, .innerShadow:
             return "X \(compactEffectNumber(effect.dx)) · Y \(compactEffectNumber(effect.dy)) · Blur \(compactEffectNumber(effect.blur)) · Spread \(compactEffectNumber(effect.spread))"
         case .layerBlur, .backgroundBlur:

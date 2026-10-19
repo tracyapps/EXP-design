@@ -1300,6 +1300,11 @@ from the appcast; a development plan does not change the published release.
       Duotone / Color Matrix, including advanced coefficient sliders.
 - [ ] FEAT-073: prove matrix/alpha/color-space/export behavior, then implement
       native effect, duotone controls and all twenty advanced values; owner accepts.
+- [x] FEAT-073 local vertical slice: editable Color Matrix/duotone, twenty
+      coefficient controls, shared native/thumbnail/raster rendering and bounded
+      SVG round-trip. `COLOR-MATRIX-VERIFICATION-v2.7.md` records limits/evidence.
+- [ ] Owner accepts Color Matrix on actual images, including drag Undo,
+      save/reopen, export and normal panel/display/keyboard use before Mesh.
 - [ ] FEAT-033: prove layered-radial native/CSS/SVG and re-import contract, then
       implement Mesh fill/on-object plus numeric editing; owner accepts.
       Work is sequential; notes accepted October 18. Dated work cards and
@@ -3473,6 +3478,34 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-10-18 — Editable Color Matrix / Duotone vertical slice [internal].**
+  FEAT-073 now integrates the verified engine through optional Effect fields,
+  native canvas/thumbnail and PNG/JPG/PDF/SVG; preset colors/strength, identity
+  reset and all twenty slider/numeric values fit the narrow Inspector. Add/reset
+  have CanvasNSView actions, Edit/context routes and validation. Live slider/
+  swatch sessions register one snapshot Undo. Matrix runs after older effects,
+  before opacity/blend/transform; source bytes remain unchanged. Preview/export
+  and aggregate pixel budgets prevent unbounded float captures; export fails
+  explicitly rather than dropping the effect. Cache dependencies include image/
+  noise readiness and component-state/editing context. SVG's transparent-input
+  prelude fixes the observed 51-byte alpha-margin discrepancy in WebKit.
+  Thirteen core pixel cases pass; five actual native PNG/PDF ↔ exported SVG
+  cases agree within 0–3 bytes and their SVG re-imports are identical. Both tile
+  orientations, matrix-after-noise, appearance paste and failure paths pass.
+  Final pattern integration caught/fixed silent fallback on nested matrix failure
+  and a ceil-rounded bitmap edge; viewBox-mapped tile density now matches native
+  export to WebKit SVG within 4 bytes. Existing pattern fixtures pass 86/86.
+  Actual isolated native UI passes keyboard strength edit, reset/one Undo,
+  custom 3.125 save/JSON verification and file reopen; menu invocation via CUA
+  was not established because transient menu handles failed. Owner Add/context/
+  drag/real-photo/AT/display/stress checks remain. Details, commands and known
+  supported import/export limits: `COLOR-MATRIX-VERIFICATION-v2.7.md`.
+  Final matrix integration, all-effect export, rendered-HTML importer and
+  unchanged semantic Handoff goldens pass (exit 0); unsigned app/EXPThumbnail
+  build also passes. Final build log is recorded in the review doc.
+  FEAT-073 is needs-verify; Mesh remains sequential after owner acceptance.
+  No push, deployment or live account/settings changes.
 
 - **2026-10-18 — Notes owner acceptance; Color Matrix image-engine foundation [internal].**
   Owner accepts the repaired notes slice: “that all is verified working now.”

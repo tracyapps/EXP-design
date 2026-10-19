@@ -65,6 +65,7 @@ struct ColorWell: View {
     let label: String
     @Binding var color: RGBAColor
     var supportsOpacity: Bool = true
+    var onEditingChanged: ((Bool) -> Void)? = nil
 
     @State private var showing = false
 
@@ -78,6 +79,7 @@ struct ColorWell: View {
             }
             .buttonStyle(.plain)
             .help("Edit \(label.lowercased())")
+            .accessibilityLabel(Text(label.isEmpty ? "Edit color" : "Edit \(label) color"))
             .popover(isPresented: $showing, arrowEdge: .leading) {
                 ColorPopover(color: $color, supportsOpacity: supportsOpacity)
                     .frame(width: 244)
@@ -85,6 +87,8 @@ struct ColorWell: View {
                     .expTransientWindowLevel()
             }
         }
+        .onChange(of: showing) { _, open in onEditingChanged?(open) }
+        .onDisappear { if showing { onEditingChanged?(false) } }
     }
 }
 

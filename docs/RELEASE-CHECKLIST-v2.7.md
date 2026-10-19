@@ -180,6 +180,8 @@ payment and license records live outside the repository; use sanitized summaries
 - [ ] FEAT-073 Duotone/Color Matrix: actual image, alpha, identity, signed values,
       working color space, canvas/PNG/PDF/SVG parity and bounded supported SVG
       import/round-trip verified; all twenty slider/numeric coefficients editable.
+      Local vertical slice passes; owner review/full matrix remain open. Evidence:
+      `COLOR-MATRIX-VERIFICATION-v2.7.md`.
 - [ ] FEAT-033 Mesh: base plus editable radial points; numeric/on-object editing,
       layering/radii/opacity, save/reopen/undo and native/CSS/SVG/PNG/PDF fidelity
       verified; EXP-authored re-import retains editable points.
