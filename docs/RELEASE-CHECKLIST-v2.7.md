@@ -194,8 +194,10 @@ payment and license records live outside the repository; use sanitized summaries
       document combinations remain. `POLYGON-ROUNDING-v2.7.md`.
 - [ ] BUG-076 / BUG-077 / FEAT-075 owner pattern review: repeats, scale/Undo/save/export,
       palette editor handoff and physical multi-display/app-switch behavior.
-      `PATTERN-POLISH-v2.7.md` records local evidence. BUG-078 Flip report stays open
-      pending owner reproduction details; no speculative transform change.
+      `PATTERN-POLISH-v2.7.md` records local evidence.
+- [ ] BUG-078 rotated-triangle canvas-axis Flip owner review: polygon/path, both
+      directions, Undo/save/export. Local native/geometry/render checks pass;
+      `CANVAS-AXIS-FLIP-v2.7.md`. Prior stored artwork retains its appearance.
 - [ ] Both: panel-fit, keyboard/VoiceOver, appearance, shared thumbnail target,
       component-state/style-library behavior, real stress performance and owner
       acceptance recorded. No universal filter-graph or third-party mesh claim.

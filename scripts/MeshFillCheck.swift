@@ -200,10 +200,48 @@ private final class Page: NSObject, WKNavigationDelegate {
         }
     }
 
+    @MainActor static func checkFlipRendering(_ page: Page) async throws {
+        let board = Artboard(name: "Bowtie flip",frame: CGRect(x: 0,y: 0,width: 128,height: 80))
+        let frame = CGRect(x: 44,y: 12,width: 40,height: 56)
+        let paint = Paint.gradient(GradientFill(kind: .linear,stops: [GradientStop(color: .black,position: 0),GradientStop(color: RGBAColor(r: 0.2,g: 0.6,b: 1,a: 1),position: 1)]))
+        let polygon = PolygonShape(sides: 3,fill: paint,strokeWidth: 0,cornerRadius: 4)
+        for content in [NodeContent.polygon(polygon),.path(polygon.outline(in: CGRect(origin: .zero,size: frame.size)))] {
+            for angle in [23.0,90] {
+                let base = Node(name: "Rotated triangle",frame: frame,rotation: angle,content: content)
+                func raster(_ node: Node) -> [Int] {
+                    let doc = Document(artboards: [board],nodes: [node])
+                    let png = ExportRenderer(document: doc).pngData(for: board,scale: 1,transparentBackground: true)!
+                    return pixels(NSBitmapImageRep(data: png)!.cgImage!)
+                }
+                let before = raster(base)
+                for horizontal in [true,false] {
+                    let after = SelectionTransform.flipped(base,horizontal: horizontal)
+                    let native = raster(after)
+                    var expected = before
+                    for y in 0..<80 { for x in 0..<128 { for ch in 0..<4 {
+                        let xx = horizontal ? 127-x : x, yy = horizontal ? y : 79-y
+                        expected[(y*128+x)*4+ch] = before[(yy*128+xx)*4+ch]
+                    }}}
+                    let reflectionError = Double(zip(native,expected).map { abs($0-$1) }.reduce(0,+))/Double(native.count)
+                    require(reflectionError < 0.3,"rotated triangle must mirror both geometry and gradient on canvas axes: \(reflectionError)")
+                    let doc = Document(artboards: [board],nodes: [after])
+                    let svg = ExportRenderer(document: doc).svgString(for: board)
+                    let browser = try await page.sample(svg,width: 128,height: 80)
+                    let svgError = Double(zip(native,browser).map { abs($0-$1) }.reduce(0,+))/Double(native.count)
+                    require(svgError < 2,"canvas-axis Flip native/SVG appearance: \(svgError)")
+                    let saved = try JSONDecoder().decode(Document.self,from: JSONEncoder().encode(doc))
+                    require(saved.nodes[0].rotation == after.rotation && saved.nodes[0].flipH == after.flipH && saved.nodes[0].flipV == after.flipV,"flip save/reopen flags and rotation")
+                    print("PASS: rotated polygon/path Flip \(angle), horizontal \(horizontal), PNG mirror mean \(reflectionError), SVG mean \(svgError)")
+                }
+            }
+        }
+    }
+
     @MainActor static func checks() async throws {
         _ = NSApplication.shared; NSApp.setActivationPolicy(.prohibited)
         let page = Page(); try await page.load()
         try await checkPatternScale(page)
+        try await checkFlipRendering(page)
         defer { page.window?.close() }
         let first = MeshPoint(position: CGPoint(x: 0.25,y: 0.4),radius: 0.65,color: RGBAColor(r: 0.9,g: 0.12,b: 0.3,a: 0.8),opacity: 0.7)
         let second = MeshPoint(position: CGPoint(x: 0.8,y: 0.7),radius: 0.55,color: RGBAColor(r: 0.1,g: 0.4,b: 1,a: 1),opacity: 0.6)

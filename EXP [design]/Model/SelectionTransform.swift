@@ -357,6 +357,28 @@ enum SelectionTransform {
         return q
     }
 
+    /// Mirror a layer about its own centre along the canvas axes. Storage flags
+    /// remain local; commands account for the orientation of the layer/ancestors.
+    static func flipped(_ base: Node, horizontal: Bool, ancestors: [Node] = []) -> Node {
+        var parent = CGAffineTransform.identity
+        for ancestor in ancestors {
+            let local = CGAffineTransform(rotationAngle: ancestor.rotation * .pi / 180)
+                .scaledBy(x: ancestor.flipH ? -1 : 1,y: ancestor.flipV ? -1 : 1)
+            parent = local.concatenating(parent)
+        }
+        let orientation = Double(atan2(parent.b,parent.a)) * 180 / .pi
+        let handedness: Double = parent.a * parent.d - parent.b * parent.c < 0 ? -1 : 1
+        var result = base
+        // F R(theta) = R(-theta) F. Conjugating the canvas reflection
+        // through the ancestor basis also accounts for rotated/reflected groups.
+        var angle = -base.rotation - 2 * orientation * handedness
+        angle.formTruncatingRemainder(dividingBy: 360)
+        if angle < 0 { angle += 360 }
+        result.rotation = angle
+        if horizontal { result.flipH.toggle() } else { result.flipV.toggle() }
+        return result
+    }
+
     // MARK: Rotate
 
     /// Rotate `p` about `c` by `deg`, matching the canvas's flipped, clockwise-

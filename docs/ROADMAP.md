@@ -1329,9 +1329,10 @@ from the appcast; a development plan does not change the published release.
 - [ ] Owner accepts BUG-076 / BUG-077 / FEAT-075 pattern polish: seamless fractional
       tiles, per-fill scale/Undo/save/export and app-local persistent palette ordering.
       Local checks pass; `PATTERN-POLISH-v2.7.md` records evidence and owner steps.
-- [ ] BUG-078 Flip report reproduced/triaged against owner configuration. Native
-      triangle, asymmetric path and converted-triangle local Flip checks pass. Owner
-      clarifies rotated bowtie triangles; fix command axes to follow the canvas.
+- [ ] Owner accepts BUG-078 canvas-axis Flip repair. Rotated bowtie-triangle report
+      identifies local-axis command behavior; shared helper now adjusts local flags
+      and rotation. Native polygon/converted-path plus Undo/Redo and bounded geometry/
+      export checks pass. `CANVAS-AXIS-FLIP-v2.7.md` records the remaining matrix.
 - [x] Report/roadmap reconciliation and execution plan written:
       `SELF-LAUNCH-PLAN-v2.7.md`; primary corrections in
       `SELF-LAUNCH-SOURCES-2026-10-16.md`; friend-facing brief in
@@ -3501,6 +3502,20 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-10-19 — Rotated polygon/path Flip axes [internal].**
+  Owner clarifies BUG-078 concerns rotated three-sided bowtie halves. Previous
+  commands toggle local flags before rotation; Horizontal therefore appears unchanged
+  on a locally symmetric triangle. Inspector and Canvas/menu/context now share
+  `SelectionTransform.flipped`, reflecting along canvas axes by updating rotation
+  plus local flag and accounting for rotated/reflected ancestors. Stored artwork,
+  frame centres and editable points stay intact. A previous-operation fixture fails;
+  independent reflected-path checks pass at 0/23/90/270 with prior flags, both axes,
+  rounded polygons/converted paths and nested groups; double-flip and prior vector
+  regressions pass. Native 90° triangle right→left, Undo/Redo and converted-path
+  flip pass; saved JSON confirms flags/rotation/type. App/thumbnail and native/SVG
+  render checks pass. `CANVAS-AXIS-FLIP-v2.7.md` records exact scope and owner bowtie/
+  export checks. Local commit only; no push/deploy. Pattern owner review stays open.
 
 - **2026-10-19 — Pattern seams, local scale and palette ordering [internal].**
   Owner accepts preceding polygon radius/menu feel and requests pattern seam repair,

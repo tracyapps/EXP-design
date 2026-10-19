@@ -31,8 +31,49 @@ private func sameInk(_ before: CGPath, _ after: CGPath, _ message: String) {
     }
 }
 
+private func checkCanvasAxisFlips() throws {
+    let polygon = PolygonShape(sides: 3,fill: .solid(.black),strokeWidth: 0,cornerRadius: 18)
+    let converted = VectorPathGeometry.pathShape(from: .polygon(polygon),size: CGSize(width: 300,height: 260))!
+    let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+    for content in [NodeContent.polygon(polygon),.path(converted)] {
+        for angle in [0.0,23,90,270] { for h in [false,true] { for v in [false,true] {
+            let base = Node(name: "Bowtie triangle",frame: CGRect(x: 80,y: 60,width: 300,height: 260),
+                            rotation: angle,flipH: h,flipV: v,content: content)
+            for nested in [false,true] {
+                func tree(_ leaf: Node) -> [Node] {
+                    if !nested { return [leaf] }
+                    let inner = Node(name: "Inner",frame: CGRect(x: 120,y: 45,width: 500,height: 420),
+                                     rotation: -19,flipV: true,content: .group(children: [leaf]))
+                    let outer = Node(name: "Outer",frame: CGRect(x: 50,y: 100,width: 800,height: 650),
+                                     rotation: 37,flipH: true,content: .group(children: [inner]))
+                    return [outer]
+                }
+                let nodes = tree(base),chain = NodeTreeIndex(nodes).ancestorGroups(of: base.id)
+                let original = path(base,in: nodes)
+                var centre = CGPoint(x: base.frame.midX,y: base.frame.midY)
+                for parent in chain.reversed() { centre = VectorPathGeometry.pointToParent(centre,node: parent) }
+                for horizontal in [true,false] {
+                    let after = SelectionTransform.flipped(base,horizontal: horizontal,ancestors: chain)
+                    var mirror = horizontal
+                        ? CGAffineTransform(a: -1,b: 0,c: 0,d: 1,tx: 2*centre.x,ty: 0)
+                        : CGAffineTransform(a: 1,b: 0,c: 0,d: -1,tx: 0,ty: 2*centre.y)
+                    let expected = original.copy(using: &mirror)!
+                    sameInk(expected,path(after,in: tree(after)),"canvas-axis flip, angle \(angle), nested \(nested), horizontal \(horizontal)")
+                    require(after.frame == base.frame && after.id == base.id,"flip preserves frame centre and identity")
+                    let unchanged = try encoder.encode(after.content) == encoder.encode(base.content)
+                    require(unchanged,"flip preserves editable geometry")
+                    let twice = SelectionTransform.flipped(after,horizontal: horizontal,ancestors: chain)
+                    sameInk(original,path(twice,in: tree(twice)),"two flips restore geometry")
+                }
+            }
+        }}}
+    }
+    print("PASS: canvas-axis flips at 0/23/90/270 degrees, both flags, rotated/reflected ancestors, rounded polygons and converted paths; double-flip and geometry preservation")
+}
+
 @main enum Check {
     static func main() throws {
+        try checkCanvasAxisFlips()
         let rectangle = rect("Rectangle")
         var maskShape = rectangle; maskShape.isMaskShape = true
         require(VectorShapeEditing.cut([maskShape], selected: [maskShape.id], from: CGPoint(x: -10,y: 40), to: CGPoint(x: 110,y: 40)) != nil,

@@ -2269,8 +2269,9 @@ struct RightPanel: View {
 
     private func flipSelectedLayer(horizontal: Bool) {
         guard let id = app.singleSelectedNodeID else { return }
+        let ancestors = indexedNodes.ancestorGroups(of: id)
         mutateScopedNode(id, action: horizontal ? "Flip Horizontal" : "Flip Vertical") { node in
-            if horizontal { node.flipH.toggle() } else { node.flipV.toggle() }
+            node = SelectionTransform.flipped(node,horizontal: horizontal,ancestors: ancestors)
         }
     }
 

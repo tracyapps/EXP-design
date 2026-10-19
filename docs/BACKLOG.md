@@ -34,20 +34,24 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 
 ## 🐞 Bugs
 
-### BUG-078 — Reported polygon/path Flip appears to do nothing
+### BUG-078 — Flip uses local axes on rotated triangles/paths
 - Type: bug
-- Priority: P2 — owner report October 19, 2026; reproduction pending
+- Priority: P2 — owner report October 19, 2026
 - Area: canvas · inspector · transforms
-- Status: open
-- Repro/Detail: Owner reports horizontal/vertical Flip on polygons and converted
-  paths has no visible effect. Current native tests successfully flip a triangle
-  vertically, an asymmetric path horizontally and the triangle after conversion.
-  Owner clarifies rotated three-sided bowtie halves: Horizontal/Vertical should
-  follow the canvas, but commands currently toggle local flags before rotation.
-- Confirmed cause: local-axis flip under rotation; focused canvas-axis command fix
-  follows the pattern slice. Renderer/storage flags remain local transforms.
-- Acceptance: Reproduce the owner's configuration, then fix and verify if a defect
-  is confirmed. Evidence/limits: `PATTERN-POLISH-v2.7.md`.
+- Status: needs-verify
+- Repro/Detail: Rotated three-sided bowtie triangles appear unchanged with Horizontal
+  Flip; conversion to a path preserves the issue. Commands toggled local flags before
+  rotation instead of reflecting along canvas horizontal/vertical directions.
+- Fix: Inspector and Canvas/menu/context routes use `SelectionTransform.flipped`;
+  update rotation plus local flag, including the ancestor orientation. Preserve frame
+  centre, editable geometry and existing stored/rendered artwork. Each selected
+  layer still reflects about its own centre.
+- Evidence: independent geometry/reflection/double-flip checks, rounded polygon/path
+  and nested rotated/reflected ancestors, native/SVG pixels and codec, app/thumbnail.
+  Native 90° triangle right→left, Undo/Redo and converted-path flip pass; saved flags
+  confirm both. `CANVAS-AXIS-FLIP-v2.7.md` records receipts and remaining matrix.
+- Acceptance: owner bowtie document, both directions, Undo/save/export; full release
+  combinations remain open.
 
 ### BUG-077 — Persistent paint palette covers editors and other apps
 - Type: bug

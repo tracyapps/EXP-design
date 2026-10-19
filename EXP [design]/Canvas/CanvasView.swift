@@ -12038,14 +12038,15 @@ final class CanvasNSView: NSView {
         needsDisplay = true
     }
 
-    /// Mirror each selected node about its own centre (a render-time flag, so it
-    /// works for images/text/paths/groups alike). One undo step.
+    /// Mirror each selected node about its own centre along canvas horizontal/
+    /// vertical axes. Keep local flags and rotation consistent. One undo step.
     private func flipSelection(horizontal: Bool) {
         guard let app, !app.selectedNodeIDs.isEmpty else { return }
         var nodes = currentNodes
         for id in app.selectedNodeIDs {
+            let ancestors = ancestorGroups(of: id)
             Self.mutateNested(id, in: &nodes) { n in
-                if horizontal { n.flipH.toggle() } else { n.flipV.toggle() }
+                n = SelectionTransform.flipped(n,horizontal: horizontal,ancestors: ancestors)
             }
         }
         commitNodes(nodes, actionName: horizontal ? "Flip Horizontal" : "Flip Vertical")

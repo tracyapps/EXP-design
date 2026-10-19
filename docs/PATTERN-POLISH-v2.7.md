@@ -107,3 +107,7 @@ an axis mismatch: current Flip mirrors in local coordinates before rotation;
 the intended Horizontal/Vertical directions are those of the canvas. A focused
 follow-up will correct the command transform, including converted paths. No flip
 behavior has changed in this pattern slice.
+
+Follow-up implemented in the subsequent local slice: `CANVAS-AXIS-FLIP-v2.7.md`
+records the corrected canvas-axis command and fresh native/geometry/render proof.
+The initial report is no longer awaiting reproduction details; owner review remains.
