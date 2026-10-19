@@ -1,8 +1,9 @@
 # Duotone / Color Matrix — v2.7 owner review
 
 October 18, 2026 · FEAT-073 · development 2.7/build 18.
-Implemented and locally checked; **owner acceptance remains open**. Mesh follows
-this review, per the repository's sequential verification rule.
+Implemented and locally checked; **owner accepted October 18**: “that works well,
+and all exports looked good as well.” Mesh may follow. Full physical AT/display,
+stress and signed-release gates remain separate.
 
 ## Try it
 
@@ -136,8 +137,8 @@ claim arbitrary third-party SVG equivalence from the successful fixtures below.
   failing application command. Only the agent-owned fixture process was stopped.
 
 Native UI coverage is not full VoiceOver/FKA, 1x/2x/light/dark/contrast certification,
-real-document stress profiling, or owner acceptance. Do not start Mesh until the
-owner accepts this document-mutating slice. Public/release claims remain gated.
+real-document stress profiling. Owner functional/export acceptance is recorded
+above. Public/release claims remain gated by the full release checklist.
 
 References checked: [W3C matrix](https://www.w3.org/TR/filter-effects-1/#feColorMatrixElement),
 [primitive regions](https://www.w3.org/TR/filter-effects-1/#FilterPrimitiveSubRegion),

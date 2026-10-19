@@ -1298,17 +1298,22 @@ from the appcast; a development plan does not change the published release.
 - [x] **October 18 scope amendment:** owner adds two visual v2.7 features:
       FEAT-033 Mesh fill (base plus radial color points) and FEAT-073 image
       Duotone / Color Matrix, including advanced coefficient sliders.
-- [ ] FEAT-073: prove matrix/alpha/color-space/export behavior, then implement
+- [x] FEAT-073: prove matrix/alpha/color-space/export behavior, then implement
       native effect, duotone controls and all twenty advanced values; owner accepts.
 - [x] FEAT-073 local vertical slice: editable Color Matrix/duotone, twenty
       coefficient controls, shared native/thumbnail/raster rendering and bounded
       SVG round-trip. `COLOR-MATRIX-VERIFICATION-v2.7.md` records limits/evidence.
-- [ ] Owner accepts Color Matrix on actual images, including drag Undo,
+- [x] Owner accepts Color Matrix on actual images, including drag Undo,
       save/reopen, export and normal panel/display/keyboard use before Mesh.
+      Accepted October 18: “that works well, and all exports looked good as well.”
 - [ ] FEAT-033: prove layered-radial native/CSS/SVG and re-import contract, then
       implement Mesh fill/on-object plus numeric editing; owner accepts.
       Work is sequential; notes accepted October 18. Dated work cards and
       acceptance: `VISUAL-FEATURES-v2.7.md`; Nov 6 scope/date review precedes freeze.
+- [x] FEAT-033 shared model/drawing/serialization foundation: bounded radial points,
+      native/CSS/SVG and actual PDF pixel fixtures plus strict metadata codec.
+      `MESH-FILL-FOUNDATION-v2.7.md` records measured quantization and limits.
+      Paint/editor/export/import integration remains open; no Mesh picker yet.
 - [x] Report/roadmap reconciliation and execution plan written:
       `SELF-LAUNCH-PLAN-v2.7.md`; primary corrections in
       `SELF-LAUNCH-SOURCES-2026-10-16.md`; friend-facing brief in
@@ -3478,6 +3483,30 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-10-18 — Color Matrix owner acceptance; Mesh rendering contract [internal].**
+  Owner accepts FEAT-073 and its exports: “that works well, and all exports
+  looked good as well.” The sequential gate is closed; FEAT-033 can start.
+  Mesh begins with the agreed base plus ordered radial points and native/CSS/SVG
+  compositing/re-import proof before exposing authoring controls. Broader physical
+  AT/display/stress and signed-release gates remain separate.
+  Shared MeshFill/MeshPoint and drawMesh now compile into app/thumbnail, without
+  changing exposed Paint kinds, old document encoding or old gradient rendering.
+  Fourteen fixtures compare native bitmap, independent source-over math, real
+  browser CSS/SVG and actual NSView PDF raster output; strict bounded metadata
+  round-trip and CSS preservation pass. Measured maxima are 5/255 native↔CSS/SVG
+  and 8/255 native↔PDF; this is bounded quantization, not exact parity. A reversed
+  coverage mask was found/fixed; 16-point fidelity exceeded the initial envelope,
+  so the current measured budget is eight. No Paint/editor or application-reader
+  route is exposed yet. Next: Paint switches/atomic opacity, canonical visual-graph
+  validation for EXP-authored metadata, shared exports/import, then controls/handles.
+  The isolated vector benchmark is about 4–5 ms for eight points at 512×320;
+  app stress, profile/AT/display and owner feature acceptance remain open.
+  Details: `MESH-FILL-FOUNDATION-v2.7.md`. Final commands: Mesh fixture
+  (`/tmp/exp-mesh-foundation-final-20261018.log`), unchanged semantic package goldens
+  (`/tmp/exp-mesh-foundation-semantic-20261018.log`), unsigned app/EXPThumbnail build
+  (`/tmp/exp-mesh-foundation-build-20261018.log`). All exit 0; existing project
+  warnings remain. Local commit only; no push, deployment or live changes.
 
 - **2026-10-18 — Editable Color Matrix / Duotone vertical slice [internal].**
   FEAT-073 now integrates the verified engine through optional Effect fields,

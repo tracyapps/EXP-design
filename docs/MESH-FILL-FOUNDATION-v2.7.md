@@ -1,0 +1,122 @@
+# Mesh fill foundation — FEAT-033, October 18
+
+Color Matrix is owner-accepted, including exports. Mesh is the next selected
+feature. This slice proves shared model/drawing/serialization primitives; **it does
+not add a Paint case, app fill-picker option, Inspector or canvas handles yet**.
+Existing document encodings and exposed paints are unchanged. No owner review is
+needed for this hidden foundation. The feature acceptance gate stays open.
+
+## Representation and common compositing
+
+`MeshFill` / `MeshPoint` live in always-shared `Model/Paint.swift`;
+`PaintRender.drawMesh` lives in the always-shared native renderer. This avoids a
+second thumbnail renderer. A mesh is a base RGBA color plus a back-to-front ordered
+list of points, each with a stable UUID, X/Y position, radius, RGBA color and opacity.
+It is a layered radial fill, not a Bézier patch mesh.
+
+Coordinates are fractions of the untransformed carrier bounds. A radius R means
+horizontal radius R × width and vertical radius R × height: an ellipse on a
+non-square object. Alpha at normalized distance d is
+`color.alpha * point.opacity * max(0, 1 - d / radius)`. Composite source-over, in
+sRGB, in point order. Fade to the same RGB at zero alpha; do not fade to black.
+CSS backgrounds reverse the point order because their first layer is on top.
+The solid base is the last CSS background entry. SVG uses a unit viewBox pattern,
+`preserveAspectRatio="none"`, a base rect, and one radial-gradient rect per point.
+Explicit sRGB interpolation and stop opacity preserve the same model.
+
+Initial validated budget: **8 points**, X/Y −200…300%, radius 0.5…400%, RGBA and
+opacity 0…1; all numbers finite, IDs unique, schema version exactly 1. Zero points
+is a valid base-only fill. Decode, encode, metadata and rendering validate values;
+invalid data errors rather than becoming an apparently successful flat color.
+A 16-point experiment showed up to 10/255 PDF/native divergence; its unqualified
+promotion was rejected. Eight is an initial measured budget, not a claim of an
+unlimited editor. More points require new fidelity/performance evidence.
+
+Native points use vector Core Graphics gradients; work scales with point count,
+not a zoom-sized offscreen float surface. PDF shadings cannot carry varying stop
+alpha, so each point uses an explicit coverage soft mask plus its opaque RGB.
+Masks are evaluated at pixel centers, up to 3× model resolution, capped at
+1024×1024 / 1 MP / 4 MiB each, generated one at a time. PDF output can retain those
+images; eight full-size masks can therefore contribute about 32 MiB of image data.
+This is not a measured hard process-memory ceiling. Large/high-resolution output
+still needs integrated export and edge review; masks are not infinitely resolved.
+
+## Metadata / reader contract
+
+Shared serializers generate standards-readable visuals plus data-only metadata:
+
+- SVG paint server: `<pattern data-exp-mesh-v1="BASE64">…</pattern>`.
+- CSS declarations: `background: …; --exp-mesh-v1: "BASE64";`.
+- BASE64 is UTF-8 JSON `{version:1, base:{r,g,b,a}, points:[…]}` using the model
+  codec; point UUIDs and list order survive. Position uses Foundation CGPoint's
+  Codable shape. No names, paths, URLs, CSS, markup or executable code are stored.
+- Metadata decoding rejects input above 24,000 encoded bytes / 16,000 decoded
+  bytes, malformed Base64/JSON, wrong schema version and invalid model values.
+  Missing/invalid metadata never authorizes guessing that arbitrary gradients are
+  one Mesh. External scripts, URLs and files are not followed.
+- **Application import integration is pending.** A future reader must validate
+  the visual graph/background against the decoded points before collapsing it.
+  If metadata is missing, altered, oversized or inconsistent with visible content,
+  retain ordinary supported geometry/layers and report the unsupported collapse.
+  SVG/CSS edited after export must not silently lose those edits to stale metadata.
+
+The fixture confirms metadata value round-trip and actual browser CSS preservation.
+It does **not** prove editable re-import through SVGImporter/RenderedHTMLImporter.
+Those application routes and sanitization/reporting checks remain the next gate.
+The helper serializers are not wired into existing ExportRenderer/Handoff output.
+
+## Fresh evidence
+
+Command: `bash scripts/verify_mesh_fill.sh [optional-JSON-receipt-path]`.
+The local AppKit/WebKit executable has a 90-second timeout, loads only local HTML,
+uses a small non-activating window for real CSS snapshots, and closes it on finish.
+It compiles actual shared types and rendering code, not a separate drawing mock.
+
+Fourteen cases (seven paints at 128×80 and 48×120) cover base only, transparent and
+translucent bases, overlapping colors, reversed order, off-canvas position and the
+8-point budget. They compare:
+
+1. Native bitmap drawing with independent straight-channel source-over math.
+2. Actual browser-rendered SVG generated by the shared serializer.
+3. Real browser CSS snapshots over white, with native compositing over white.
+4. PDF-safe masks on bitmap and a real `NSView.dataWithPDF` → NSImage raster path.
+
+The first PDF probe exposed vertically reversed coverage (46/255 difference);
+correct mask orientation fixes it. Strict 4/255 *pairwise* checks exposed ordinary
+backend quantization in denser stacks, rather than a position/radius/order error.
+Final assertions independently bound native/reference error to 4/255 and
+PDF/reference to 5/255, plus a pairwise ceiling of 8/255. Observed maximum errors:
+SVG/native **5**, CSS/native **5**, PDF-mask/native **8**, actual PDF/native **8**.
+The two-point cases stay within 6/255 across those paths. These are measured
+8-bit bounds, not bit-exact equivalence or color-profile/display certification.
+A custom CGShading/CGFunction experiment produced identical errors and was removed
+because it added complexity without improving evidence. Existing gradient paths
+are untouched, as is parked BUG-034.
+
+Fixture-only 8-point vector drawing at 512×320: median **4.42 ms**, p95 **4.63 ms**
+over 25 iterations in the initial run. No app redraw, scrolling, real-document
+stress, memory ceiling or display performance claim follows from that number.
+Current receipts: `output/a11y/visual-features-20261018/mesh-foundation.json` (ignored).
+Fresh final logs are recorded in the Progress Log after verification.
+
+## Next implementation boundary
+
+Add a distinct Mesh paint with strict codec handling, then shared swatches,
+fill/background/stroke behavior, library/state copying, SVG/CSS/Handoff and bounded
+EXP-authored import. Inventory every exhaustive Paint switch. Mesh is multiple
+paint operations: update both canvas/export `isSinglePaintOp` decisions so layer
+opacity/blending composite the completed fill once, rather than each point.
+Preserve caller clipping and transforms, and propagate failures explicitly.
+
+Then add base and point controls, add/remove/reorder commands and validation,
+on-object position/radius handles plus numeric alternatives, stable selection IDs,
+and one Undo per gesture. Verify official native accessible naming before UI work.
+The full feature still needs actual export/import, transformed/clipped carriers,
+components/states/library, narrow panels, keyboard/VoiceOver, save/reopen/Undo,
+real stress and owner acceptance. Do not mark FEAT-033 complete from this fixture.
+
+Specification references checked October 18:
+[CSS radial gradients](https://www.w3.org/TR/css-images-3/#radial-gradients),
+[SVG radial gradients](https://www.w3.org/TR/SVG2/pservers.html#RadialGradients),
+[Apple CGFunction](https://developer.apple.com/documentation/coregraphics/cgfunction).
+These inform the geometry/alpha contract; the fixture supplies execution evidence.

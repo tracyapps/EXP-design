@@ -322,3 +322,96 @@ enum Paint: Codable, Equatable, Sendable {
         }
     }
 }
+
+/// FEAT-033: an ordered stack of elliptical radial colors over a base. Unit-space
+/// radius scales independently with carrier width/height (CSS ellipse / SVG bbox).
+/// This is a layered-radial fill, not a Bézier patch mesh.
+struct MeshPoint: Codable, Equatable, Identifiable, Sendable {
+    var id = UUID()
+    var position: CGPoint
+    var radius: Double
+    var color: RGBAColor
+    var opacity: Double = 1
+}
+
+struct MeshFill: Codable, Equatable, Sendable {
+    static let maximumPoints = 8
+    var base: RGBAColor
+    /// Back to front; CSS reverses this order because its first image is on top.
+    var points: [MeshPoint]
+    var version = 1
+
+    enum ValidationError: Error { case invalidData }
+    private enum CodingKeys: String, CodingKey { case version, base, points }
+    init(base: RGBAColor, points: [MeshPoint] = []) { self.base = base; self.points = points }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        version = try c.decode(Int.self, forKey: .version)
+        base = try c.decode(RGBAColor.self, forKey: .base)
+        points = try c.decode([MeshPoint].self, forKey: .points)
+        try validate()
+    }
+    func encode(to encoder: Encoder) throws {
+        try validate()
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(version,forKey: .version)
+        try c.encode(base,forKey: .base)
+        try c.encode(points,forKey: .points)
+    }
+    func validate() throws {
+        func validColor(_ c: RGBAColor) -> Bool {
+            [c.r,c.g,c.b,c.a].allSatisfy { $0.isFinite && (0...1).contains($0) }
+        }
+        guard version == 1, validColor(base), points.count <= Self.maximumPoints,
+              Set(points.map(\.id)).count == points.count,
+              points.allSatisfy({ p in
+                  p.position.x.isFinite && p.position.y.isFinite &&
+                  (-2...3).contains(p.position.x) && (-2...3).contains(p.position.y) &&
+                  p.radius.isFinite && (0.005...4).contains(p.radius) && validColor(p.color) &&
+                  p.opacity.isFinite && (0...1).contains(p.opacity)
+              }) else { throw ValidationError.invalidData }
+    }
+    /// Strict, bounded, data-only metadata. No paths, markup, CSS or URLs execute.
+    func metadata() throws -> String {
+        try validate()
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        return try encoder.encode(self).base64EncodedString()
+    }
+    static func fromMetadata(_ value: String) throws -> Self {
+        guard value.utf8.count <= 24_000, let data = Data(base64Encoded: value), data.count <= 16_000 else {
+            throw ValidationError.invalidData
+        }
+        return try JSONDecoder().decode(Self.self, from: data)
+    }
+    /// Standards-readable CSS background shorthand, with exact sRGB channel
+    /// values. Each point fades to its SAME RGB at zero alpha (no dark fringe).
+    func cssBackground() throws -> String {
+        try validate()
+        func color(_ c: RGBAColor, _ opacity: Double = 1) -> String {
+            "rgba(\(c.r * 255), \(c.g * 255), \(c.b * 255), \(c.a * opacity))"
+        }
+        let layers = points.reversed().map { p in
+            "radial-gradient(ellipse \(p.radius * 100)% \(p.radius * 100)% at \(p.position.x * 100)% \(p.position.y * 100)%, \(color(p.color,p.opacity)) 0%, \(color(p.color,0)) 100%)"
+        }
+        return (layers + [color(base)]).joined(separator: ", ")
+    }
+    func cssDeclarations() throws -> String {
+        "background: \(try cssBackground()); --exp-mesh-v1: \"\(try metadata())\";"
+    }
+    /// A unit-space pattern is a paint server, so the same mesh works for fills,
+    /// backgrounds and stroke outlines without duplicating carrier geometry.
+    /// IDs derive only from UUIDs; metadata contains no executable strings.
+    func svgPattern(id: UUID) throws -> (id: String, definition: String) {
+        try validate()
+        let name = "mesh" + id.uuidString.replacingOccurrences(of: "-", with: "").lowercased()
+        func rgb(_ c: RGBAColor) -> String { "rgb(\(c.r * 255),\(c.g * 255),\(c.b * 255))" }
+        var defs = "", layers = "<rect width=\"1\" height=\"1\" fill=\"\(rgb(base))\" fill-opacity=\"\(base.a)\"/>"
+        for (i,p) in points.enumerated() {
+            let gradient = name + "p\(i)"
+            defs += "<radialGradient id=\"\(gradient)\" cx=\"\(p.position.x)\" cy=\"\(p.position.y)\" r=\"\(p.radius)\" color-interpolation=\"sRGB\"><stop offset=\"0\" stop-color=\"\(rgb(p.color))\" stop-opacity=\"\(p.color.a * p.opacity)\"/><stop offset=\"1\" stop-color=\"\(rgb(p.color))\" stop-opacity=\"0\"/></radialGradient>"
+            layers += "<rect width=\"1\" height=\"1\" fill=\"url(#\(gradient))\"/>"
+        }
+        let metadata = try metadata()
+        return (name, defs + "<pattern id=\"\(name)\" patternUnits=\"objectBoundingBox\" width=\"1\" height=\"1\" viewBox=\"0 0 1 1\" preserveAspectRatio=\"none\" data-exp-mesh-v1=\"\(metadata)\">\(layers)</pattern>")
+    }
+}

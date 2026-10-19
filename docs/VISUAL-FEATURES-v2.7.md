@@ -111,8 +111,8 @@ interactive performance and transparent edge inspection.
 
 ## Current evidence and limits
 
-**Current integration:** editable FEAT-073 is implemented/local checked and awaits
-owner acceptance. `COLOR-MATRIX-VERIFICATION-v2.7.md` is the current contract,
+**Current integration:** editable FEAT-073 is implemented/local checked and owner
+accepted October 18, including exports. `COLOR-MATRIX-VERIFICATION-v2.7.md` is the current contract,
 including ordering, native/raster budgets, SVG graph/region/image limits, native
 UI receipts and remaining owner checks. Earlier probe/foundation text below is
 historical and does not describe the final exposed feature state.
@@ -212,3 +212,19 @@ These are design constraints, not app, browser-parity, performance or AT proof.
 No release feature is checked complete by this planning document. Public claims
 and demo assets follow accepted builds. No production document mutation starts
 while the preceding owner verification remains pending.
+
+### Mesh shared foundation — October 18
+
+Color Matrix owner acceptance closes its sequencing gate. MeshFill/MeshPoint and
+shared native/PDF drawing plus standards-readable CSS/SVG serializers are now
+locally checked; `MESH-FILL-FOUNDATION-v2.7.md` is the current contract. Eight points
+is the initial measured budget. Fourteen real-renderer/browser/PDF fixtures pass
+explicit 8-bit bounds; they establish bounded visual agreement, not exact pixels.
+Stable point IDs and strict data-only metadata survive codec/browser CSS handling.
+
+The feature is **not yet exposed**: no Paint enum case, picker, handles, application
+exporter/importer or library wiring. Application readers must validate visible
+content against metadata before collapsing it; stale metadata must not overwrite
+edited visuals. Layer opacity must composite the completed mesh once. Those seams
+precede UI and owner feature review. Existing document encodings, paints and parked
+BUG-034 remain untouched. No additional owner verification is requested yet.

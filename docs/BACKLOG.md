@@ -3182,8 +3182,10 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: feature
 - Priority: P1 — selected for v2.7 on 2026-10-18
 - Area: color · effects · inspector · canvas · export · import
-- Status: needs-verify — native effect/duotone/all twenty controls, bounded raster
-  and SVG export/import implemented October 18; local checks pass, owner review open
+- Status: done — native effect/duotone/all twenty controls, bounded raster
+  and SVG export/import implemented and owner-accepted October 18:
+  “that works well, and all exports looked good as well.” Full release AT/display
+  and stress verification remain separate gates.
 - Owner request: add the SVG color-matrix effect, including sliders, to make
   duotone images and provide another visual feature to demonstrate at launch.
 - Slice: friendly shadow/highlight colors and strength; Advanced exposes all
@@ -6036,7 +6038,10 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: feature
 - Priority: P1 — selected for v2.7 on 2026-10-18
 - Area: color · canvas · export
-- Status: scoped — v2.7 Mesh fill; fidelity/render proof first, not implemented
+- Status: in progress — shared model/drawing/serialization foundation checked
+  October 18; Paint/editor and application export/import integration pending.
+  `MESH-FILL-FOUNDATION-v2.7.md` records the eight-point budget, measured native/
+  CSS/SVG/PDF quantization, metadata contract and exact remaining gates.
 - Current owner scope 2026-10-18 supersedes the previous release deferrals:
   include Mesh in v2.7's visual launch story. Preserve the August 19 choice of
   a base color plus layered radial color points. First deliverable: agree the

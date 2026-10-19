@@ -487,3 +487,64 @@ enum PaintRender {
         CGColor(srgbRed: CGFloat(c.r), green: CGFloat(c.g), blue: CGFloat(c.b), alpha: 1)
     }
 }
+
+extension PaintRender {
+    /// Shared mesh primitive for canvas, export and swatches. The native path is
+    /// vector work proportional to the bounded point count, independent of zoom.
+    /// PDF alpha uses bounded coverage masks because PDF shadings drop stop alpha.
+    static func drawMesh(_ mesh: MeshFill, in rect: CGRect, ctx: CGContext,
+                         pdfSafeAlpha: Bool = false) throws {
+        try mesh.validate()
+        guard [rect.minX,rect.minY,rect.maxX,rect.maxY,rect.width * rect.height].allSatisfy(\.isFinite),
+              rect.width > 0, rect.height > 0 else { throw MeshFill.ValidationError.invalidData }
+        ctx.saveGState(); defer { ctx.restoreGState() }
+        ctx.clip(to: rect)
+        ctx.setFillColor(cgColor(mesh.base)); ctx.fill(rect)
+        let space = CGColorSpace(name: CGColorSpace.sRGB)!
+        for point in mesh.points where point.color.a * point.opacity > 0 {
+            func radial(in target: CGContext) {
+                let c = point.color
+                let rgb = (c.r,c.g,c.b)
+                let colors = [CGColor(srgbRed: rgb.0,green: rgb.1,blue: rgb.2,alpha: c.a * point.opacity),
+                              CGColor(srgbRed: rgb.0,green: rgb.1,blue: rgb.2,alpha: 0)]
+                let gradient = CGGradient(colorsSpace: space,colors: colors as CFArray,locations: [0,1])!
+                target.saveGState(); defer { target.restoreGState() }
+                target.translateBy(x: rect.minX,y: rect.minY)
+                target.scaleBy(x: rect.width,y: rect.height)
+                target.drawRadialGradient(gradient,startCenter: point.position,startRadius: 0,
+                    endCenter: point.position,endRadius: point.radius,options: [.drawsAfterEndLocation])
+            }
+            if pdfSafeAlpha {
+                // At most 1 MP / 1024 per axis per point, generated one at a
+                // time. No full-layer float capture or zoom-squared allocation.
+                let scale = min(3,1024 / max(rect.width,rect.height),
+                                (1_048_576 / (rect.width * rect.height)).squareRoot())
+                let w = min(1024,max(1,Int(ceil(rect.width * scale))))
+                let h = min(1024,max(1,Int(ceil(rect.height * scale))))
+                guard let mask = CGContext(data: nil,width: w,height: h,bitsPerComponent: 8,bytesPerRow: 0,
+                    space: space,bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+                    throw MeshFill.ValidationError.invalidData
+                }
+                // Evaluate coverage at exact pixel centres. Re-rasterizing a
+                // translucent CGGradient into a mask quantizes the falloff twice.
+                // Mask image rows run opposite the destination's y-down space.
+                guard let data = mask.data else { throw MeshFill.ValidationError.invalidData }
+                let bytes = data.assumingMemoryBound(to: UInt8.self)
+                for y in 0..<h {
+                    let dy = (1 - (Double(y) + 0.5) / Double(h) - point.position.y) / point.radius
+                    for x in 0..<w {
+                        let dx = ((Double(x) + 0.5) / Double(w) - point.position.x) / point.radius
+                        let a = UInt8((255 * point.color.a * point.opacity * max(0,1-hypot(dx,dy))).rounded())
+                        let index = y * mask.bytesPerRow + x * 4
+                        for channel in 0..<4 { bytes[index + channel] = a }
+                    }
+                }
+                guard let image = mask.makeImage() else { throw MeshFill.ValidationError.invalidData }
+                ctx.saveGState()
+                ctx.clip(to: rect,mask: image)
+                ctx.setFillColor(cgColorOpaque(point.color)); ctx.fill(rect)
+                ctx.restoreGState()
+            } else { radial(in: ctx) }
+        }
+    }
+}
