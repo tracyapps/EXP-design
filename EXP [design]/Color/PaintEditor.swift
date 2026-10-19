@@ -43,7 +43,7 @@ struct PaintWell: View {
                     Button("Done") { showing = false }.keyboardShortcut(.cancelAction)
                 }
                 .padding(16)
-                .expTransientWindowLevel()
+                .expPaintWindowLevel()
             })
         }
     }
@@ -136,22 +136,22 @@ extension View {
 private struct EXPPatternLibraryProvider: ViewModifier {
     @ObservedObject var document: ExpDocument
     @Environment(\.undoManager) private var undoManager
-    @State private var meshBaseline: Document?
-    @State private var meshChanged = false
+    @State private var paintBaseline: Document?
+    @State private var paintChanged = false
     func body(content: Content) -> some View {
-        content.environment(\.meshEditSession,MeshEditSession(gesture: { active in
+        content.environment(\.paintEditSession,PaintEditSession(gesture: { active in
             if active {
-                if meshBaseline == nil { meshBaseline = document.model; meshChanged = false }
-            } else if let baseline = meshBaseline {
-                meshBaseline = nil
-                if meshChanged { document.registerUndo(restoring: baseline,undoManager: undoManager,actionName: "Edit Mesh Color") }
-                meshChanged = false
+                if paintBaseline == nil { paintBaseline = document.model; paintChanged = false }
+            } else if let baseline = paintBaseline {
+                paintBaseline = nil
+                if paintChanged { document.registerUndo(restoring: baseline,undoManager: undoManager,actionName: "Edit Paint") }
+                paintChanged = false
             }
         },update: { work in
-            let grouped = meshBaseline != nil
+            let grouped = paintBaseline != nil
             if grouped { undoManager?.disableUndoRegistration() }
             work()
-            if grouped { undoManager?.enableUndoRegistration(); meshChanged = true }
+            if grouped { undoManager?.enableUndoRegistration(); paintChanged = true }
         }))
         .environment(\.patternLibrary, PatternLibrary(
             sources: { document.model.patterns },
@@ -194,7 +194,7 @@ struct PaintSwatch: View {
                         // Draw the tile at the swatch's HEIGHT and let it repeat
                         // across the width, so a wide swatch shows the motif
                         // repeating rather than one stretched, unreadable copy.
-                        let side = max(6, proxy.size.height)
+                        let side = max(1, proxy.size.height * ref.scale)
                         Image(decorative: tile, scale: max(0.01, CGFloat(tile.height) / side))
                             .resizable(resizingMode: .tile)
                     }
@@ -238,15 +238,15 @@ struct PaintSwatch: View {
 
 // MARK: - Editor
 
-private struct MeshEditSession {
+private struct PaintEditSession {
     var gesture: (Bool) -> Void = { _ in }
     var update: (() -> Void) -> Void = { $0() }
 }
-private struct MeshEditSessionKey: EnvironmentKey { static let defaultValue = MeshEditSession() }
+private struct PaintEditSessionKey: EnvironmentKey { static let defaultValue = PaintEditSession() }
 private extension EnvironmentValues {
-    var meshEditSession: MeshEditSession {
-        get { self[MeshEditSessionKey.self] }
-        set { self[MeshEditSessionKey.self] = newValue }
+    var paintEditSession: PaintEditSession {
+        get { self[PaintEditSessionKey.self] }
+        set { self[PaintEditSessionKey.self] = newValue }
     }
 }
 
@@ -258,7 +258,7 @@ struct PaintEditor: View {
     var selectedGradientStopID: Binding<UUID?>? = nil
 
     @State private var localSelectedStopID: UUID?
-    @Environment(\.meshEditSession) private var meshSession
+    @Environment(\.paintEditSession) private var paintSession
     @Environment(\.patternLibrary) private var patternLibrary
 
     /// FEAT-065b. True once Pattern is chosen but no tile has been picked yet.
@@ -308,12 +308,13 @@ struct PaintEditor: View {
             case .linear, .radial:
                 gradientEditor
             case .mesh:
-                MeshPaintControls(mesh: Binding(get: { paint.meshValue ?? MeshFill(base: .white) },set: { next in guard next != paint.meshValue,(try? next.validate()) != nil else { return }; meshSession.update { paint = .mesh(next) } }),selection: activeSelectedStopID,supportsOpacity: supportsOpacity,gesture: meshSession.gesture)
+                MeshPaintControls(mesh: Binding(get: { paint.meshValue ?? MeshFill(base: .white) },set: { next in guard next != paint.meshValue,(try? next.validate()) != nil else { return }; paintSession.update { paint = .mesh(next) } }),selection: activeSelectedStopID,supportsOpacity: supportsOpacity,gesture: paintSession.gesture)
             case .pattern:
                 patternEditor
             }
         }
         .frame(width: editorWidth)
+        .onDisappear { paintSession.gesture(false) }
         .onAppear { validateSelectedStop() }
         .onChange(of: paint) { _, _ in validateSelectedStop() }
     }
@@ -526,6 +527,15 @@ struct PaintEditor: View {
 
     private let patternGrid = [GridItem(.adaptive(minimum: 46, maximum: 70), spacing: 6)]
 
+    private var patternScalePercent: Binding<Double> {
+        Binding(get: { Double(paint.patternValue?.scale ?? 1) * 100 },set: { percent in
+            guard percent.isFinite, var ref = paint.patternValue else { return }
+            ref.scale = CGFloat(percent / 100)
+            guard ref != paint.patternValue else { return }
+            paintSession.update { paint = .pattern(ref) }
+        })
+    }
+
     @ViewBuilder private var patternEditor: some View {
         let available = patternLibrary.sources()
         VStack(alignment: .leading, spacing: 8) {
@@ -555,8 +565,25 @@ struct PaintEditor: View {
                     }
                 }
                 if paint.isPattern {
+                    HStack {
+                        Text("Scale").font(.caption)
+                        Spacer(minLength: 4)
+                        TextField("Scale",value: patternScalePercent,format: .number.precision(.fractionLength(0...2)))
+                            .textFieldStyle(.exp).frame(width: 88)
+                            .numericStepping(patternScalePercent,step: 1)
+                            .accessibilityLabel("Pattern scale, percent")
+                        Text("%").font(.caption)
+                    }
+                    Slider(value: Binding(get: { min(400,max(1,patternScalePercent.wrappedValue)) },
+                                          set: { patternScalePercent.wrappedValue = $0 }),
+                           in: 1...400,onEditingChanged: paintSession.gesture)
+                        .accessibilityLabel("Pattern scale")
+                        .accessibilityValue(Text("\(patternScalePercent.wrappedValue.formatted(.number.precision(.fractionLength(0...2)))) percent"))
+                    Text("Scale applies only to this fill. Enter 1–10,000% for an exact size.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false,vertical: true)
                     Button("Edit Pattern…") {
-                        if let id = paint.patternValue?.patternID { patternLibrary.edit?(id) }
+                        if let id = paint.patternValue?.patternID { paintSession.gesture(false); patternLibrary.edit?(id) }
                     }
                     .accessibilityLabel("Edit this pattern's tile")
                     anchoringControl
@@ -575,6 +602,7 @@ struct PaintEditor: View {
                       let pattern = patternLibrary.sources().first(where: { $0.id == id }) else { return }
                 paint = .pattern(pattern.reference)
                 choosingPattern = false
+                paintSession.gesture(false)
                 patternLibrary.edit?(id)
             }
             .disabled(patternLibrary.create == nil)
@@ -778,8 +806,16 @@ private struct PersistentPaintPopover<Content: View>: NSViewRepresentable {
             popover = popup
             PaintPopoverActivity.shared.open(self,close: { [weak self] in self?.close() })
             popup.show(relativeTo: anchor.bounds,of: anchor,preferredEdge: .minX)
+            host.view.window?.level = .normal
         }
-        func close() { popover?.close(); popover = nil; PaintPopoverActivity.shared.closed(self) }
+        func close() {
+            // Clear presentation before AppKit animates the close. A document
+            // update during editor handoff must not re-present the old palette.
+            let popup = popover; popover = nil
+            if presented?.wrappedValue == true { presented?.wrappedValue = false }
+            PaintPopoverActivity.shared.closed(self)
+            popup?.close()
+        }
         func popoverDidClose(_ notification: Notification) {
             popover = nil; PaintPopoverActivity.shared.closed(self)
             if presented?.wrappedValue == true { presented?.wrappedValue = false }
@@ -787,10 +823,20 @@ private struct PersistentPaintPopover<Content: View>: NSViewRepresentable {
     }
 }
 
-@MainActor final class PaintPopoverActivity {
+@MainActor final class PaintPopoverActivity: NSObject {
     static let shared = PaintPopoverActivity()
     private weak var active: AnyObject?
     private var closeActive: (() -> Void)?
+    private override init() {
+        super.init()
+        NotificationCenter.default.addObserver(self,selector: #selector(dismiss),
+            name: NSApplication.didResignActiveNotification,object: nil)
+    }
+    @objc func dismiss() {
+        let close = closeActive
+        active = nil; closeActive = nil
+        close?()
+    }
     var isVisible: Bool {
         if let popover = active as? NSPopover { return popover.isShown }
         return active != nil

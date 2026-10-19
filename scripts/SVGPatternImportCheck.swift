@@ -209,6 +209,58 @@ static func runOBBAnchoringFixture() {
     print("")
 }
 
+// An opaque fractional tile must stay opaque both at its bitmap edges and
+// across repeats under fractional scale/pan/rotation. Translucent artwork must
+// retain its alpha at joins (overlapping tiles is not a valid seam fix).
+static func runSeamFixture() {
+    print("fractional-pattern-seams (embedded):")
+    for alpha in [1.0, 0.5] {
+        let svg = """
+        <svg xmlns="http://www.w3.org/2000/svg" width="160" height="160">
+          <defs><pattern id="p" patternUnits="userSpaceOnUse" width="17.3" height="13.7">
+            <rect width="17.3" height="13.7" fill="#ff0066" fill-opacity="\(alpha)"/>
+          </pattern></defs><rect width="160" height="160" fill="url(#p)"/>
+        </svg>
+        """
+        guard let imported = SVGImporter.importDocument(from: Data(svg.utf8)),
+              let source = imported.patterns.first else { check("seam fixture imports",false); return }
+        var doc = Document(); doc.patterns = imported.patterns
+        guard let tile = ExportRenderView.patternTile(source,document: doc,scale: 1) else {
+            check("fractional tile rasterizes",false); return
+        }
+        let expected = alpha == 1 ? 255 : 128
+        func alphaRange(_ image: CGImage, inset: Int) -> (Int,Int) {
+            let w = image.width,h = image.height
+            let ctx = CGContext(data: nil,width: w,height: h,bitsPerComponent: 8,bytesPerRow: w*4,
+                space: CGColorSpace(name: CGColorSpace.sRGB)!,bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            ctx.draw(image,in: CGRect(x: 0,y: 0,width: w,height: h))
+            let bytes = ctx.data!.assumingMemoryBound(to: UInt8.self)
+            var low = 255,high = 0
+            for y in inset..<(h-inset) { for x in inset..<(w-inset) {
+                let a = Int(bytes[(y*w+x)*4+3]); low = min(low,a); high = max(high,a)
+            }}
+            return (low,high)
+        }
+        let edges = alphaRange(tile,inset: 0)
+        check("tile covers rounded bitmap extent alpha \(alpha)",abs(edges.0-expected)<=1 && abs(edges.1-expected)<=1,"\(edges)")
+        let store = PatternTileStore()
+        for repeatScale: CGFloat in [1,0.01] { for angle: CGFloat in [0,0.17] {
+            let ctx = CGContext(data: nil,width: 160,height: 160,bitsPerComponent: 8,bytesPerRow: 640,
+                space: CGColorSpace(name: CGColorSpace.sRGB)!,bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            let previous = NSGraphicsContext.current
+            NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx,flipped: false)
+            let bounds = CGRect(x: 0,y: 0,width: 160,height: 160)
+            let space = CGAffineTransform(translationX: 0.37,y: -0.63).rotated(by: angle).scaledBy(x: 0.83,y: 0.83)
+            var ref = source.reference; ref.scale = repeatScale; ref.fallback = .clear
+            PaintRender.fill(.pattern(ref),path: NSBezierPath(rect: bounds),bounds: bounds,in: ctx,
+                             patterns: store.resolver(document: doc),patternSpace: space)
+            NSGraphicsContext.current = previous
+            let range = alphaRange(ctx.makeImage()!,inset: 4)
+            check("repeat has constant alpha \(alpha), rotation \(angle), scale \(repeatScale)",abs(range.0-expected)<=1 && abs(range.1-expected)<=1,"\(range)")
+        }}
+    }
+}
+
 struct Expectation {
     let file: String
     let patternCount: Int
@@ -473,6 +525,7 @@ for expectation in expectations {
 // the render path (which must tile rather than paint the fallback colour), the
 // export re-emission, the round trip, and the inspector's unit-flip conversion.
 runOBBAnchoringFixture()
+runSeamFixture()
 
 print("\(checks - failures.count)/\(checks) checks passed")
 if failures.isEmpty {

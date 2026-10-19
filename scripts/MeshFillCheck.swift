@@ -119,9 +119,91 @@ private final class Page: NSObject, WKNavigationDelegate {
         DispatchQueue.global().asyncAfter(deadline: .now() + 90) { fail("mesh fixture timed out") }
         do { try await checks() } catch { fail("mesh: \(error)") }
     }
+    @MainActor static func checkPatternScale(_ page: Page) async throws {
+        let board = Artboard(name: "Pattern scale",frame: CGRect(x: 0,y: 0,width: 128,height: 80))
+        var review: Document?
+        for relative in [false,true] { for viewBox in [false,true] {
+            let width = relative ? "0.125" : "16",height = relative ? "0.25" : "20"
+            let units = relative ? "objectBoundingBox" : "userSpaceOnUse"
+            let box = viewBox ? " viewBox=\"0 0 16 20\"" : ""
+            let origin = relative ? " x=\"0.125\" y=\"0.25\"" : ""
+            let input = """
+            <svg xmlns="http://www.w3.org/2000/svg" width="128" height="80"><defs>
+              <pattern id="p" patternUnits="\(units)" width="\(width)" height="\(height)"\(box)\(origin)>
+                <rect width="16" height="20" fill="#dd2255"/>
+                <rect width="8" height="10" fill="#2255dd"/>
+              </pattern></defs><rect width="128" height="80" fill="url(#p)"/></svg>
+            """
+            guard let imported = SVGImporter.importDocument(from: Data(input.utf8)),let source = imported.patterns.first else { fail("pattern scale fixture import") }
+            for scale: CGFloat in [0.5,1,1.75,2] {
+                let ref = PatternRef(patternID: source.id,scale: scale)
+                let node = Node(name: "Pattern shape",frame: board.frame,content: .rectangle(RectangleShape(fill: .pattern(ref),strokeWidth: 0)))
+                var doc = Document(artboards: [board],nodes: [node]); doc.patterns = [source]
+                let saved = try JSONDecoder().decode(Document.self,from: JSONEncoder().encode(doc))
+                require(saved.nodes[0].layerPaintStyle?.fill?.patternValue == ref,"pattern scale save/reopen")
+                let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+                require(try encoder.encode(saved.patterns) == encoder.encode(doc.patterns),"scale must not modify shared tile")
+                let renderer = ExportRenderer(document: doc),svg = renderer.svgString(for: board)
+                let browser = try await page.sample(svg,width: 128,height: 80)
+                guard let png = renderer.data(for: board,format: .png,scale: 1),let image = NSBitmapImageRep(data: png)?.cgImage else { fail("pattern PNG") }
+                let native = pixels(image),mean = zip(native,browser).map { abs($0-$1) }.reduce(0,+)
+                let difference = Double(mean)/Double(native.count)
+                require(difference < 3,"pattern SVG/PNG drift at \(units), viewBox \(viewBox), scale \(scale): \(difference)")
+                guard let pdf = renderer.data(for: board,format: .pdf,scale: 1),let pdfSource = NSImage(data: pdf) else { fail("scaled pattern PDF") }
+                let pdfRep = NSBitmapImageRep(bitmapDataPlanes: nil,pixelsWide: 128,pixelsHigh: 80,
+                    bitsPerSample: 8,samplesPerPixel: 4,hasAlpha: true,isPlanar: false,
+                    colorSpaceName: .deviceRGB,bytesPerRow: 0,bitsPerPixel: 0)!
+                pdfRep.size = board.frame.size
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: pdfRep)
+                pdfSource.draw(in: board.frame)
+                NSGraphicsContext.restoreGraphicsState()
+                let pdfPixels = pixels(pdfRep.cgImage!)
+                require(zip(native,pdfPixels).map { abs($0-$1) }.reduce(0,+) < native.count*3,"PDF must preserve pattern scale and orientation")
+                guard let roundTrip = SVGImporter.importDocument(from: Data(svg.utf8)) else { fail("scaled pattern SVG import") }
+                var importedDoc = Document(artboards: [board],nodes: [roundTrip.group]); importedDoc.patterns = roundTrip.patterns
+                let importedPNG = ExportRenderer(document: importedDoc).data(for: board,format: .png,scale: 1)!
+                let trip = pixels(NSBitmapImageRep(data: importedPNG)!.cgImage!)
+                require(zip(native,trip).map { abs($0-$1) }.reduce(0,+) < native.count*3,"standard SVG scale must survive re-import")
+                print("PASS: pattern scale \(scale), \(units), viewBox \(viewBox), SVG/PNG mean \(difference)")
+                if !relative && !viewBox && scale == 1.75 { review = doc }
+            }
+        }}
+        let id = UUID(),legacy = PatternRef(patternID: id)
+        let legacyData = try JSONEncoder().encode(legacy)
+        require(!String(decoding: legacyData,as: UTF8.self).contains("scale"),"default scale must preserve legacy encoding")
+        require(try JSONDecoder().decode(PatternRef.self,from: legacyData).scale == 1,"missing scale defaults to 100 percent")
+        var malformed = try JSONSerialization.jsonObject(with: legacyData) as! [String:Any]; malformed["scale"] = 0
+        rejects("zero pattern scale") { _ = try JSONDecoder().decode(PatternRef.self,from: JSONSerialization.data(withJSONObject: malformed)) }
+        if var doc = review,let source = doc.patterns.first {
+            let small = Node(name: "Original scale",frame: CGRect(x: 0,y: 0,width: 64,height: 80),content: .rectangle(RectangleShape(fill: .pattern(source.reference),strokeWidth: 0)))
+            let large = Node(name: "Double scale",frame: CGRect(x: 64,y: 0,width: 64,height: 80),content: .rectangle(RectangleShape(fill: .pattern(PatternRef(patternID: source.id,scale: 2)),strokeWidth: 0)))
+            doc.nodes = [small,large]
+            let svg = ExportRenderer(document: doc).svgString(for: board)
+            require(svg.components(separatedBy: "<pattern ").count == 3,"two scales of same source need two SVG variants")
+            let browser = try await page.sample(svg,width: 128,height: 80)
+            let png = ExportRenderer(document: doc).data(for: board,format: .png,scale: 1)!
+            let native = pixels(NSBitmapImageRep(data: png)!.cgImage!)
+            require(zip(native,browser).map { abs($0-$1) }.reduce(0,+) < native.count*3,"shared-source SVG variants must retain distinct scales")
+            print("PASS: shared source, distinct per-fill SVG variants, native codec and legacy defaults")
+            if CommandLine.arguments.count > 1 && !CommandLine.arguments[1].hasPrefix("--") {
+                let directory = URL(fileURLWithPath: CommandLine.arguments[1]).deletingLastPathComponent()
+                let fixture = directory.appendingPathComponent("pattern-editor.design")
+                if !FileManager.default.fileExists(atPath: fixture.path) {
+                    var gui = doc
+                    gui.artboards[0].frame = CGRect(x: 0,y: 0,width: 720,height: 450)
+                    gui.nodes[0].frame = CGRect(x: 30,y: 30,width: 300,height: 350)
+                    gui.nodes[1].frame = CGRect(x: 380,y: 30,width: 300,height: 350)
+                    try JSONEncoder().encode(gui).write(to: fixture)
+                }
+            }
+        }
+    }
+
     @MainActor static func checks() async throws {
         _ = NSApplication.shared; NSApp.setActivationPolicy(.prohibited)
         let page = Page(); try await page.load()
+        try await checkPatternScale(page)
         defer { page.window?.close() }
         let first = MeshPoint(position: CGPoint(x: 0.25,y: 0.4),radius: 0.65,color: RGBAColor(r: 0.9,g: 0.12,b: 0.3,a: 0.8),opacity: 0.7)
         let second = MeshPoint(position: CGPoint(x: 0.8,y: 0.7),radius: 0.55,color: RGBAColor(r: 0.1,g: 0.4,b: 1,a: 1),opacity: 0.6)

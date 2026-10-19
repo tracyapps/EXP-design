@@ -4,6 +4,11 @@ Development 2.7/build 18. The owner accepts the initial Mesh functionality
 (“that works nicely”) and requests these refinements. This revision needs owner
 review; full accessibility/display/stress and component/library gates stay open.
 
+October 19 follow-up: the persistent paint surfaces now use normal app ordering,
+dismiss on app deactivation and hand off cleanly to pattern editors. This supersedes
+the earlier high-window-level behavior. `PATTERN-POLISH-v2.7.md` has fresh receipts
+and the remaining physical multi-display/app-switch owner gate.
+
 ## Observable changes
 
 - Mesh point buttons use the same filled accent / on-accent foreground as the

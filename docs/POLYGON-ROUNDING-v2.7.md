@@ -1,6 +1,8 @@
 # Polygon corner radius and point menu — October 19, 2026
 
-Development 2.7/build 18 · BUG-075 / FEAT-074 · owner review pending.
+Development 2.7/build 18 · BUG-075 / FEAT-074 · initial behavior owner-accepted
+October 19 (“corner radius works great. the menu also feels better.”). Full release
+matrix remains open. Subsequent Flip report is BUG-078; see `PATTERN-POLISH-v2.7.md`.
 The owner explicitly requested these two changes while testing the gradient
 refinements. This does not mark the gradient or wider release matrix accepted.
 

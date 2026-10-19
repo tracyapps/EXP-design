@@ -84,7 +84,7 @@ struct ColorWell: View {
                 ColorPopover(color: $color, supportsOpacity: supportsOpacity)
                     .frame(width: 244)
                     .padding(12)
-                    .expTransientWindowLevel()
+                    .expPaintWindowLevel()
             }
         }
         .onChange(of: showing) { _, open in onEditingChanged?(open) }

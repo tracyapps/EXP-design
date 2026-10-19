@@ -361,6 +361,8 @@ private struct ObjectCommandItems: View {
                 .disabled(menu?.canFitSourceBounds != true)
             Button("Create Pattern") { sendEditorAction("createPatternAction:") }
                 .disabled(menu?.canCreateComponent != true)
+            Button("Pattern Scale…") { sendEditorAction("setPatternScaleAction:") }
+                .disabled(menu?.canSetPatternScale != true)
             Button("Edit Pattern…") { sendEditorAction("editPatternAction:") }
                 .disabled(menu?.canEditPattern != true)
             Button("Duplicate Pattern") { sendEditorAction("duplicatePatternAction:") }

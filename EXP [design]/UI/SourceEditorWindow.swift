@@ -217,6 +217,7 @@ final class SourceEditorWindowManager {
     /// registry is keyed by UUID and pattern ids come from the same space as
     /// source ids, so one window per thing still holds.
     func open(patternID: UUID, document: ExpDocument, undoManager: UndoManager?) {
+        PaintPopoverActivity.shared.dismiss()
         if let existing = controllers[patternID] {
             existing.showWindow(nil)
             existing.window?.makeKeyAndOrderFront(nil)

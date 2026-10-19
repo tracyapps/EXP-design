@@ -1323,9 +1323,15 @@ from the appcast; a development plan does not change the published release.
       persistent editor, radial center/radius handles and padded icon/text navigation.
       `GRADIENT-EDITING-v2.7.md` records native checks and remaining matrix.
       Color grouping, full components/library, exports and keyboard/AT remain gates.
-- [ ] Owner accepts BUG-075 / FEAT-074 requested polish: point menu omits pattern
-      creation; polygon radius survives edit/Undo/side-count/resize/save/export.
-      Local checks: `POLYGON-ROUNDING-v2.7.md`. Gradient review remains separate.
+- [x] Owner accepts BUG-075 / FEAT-074 functional behavior October 19: corner radius
+      “works great” and point menu “feels better.” Wider release matrix remains open.
+      `POLYGON-ROUNDING-v2.7.md`. Gradient review remains separate.
+- [ ] Owner accepts BUG-076 / BUG-077 / FEAT-075 pattern polish: seamless fractional
+      tiles, per-fill scale/Undo/save/export and app-local persistent palette ordering.
+      Local checks pass; `PATTERN-POLISH-v2.7.md` records evidence and owner steps.
+- [ ] BUG-078 Flip report reproduced/triaged against owner configuration. Native
+      triangle, asymmetric path and converted-triangle local Flip checks pass. Owner
+      clarifies rotated bowtie triangles; fix command axes to follow the canvas.
 - [x] Report/roadmap reconciliation and execution plan written:
       `SELF-LAUNCH-PLAN-v2.7.md`; primary corrections in
       `SELF-LAUNCH-SOURCES-2026-10-16.md`; friend-facing brief in
@@ -3495,6 +3501,24 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-10-19 — Pattern seams, local scale and palette ordering [internal].**
+  Owner accepts preceding polygon radius/menu feel and requests pattern seam repair,
+  palette ordering and a scale slider. BUG-076 reproduced by six failing opaque/
+  translucent fractional-tile checks: exact rounded-bitmap mapping and one continuous
+  tiled sampler repair both seams without overlapping alpha. FEAT-075 stores scale
+  on the paint reference (old files 100%), with slider/exact numeric and Object/context
+  routes; shared tile stays unchanged. SVG variants and full-precision lattice values
+  match native PNG; PDF and standard SVG re-import pass bounded fixtures. BUG-077
+  removes global paint-menu level and dismisses on deactivation/pattern-editor handoff;
+  native return/Done check caught and fixed re-presentation during animated close.
+  App/thumbnail, 96 pattern checks, appearance, interface policy, Handoff and dense
+  real-document cached/live parity pass. Mouse drag/grouping, physical multi-display/
+  app-switch and original-artwork/AT matrix remain owner gates. Owner additionally
+  reports Flip no-op (BUG-078); fresh triangle/path/converted-triangle checks and
+  saved flags succeed. Owner then clarifies rotated bowtie triangles, revealing local
+  versus canvas flip axes; a focused follow-up remains. No flip change in this slice. `PATTERN-POLISH-v2.7.md` holds receipts,
+  timing limits and next checks. Local commit only; no push/deploy/release.
 
 - **2026-10-19 — Polygon radius and point-menu polish [internal].**
   Owner explicitly requests these two additions while reviewing gradient edits;

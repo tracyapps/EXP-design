@@ -271,8 +271,8 @@ struct GradientFill: Codable, Equatable, Sendable {
 /// Deliberately a REFERENCE, not the artwork itself. The tile lives once in
 /// `Document.patterns` as a `PatternSource`, exactly as a component's artwork
 /// lives once in `Document.sources` — so one pattern can back many layers,
-/// editing the tile updates every use, it round-trips to a single `<pattern>`
-/// in `<defs>` referenced by many fills, and `Paint` stays a small Equatable
+/// editing the tile updates every use, same-scale fills share an SVG `<pattern>`
+/// (different scales use separate defs), and `Paint` stays a small Equatable
 /// value type instead of becoming recursive (Paint → Node → Paint).
 struct PatternRef: Codable, Equatable, Sendable {
     var patternID: UUID
@@ -284,10 +284,35 @@ struct PatternRef: Codable, Equatable, Sendable {
     /// sampled from the tile, so a degraded render is at least plausible.
     var fallback: RGBAColor
 
-    init(patternID: UUID, fallback: RGBAColor = .clear) {
+    /// Per-paint repeat size; the shared source and lattice anchor stay unchanged.
+    var scale: CGFloat {
+        didSet { scale = Self.boundedScale(scale) }
+    }
+    static func boundedScale(_ value: CGFloat) -> CGFloat {
+        value.isFinite ? min(100,max(0.01,value)) : 1
+    }
+    init(patternID: UUID, fallback: RGBAColor = .clear, scale: CGFloat = 1) {
         self.patternID = patternID
         self.fallback = fallback
+        self.scale = Self.boundedScale(scale)
     }
+    private enum CodingKeys: String, CodingKey { case patternID, fallback, scale }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        patternID = try c.decode(UUID.self,forKey: .patternID)
+        fallback = try c.decode(RGBAColor.self,forKey: .fallback)
+        scale = try c.decodeIfPresent(CGFloat.self,forKey: .scale) ?? 1
+        guard scale.isFinite, (0.01...100).contains(scale) else {
+            throw DecodingError.dataCorruptedError(forKey: .scale,in: c,debugDescription: "Pattern scale must be 0.01 through 100.")
+        }
+    }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(patternID,forKey: .patternID)
+        try c.encode(fallback,forKey: .fallback)
+        if scale != 1 { try c.encode(scale,forKey: .scale) }
+    }
+
 }
 
 enum Paint: Codable, Equatable, Sendable {

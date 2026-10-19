@@ -34,11 +34,52 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 
 ## 🐞 Bugs
 
+### BUG-078 — Reported polygon/path Flip appears to do nothing
+- Type: bug
+- Priority: P2 — owner report October 19, 2026; reproduction pending
+- Area: canvas · inspector · transforms
+- Status: open
+- Repro/Detail: Owner reports horizontal/vertical Flip on polygons and converted
+  paths has no visible effect. Current native tests successfully flip a triangle
+  vertically, an asymmetric path horizontally and the triangle after conversion.
+  Owner clarifies rotated three-sided bowtie halves: Horizontal/Vertical should
+  follow the canvas, but commands currently toggle local flags before rotation.
+- Confirmed cause: local-axis flip under rotation; focused canvas-axis command fix
+  follows the pattern slice. Renderer/storage flags remain local transforms.
+- Acceptance: Reproduce the owner's configuration, then fix and verify if a defect
+  is confirmed. Evidence/limits: `PATTERN-POLISH-v2.7.md`.
+
+### BUG-077 — Persistent paint palette covers editors and other apps
+- Type: bug
+- Priority: P1 — regression reported October 19, 2026
+- Area: color · chrome · windows
+- Status: needs-verify
+- Confirmed cause: persistent application-defined palette inherited the old global
+  popUpMenu level. Paint/color/stop palettes now use normal ordering; primary paint
+  palettes dismiss on app deactivation and pattern-editor handoff. Clear presentation
+  before closing so a document update cannot re-open the old palette.
+- Acceptance: Canvas editing keeps the palette; pattern editing and app switching
+  dismiss it; native handoff/return/Done verified, owner multi-display check remains.
+- Evidence: `PATTERN-POLISH-v2.7.md`; build and transient-surface contract pass.
+
+### BUG-076 — Thin gaps between fractional pattern repeats
+- Type: bug
+- Priority: P1 — owner report October 19, 2026
+- Area: color · canvas · export
+- Status: needs-verify
+- Confirmed causes: requested tile density did not cover the rounded bitmap extent;
+  independently antialiased repeat rectangles added another transparent join.
+  Exact extent mapping plus a continuous tiled sampler passes opaque/translucent
+  coverage under fractional zoom/pan/rotation without overlapping alpha.
+- Acceptance: Owner paisley tile and exports have no introduced joins; intentionally
+  transparent artwork remains transparent. Fresh regression: 96/96 pattern checks;
+  real dense-fill cache parity passes. `PATTERN-POLISH-v2.7.md`.
+
 ### BUG-075 — Pattern creation leaks into a path-anchor menu
 - Type: bug
 - Priority: P2 — owner-requested v2.7 polish, 2026-10-19
 - Area: canvas · menus
-- Status: needs-verify
+- Status: done — owner accepts point-menu behavior October 19, 2026
 - Repro/Detail: Right-click a path anchor to choose Make Curved/Make Corner;
   New Empty Pattern appeared above that unrelated point command. Confirmed cause:
   generic creation items were added before the specialized point branches returned.
@@ -3190,11 +3231,30 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 
 ## ✨ Features
 
+### FEAT-075 — Per-fill pattern scale
+- Type: feature
+- Priority: P2 — owner-requested v2.7 polish October 19, 2026
+- Area: model · color · canvas · inspector · export
+- Status: needs-verify
+- Detail: Each pattern reference stores its own default-100% scale. Picker slider
+  1–400%, exact field 1–10,000%; Object/context Pattern Scale dialog validates a
+  single unlocked shape. Shared tile/anchor and other uses stay unchanged. Slider
+  drag uses a grouped paint Undo; appearance/native codec/design-language remaps
+  preserve scale. Standard SVG variants retain independent scales and precise
+  lattice fractions; PNG/PDF/thumbnail use the shared resolver.
+- Evidence/acceptance: `PATTERN-POLISH-v2.7.md`; native exact edit/Undo and accessible
+  slider Increment, 16 SVG/PNG/PDF/re-import combinations, codec/defaults and two-fill
+  source sharing pass. Owner drag/multi-display/real-artwork and full AT remain.
+- Naming: descriptive native slider/percentage field follows Apple's labels/value
+  API: https://developer.apple.com/documentation/swiftui/accessibility-fundamentals .
+  No ARIA host changes; full VoiceOver interaction is not claimed.
+
 ### FEAT-074 — Editable polygon corner radius
 - Type: feature
 - Priority: P2 — owner-requested v2.7 polish, 2026-10-19
 - Area: model · canvas · inspector · export
-- Status: needs-verify
+- Status: done — owner accepts corner-radius behavior October 19, 2026;
+  wider release matrix remains open
 - Repro/Detail: Add a radius beside polygon side count without converting the shape
   to a path. Shared circular fillets clamp before adjacent corners overlap; zero
   and old files stay sharp. Native appearance, path conversion, silhouettes and

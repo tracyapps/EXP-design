@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-# BUG-058 source contract: every app-authored popover is elevated above EXP's
-# document-level panel trays (the floating snap indicator is separate). Native
-# NSMenu surfaces already use the
-# system pop-up-menu level.
+# Paint palettes stay within the normal app window stack; application-defined
+# palettes dismiss on deactivation and editor handoff. Other transient surfaces
+# retain their existing menu-level ordering contract (BUG-058).
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -11,18 +10,20 @@ popover_count="$(rg -n '\.popover\(isPresented:' "$root/EXP [design]" | wc -l | 
 [[ "$popover_count" -eq 3 ]]
 
 for source in \
-  "Color/ColorPopover.swift" \
-  "Color/PaintEditor.swift" \
   "UI/FontFamilyPicker.swift" \
   "UI/SourceEditorWindow.swift"; do
   rg -q 'expTransientWindowLevel\(\)' "$root/EXP [design]/$source"
 done
 
 rg -Fq 'GradientStopEditor(color:' "$root/EXP [design]/Canvas/CanvasView.swift"
-rg -q 'expTransientWindowLevel\(\)' "$root/EXP [design]/Canvas/CanvasView.swift"
+for source in "Color/ColorPopover.swift" "Color/PaintEditor.swift" "Canvas/CanvasView.swift"; do
+  rg -q 'expPaintWindowLevel\(\)' "$root/EXP [design]/$source"
+done
+rg -q 'NSApplication.didResignActiveNotification' "$root/EXP [design]/Color/PaintEditor.swift"
+rg -q 'PaintPopoverActivity.shared.dismiss\(\)' "$root/EXP [design]/UI/SourceEditorWindow.swift"
 rg -q 'window\.level = \.normal' "$root/EXP [design]/UI/PanelWindow.swift"
 rg -q 'window\.level = \.popUpMenu' "$root/EXP [design]/UI/GlassSurface.swift"
 rg -q 'panel\.level = \.popUpMenu' "$root/EXP [design]/UI/GlassSurface.swift"
 
 rg -q 'popup.behavior = .applicationDefined' "$root/EXP [design]/Color/PaintEditor.swift"
-printf 'PASS  BUG-058: 3 SwiftUI popovers, the persistent paint/canvas gradient editors, and field tips use transient ordering above document-level trays.\n'
+printf 'PASS  Paint palettes use normal app ordering, dismiss on deactivation/editor handoff; other transient surfaces retain their ordering.\n'

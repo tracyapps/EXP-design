@@ -138,7 +138,7 @@ enum DesignLanguageIO {
         for i in assets.indices {
             guard let ref = assets[i].value.patternValue,
                   let newID = remap[ref.patternID] else { continue }
-            assets[i].value = .pattern(PatternRef(patternID: newID, fallback: ref.fallback))
+            assets[i].value = .pattern(PatternRef(patternID: newID, fallback: ref.fallback, scale: ref.scale))
         }
         return (assets, parsed.categories, parsed.typeStyles)
     }

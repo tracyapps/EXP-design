@@ -803,6 +803,7 @@ struct EditorMenuModel {
     var canFitSourceBounds: Bool
     var canEditComponent: Bool
     /// FEAT-062 Stage E — a single selected layer whose FILL is a pattern.
+    var canSetPatternScale: Bool
     var canEditPattern: Bool
     /// FEAT-065e — pattern-level commands target the panel's item, the tile being
     /// edited, or the selection's fill, so they enable more broadly than editing.
@@ -1076,6 +1077,13 @@ func makeEditorMenuModel(document: ExpDocument, app: AppState, scope: CanvasScop
         canNewEmptyComponent: true,
         canFitSourceBounds: scope != .document && document.model.sourceArtworkBounds(nodes) != nil,
         canEditComponent: hasInstance,
+        canSetPatternScale: singleNode.map { n in
+            guard !n.isLocked, let ref = n.layerPaintStyle?.fill?.patternValue else { return false }
+            switch n.content {
+            case .rectangle, .ellipse, .polygon, .path: return model.pattern(for: ref.patternID) != nil
+            default: return false
+            }
+        } ?? false,
         canEditPattern: patternCommandTarget != nil,
         canActOnPattern: patternCommandTarget != nil,
         deletePatternTitle: deletePatternTitle,

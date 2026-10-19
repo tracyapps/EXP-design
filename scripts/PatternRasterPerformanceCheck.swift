@@ -99,7 +99,18 @@ private func path(_ shape: PathShape, origin: CGPoint, zoom: CGFloat, pan: CGPoi
                 for shift in [CGPoint.zero, CGPoint(x: 19, y: -13), CGPoint(x: 0.375, y: -0.625)] {
                     let old = data(render(cached: false, zoom: zoom, backing: backing, shift: shift).0)
                     let result = render(cached: true, zoom: zoom, backing: backing, shift: shift)
-                    precondition(result.1 == (zoom == 0.13 && backing == 2 ? 0 : 6), "Cache/fallback eligibility")
+                    // The durable owner file has different wave extents from
+                    // the old reduced fixture. Derive the pixel-budget outcome
+                    // from this file instead of assuming .13 at 2x always exceeds it.
+                    let expected = leaves.filter { _,shape,origin in
+                        let pan = CGPoint(x: -12600 * zoom + 20 + shift.x,y: -17800 * zoom + 20 + shift.y)
+                        let bounds = path(shape,origin: origin,zoom: zoom,pan: pan).bounds
+                        let pixelBounds = bounds.applying(CGAffineTransform(scaleX: backing,y: backing))
+                            .insetBy(dx: -2,dy: -2).integral
+                        return pixelBounds.width <= 2048 && pixelBounds.height <= 2048
+                            && pixelBounds.width * pixelBounds.height <= 1_048_576
+                    }.count
+                    precondition(result.1 == expected, "Cache/fallback pixel budget")
                     let new = data(result.0)
                     let differences = zip(old,new).map { abs(Int($0) - Int($1)) }
                     let mean = Double(differences.reduce(0,+)) / Double(differences.count)

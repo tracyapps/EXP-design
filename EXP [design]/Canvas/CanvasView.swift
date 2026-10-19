@@ -3801,9 +3801,10 @@ final class CanvasNSView: NSView {
             rootView: VStack(alignment: .trailing) {
                 GradientStopEditor(color: color, positionPercent: position)
                 Button("Done") { [weak popover] in popover?.close() }.keyboardShortcut(.cancelAction).padding(8)
-            }.expTransientWindowLevel())
+            }.expPaintWindowLevel())
         popover.show(relativeTo: CGRect(x: knob.x - 6, y: knob.y - 6, width: 12, height: 12),
                      of: self, preferredEdge: .maxY)
+        popover.contentViewController?.view.window?.level = .normal
         gradientStopPopover = popover
         PaintPopoverActivity.shared.open(popover,close: { [weak popover] in popover?.close() })
     }
@@ -13640,6 +13641,39 @@ final class CanvasNSView: NSView {
         openPatternEditor(id)
     }
 
+    @objc func setPatternScaleAction(_ sender: Any?) {
+        guard selectedPatternID != nil,let id = app?.singleSelectedNodeID,
+              let selected = node(id),!selected.isLocked,
+              let ref = selected.layerPaintStyle?.fill?.patternValue else { return }
+        if let number = sender as? NSNumber {
+            let percent = number.doubleValue
+            guard percent.isFinite,(1...10_000).contains(percent) else { return }
+            var next = ref; next.scale = CGFloat(percent / 100)
+            guard next != ref else { return }
+            var nodes = currentNodes
+            Self.mutateNested(id,in: &nodes) { node in
+                guard var style = node.layerPaintStyle else { return }
+                style.fill = .pattern(next); node.applyPaintStyle(style)
+            }
+            commitNodes(nodes,actionName: "Pattern Scale"); needsDisplay = true
+            return
+        }
+        guard let window else { return }
+        PaintPopoverActivity.shared.dismiss()
+        let alert = NSAlert(); alert.messageText = "Pattern scale"
+        alert.informativeText = "Percent of the original repeat size, from 1 to 10,000. Applies only to this fill."
+        let field = NSTextField(string: String(Double(ref.scale)*100))
+        field.frame = CGRect(x: 0,y: 0,width: 240,height: 26)
+        field.setAccessibilityLabel("Pattern scale, percent")
+        alert.accessoryView = field; alert.addButton(withTitle: "Apply"); alert.addButton(withTitle: "Cancel")
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn,self?.app?.singleSelectedNodeID == id,
+                  let percent = Double(field.stringValue.trimmingCharacters(in: .whitespaces)) else { return }
+            self?.setPatternScaleAction(NSNumber(value: percent))
+        }
+        window.attachedSheet?.makeFirstResponder(field)
+    }
+
     // MARK: Pattern anchoring (FEAT-064)
 
     /// Flip a pattern between document-anchored (`userSpaceOnUse`) and
@@ -13878,6 +13912,7 @@ final class CanvasNSView: NSView {
             // FEAT-062 Stage E. Contextual by nature: it only appears when the
             // layer under the cursor is actually painted with a pattern.
             if selectedPatternID != nil {
+                add(menu, "Pattern Scale…", #selector(setPatternScaleAction(_:)))
                 add(menu, "Edit Pattern…", #selector(editPatternAction(_:)))
                 add(menu, "Duplicate Pattern", #selector(duplicatePatternAction(_:)))
                 add(menu, "Delete Pattern", #selector(deletePatternAction(_:)))
@@ -14222,6 +14257,8 @@ extension CanvasNSView: NSMenuItemValidation {
             return selectionHasInstance
         case #selector(newEmptyPatternAction(_:)): return document != nil
         case #selector(fitSourceToArtworkAction(_:)): return isSourceScope && document?.model.sourceArtworkBounds(currentNodes) != nil
+        case #selector(setPatternScaleAction(_:)):
+            return selectedPatternID != nil && app?.singleSelectedNodeID.flatMap { node($0) }?.isLocked == false
         case #selector(editPatternAction(_:)):
             return patternTarget(for: item) != nil
         case #selector(setPatternUnitsDocumentAction(_:)),

@@ -233,6 +233,15 @@ extension View {
     func expPopoverGlass() -> some View { expGlass(.medium, cornerRadius: EXPMetric.radiusPanel) }
     func expModalGlass()   -> some View { expGlass(.thick,  cornerRadius: EXPMetric.radiusPanel) }
 
+    /// Paint palettes persist through canvas interaction but belong to the app's
+    /// ordinary window stack. A global menu level would cover editors and other apps.
+    func expPaintWindowLevel() -> some View {
+        background(EXPWindowReader { window in
+            window?.level = .normal
+            (window as? NSPanel)?.hidesOnDeactivate = true
+        })
+    }
+
     /// Keep an app-authored transient surface above EXP's floating inspector
     /// trays. BUG-058: SwiftUI popovers inherit an ordinary window level on
     /// some presentations, while multi-window trays intentionally live at

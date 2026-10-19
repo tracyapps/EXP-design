@@ -305,13 +305,6 @@ enum PaintRender {
 
     // MARK: Pattern tiling (FEAT-062 Stage B)
 
-    /// Ceiling on tiles drawn for one fill. Real fixtures land in the tens (a
-    /// 520pt tile over a 2000×1500 board is 12), so this only ever catches a
-    /// pathological lattice — a near-zero `tileSize`, or a transform that
-    /// collapses the interval — which would otherwise stall the frame outright.
-    /// Exceeding it falls back to the flat colour rather than hanging.
-    private static let maxPatternTiles = 40_000
-
     /// Repeat `ResolvedPattern`'s tile across `bounds`. The caller has already
     /// clipped; this only lays down the lattice.
     ///
@@ -324,7 +317,7 @@ enum PaintRender {
     /// Anchoring in document space makes the tile ride its container.
     ///
     /// Returns false when the pattern cannot be drawn — unresolvable reference,
-    /// degenerate tile, singular transform, or a tile count over the cap — so
+    /// degenerate tile or singular transform — so
     /// the caller can paint the fallback instead.
     private static func tilePattern(_ ref: PatternRef, bounds: CGRect, in ctx: CGContext,
                                     resolver: PatternResolver?,
@@ -348,7 +341,7 @@ enum PaintRender {
         guard let pattern = resolver.resolve(ref, documentBounds, scale) else { return false }
 
         let tw = pattern.tileSize.width, th = pattern.tileSize.height
-        guard tw > 0.01, th > 0.01 else { return false }
+        guard tw.isFinite, th.isFinite, tw > 0, th > 0 else { return false }
 
         // The lattice lives in `transform`'s space, itself anchored in document
         // space. A singular transform has no inverse — CGAffineTransform.inverted()
@@ -361,36 +354,24 @@ enum PaintRender {
         let region = documentBounds.applying(t.inverted())
         guard region.width.isFinite, region.height.isFinite else { return false }
 
-        // Indices count from the lattice's ORIGIN, not from zero:
-        // `userSpaceOnUse` anchors at the document origin (origin is .zero, so
-        // this is the arithmetic the lattice has always used), while
-        // `objectBoundingBox` anchors at the shape's bounds — the tile rides
-        // its layer because the anchor moves when the shape does.
+        // The lattice origin remains fixed as its repeat size changes. The
+        // native tiled sampler submits one pattern, so the former 40,000-draw
+        // loop cap must not turn a legitimate small-scale fill into its fallback.
         let ox = pattern.origin.x, oy = pattern.origin.y
-        let i0 = Int(floor((region.minX - ox) / tw)), i1 = Int(ceil((region.maxX - ox) / tw))
-        let j0 = Int(floor((region.minY - oy) / th)), j1 = Int(ceil((region.maxY - oy) / th))
-        guard i1 >= i0, j1 >= j0 else { return false }
-        let columns = i1 - i0 + 1, rows = j1 - j0 + 1
-        guard columns > 0, rows > 0,
-              columns.multipliedReportingOverflow(by: rows).overflow == false,
-              columns * rows <= maxPatternTiles else { return false }
+        guard ox.isFinite, oy.isFinite else { return false }
 
         ctx.saveGState()
         defer { ctx.restoreGState() }
         ctx.concatenate(space)
         ctx.concatenate(t)
         ctx.interpolationQuality = .high
-        for j in j0...j1 {
-            for i in i0...i1 {
-                ctx.saveGState()
-                // Model space is y-down and a CGImage draws y-up, so each tile is
-                // flipped in place — the same idiom the placed-image path uses.
-                ctx.translateBy(x: ox + CGFloat(i) * tw, y: oy + CGFloat(j) * th + th)
-                ctx.scaleBy(x: 1, y: -1)
-                ctx.draw(pattern.image, in: CGRect(x: 0, y: 0, width: tw, height: th))
-                ctx.restoreGState()
-            }
-        }
+        // One repeating image sampler owns every shared edge. Independently
+        // antialiasing adjacent image rectangles leaves a transparent hairline;
+        // overlapping them instead corrupts translucent artwork at each join.
+        // Flip the lattice once so its image remains upright in model y-down space.
+        ctx.translateBy(x: ox, y: oy + th)
+        ctx.scaleBy(x: 1, y: -1)
+        ctx.draw(pattern.image,in: CGRect(x: 0, y: 0, width: tw, height: th),byTiling: true)
         return true
     }
 

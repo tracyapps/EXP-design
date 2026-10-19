@@ -567,7 +567,7 @@ struct ExportRenderer {
                 // exporter paint for the same case, so every surface agrees.
                 return fillAttr(ref.fallback)
             }
-            return " fill=\"url(#\(patternDef(source, &defs)))\""
+            return " fill=\"url(#\(patternDef(source, scale: ref.scale, &defs)))\""
         }
     }
 
@@ -580,9 +580,16 @@ struct ExportRenderer {
         "pat" + id.uuidString.replacingOccurrences(of: "-", with: "").lowercased()
     }
 
+    /// Pattern fractions accumulate across repeats: 0.125 must not round to
+    /// 0.13. Retain legacy formatting when exact, otherwise preserve the value.
+    private func patternNumber(_ value: CGFloat) -> String {
+        let compact = num(value)
+        return Double(compact) == Double(value) ? compact : String(Double(value))
+    }
+
     /// Emit `source` into `defs` if it is not already there, and return its id.
-    private func patternDef(_ source: PatternSource, _ defs: inout [String]) -> String {
-        let id = patternDefID(source.id)
+    private func patternDef(_ source: PatternSource, scale: CGFloat = 1, _ defs: inout [String]) -> String {
+        let id = patternDefID(source.id) + (scale == 1 ? "" : "s" + String(Double(scale).bitPattern,radix: 16))
         let marker = "id=\"\(id)\""
         if defs.contains(where: { $0.contains(marker) }) { return id }
 
@@ -594,26 +601,29 @@ struct ExportRenderer {
         let slot = defs.count
         defs.append("  <!-- \(marker) -->\n")
 
-        let body = source.children.filter { $0.isVisible }
+        var body = source.children.filter { $0.isVisible }
             .map { svgElement($0, offset: .zero, defs: &defs) }.joined()
 
-        var attrs = " width=\"\(num(source.tileSize.width))\" height=\"\(num(source.tileSize.height))\""
+        if scale != 1, source.viewBox == nil {
+            body = "    <g transform=\"scale(\(patternNumber(scale)))\">\n\(body)    </g>\n"
+        }
+        var attrs = " width=\"\(patternNumber(source.tileSize.width * scale))\" height=\"\(patternNumber(source.tileSize.height * scale))\""
         attrs += " patternUnits=\"\(source.units.rawValue)\""
         // FEAT-064. `x`/`y` survive on the source only for objectBoundingBox
         // (user-space offsets are baked into the children at import), so they are
         // re-emitted only there — and always, so a declared offset round-trips
         // rather than silently re-anchoring the tile at the bounds corner.
         if source.units == .objectBoundingBox, let o = source.tileOrigin {
-            attrs += " x=\"\(num(o.x))\" y=\"\(num(o.y))\""
+            attrs += " x=\"\(patternNumber(o.x))\" y=\"\(patternNumber(o.y))\""
         }
         let t = source.transform.cg
         if t != .identity {
-            attrs += " patternTransform=\"matrix(\(num(t.a)) \(num(t.b)) \(num(t.c))"
-                + " \(num(t.d)) \(num(t.tx)) \(num(t.ty)))\""
+            attrs += " patternTransform=\"matrix(\(patternNumber(t.a)) \(patternNumber(t.b)) \(patternNumber(t.c))"
+                + " \(patternNumber(t.d)) \(patternNumber(t.tx)) \(patternNumber(t.ty)))\""
         }
         if let box = source.viewBox {
-            attrs += " viewBox=\"\(num(box.minX)) \(num(box.minY))"
-                + " \(num(box.width)) \(num(box.height))\""
+            attrs += " viewBox=\"\(patternNumber(box.minX)) \(patternNumber(box.minY))"
+                + " \(patternNumber(box.width)) \(patternNumber(box.height))\""
         }
         // `patternContentUnits` is left at its default (userSpaceOnUse), which is
         // already what the tile's children are expressed in.
@@ -750,7 +760,7 @@ struct ExportRenderer {
             guard let source = document.pattern(for: ref.patternID) else {
                 return strokeAttr(ref.fallback, width, pattern, cap: cap)
             }
-            return " stroke=\"url(#\(patternDef(source, &defs)))\" stroke-width=\"\(num(width))\""
+            return " stroke=\"url(#\(patternDef(source, scale: ref.scale, &defs)))\" stroke-width=\"\(num(width))\""
                 + strokeRhythmAttr(pattern, width: width, cap: cap)
         }
     }
@@ -923,8 +933,8 @@ final class PatternTileStore {
         else { return nil }
         switch source.units {
         case .userSpaceOnUse:
-            guard let image = tile(source, scale: scale, document: document) else { return nil }
-            return ResolvedPattern(image: image, tileSize: source.tileSize,
+            guard let image = tile(source, scale: scale * ref.scale, document: document) else { return nil }
+            return ResolvedPattern(image: image, tileSize: CGSize(width: source.tileSize.width * ref.scale,height: source.tileSize.height * ref.scale),
                                    transform: source.transform.cg)
         case .objectBoundingBox:
             // FEAT-064. The tile is a FRACTION of the filled shape's bounds: size
@@ -947,13 +957,13 @@ final class PatternTileStore {
             guard effective.tileSize.width > 0.01, effective.tileSize.height > 0.01,
                   effective.tileSize.width.isFinite, effective.tileSize.height.isFinite
             else { return nil }
-            guard let image = tile(effective, scale: scale, document: document) else { return nil }
+            guard let image = tile(effective, scale: scale * ref.scale, document: document) else { return nil }
             var origin = bounds.origin
             if let o = source.tileOrigin {
                 origin.x += o.x * bounds.width
                 origin.y += o.y * bounds.height
             }
-            return ResolvedPattern(image: image, tileSize: effective.tileSize,
+            return ResolvedPattern(image: image, tileSize: CGSize(width: effective.tileSize.width * ref.scale,height: effective.tileSize.height * ref.scale),
                                    transform: source.transform.cg, origin: origin)
         }
     }
@@ -1703,7 +1713,10 @@ final class ExportRenderView: NSView {
         else { return nil }
         // Model space is y-down; a bitmap context is y-up.
         bitmap.translateBy(x: 0, y: CGFloat(ph))
-        bitmap.scaleBy(x: s, y: -s)
+        // Map the logical tile to the ENTIRE rounded bitmap. Using the
+        // requested density here leaves a partially transparent final row/column
+        // whenever w*s or h*s is fractional, visible as a seam at every repeat.
+        bitmap.scaleBy(x: CGFloat(pw) / w, y: -CGFloat(ph) / h)
         // SVG clips pattern content to the tile (`overflow` is hidden by default),
         // and this must happen in TILE space — before any viewBox mapping, which
         // changes what "the tile" means in the content's own coordinates.
