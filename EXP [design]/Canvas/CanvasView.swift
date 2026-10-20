@@ -238,7 +238,7 @@ final class CanvasNSView: NSView {
         case gradientEnd(id: UUID, movingStart: Bool)
         case radialY(id: UUID)
         case gradientStop(id: UUID, stopID: UUID)
-        case meshPoint(id: UUID, pointID: UUID, radius: Bool)
+        case meshPoint(id: UUID, pointID: UUID, axis: MeshHandleAxis)
         case marquee(startView: CGPoint, additive: Bool)
         // node tool: box-select points of the path currently being edited.
         case pointMarquee(startView: CGPoint, additive: Bool)
@@ -3591,13 +3591,14 @@ final class CanvasNSView: NSView {
         let u0: CGPoint,u1: CGPoint
         if g.kind == .radial {
             let radial = g.radialGeometry(in: gradientControlRect(n))
-            u0 = radial.center; u1 = CGPoint(x: u0.x+radial.radius.width,y: u0.y)
+            u0 = radial.center; u1 = radial.unitPoint(CGPoint(x: 1,y: 0),in: gradientControlRect(n).size)
         } else { (u0,u1) = g.unitLinearPoints(in: CGRect(origin: .zero,size: n.frame.size)) }
         return (id, n, chain, g,
                 gradientUnitToView(u0, n, chain: chain),
                 gradientUnitToView(u1, n, chain: chain))
     }
 
+    private enum MeshHandleAxis { case center,primary,secondary }
     private var meshDragOriginal: MeshFill?
 
     private func meshSelection() -> (id: UUID,node: Node,mesh: MeshFill)? {
@@ -3612,20 +3613,27 @@ final class CanvasNSView: NSView {
             style.fill = .mesh(mesh); _ = value.applyPaintStyle(style)
         }
     }
-    private func hitMesh(_ p: CGPoint) -> (UUID,UUID,Bool)? {
+    private func hitMesh(_ p: CGPoint) -> (UUID,UUID,MeshHandleAxis)? {
         guard app?.tool == .select,let h = meshSelection() else { return nil }
         switch h.node.content { case .rectangle,.ellipse,.polygon,.path: break; default: return nil }
         let chain = ancestorGroups(of: h.id)
-        if let point = h.mesh.points.first(where: { $0.id == app?.selectedGradientStopID }) {
-            let radius = gradientUnitToView(CGPoint(x: point.position.x + point.radius,y: point.position.y),h.node,chain: chain)
-            if hypot(p.x-radius.x,p.y-radius.y) <= handleGrab { return (h.id,point.id,true) }
-        }
+        var candidates: [(point: UUID,axis: MeshHandleAxis,distance: CGFloat)] = []
+        // Nearest handle wins so a narrow ellipse never makes its center
+        // unreachable inside the secondary handle's larger hit target.
         for point in h.mesh.points.reversed() {
             let center = gradientUnitToView(point.position,h.node,chain: chain)
-            if hypot(p.x-center.x,p.y-center.y) <= handleGrab { return (h.id,point.id,false) }
+            candidates.append((point.id,.center,hypot(p.x-center.x,p.y-center.y)))
         }
-        return nil
+        if let point = h.mesh.points.first(where: { $0.id == app?.selectedGradientStopID }) {
+            for (axis,circle) in [(MeshHandleAxis.primary,CGPoint(x: 1,y: 0)),(.secondary,CGPoint(x: 0,y: 1))] {
+                let handle = gradientUnitToView(point.geometry.unitPoint(circle,in: h.node.frame.size),h.node,chain: chain)
+                candidates.append((point.id,axis,hypot(p.x-handle.x,p.y-handle.y)))
+            }
+        }
+        guard let hit = candidates.min(by: { $0.distance < $1.distance }),hit.distance <= handleGrab else { return nil }
+        return (h.id,hit.point,hit.axis)
     }
+
     private func drawMeshHandles(in ctx: CGContext) {
         guard app?.tool == .select,let h = meshSelection() else { return }
         switch h.node.content { case .rectangle,.ellipse,.polygon,.path: break; default: return }
@@ -3634,18 +3642,21 @@ final class CanvasNSView: NSView {
             let center = gradientUnitToView(point.position,h.node,chain: chain)
             let selected = point.id == app?.selectedGradientStopID
             if selected {
-                let radius = gradientUnitToView(CGPoint(x: point.position.x+point.radius,y: point.position.y),h.node,chain: chain)
+                let radius = gradientUnitToView(point.geometry.unitPoint(CGPoint(x: 1,y: 0),in: h.node.frame.size),h.node,chain: chain)
+                let secondary = gradientUnitToView(point.geometry.unitPoint(CGPoint(x: 0,y: 1),in: h.node.frame.size),h.node,chain: chain)
                 ctx.saveGState(); ctx.setStrokeColor(NSColor.white.withAlphaComponent(0.7).cgColor); ctx.setLineWidth(1)
                 ctx.setLineDash(phase: 0,lengths: [4,3])
                 for step in 0...64 {
                     let angle = Double(step) * .pi/32
-                    let u = CGPoint(x: point.position.x + cos(angle)*point.radius,y: point.position.y + sin(angle)*point.radius)
+                    let u = point.geometry.unitPoint(CGPoint(x: cos(angle),y: sin(angle)),in: h.node.frame.size)
                     let q = gradientUnitToView(u,h.node,chain: chain)
                     if step == 0 { ctx.move(to: q) } else { ctx.addLine(to: q) }
                 }
                 ctx.strokePath(); ctx.setLineDash(phase: 0,lengths: [])
-                ctx.move(to: center); ctx.addLine(to: radius); ctx.strokePath(); ctx.restoreGState()
+                ctx.move(to: center); ctx.addLine(to: radius); ctx.strokePath()
+                ctx.move(to: center); ctx.addLine(to: secondary); ctx.strokePath(); ctx.restoreGState()
                 drawGradientKnob(at: radius,fill: .white,radius: 4,in: ctx)
+                drawGradientKnob(at: secondary,fill: .white,radius: 4,in: ctx)
             }
             drawGradientKnob(at: center,fill: PaintRender.nsColor(point.color),radius: 5,isSelected: selected,in: ctx)
         }
@@ -3706,8 +3717,8 @@ final class CanvasNSView: NSView {
         }
         if h.gradient.kind == .radial {
             let radial = h.gradient.radialGeometry(in: gradientControlRect(h.node))
-            let yHandle = gradientUnitToView(CGPoint(x: radial.center.x,y: radial.center.y+radial.radius.height),h.node,chain: h.chain)
-            if near(yHandle) { return (h.id,.radialY) }
+            let yHandle = gradientUnitToView(radial.unitPoint(CGPoint(x: 0,y: 1),in: gradientControlRect(h.node).size),h.node,chain: h.chain)
+            if near(yHandle),hypot(p.x-yHandle.x,p.y-yHandle.y) < min(hypot(p.x-h.start.x,p.y-h.start.y),hypot(p.x-h.end.x,p.y-h.end.y)) { return (h.id,.radialY) }
         }
         if near(h.start) { return (h.id, .start) }
         if near(h.end)   { return (h.id, .end) }
@@ -8052,12 +8063,12 @@ final class CanvasNSView: NSView {
             ctx.saveGState(); ctx.setStrokeColor(NSColor.white.cgColor); ctx.setLineWidth(1); ctx.setLineDash(phase: 0,lengths: [4,3])
             for step in 0...64 {
                 let angle = Double(step)*Double.pi/32
-                let unit = CGPoint(x: radial.center.x+cos(angle)*radial.radius.width,y: radial.center.y+sin(angle)*radial.radius.height)
+                let unit = radial.unitPoint(CGPoint(x: cos(angle),y: sin(angle)),in: gradientControlRect(h.node).size)
                 let point = gradientUnitToView(unit,h.node,chain: h.chain)
                 if step == 0 { ctx.move(to: point) } else { ctx.addLine(to: point) }
             }
             ctx.strokePath(); ctx.restoreGState()
-            let yHandle = gradientUnitToView(CGPoint(x: radial.center.x,y: radial.center.y+radial.radius.height),h.node,chain: h.chain)
+            let yHandle = gradientUnitToView(radial.unitPoint(CGPoint(x: 0,y: 1),in: gradientControlRect(h.node).size),h.node,chain: h.chain)
             drawGradientKnob(at: yHandle,fill: .white,radius: 5.5,in: ctx)
         }
 
@@ -8698,10 +8709,10 @@ final class CanvasNSView: NSView {
             return
         }
 
-        if let (id,point,radius) = hitMesh(p) {
+        if let (id,point,axis) = hitMesh(p) {
             dragBaseline = document.model; gestureUndoName = "Edit Mesh Point"; didEdit = false
             meshDragOriginal = meshSelection()?.mesh
-            app.selectedGradientStopID = point; dragMode = .meshPoint(id: id,pointID: point,radius: radius)
+            app.selectedGradientStopID = point; dragMode = .meshPoint(id: id,pointID: point,axis: axis)
             needsDisplay = true; return
         }
 
@@ -9319,19 +9330,27 @@ final class CanvasNSView: NSView {
         case .pathPointGroup(let nodeID, let startLocal, let originals):
             pathPointGroupDrag(p, nodeID: nodeID, startLocal: startLocal, originals: originals, shift: shift)
 
-        case .meshPoint(let id,let pointID,let radius):
+        case .meshPoint(let id,let pointID,let axis):
             guard let h = meshSelection(),h.id == id,var mesh = node(id)?.layerPaintStyle?.fill?.meshValue,
                   let i = mesh.points.firstIndex(where: { $0.id == pointID }) else { return }
             let unit = gradientViewToUnit(p,h.node,chain: ancestorGroups(of: id))
-            if radius {
-                mesh.points[i].radius = min(4,max(0.005,hypot(unit.x-mesh.points[i].position.x,unit.y-mesh.points[i].position.y)))
-            } else { mesh.points[i].position = CGPoint(x: min(3,max(-2,unit.x)),y: min(3,max(-2,unit.y))) }
+            switch axis {
+            case .center: mesh.points[i].position = CGPoint(x: min(3,max(-2,unit.x)),y: min(3,max(-2,unit.y)))
+            case .primary:
+                var geometry = mesh.points[i].geometry
+                geometry.movePrimary(to: unit,in: h.node.frame.size,limit: 4)
+                mesh.points[i].geometry = geometry
+            case .secondary:
+                var geometry = mesh.points[i].geometry
+                geometry.moveSecondary(to: unit,in: h.node.frame.size,limit: 4)
+                mesh.points[i].geometry = geometry
+            }
             if mesh != h.mesh { setMeshFill(mesh,on: id); didEdit = true; needsDisplay = true }
 
         case .radialY(let id):
             guard let n = node(id),var gradient = editableGradientFill(of: n) else { return }
             var radial = gradient.radialGeometry(in: gradientControlRect(n))
-            radial.radius.height = min(1_000_000,max(0.005,abs(gradientViewToUnit(p,n,chain: ancestorGroups(of: id)).y-radial.center.y)))
+            radial.moveSecondary(to: gradientViewToUnit(p,n,chain: ancestorGroups(of: id)),in: gradientControlRect(n).size,limit: 1_000_000)
             gradient.radial = radial
             setGradientFill(gradient,on: id); didEdit = true; needsDisplay = true
 
@@ -9341,7 +9360,7 @@ final class CanvasNSView: NSView {
                 var gradient = g0,radial = g0.radialGeometry(in: gradientControlRect(n))
                 let unit = gradientViewToUnit(p,n,chain: ancestorGroups(of: id))
                 if movingStart { radial.center = CGPoint(x: min(3,max(-2,unit.x)),y: min(3,max(-2,unit.y))) }
-                else { radial.radius.width = min(1_000_000,max(0.005,abs(unit.x-radial.center.x))) }
+                else { radial.movePrimary(to: unit,in: gradientControlRect(n).size,limit: 1_000_000) }
                 gradient.radial = radial
                 setGradientFill(gradient,on: id); didEdit = true; needsDisplay = true; return
             }
@@ -9366,9 +9385,9 @@ final class CanvasNSView: NSView {
             let u0: CGPoint,u1: CGPoint
             if g.kind == .radial {
                 let radial = g.radialGeometry(in: gradientControlRect(n)); u0 = radial.center
-                u1 = CGPoint(x: u0.x+radial.radius.width,y: u0.y)
+                u1 = radial.unitPoint(CGPoint(x: 1,y: 0),in: gradientControlRect(n).size)
                 let unit = gradientViewToUnit(p,n,chain: ancestorGroups(of: id))
-                g.stops[i].position = min(1,max(0,(unit.x-u0.x)/max(0.005,radial.radius.width)))
+                g.stops[i].position = radial.stopPosition(at: unit,in: gradientControlRect(n).size)
                 setGradientFill(g,on: id); didEdit = true; needsDisplay = true; return
             } else { (u0,u1) = g.unitLinearPoints(in: rect) }
             // Project onto the line in LOCAL POINTS, not unit space: on a non-square

@@ -200,8 +200,10 @@ payment and license records live outside the repository; use sanitized summaries
 - [ ] BUG-081 owner native pan/anchor continuity: both axes/modes, Document→Shape
       at positioned artwork, move/resize, Undo/Redo/save/reopen on actual displays.
       `PATTERN-ANCHOR-REGRESSION-v2.7.md`; native/AppKit/pixel checks pass locally.
-- [ ] FEAT-076 radial/Mesh ellipse-axis/rotation slice, queued behind BUG-081
-      owner verification. `GRADIENT-ELLIPSES-v2.7.md` is a plan, not shipped code.
+- [x] FEAT-076 local radial/Mesh ellipse-axis/rotation slice and focused verification;
+      owner explicitly authorizes October 19. `GRADIENT-ELLIPSES-v2.7.md`.
+- [ ] Owner FEAT-076 interaction/export/AT/source-library/monitor matrix; very-narrow
+      center drag remains a native owner check. BUG-081 full review stays separate.
 - [ ] BUG-078 rotated-triangle canvas-axis Flip owner review: polygon/path, both
       directions, Undo/save/export. Local native/geometry/render checks pass;
       `CANVAS-AXIS-FLIP-v2.7.md`. Prior stored artwork retains its appearance.

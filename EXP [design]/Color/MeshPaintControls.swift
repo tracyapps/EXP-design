@@ -19,13 +19,33 @@ struct MeshPaintControls: View {
             if x { mesh.points[i].position.x = p } else { mesh.points[i].position.y = p }
         })
     }
-    private func field(_ label: String, _ binding: Binding<Double>, suffix: String = "") -> some View {
+    private func radius(_ id: UUID,y: Bool) -> Binding<Double> {
+        Binding(get: {
+            guard let p = mesh.points.first(where: { $0.id == id }) else { return 0 }
+            return (y ? p.radiusY ?? p.radius : p.radius)*100
+        },set: { value in
+            guard value.isFinite,let i = mesh.points.firstIndex(where: { $0.id == id }) else { return }
+            // Freeze the other axis before editing X so both controls are independent.
+            var next = mesh
+            if next.points[i].radiusY == nil { next.points[i].radiusY = next.points[i].radius }
+            if y { next.points[i].radiusY = min(4,max(0.005,value/100)) }
+            else { next.points[i].radius = min(4,max(0.005,value/100)) }
+            mesh = next
+        })
+    }
+    private func angle(_ id: UUID) -> Binding<Double> {
+        Binding(get: { mesh.points.first(where: { $0.id == id })?.angle ?? 0 },set: { value in
+            guard value.isFinite,let i = mesh.points.firstIndex(where: { $0.id == id }) else { return }
+            mesh.points[i].angle = RadialGradientGeometry.wrappedAngle(value)
+        })
+    }
+    private func field(_ label: String, _ binding: Binding<Double>, suffix: String = "",step: Double = 1) -> some View {
         HStack {
             Text(label).font(.caption)
             Spacer(minLength: 4)
             TextField(label,value: binding,format: .number.precision(.fractionLength(0...3)))
-                .textFieldStyle(.exp).frame(width: 88).numericStepping(binding,step: 0.01)
-                .accessibilityLabel(Text("Mesh point \(label)\(suffix)"))
+                .textFieldStyle(.exp).frame(width: 88).numericStepping(binding,step: step)
+                .accessibilityLabel(Text("Mesh point \(label)\(suffix == "%" ? ", percent" : suffix == "°" ? ", degrees" : "")"))
             Text(suffix).font(.caption)
         }
     }
@@ -64,8 +84,10 @@ struct MeshPaintControls: View {
                 }),onEditingChanged: gesture)
                 field("X",coordinate(id,x: true),suffix: "%")
                 field("Y",coordinate(id,x: false),suffix: "%")
-                field("Radius",value(id,\.radius,range: 0.005...4))
-                field("Opacity",value(id,\.opacity,range: 0...1))
+                field("Radius X",radius(id,y: false),suffix: "%")
+                field("Radius Y",radius(id,y: true),suffix: "%")
+                field("Angle",angle(id),suffix: "°")
+                field("Opacity",value(id,\.opacity,range: 0...1),step: 0.01)
                 HStack {
                     Button("Back") { move(id,by: -1) }.disabled(i == 0)
                     Button("Front") { move(id,by: 1) }.disabled(i == mesh.points.count-1)
@@ -73,7 +95,7 @@ struct MeshPaintControls: View {
                     Button("Remove") { mesh.points.removeAll { $0.id == id }; selection = mesh.points.first?.id }
                 }.font(.caption)
             }
-            Text("Up to 8 layered radial points. Radius 1 covers one width and height. Point order is back to front.")
+            Text("Up to 8 layered radial points. Radii are percentages of width and height; angle turns the ellipse. Point order is back to front.")
                 .font(.caption).foregroundStyle(EXPColor.textSecondary).fixedSize(horizontal: false,vertical: true)
         }.onDisappear { gesture(false) }
     }

@@ -377,6 +377,26 @@ struct PaintEditor: View {
             radialField("Center Y",key: \.center.y)
             radialField("Radius X",key: \.radius.width)
             radialField("Radius Y",key: \.radius.height)
+            radialAngleField
+        }
+    }
+    private var radialAngleField: some View {
+        let binding = Binding<Double>(get: {
+            gradientBinding.wrappedValue.radial?.angle ?? 0
+        },set: { value in
+            guard value.isFinite else { return }
+            var gradient = gradientBinding.wrappedValue
+            var radial = gradient.radialGeometry(in: CGRect(origin: .zero,size: gradientSize ?? CGSize(width: 100,height: 100)))
+            radial.angle = RadialGradientGeometry.wrappedAngle(value)
+            if gradient.radial != radial { gradient.radial = radial; gradientBinding.wrappedValue = gradient }
+        })
+        return HStack {
+            Text("Angle").font(.callout).foregroundStyle(EXPColor.textSecondary)
+            Spacer()
+            TextField("Radial ellipse angle, degrees",value: binding,format: .number.precision(.fractionLength(0...2)))
+                .textFieldStyle(.exp).frame(width: 80).numericStepping(binding,step: 1)
+                .accessibilityLabel("Radial ellipse angle, degrees")
+            Text("°")
         }
     }
     private func radialField(_ title: String,key: WritableKeyPath<RadialGradientGeometry,CGFloat>) -> some View {

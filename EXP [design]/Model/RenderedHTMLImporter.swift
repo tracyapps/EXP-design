@@ -89,6 +89,7 @@ nonisolated struct RenderedHTMLComputedStyle: Codable, Equatable, Sendable {
 
     var backgroundColor: String = "rgba(0, 0, 0, 0)"
     var backgroundImage: String = "none"
+    var ellipsePaintSize: CGSize? = nil
     var meshMetadata: String? = nil
     var meshCSSVerified: Bool? = nil
     var backgroundRepeat: String = "repeat"
@@ -196,6 +197,7 @@ nonisolated enum RenderedHTMLExtractionScript {
         const cs = getComputedStyle(el, pseudo);
         const result = {};
         styleNames.forEach(name => result[name] = cs[name] || "");
+        result.ellipsePaintSize = [parseFloat(cs.width)||0,parseFloat(cs.height)||0];
         const rawMesh = cs.getPropertyValue("--exp-mesh-v1").trim();
         if (rawMesh && rawMesh.length <= 24002) {
           result.meshMetadata = rawMesh.startsWith('"') && rawMesh.endsWith('"') ? rawMesh.slice(1,-1) : rawMesh;
@@ -209,8 +211,10 @@ nonisolated enum RenderedHTMLExtractionScript {
               if (!channel(p.color) || !Array.isArray(p.position) || p.position.length !== 2 ||
                   !p.position.every(v => Number.isFinite(v) && v >= -2 && v <= 3) ||
                   !Number.isFinite(p.radius) || p.radius < .005 || p.radius > 4 ||
-                  !Number.isFinite(p.opacity) || p.opacity < 0 || p.opacity > 1) throw 0;
-              return `radial-gradient(ellipse ${p.radius*100}% ${p.radius*100}% at ${p.position[0]*100}% ${p.position[1]*100}%, ${rgba(p.color,p.opacity)} 0%, ${rgba(p.color,0)} 100%)`;
+                  !Number.isFinite(p.opacity) || p.opacity < 0 || p.opacity > 1 ||
+                  (p.radiusY != null && (!Number.isFinite(p.radiusY) || p.radiusY < .005 || p.radiusY > 4)) ||
+                  (p.angle != null && p.angle !== 0)) throw 0;
+              return `radial-gradient(ellipse ${p.radius*100}% ${(p.radiusY ?? p.radius)*100}% at ${p.position[0]*100}% ${p.position[1]*100}%, ${rgba(p.color,p.opacity)} 0%, ${rgba(p.color,0)} 100%)`;
             });
             layers.push(rgba(m.base));
             const probe = document.createElement('span'); probe.style.background = layers.join(', ');
@@ -1405,7 +1409,7 @@ struct RenderedHTMLImporter {
         if element.style.meshMetadata != nil,verifiedMesh(element.style) == nil {
             report.add(.warning,.unsupported,category: "Mesh fill",message: "Mesh metadata did not match the visible CSS background; it was not collapsed into editable points.",location: element.path)
         }
-        let fill = paint(mesh: verifiedMesh(element.style),backgroundColor: element.style.backgroundColor,
+        let fill = paint(mesh: verifiedMesh(element.style),ellipse: verifiedEllipse(element.style),backgroundColor: element.style.backgroundColor,
                          backgroundImage: element.style.backgroundImage,
                          backgroundImageHandled: backgroundImageHandled,
                          location: element.path, report: &report)
@@ -1477,7 +1481,7 @@ struct RenderedHTMLImporter {
     /// editable mask group; raster sources keep the bounded pixel fallback.
     private func backgroundImageNode(_ element: RenderedHTMLElement,
                                      report: inout InteropImportReport) -> Node? {
-        guard let url = singleBackgroundURL(element.style.backgroundImage) else { return nil }
+        guard verifiedEllipse(element.style) == nil,let url = singleBackgroundURL(element.style.backgroundImage) else { return nil }
         let source = element.backgroundAsset?.data ?? dataURI(url)
         guard let source else { return nil }
         if let svg = sanitizedSVGData(source),
@@ -2079,20 +2083,31 @@ struct RenderedHTMLImporter {
         runs.append(run)
     }
 
+    private func verifiedEllipse(_ style: RenderedHTMLComputedStyle) -> Paint? {
+        guard style.backgroundRepeat == "repeat",style.backgroundSize == "auto",style.backgroundPosition == "0% 0%",
+              cssColor(style.backgroundColor)?.a == 0,let size = style.ellipsePaintSize,size.width > 0,size.height > 0,
+              let record = EllipseCSSBackground.verified(style.backgroundImage),
+              abs(size.width/size.height-record.size.width/record.size.height) < 1e-6 else { return nil }
+        return record.paint
+    }
     private func verifiedMesh(_ style: RenderedHTMLComputedStyle) -> MeshFill? {
-        guard style.meshCSSVerified == true,let payload = style.meshMetadata else { return nil }
-        return try? MeshFill.fromMetadata(payload)
+        guard let payload = style.meshMetadata,let mesh = try? MeshFill.fromMetadata(payload) else { return nil }
+        if style.meshCSSVerified == true { return mesh }
+        guard verifiedEllipse(style) == .mesh(mesh) else { return nil }
+        return mesh
     }
     private func backgroundPaint(_ style: RenderedHTMLComputedStyle) -> Paint {
+        if let ellipse = verifiedEllipse(style) { return ellipse }
         if let mesh = verifiedMesh(style) { return .mesh(mesh) }
         if let gradient = gradient(style.backgroundImage) { return gradient }
         return .solid(cssColor(style.backgroundColor) ?? .white)
     }
 
-    private func paint(mesh: MeshFill? = nil,backgroundColor: String, backgroundImage: String,
+    private func paint(mesh: MeshFill? = nil,ellipse: Paint? = nil,backgroundColor: String, backgroundImage: String,
                        backgroundImageHandled: Bool,
                        location: String,
                        report: inout InteropImportReport) -> Paint? {
+        if let ellipse { report.mapped("Elliptical gradient fill"); return ellipse }
         if let mesh { report.mapped("Mesh fill"); return .mesh(mesh) }
         if let gradient = gradient(backgroundImage) {
             report.mapped("Gradient")

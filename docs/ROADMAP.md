@@ -1333,8 +1333,10 @@ from the appcast; a development plan does not change the published release.
       old imported Shape fractions need one explicit Keep imported tile size fixed.
 - [ ] Owner accepts BUG-081 native pan/move/no-jump anchor repair; real native
       and AppKit context tests pass. `PATTERN-ANCHOR-REGRESSION-v2.7.md`.
-- [ ] FEAT-076 matching radial/Mesh ellipse axes and rotation, after BUG-081 owner
-      verification. `GRADIENT-ELLIPSES-v2.7.md` records requested behavior and gates.
+- [x] FEAT-076 local matching radial/Mesh ellipse axes and rotation, explicitly
+      authorized by owner October 19. `GRADIENT-ELLIPSES-v2.7.md` records evidence.
+- [ ] Owner accepts FEAT-076 handles/fields, Undo/save, exports and full matrix;
+      BUG-081 physical/full review remains a separate gate.
 - [ ] Owner accepts BUG-078 canvas-axis Flip repair. Rotated bowtie-triangle report
       identifies local-axis command behavior; shared helper now adjusts local flags
       and rotation. Native polygon/converted-path plus Undo/Redo and bounded geometry/
@@ -3508,6 +3510,24 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-10-19 — Matching radial/Mesh ellipse controls [internal].**
+  Owner explicitly authorizes FEAT-076. Both fill types have independent axes and
+  a turnable primary radius, exact percentage/angle fields, physical stop projection
+  and gesture Undo. Old/default geometry and canonical Mesh metadata stay intact.
+  Shared native/PDF/thumbnail/swatches, SVG transforms/own-import and carrier-sized
+  vector CSS fallback preserve geometry; canonical CSS import avoids duplicate paint
+  and rejects changed placement. Curved/polygon radial geometry and translucent
+  outer stroke PDF coverage are corrected and render/re-import checked.
+  Radial token extension preserves geometry only
+  while normal stops agree. Six narrow-ellipse/aspect/angle cases match independent
+  math and render backends; full Mesh/pattern integration, 96 pattern checks,
+  appearance/interface/Handoff and app/thumbnail builds pass. Native radial primary
+  and Mesh secondary drags/Undo, angle wrap and save/reopen pass in an isolated app.
+  Very-narrow center drag is source checked, with native automation routing blocked;
+  full owner/AT/monitor/source-library matrix remains. See
+  `GRADIENT-ELLIPSES-v2.7.md` for actual edge differences, receipts and owner steps.
+  Local commit only; no push/deploy/release or original artwork changes.
 
 - **2026-10-19 — Native pattern pan and no-jump anchor repair [internal].**
   Owner accepts resizing/export improvement but finds vertical pattern movement,

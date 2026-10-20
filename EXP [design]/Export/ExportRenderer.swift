@@ -255,14 +255,14 @@ struct ExportRenderer {
             if s.strokeWidth > 0, s.strokeAlignment != .center {
                 // Same trick as the canvas: 2× width clipped/masked to one side.
                 let shape = polygon
-                inner = "\(shape)\(paintFillAttr(s.fill, &defs, rect: f,userSpaceGradient: s.cornerRadius > 0))/>\n"
+                inner = "\(shape)\(paintFillAttr(s.fill, &defs, rect: f,userSpaceGradient: s.cornerRadius > 0 || s.fill.gradientValue?.kind == .radial))/>\n"
                     + svgAlignedStrokeCopy(shape: shape, closer: "/>", bounds: f,
                                            stroke: s.stroke, width: s.strokeWidth,
                                            alignment: s.strokeAlignment,
                                            pattern: s.strokePattern,
-                                           join: "miter", defs: &defs,userSpaceGradient: s.cornerRadius > 0)
+                                           join: "miter", defs: &defs,userSpaceGradient: s.cornerRadius > 0 || s.stroke.gradientValue?.kind == .radial)
             } else {
-                inner = "\(polygon)\(paintFillAttr(s.fill, &defs, rect: f,userSpaceGradient: s.cornerRadius > 0))\(strokePaintAttr(s.stroke, s.strokeWidth, s.strokePattern, defs: &defs, rect: f,userSpaceGradient: s.cornerRadius > 0)) stroke-linejoin=\"miter\"/>\n"
+                inner = "\(polygon)\(paintFillAttr(s.fill, &defs, rect: f,userSpaceGradient: s.cornerRadius > 0 || s.fill.gradientValue?.kind == .radial))\(strokePaintAttr(s.stroke, s.strokeWidth, s.strokePattern, defs: &defs, rect: f,userSpaceGradient: s.cornerRadius > 0 || s.stroke.gradientValue?.kind == .radial)) stroke-linejoin=\"miter\"/>\n"
             }
         case .line(let ls):
             let a = CGPoint(x: f.minX + ls.start.x, y: f.minY + ls.start.y)
@@ -273,11 +273,14 @@ struct ExportRenderer {
         case .path(let ps):
             let d = svgPathData(ps, origin: f.origin)
             let fills = ps.isMultiContour || ps.closed
-            let fill = fills ? paintFillAttr(ps.fill, &defs, rect: f) : " fill=\"none\""
+            let ink = ExportRenderView.nsPath(ps,origin: f.origin).bounds
+            let fillBounds = ps.fill.gradientValue?.kind == .radial ? ink : f
+            let strokeBounds = ps.stroke.gradientValue?.kind == .radial ? ink : f
+            let fill = fills ? paintFillAttr(ps.fill, &defs, rect: fillBounds) : " fill=\"none\""
             if ps.strokeWidth > 0, ps.effectiveStrokeAlignment != .center {
                 let shape = "<path d=\"\(d)\""
                 inner = "\(shape)\(fill)/>\n"
-                    + svgAlignedStrokeCopy(shape: shape, closer: "/>", bounds: f,
+                    + svgAlignedStrokeCopy(shape: shape, closer: "/>", bounds: strokeBounds,
                                            stroke: ps.stroke, width: ps.strokeWidth,
                                            alignment: ps.effectiveStrokeAlignment,
                                            pattern: ps.strokePattern,
@@ -288,7 +291,7 @@ struct ExportRenderer {
                 let markers = ps.closed || ps.isMultiContour ? "" :
                     svgMarkerAttrs(start: ps.startMarker, end: ps.endMarker,
                                    color: ps.stroke.representativeColor, nodeID: node.id, defs: &defs)
-                inner = "<path d=\"\(d)\"\(fill)\(strokePaintAttr(ps.stroke, ps.strokeWidth, ps.strokePattern, cap: ps.strokeCap, defs: &defs, rect: f))\(markers)\(svgJoinAttrs(ps))/>\n"
+                inner = "<path d=\"\(d)\"\(fill)\(strokePaintAttr(ps.stroke, ps.strokeWidth, ps.strokePattern, cap: ps.strokeCap, defs: &defs, rect: strokeBounds))\(markers)\(svgJoinAttrs(ps))/>\n"
             }
         case .text(let t):
             let baseline = f.minY + t.firstRun.fontSize * 0.8
@@ -660,8 +663,8 @@ struct ExportRenderer {
                 let (start,end) = g.linearPoints(in: rect)
                 return "<linearGradient id=\"\(id)\" gradientUnits=\"userSpaceOnUse\" x1=\"\(start.x)\" y1=\"\(start.y)\" x2=\"\(end.x)\" y2=\"\(end.y)\">\(stops)</linearGradient>"
             }
-            let radial = g.radialGeometry(in: rect)
-            return "<radialGradient id=\"\(id)\" gradientUnits=\"userSpaceOnUse\" cx=\"0\" cy=\"0\" r=\"1\" gradientTransform=\"matrix(\(radial.radius.width*rect.width) 0 0 \(radial.radius.height*rect.height) \(rect.minX+radial.center.x*rect.width) \(rect.minY+radial.center.y*rect.height))\">\(stops)</radialGradient>"
+            let t = g.radialGeometry(in: rect).transform(in: rect)
+            return "<radialGradient id=\"\(id)\" gradientUnits=\"userSpaceOnUse\" cx=\"0\" cy=\"0\" r=\"1\" gradientTransform=\"matrix(\(t.a) \(t.b) \(t.c) \(t.d) \(t.tx) \(t.ty))\">\(stops)</radialGradient>"
         }
         switch g.kind {
         case .linear:
@@ -678,7 +681,7 @@ struct ExportRenderer {
             return "  <linearGradient id=\"\(id)\" x1=\"\(num(u0.x))\" y1=\"\(num(u0.y))\" x2=\"\(num(u1.x))\" y2=\"\(num(u1.y))\">\n\(stops)  </linearGradient>\n"
         case .radial:
             if let radial = g.radial,radial.isValid {
-                return "  <radialGradient id=\"\(id)\" cx=\"0\" cy=\"0\" r=\"1\" gradientTransform=\"matrix(\(radial.radius.width) 0 0 \(radial.radius.height) \(radial.center.x) \(radial.center.y))\">\n\(stops)  </radialGradient>\n"
+                return "  <radialGradient id=\"\(id)\" cx=\"0\" cy=\"0\" r=\"1\" gradientTransform=\"\(radial.svgMatrix(in: rect?.size ?? CGSize(width: 1,height: 1)))\">\n\(stops)  </radialGradient>\n"
             }
             return "  <radialGradient id=\"\(id)\" cx=\"0.5\" cy=\"0.5\" r=\"0.5\">\n\(stops)  </radialGradient>\n"
         }

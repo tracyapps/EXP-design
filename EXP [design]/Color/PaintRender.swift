@@ -238,7 +238,8 @@ enum PaintRender {
             catch { meshFailureGeneration &+= 1; ctx.setFillColor(NSColor.systemRed.cgColor); ctx.fill(cover) }
         case .gradient(let g):
             ctx.saveGState()
-            drawGradient(g, in: bounds, ctx: ctx, pdfSafeAlpha: pdfSafeAlpha)
+            drawGradient(g, in: bounds, ctx: ctx, pdfSafeAlpha: pdfSafeAlpha,
+                         coverage: g.kind == .radial ? cover : nil)
             ctx.restoreGState()
         case .pattern(let ref):
             let drawn = tilePattern(ref, bounds: cover, in: ctx, resolver: patterns,
@@ -414,7 +415,7 @@ enum PaintRender {
     }
 
     static func drawGradient(_ g: GradientFill, in rect: CGRect, ctx: CGContext,
-                             pdfSafeAlpha: Bool = false) {
+                             pdfSafeAlpha: Bool = false,coverage: CGRect? = nil) {
         let stops = g.sortedStops
         guard !stops.isEmpty else { return }
         // Interpolate in sRGB — matching the stop colors (which are sRGB CGColors),
@@ -434,10 +435,10 @@ enum PaintRender {
         // the dissolve masks and noise content masks already use — while the
         // color ramp stays vector. Bitmap contexts (the canvas) are exact as-is.
         if pdfSafeAlpha, stops.contains(where: { $0.color.a < 0.999 }),
-           let mask = gradientAlphaMask(g, in: rect),
+           let mask = gradientAlphaMask(g, in: rect,coverage: coverage ?? rect),
            let gradient = ramp(stops.map { cgColorOpaque($0.color) }) {
             ctx.saveGState()
-            ctx.clip(to: rect, mask: mask)
+            ctx.clip(to: coverage ?? rect, mask: mask)
             switch g.kind {
             case .linear:
                 let (s, e) = g.linearPoints(in: rect)
@@ -459,6 +460,8 @@ enum PaintRender {
         }
     }
 
+    /// Stroke coverage can extend beyond gradient geometry bounds. Keep that
+    /// distinction in the mask so translucent outer stroke halves are retained.
     /// Coverage ramp for `drawGradient(pdfSafeAlpha:)`: the gradient drawn into a
     /// rect-sized RGBA bitmap with white at each stop's ALPHA, so the alpha
     /// channel alone is the mask `CGContext.clip(to:mask:)` consumes. Same
@@ -471,11 +474,11 @@ enum PaintRender {
     /// read it natively or nearly so. The pixel caps keep worst-case memory
     /// bounded; a ramp forced below 3× still resamples more gracefully than the
     /// 8-bit color path bands.
-    private static func gradientAlphaMask(_ g: GradientFill, in rect: CGRect) -> CGImage? {
-        guard rect.width > 0, rect.height > 0 else { return nil }
-        let scale = min(3, 4096 / max(rect.width, rect.height),
-                        (8_000_000 / (rect.width * rect.height)).squareRoot())
-        let pw = max(1, Int(rect.width * scale)), ph = max(1, Int(rect.height * scale))
+    private static func gradientAlphaMask(_ g: GradientFill, in rect: CGRect,coverage: CGRect) -> CGImage? {
+        guard rect.width > 0,rect.height > 0,coverage.width > 0,coverage.height > 0 else { return nil }
+        let scale = min(3,4096 / max(coverage.width,coverage.height),
+                        (8_000_000 / (coverage.width*coverage.height)).squareRoot())
+        let pw = max(1,Int(coverage.width*scale)),ph = max(1,Int(coverage.height*scale))
         guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
               let bitmap = CGContext(data: nil, width: pw, height: ph,
                                      bitsPerComponent: 8, bytesPerRow: 0, space: colorSpace,
@@ -483,7 +486,7 @@ enum PaintRender {
         else { return nil }
         bitmap.translateBy(x: 0, y: CGFloat(ph))
         bitmap.scaleBy(x: scale, y: -scale)
-        bitmap.translateBy(x: -rect.minX, y: -rect.minY)
+        bitmap.translateBy(x: -coverage.minX, y: -coverage.minY)
         let stops = g.sortedStops
         let colors = stops.map {
             CGColor(srgbRed: 1, green: 1, blue: 1, alpha: CGFloat($0.color.a))
@@ -506,8 +509,7 @@ enum PaintRender {
                                    rect: CGRect,ctx: CGContext,options: CGGradientDrawingOptions) {
         guard rect.width > 0,rect.height > 0,geometry.isValid else { return }
         ctx.saveGState()
-        ctx.translateBy(x: rect.minX+geometry.center.x*rect.width,y: rect.minY+geometry.center.y*rect.height)
-        ctx.scaleBy(x: geometry.radius.width*rect.width,y: geometry.radius.height*rect.height)
+        ctx.concatenate(geometry.transform(in: rect))
         ctx.drawRadialGradient(gradient,startCenter: .zero,startRadius: 0,endCenter: .zero,endRadius: 1,options: options)
         ctx.restoreGState()
     }
@@ -546,10 +548,7 @@ extension PaintRender {
                               CGColor(srgbRed: rgb.0,green: rgb.1,blue: rgb.2,alpha: 0)]
                 let gradient = CGGradient(colorsSpace: space,colors: colors as CFArray,locations: [0,1])!
                 target.saveGState(); defer { target.restoreGState() }
-                target.translateBy(x: rect.minX,y: rect.minY)
-                target.scaleBy(x: rect.width,y: rect.height)
-                target.drawRadialGradient(gradient,startCenter: point.position,startRadius: 0,
-                    endCenter: point.position,endRadius: point.radius,options: [.drawsAfterEndLocation])
+                drawRadial(gradient,geometry: point.geometry,rect: rect,ctx: target,options: [.drawsAfterEndLocation])
             }
             if pdfSafeAlpha {
                 // At most 1 MP / 1024 per axis per point, generated one at a
@@ -567,11 +566,12 @@ extension PaintRender {
                 // Mask image rows run opposite the destination's y-down space.
                 guard let data = mask.data else { throw MeshFill.ValidationError.invalidData }
                 let bytes = data.assumingMemoryBound(to: UInt8.self)
+                let inverse = point.geometry.transform(in: rect).inverted()
                 for y in 0..<h {
-                    let dy = (1 - (Double(y) + 0.5) / Double(h) - point.position.y) / point.radius
                     for x in 0..<w {
-                        let dx = ((Double(x) + 0.5) / Double(w) - point.position.x) / point.radius
-                        let a = UInt8((255 * point.color.a * point.opacity * max(0,1-hypot(dx,dy))).rounded())
+                        let q = CGPoint(x: rect.minX+(Double(x)+0.5)/Double(w)*rect.width,
+                                        y: rect.minY+(1-(Double(y)+0.5)/Double(h))*rect.height).applying(inverse)
+                        let a = UInt8((255 * point.color.a * point.opacity * max(0,1-hypot(q.x,q.y))).rounded())
                         let index = y * mask.bytesPerRow + x * 4
                         for channel in 0..<4 { bytes[index + channel] = a }
                     }

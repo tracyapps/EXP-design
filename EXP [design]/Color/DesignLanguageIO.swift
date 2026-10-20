@@ -281,7 +281,7 @@ enum DesignLanguageIO {
 
     /// Convenience CSS gradient string. EXP angles use a y-down canvas (0° points
     /// right); CSS uses 0° pointing up, so the exact conversion adds 90°.
-    static func cssGradient(_ g: GradientFill) -> String {
+    static func cssGradient(_ g: GradientFill,size: CGSize = CGSize(width: 1,height: 1)) -> String {
         let stops = g.sortedStops
             .map { "\(ColorMath.string($0.color, .hex)) \(Int(($0.position * 100).rounded()))%" }
             .joined(separator: ", ")
@@ -290,7 +290,7 @@ enum DesignLanguageIO {
             let normalized = (g.angle + 90).truncatingRemainder(dividingBy: 360)
             let angle = normalized < 0 ? normalized + 360 : normalized
             return "linear-gradient(\(Int(angle.rounded()))deg, \(stops))"
-        case .radial: return g.radialCSS(stops: stops)
+        case .radial: return g.radialCSS(stops: stops,size: size)
         }
     }
 
@@ -635,7 +635,12 @@ enum DesignLanguageIO {
                 let stops: [[String: Any]] = g.sortedStops.map {
                     ["color": ColorMath.string($0.color, .hex), "position": Double($0.position)]
                 }
-                gradients[name] = ["$type": "gradient", "$value": stops]
+                var token: [String: Any] = ["$type": "gradient", "$value": stops]
+                if g.kind == .radial,g.radial != nil {
+                    let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+                    token["$extensions"] = ["app.expdesign.radial-v1": try encoder.encode(g).base64EncodedString()]
+                }
+                gradients[name] = token
             case .mesh(let m):
                 gradients[name] = ["$type": "exp-mesh-v1", "$value": (try? m.metadata()) ?? ""]
             case .pattern:
@@ -719,7 +724,18 @@ enum DesignLanguageIO {
                                             value: .solid(color),
                                             provenance: "import: design tokens"))
         case "gradient":
-            guard let gradient = dtcgGradient(value) else { return }
+            guard var gradient = dtcgGradient(value) else { return }
+            // DTCG's standard value carries stops, not ellipse geometry. An EXP
+            // extension is used only while those visible stops still agree.
+            if let extensions = token["$extensions"] as? [String: Any],
+               let payload = extensions["app.expdesign.radial-v1"] as? String,payload.utf8.count <= 24_000,
+               let data = Data(base64Encoded: payload),data.count <= 16_000,
+               let authored = try? JSONDecoder().decode(GradientFill.self,from: data),
+               authored.kind == .radial,authored.radial?.isValid == true,
+               authored.stops.count == gradient.stops.count,
+               zip(authored.sortedStops,gradient.sortedStops).allSatisfy({ a,b in
+                   a.position == b.position && ColorMath.string(a.color,.hex) == ColorMath.string(b.color,.hex)
+               }) { gradient = authored }
             state.assets.append(DesignAsset(name: name, categoryID: categoryID,
                                             value: .gradient(gradient),
                                             provenance: "import: design tokens"))

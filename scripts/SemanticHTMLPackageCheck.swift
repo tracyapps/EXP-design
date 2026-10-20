@@ -453,6 +453,35 @@ private enum SemanticHTMLPackageCheck {
         let tokens = try DesignLanguageIO.exportDesignTokensJSON(DesignLanguage(assets: [DesignAsset(name: "Mesh",value: .mesh(mesh))]))
         require(String(data: tokens,encoding: .utf8)?.contains("exp-mesh-v1") == true,"Mesh token must preserve its actual type")
         require(DesignLanguageIO.parseDesignTokensJSON(tokens)?.assets.first?.value.meshValue == mesh,"EXP custom Mesh token must re-import editable points")
+        var ellipseMesh = mesh
+        ellipseMesh.points[0].radiusY = 0.18; ellipseMesh.points[0].angle = 33
+        var ellipseGradient = GradientFill(kind: .radial)
+        ellipseGradient.radial = RadialGradientGeometry(center: CGPoint(x: 0.4,y: 0.6),radius: CGSize(width: 0.7,height: 0.18),angle: 33)
+        let ellipseSize = CGSize(width: 90,height: 50)
+        for paint in [Paint.mesh(ellipseMesh),Paint.gradient(ellipseGradient)] {
+            let ellipseNode = Node(name: "Turned ellipse",frame: CGRect(origin: .zero,size: ellipseSize),content: .rectangle(RectangleShape(fill: paint,strokeWidth: 0)))
+            let bundle = SemanticHTMLExporter(document: Document(artboards: [meshBoard],nodes: [ellipseNode])).makeBundle()
+            let css = bundle.artifacts.filter { $0.path.hasSuffix(".css") }.map { String(decoding: $0.data,as: UTF8.self) }.joined()
+            let expectedCSS = try EllipseCSSBackground(paint: paint,size: ellipseSize).css()
+            require(css.contains(expectedCSS),"Handoff CSS must use physical carrier aspect for rotated ellipse vector fallback")
+            let language = DesignLanguage(assets: [DesignAsset(name: "Turned ellipse",value: paint)])
+            let ellipseTokens = try DesignLanguageIO.exportDesignTokensJSON(language)
+            require(DesignLanguageIO.parseDesignTokensJSON(ellipseTokens)?.assets.first?.value == paint,"ellipse paint token retains axes/angle")
+            if case .gradient = paint {
+                var stale = try JSONSerialization.jsonObject(with: ellipseTokens) as! [String: Any]
+                var gradients = stale["gradient"] as! [String: Any]
+                let key = gradients.keys.first!; var token = gradients[key] as! [String: Any]
+                var stops = token["$value"] as! [[String: Any]]; stops[0]["position"] = 0.125
+                token["$value"] = stops; gradients[key] = token; stale["gradient"] = gradients
+                let staleData = try JSONSerialization.data(withJSONObject: stale)
+                require(DesignLanguageIO.parseDesignTokensJSON(staleData)?.assets.first?.value.gradientValue?.radial == nil,"changed token stops must invalidate radial metadata")
+            }
+        }
+        let radialPath = Node(name: "Turned radial path",frame: CGRect(origin: .zero,size: ellipseSize),content: .path(PathShape(points: [PathPoint(point: .zero),PathPoint(point: CGPoint(x: 90,y: 0)),PathPoint(point: CGPoint(x: 90,y: 50)),PathPoint(point: CGPoint(x: 0,y: 50))],closed: true,fill: .gradient(ellipseGradient),strokeWidth: 0)))
+        let radialBundle = SemanticHTMLExporter(document: Document(artboards: [meshBoard],nodes: [radialPath])).makeBundle()
+        let radialHTML = radialBundle.artifacts.filter { $0.path.hasSuffix(".html") }.map { String(decoding: $0.data,as: UTF8.self) }.joined()
+        require(radialHTML.contains(ellipseGradient.radial!.svgMatrix(in: ellipseSize)),"embedded path SVG must retain rotated radial axes")
+        print("ok: rotated ellipse Handoff CSS, embedded SVG and design-token axes/angle")
         let roundedNode = Node(name: "Rounded polygon",frame: CGRect(x: 5,y: 5,width: 90,height: 70),content: .polygon(PolygonShape(sides: 5,cornerRadius: 12)))
         let roundedBundle = SemanticHTMLExporter(document: Document(artboards: [meshBoard],nodes: [roundedNode])).makeBundle()
         let roundedHTML = roundedBundle.artifacts.filter { $0.path.hasSuffix(".html") }.compactMap { String(data: $0.data,encoding: .utf8) }.joined()

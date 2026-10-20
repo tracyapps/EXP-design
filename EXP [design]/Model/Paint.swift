@@ -32,10 +32,68 @@ struct GradientStop: Codable, Equatable, Identifiable, Sendable {
 struct RadialGradientGeometry: Codable,Equatable,Sendable {
     var center: CGPoint
     var radius: CGSize
+    /// Clockwise degrees in local physical points, before node/ancestor transforms.
+    var angle: Double = 0
+    init(center: CGPoint,radius: CGSize,angle: Double = 0) {
+        self.center = center; self.radius = radius; self.angle = angle
+    }
+    private enum CodingKeys: String,CodingKey { case center,radius,angle }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        center = try c.decode(CGPoint.self,forKey: .center)
+        radius = try c.decode(CGSize.self,forKey: .radius)
+        angle = try c.decodeIfPresent(Double.self,forKey: .angle) ?? 0
+        guard isValid else { throw DecodingError.dataCorruptedError(forKey: .radius,in: c,debugDescription: "Invalid radial ellipse") }
+    }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(center,forKey: .center); try c.encode(radius,forKey: .radius)
+        if angle != 0 { try c.encode(angle,forKey: .angle) }
+    }
     var isValid: Bool {
-        [center.x,center.y,radius.width,radius.height].allSatisfy(\.isFinite)
+        [center.x,center.y,radius.width,radius.height,angle].allSatisfy(\.isFinite)
             && (-2...3).contains(center.x) && (-2...3).contains(center.y)
             && radius.width > 0 && radius.height > 0 && radius.width <= 1_000_000 && radius.height <= 1_000_000
+            && abs(angle) <= 360
+    }
+    static func wrappedAngle(_ angle: Double) -> Double {
+        let a = angle.truncatingRemainder(dividingBy: 360)
+        return a < 0 ? a+360 : a
+    }
+    /// Unit circle -> physical fill rect. Rotating AFTER the two scales keeps
+    /// the axes perpendicular even on a non-square carrier.
+    func transform(in rect: CGRect) -> CGAffineTransform {
+        CGAffineTransform(scaleX: radius.width*rect.width,y: radius.height*rect.height)
+            .concatenating(CGAffineTransform(rotationAngle: angle * .pi/180))
+            .concatenating(CGAffineTransform(translationX: rect.minX+center.x*rect.width,y: rect.minY+center.y*rect.height))
+    }
+    func unitTransform(in size: CGSize) -> CGAffineTransform {
+        transform(in: CGRect(origin: .zero,size: size))
+            .concatenating(CGAffineTransform(scaleX: 1/max(0.001,size.width),y: 1/max(0.001,size.height)))
+    }
+    func unitPoint(_ circle: CGPoint,in size: CGSize) -> CGPoint { circle.applying(unitTransform(in: size)) }
+    /// Local physical vector from center (not normalized box distance).
+    private func delta(_ unit: CGPoint,in size: CGSize) -> CGPoint {
+        CGPoint(x: (unit.x-center.x)*size.width,y: (unit.y-center.y)*size.height)
+    }
+    mutating func movePrimary(to unit: CGPoint,in size: CGSize,limit: Double) {
+        let d = delta(unit,in: size), length = hypot(d.x,d.y)
+        guard length > 0.001 else { return }
+        radius.width = min(limit,max(0.005,length/max(0.001,size.width)))
+        angle = Self.wrappedAngle(atan2(d.y,d.x)*180 / .pi)
+    }
+    mutating func moveSecondary(to unit: CGPoint,in size: CGSize,limit: Double) {
+        let d = delta(unit,in: size),a = angle * .pi/180
+        radius.height = min(limit,max(0.005,abs(-sin(a)*d.x+cos(a)*d.y)/max(0.001,size.height)))
+    }
+    func stopPosition(at unit: CGPoint,in size: CGSize) -> Double {
+        let d = delta(unit,in: size),a = angle * .pi/180
+        return min(1,max(0,(cos(a)*d.x+sin(a)*d.y)/max(0.001,radius.width*size.width)))
+    }
+    /// SVG objectBoundingBox matrix, with the same physical-point angle.
+    func svgMatrix(in size: CGSize) -> String {
+        let t = unitTransform(in: size)
+        return "matrix(\(t.a) \(t.b) \(t.c) \(t.d) \(t.tx) \(t.ty))"
     }
 }
 
@@ -116,7 +174,8 @@ struct GradientFill: Codable, Equatable, Sendable {
         return RadialGradientGeometry(center: CGPoint(x: 0.5,y: 0.5),
             radius: CGSize(width: radius/max(0.001,rect.width),height: radius/max(0.001,rect.height)))
     }
-    func radialCSS(stops: String) -> String {
+    func radialCSS(stops: String,size: CGSize = CGSize(width: 1,height: 1)) -> String {
+        if let radial,radial.angle != 0 { return (try? EllipseCSSBackground(paint: .gradient(self),size: size).css()) ?? "none" }
         guard let radial,radial.isValid else { return "radial-gradient(circle, \(stops))" }
         return "radial-gradient(ellipse \(radial.radius.width*100)% \(radial.radius.height*100)% at \(radial.center.x*100)% \(radial.center.y*100)%, \(stops))"
     }
@@ -414,11 +473,38 @@ enum Paint: Codable, Equatable, Sendable {
 /// radius scales independently with carrier width/height (CSS ellipse / SVG bbox).
 /// This is a layered-radial fill, not a Bézier patch mesh.
 struct MeshPoint: Codable, Equatable, Identifiable, Sendable {
-    var id = UUID()
+    var id: UUID
     var position: CGPoint
     var radius: Double
+    /// nil preserves the original equal unit-box radii until edited independently.
+    var radiusY: Double? = nil
+    var angle: Double = 0
     var color: RGBAColor
     var opacity: Double = 1
+    init(id: UUID = UUID(),position: CGPoint,radius: Double,color: RGBAColor,opacity: Double = 1,
+         radiusY: Double? = nil,angle: Double = 0) {
+        self.id = id; self.position = position; self.radius = radius; self.color = color
+        self.opacity = opacity; self.radiusY = radiusY; self.angle = angle
+    }
+    private enum CodingKeys: String,CodingKey { case id,position,radius,radiusY,angle,color,opacity }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self,forKey: .id); position = try c.decode(CGPoint.self,forKey: .position)
+        radius = try c.decode(Double.self,forKey: .radius); radiusY = try c.decodeIfPresent(Double.self,forKey: .radiusY)
+        angle = try c.decodeIfPresent(Double.self,forKey: .angle) ?? 0
+        color = try c.decode(RGBAColor.self,forKey: .color); opacity = try c.decode(Double.self,forKey: .opacity)
+    }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id,forKey: .id); try c.encode(position,forKey: .position); try c.encode(radius,forKey: .radius)
+        try c.encodeIfPresent(radiusY,forKey: .radiusY)
+        if angle != 0 { try c.encode(angle,forKey: .angle) }
+        try c.encode(color,forKey: .color); try c.encode(opacity,forKey: .opacity)
+    }
+    var geometry: RadialGradientGeometry {
+        get { RadialGradientGeometry(center: position,radius: CGSize(width: radius,height: radiusY ?? radius),angle: angle) }
+        set { position = newValue.center; radius = newValue.radius.width; radiusY = newValue.radius.height; angle = newValue.angle }
+    }
 }
 
 struct MeshFill: Codable, Equatable, Sendable {
@@ -459,7 +545,9 @@ struct MeshFill: Codable, Equatable, Sendable {
               points.allSatisfy({ p in
                   p.position.x.isFinite && p.position.y.isFinite &&
                   (-2...3).contains(p.position.x) && (-2...3).contains(p.position.y) &&
-                  p.radius.isFinite && (0.005...4).contains(p.radius) && validColor(p.color) &&
+                  p.radius.isFinite && (0.005...4).contains(p.radius) &&
+                  (p.radiusY ?? p.radius).isFinite && (0.005...4).contains(p.radiusY ?? p.radius) &&
+                  p.angle.isFinite && abs(p.angle) <= 360 && validColor(p.color) &&
                   p.opacity.isFinite && (0...1).contains(p.opacity)
               }) else { throw ValidationError.invalidData }
     }
@@ -477,18 +565,19 @@ struct MeshFill: Codable, Equatable, Sendable {
     }
     /// Standards-readable CSS background shorthand, with exact sRGB channel
     /// values. Each point fades to its SAME RGB at zero alpha (no dark fringe).
-    func cssBackground() throws -> String {
+    func cssBackground(size: CGSize = CGSize(width: 1,height: 1)) throws -> String {
         try validate()
+        if points.contains(where: { $0.angle != 0 }) { return try EllipseCSSBackground(paint: .mesh(self),size: size).css() }
         func color(_ c: RGBAColor, _ opacity: Double = 1) -> String {
             "rgba(\(c.r * 255), \(c.g * 255), \(c.b * 255), \(c.a * opacity))"
         }
         let layers = points.reversed().map { p in
-            "radial-gradient(ellipse \(p.radius * 100)% \(p.radius * 100)% at \(p.position.x * 100)% \(p.position.y * 100)%, \(color(p.color,p.opacity)) 0%, \(color(p.color,0)) 100%)"
+            "radial-gradient(ellipse \(p.radius * 100)% \((p.radiusY ?? p.radius) * 100)% at \(p.position.x * 100)% \(p.position.y * 100)%, \(color(p.color,p.opacity)) 0%, \(color(p.color,0)) 100%)"
         }
         return (layers + [color(base)]).joined(separator: ", ")
     }
-    func cssDeclarations() throws -> String {
-        "background: \(try cssBackground()); --exp-mesh-v1: \"\(try metadata())\";"
+    func cssDeclarations(size: CGSize = CGSize(width: 1,height: 1)) throws -> String {
+        "background: \(try cssBackground(size: size)); --exp-mesh-v1: \"\(try metadata())\";"
     }
     /// A unit-space pattern is a paint server, so the same mesh works for fills,
     /// backgrounds and stroke outlines without duplicating carrier geometry.
@@ -506,7 +595,13 @@ struct MeshFill: Codable, Equatable, Sendable {
         var defs = "", layers = "<rect width=\"1\" height=\"1\" fill=\"\(rgb(base))\" fill-opacity=\"\(base.a)\"/>"
         for (i,p) in points.enumerated() {
             let gradient = name + "p\(i)"
-            defs += "<radialGradient id=\"\(gradient)\" cx=\"\(p.position.x)\" cy=\"\(p.position.y)\" r=\"\(p.radius)\" color-interpolation=\"sRGB\"><stop offset=\"0\" stop-color=\"\(rgb(p.color))\" stop-opacity=\"\(p.color.a * p.opacity)\"/><stop offset=\"1\" stop-color=\"\(rgb(p.color))\" stop-opacity=\"0\"/></radialGradient>"
+            let geometry: String
+            if p.radiusY == nil && p.angle == 0 {
+                geometry = "cx=\"\(p.position.x)\" cy=\"\(p.position.y)\" r=\"\(p.radius)\""
+            } else {
+                geometry = "cx=\"0\" cy=\"0\" r=\"1\" gradientTransform=\"\(p.geometry.svgMatrix(in: bounds?.size ?? CGSize(width: 1,height: 1)))\""
+            }
+            defs += "<radialGradient id=\"\(gradient)\" \(geometry) color-interpolation=\"sRGB\"><stop offset=\"0\" stop-color=\"\(rgb(p.color))\" stop-opacity=\"\(p.color.a * p.opacity)\"/><stop offset=\"1\" stop-color=\"\(rgb(p.color))\" stop-opacity=\"0\"/></radialGradient>"
             layers += "<rect width=\"1\" height=\"1\" fill=\"url(#\(gradient))\"/>"
         }
         let placement: String
@@ -517,5 +612,60 @@ struct MeshFill: Codable, Equatable, Sendable {
         } else { placement = "patternUnits=\"objectBoundingBox\" width=\"1\" height=\"1\"" }
         let metadata = try metadata()
         return (name, defs + "<pattern id=\"\(name)\" \(placement) viewBox=\"0 0 1 1\" preserveAspectRatio=\"none\" data-exp-mesh-v1=\"\(metadata)\">\(layers)</pattern>")
+    }
+}
+
+/// CSS has axis-aligned radial gradients only. A bounded, self-contained vector
+/// image carries rotated ellipses. Own-import accepts only byte-canonical output,
+/// never arbitrary markup/URLs claimed by metadata. No external resources execute.
+struct EllipseCSSBackground: Codable,Equatable {
+    var paint: Paint
+    var size: CGSize
+    private func validate() throws {
+        guard [size.width,size.height].allSatisfy({ $0.isFinite && $0 > 0 && $0 <= 1_000_000 }) else { throw MeshFill.ValidationError.invalidData }
+        switch paint {
+        case .mesh(let mesh): try mesh.validate()
+        case .gradient(let g):
+            guard g.kind == .radial,let r = g.radial,r.isValid,g.stops.count >= 2,
+                  g.stops.allSatisfy({ s in s.position.isFinite && (0...1).contains(s.position) &&
+                      [s.color.r,s.color.g,s.color.b,s.color.a].allSatisfy({ $0.isFinite && (0...1).contains($0) }) }) else { throw MeshFill.ValidationError.invalidData }
+        default: throw MeshFill.ValidationError.invalidData
+        }
+    }
+    func svg() throws -> String {
+        try validate()
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        let metadata = try encoder.encode(self).base64EncodedString()
+        let rect = CGRect(origin: .zero,size: size)
+        let definitions: String,fill: String
+        switch paint {
+        case .mesh(let mesh):
+            let server = try mesh.svgPattern(name: "ellipse",bounds: rect)
+            definitions = server.definition; fill = "url(#ellipse)"
+        case .gradient(let g):
+            let stops = g.sortedStops.map { s in
+                "<stop offset=\"\(s.position)\" stop-color=\"rgb(\(s.color.r*255),\(s.color.g*255),\(s.color.b*255))\" stop-opacity=\"\(s.color.a)\"/>"
+            }.joined()
+            definitions = "<radialGradient id=\"ellipse\" cx=\"0\" cy=\"0\" r=\"1\" gradientTransform=\"\(g.radial!.svgMatrix(in: size))\" color-interpolation=\"sRGB\">\(stops)</radialGradient>"
+            fill = "url(#ellipse)"
+        default: throw MeshFill.ValidationError.invalidData
+        }
+        // Outer SVG has no intrinsic aspect ratio: CSS's default image size is
+        // the background area. The inner viewBox scales both axes explicitly.
+        return "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"100%\" height=\"100%\" data-exp-ellipse-v1=\"\(metadata)\"><svg width=\"100%\" height=\"100%\" viewBox=\"0 0 \(size.width) \(size.height)\" preserveAspectRatio=\"none\"><defs>\(definitions)</defs><rect width=\"\(size.width)\" height=\"\(size.height)\" fill=\"\(fill)\"/></svg></svg>"
+    }
+    func css() throws -> String { "url(\"data:image/svg+xml;base64,\(Data(try svg().utf8).base64EncodedString())\")" }
+    static func verified(_ css: String) -> Self? {
+        guard css.utf8.count <= 131_072,css.hasPrefix("url("),css.hasSuffix(")") else { return nil }
+        let url = css.dropFirst(4).dropLast().trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+        let prefix = "data:image/svg+xml;base64,"
+        guard url.hasPrefix(prefix),let data = Data(base64Encoded: String(url.dropFirst(prefix.count))),data.count <= 96_000,
+              let source = String(data: data,encoding: .utf8),
+              let start = source.range(of: "data-exp-ellipse-v1=\""),
+              let end = source[start.upperBound...].firstIndex(of: "\""),
+              let payload = Data(base64Encoded: String(source[start.upperBound..<end])),payload.count <= 24_000,
+              let record = try? JSONDecoder().decode(Self.self,from: payload),
+              (try? record.svg()) == source else { return nil }
+        return record
     }
 }

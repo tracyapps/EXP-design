@@ -3287,14 +3287,18 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: feature
 - Priority: P2 — owner request October 19, 2026, next v2.7 slice
 - Area: color · canvas · inspector · model · export
-- Status: open — queued behind owner verification of BUG-081
+- Status: needs-verify — owner explicitly authorized the radial-controls slice October 19
 - Detail: Independent X/Y radii and angle, matching center/axis handles for radial
   fill and each Mesh point. Primary radius can turn around the center; secondary
   axis narrows/widens the ellipse. Stop/color selection stays active in the palette.
 - Acceptance: exact numeric alternatives, single-gesture Undo/save/reopen, legacy
   rendering, native/PDF/SVG/browser/own-import parity, shared target and AT checks.
   `GRADIENT-ELLIPSES-v2.7.md` records implementation seams and verification plan.
-  No gradient geometry code is implemented in the pattern regression repair.
+  Matching handles and exact percentage/angle fields now share the physical ellipse
+  transform across native/PDF/SVG/HTML; legacy defaults and bounded own-import survive.
+  Full math/render, native drag/Undo/save/reopen, appearance/interface/Handoff and
+  app/thumbnail checks pass locally; owner/full AT and interaction matrix remains.
+  Standards/naming citations and measured error/automation limits are in that document.
 
 ### FEAT-075 — Per-fill pattern scale
 - Type: feature

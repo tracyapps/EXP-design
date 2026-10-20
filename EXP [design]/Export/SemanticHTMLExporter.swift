@@ -8,6 +8,7 @@
 //
 
 import Foundation
+import AppKit
 import CoreGraphics
 
 struct SemanticHTMLArtifact: Sendable {
@@ -911,6 +912,8 @@ private struct HTMLWriter {
         let width = max(0.0001, size.width)
         let height = max(0.0001, size.height)
         let fills = path.isMultiContour || path.closed
+        let frame = CGRect(x: 0,y: 0,width: width,height: height)
+        let ink = ExportRenderView.nsPath(path,origin: .zero).bounds
         let fill: String
         let fillOpacity: String
         var definitions = ""
@@ -927,8 +930,7 @@ private struct HTMLWriter {
             case .gradient(let gradient):
                 let gradientID = "\(domID)-fill"
                 definitions = svgGradient(gradient, id: gradientID,
-                                          rect: CGRect(x: 0, y: 0,
-                                                       width: width, height: height),userSpaceRadial: frameGradients)
+                                          rect: !frameGradients && gradient.kind == .radial ? ink : frame,userSpaceRadial: frameGradients)
                 fill = "url(#\(gradientID))"
                 fillOpacity = "1"
             case .pattern(let ref):
@@ -946,9 +948,9 @@ private struct HTMLWriter {
         if let mesh = path.stroke.meshValue,let server = try? mesh.svgPattern(name: "\(domID)-mesh-stroke",bounds: CGRect(x: 0,y: 0,width: width,height: height)) {
             definitions += server.definition; strokePaint = "url(#\(server.id))"
         }
-        if frameGradients,let gradient = path.stroke.gradientValue {
+        if (frameGradients || path.stroke.gradientValue?.kind == .radial),let gradient = path.stroke.gradientValue {
             let id = "\(domID)-stroke"
-            definitions += svgGradient(gradient,id: id,rect: CGRect(x: 0,y: 0,width: width,height: height),userSpaceRadial: true)
+            definitions += svgGradient(gradient,id: id,rect: !frameGradients && gradient.kind == .radial ? ink : frame,userSpaceRadial: frameGradients)
             strokePaint = "url(#\(id))"
         }
         let stroke = path.strokeWidth > 0
@@ -1005,9 +1007,10 @@ private struct HTMLWriter {
         case .radial:
             if let radial = gradient.radial,radial.isValid {
                 if userSpaceRadial {
-                    return "<radialGradient id=\"\(id)\" gradientUnits=\"userSpaceOnUse\" cx=\"0\" cy=\"0\" r=\"1\" gradientTransform=\"matrix(\(radial.radius.width*rect.width) 0 0 \(radial.radius.height*rect.height) \(rect.minX+radial.center.x*rect.width) \(rect.minY+radial.center.y*rect.height))\">\(stops)</radialGradient>"
+                    let t = radial.transform(in: rect)
+                    return "<radialGradient id=\"\(id)\" gradientUnits=\"userSpaceOnUse\" cx=\"0\" cy=\"0\" r=\"1\" gradientTransform=\"matrix(\(t.a) \(t.b) \(t.c) \(t.d) \(t.tx) \(t.ty))\">\(stops)</radialGradient>"
                 }
-                return "<radialGradient id=\"\(id)\" cx=\"0\" cy=\"0\" r=\"1\" gradientTransform=\"matrix(\(radial.radius.width) 0 0 \(radial.radius.height) \(radial.center.x) \(radial.center.y))\">\(stops)</radialGradient>"
+                return "<radialGradient id=\"\(id)\" cx=\"0\" cy=\"0\" r=\"1\" gradientTransform=\"\(radial.svgMatrix(in: rect.size))\">\(stops)</radialGradient>"
             }
             let radius = hypot(rect.width / 2, rect.height / 2)
             return "<radialGradient id=\"\(id)\" gradientUnits=\"userSpaceOnUse\" cx=\"\(number(rect.midX))\" cy=\"\(number(rect.midY))\" r=\"\(number(radius))\">\(stops)</radialGradient>"
@@ -1074,7 +1077,7 @@ private struct CSSWriter {
         rules.append(rule("#\(rootID)", [
             "width: \(number(artboard.frame.width))px",
             "height: \(number(artboard.frame.height))px",
-            "background: \(paint(artboard.background))"
+            "background: \(paint(artboard.background,size: artboard.frame.size))"
         ]))
 
         for item in topLevelNodes {
@@ -1369,7 +1372,7 @@ private struct CSSWriter {
     private func appearance(_ node: Node) -> [String] {
         switch node.content {
         case .rectangle(let shape):
-            var d = ["background: \(paint(shape.fill))"]
+            var d = ["background: \(paint(shape.fill,size: node.frame.size))"]
             d.append(contentsOf: border(color: shape.stroke, width: shape.strokeWidth,
                                         pattern: shape.strokePattern))
             let r = shape.effectiveRadii
@@ -1378,7 +1381,7 @@ private struct CSSWriter {
             }
             return d
         case .ellipse(let shape):
-            return ["background: \(paint(shape.fill))", "border-radius: 50%"]
+            return ["background: \(paint(shape.fill,size: node.frame.size))", "border-radius: 50%"]
                 + border(color: shape.stroke, width: shape.strokeWidth,
                          pattern: shape.strokePattern)
         case .polygon(let shape):
@@ -1387,7 +1390,7 @@ private struct CSSWriter {
             let pairs = points.map {
                 "\(number(node.frame.width == 0 ? 0 : $0.x / node.frame.width * 100))% \(number(node.frame.height == 0 ? 0 : $0.y / node.frame.height * 100))%"
             }.joined(separator: ", ")
-            return ["background: \(paint(shape.fill))", "clip-path: polygon(\(pairs))"]
+            return ["background: \(paint(shape.fill,size: node.frame.size))", "clip-path: polygon(\(pairs))"]
         case .path(let shape):
             var declarations: [String] = []
             if shape.closed || shape.isMultiContour,
@@ -1398,7 +1401,7 @@ private struct CSSWriter {
                 // BUG-065: a custom property CAN hold a full CSS gradient, and the
                 // path SVG consumes it as its stroke — a gradient stroke survives
                 // handoff where CSS can express it.
-                declarations.append("--exp-path-stroke: \(paint(shape.stroke))")
+                declarations.append("--exp-path-stroke: \(paint(shape.stroke,size: node.frame.size))")
             }
             return declarations
         case .line(let shape):
@@ -1468,7 +1471,7 @@ private struct CSSWriter {
                 let left = padding.paddingLeft + padding.marginLeft
                 d.append("padding: \(number(top))px \(number(right))px \(number(bottom))px \(number(left))px")
             }
-            if let fill = padding.fill { d.append("background: \(paint(fill))") }
+            if let fill = padding.fill { d.append("background: \(paint(fill,size: node.frame.size))") }
             if padding.cornerRadius > 0 { d.append("border-radius: \(number(padding.cornerRadius))px") }
             if let stroke = padding.stroke {
                 d += border(color: stroke, width: padding.strokeWidth,
@@ -1498,23 +1501,23 @@ private struct CSSWriter {
         switch pattern { case .solid: return "solid"; case .dashed: return "dashed"; case .dotted: return "dotted" }
     }
 
-    private func paint(_ value: Paint) -> String {
+    private func paint(_ value: Paint,size: CGSize = CGSize(width: 1,height: 1)) -> String {
         if let mesh = value.meshValue {
-            return "\((try? mesh.cssBackground()) ?? "none"); --exp-mesh-v1: \"\((try? mesh.metadata()) ?? "")\""
+            return "\((try? mesh.cssBackground(size: size)) ?? "none"); --exp-mesh-v1: \"\((try? mesh.metadata()) ?? "")\""
         }
 
-        if let binding = DesignLanguageIO.firstAssetBinding(
+        if (value.gradientValue?.radial?.angle ?? 0) == 0,let binding = DesignLanguageIO.firstAssetBinding(
             matching: value, in: document.designLanguage) {
-            return "var(--\(binding.variableName), \(paintFallback(value)))"
+            return "var(--\(binding.variableName), \(paintFallback(value,size: size)))"
         }
-        return paintFallback(value)
+        return paintFallback(value,size: size)
     }
 
-    private func paintFallback(_ value: Paint) -> String {
+    private func paintFallback(_ value: Paint,size: CGSize = CGSize(width: 1,height: 1)) -> String {
         switch value {
         case .solid(let c):
             return color(c)
-        case .mesh(let m): return (try? m.cssBackground()) ?? "none"
+        case .mesh(let m): return (try? m.cssBackground(size: size)) ?? "none"
         case .pattern(let ref):
             // FEAT-062 Stage A — the pattern's own declared fallback, so every
             // export surface degrades to the same colour the canvas paints.
@@ -1532,7 +1535,7 @@ private struct CSSWriter {
             }.joined(separator: ", ")
             switch gradient.kind {
             case .linear: return "linear-gradient(\(number(cssGradientAngle(gradient.angle)))deg, \(stops))"
-            case .radial: return gradient.radialCSS(stops: stops)
+            case .radial: return gradient.radialCSS(stops: stops,size: size)
             }
         }
     }

@@ -132,6 +132,7 @@ enum SVGImporter {
     private final class FilterWarnings { var values: [String] = [] }
     private struct Context {
         var gradients: [String: GradientFill] = [:]
+        var radialServers: [String: (matrix: CGAffineTransform,userSpace: Bool)] = [:]
         var meshes: [String: MeshFill] = [:]
         var meshBounds: [String: CGRect] = [:]
         var meshStylesAreStatic = true
@@ -336,7 +337,7 @@ enum SVGImporter {
             ctx.filterWarnings.values.append("Separate Mesh stroke opacity is outside the editable collapse contract; retained supported pattern artwork.")
         }
 
-        if (style.fill?.isMesh == true || style.stroke?.isMesh == true),!isAxisAligned(local),
+        if (style.fill?.isMesh == true || style.stroke?.isMesh == true || style.fill?.gradientValue?.kind == .radial || style.stroke?.gradientValue?.kind == .radial),!isAxisAligned(local),
            ["rect","ellipse","circle","path","polygon","polyline"].contains(name) {
             let sx = hypot(local.a,local.b),sy = hypot(local.c,local.d)
             let dot = local.a*local.c + local.b*local.d
@@ -355,6 +356,71 @@ enum SVGImporter {
             }
             style.fill = retainedPattern(style.fill,property: "fill"); style.stroke = retainedPattern(style.stroke,property: "stroke")
             ctx.filterWarnings.values.append("Skewed or nonuniformly scaled vector Mesh carrier cannot retain editable paint geometry exactly; retained supported pattern artwork.")
+        }
+        // Resolve SVG bbox/user-space axes against the actual carrier, in
+        // physical points. A rotated matrix in normalized coordinates is usually
+        // skewed until this aspect correction has been applied.
+        let radialBounds: CGRect?
+        switch name {
+        case "rect": radialBounds = CGRect(x: length(el,"x",.horizontal,ctx),y: length(el,"y",.vertical,ctx),width: length(el,"width",.horizontal,ctx),height: length(el,"height",.vertical,ctx))
+        case "ellipse","circle":
+            let rx = length(el,name == "circle" ? "r" : "rx",.horizontal,ctx),ry = length(el,name == "circle" ? "r" : "ry",.vertical,ctx)
+            radialBounds = CGRect(x: length(el,"cx",.horizontal,ctx)-rx,y: length(el,"cy",.vertical,ctx)-ry,width: rx*2,height: ry*2)
+        case "path":
+            let outline = CGMutablePath()
+            for subpath in SVGPath.parse(el.attribute(forName: "d")?.stringValue ?? "") {
+                guard let first = subpath.points.first else { continue }
+                outline.move(to: first.point)
+                var previous = first
+                for point in subpath.points.dropFirst() {
+                    outline.addCurve(to: point.point,control1: previous.controlOut ?? previous.point,control2: point.controlIn ?? point.point)
+                    previous = point
+                }
+                if subpath.closed {
+                    outline.addCurve(to: first.point,control1: previous.controlOut ?? previous.point,control2: first.controlIn ?? first.point)
+                    outline.closeSubpath()
+                }
+            }
+            radialBounds = outline.isEmpty ? nil : outline.boundingBoxOfPath
+        case "polygon","polyline":
+            let values = numbers(el.attribute(forName: "points")?.stringValue ?? "")
+            let points = stride(from: 0,to: max(0,values.count-1),by: 2).map { PathPoint(point: CGPoint(x: values[$0],y: values[$0+1])) }
+            radialBounds = points.isEmpty ? nil : pointsBounds(points)
+        default: radialBounds = nil
+        }
+        if let bounds = radialBounds,bounds.width > 0,bounds.height > 0 {
+            func resolvedRadial(_ paint: Paint?,property: String) -> Paint? {
+                guard var g = paint?.gradientValue,g.kind == .radial else { return paint }
+                var carrier: XMLElement? = el
+                var server: (matrix: CGAffineTransform,userSpace: Bool)?
+                while let current = carrier {
+                    if let raw = resolvedProperties(for: current,ctx: ctx)[property],raw.hasPrefix("url("),
+                       let hash = raw.firstIndex(of: "#"),let close = raw[hash...].firstIndex(of: ")") {
+                        let id = String(raw[raw.index(after: hash)..<close]).trimmingCharacters(in: CharacterSet(charactersIn: "'\" "))
+                        server = ctx.radialServers[id]; break
+                    }
+                    carrier = current.parent as? XMLElement
+                }
+                guard let server else { return paint }
+                var t = server.matrix
+                if !server.userSpace {
+                    t = t.concatenating(CGAffineTransform(scaleX: bounds.width,y: bounds.height))
+                        .concatenating(CGAffineTransform(translationX: bounds.minX,y: bounds.minY))
+                }
+                t = t.concatenating(local)
+                let target = bounds.applying(local).standardized
+                let rx = hypot(t.a,t.b),ry = hypot(t.c,t.d)
+                guard rx > 0,ry > 0,abs(t.a*t.c+t.b*t.d) <= rx*ry*1e-7 else {
+                    ctx.filterWarnings.values.append("Skewed radial axes cannot be represented as perpendicular ellipse controls; centered fallback retained.")
+                    return paint
+                }
+                let geometry = RadialGradientGeometry(center: CGPoint(x: (t.tx-target.minX)/target.width,y: (t.ty-target.minY)/target.height),
+                    radius: CGSize(width: rx/target.width,height: ry/target.height),angle: RadialGradientGeometry.wrappedAngle(atan2(t.b,t.a)*180 / .pi))
+                if geometry.isValid { g.radial = geometry }
+                return .gradient(g)
+            }
+            style.fill = resolvedRadial(style.fill,property: "fill")
+            style.stroke = resolvedRadial(style.stroke,property: "stroke")
         }
         switch name {
         case "g", "svg", "a", "symbol":
@@ -1033,12 +1099,16 @@ enum SVGImporter {
                 let carrier = XMLElement(name: "g")
                 if let value = gradientAttr(chain,"gradientTransform") { carrier.addAttribute(XMLNode.attribute(withName: "transform",stringValue: value) as! XMLNode) }
                 let matrix = transform(carrier)
-                if units == "objectBoundingBox",abs(matrix.b) < 1e-9,abs(matrix.c) < 1e-9,abs(fx-cx) < 1e-9,abs(fy-cy) < 1e-9,frac(chain,"fr",0) == 0 {
-                    let radial = RadialGradientGeometry(center: CGPoint(x: cx,y: cy).applying(matrix),
-                        radius: CGSize(width: abs(r*matrix.a),height: abs(r*matrix.d)))
-                    if radial.isValid { g.radial = radial }
+                if ["objectBoundingBox","userSpaceOnUse"].contains(units),r > 0,
+                   abs(fx-cx) < 1e-9,abs(fy-cy) < 1e-9,frac(chain,"fr",0) == 0 {
+                    ctx.radialServers[id] = (CGAffineTransform(scaleX: r,y: r)
+                        .concatenating(CGAffineTransform(translationX: cx,y: cy)).concatenating(matrix),units == "userSpaceOnUse")
+                    if units == "objectBoundingBox",abs(matrix.b) < 1e-9,abs(matrix.c) < 1e-9 {
+                        let radial = RadialGradientGeometry(center: CGPoint(x: cx,y: cy).applying(matrix),radius: CGSize(width: abs(r*matrix.a),height: abs(r*matrix.d)))
+                        if radial.isValid { g.radial = radial }
+                    }
                 } else {
-                    ctx.filterWarnings.values.append("Radial gradient with user-space, rotated/skewed axes or a separate focal point is outside editable geometry support; centered fallback retained.")
+                    ctx.filterWarnings.values.append("Radial gradient with a separate focal point or unsupported units is outside editable geometry support; centered fallback retained.")
                 }
             }
             ctx.gradients[id] = g

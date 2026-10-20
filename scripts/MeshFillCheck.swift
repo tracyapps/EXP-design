@@ -74,7 +74,7 @@ private final class Page: NSObject, WKNavigationDelegate {
           document.body.style.cssText='margin:0;width:'+width+'px;height:'+height+'px;'+declarations;
           await new Promise(resolve => setTimeout(resolve,100));
           return getComputedStyle(document.body).getPropertyValue("--exp-mesh-v1").trim();
-          """,arguments: ["declarations":try background ?? mesh.cssDeclarations(),"width":width,"height":height],in: nil,contentWorld: .page)
+          """,arguments: ["declarations":try background ?? mesh.cssDeclarations(size: CGSize(width: width,height: height)),"width":width,"height":height],in: nil,contentWorld: .page)
         let encoded = try mesh.metadata()
         if background == nil { require(metadata as? String == "\"\(encoded)\"","CSS must retain exact bounded metadata") }
         require(try MeshFill.fromMetadata(encoded) == mesh,"CSS metadata must reconstruct point IDs/order")
@@ -119,6 +119,172 @@ private final class Page: NSObject, WKNavigationDelegate {
         DispatchQueue.global().asyncAfter(deadline: .now() + 90) { fail("mesh fixture timed out") }
         do { try await checks() } catch { fail("mesh: \(error)") }
     }
+    @MainActor static func checkEllipses(_ page: Page) async throws {
+        let legacy = MeshFill(base: .white,points: [MeshPoint(position: CGPoint(x: 0.4,y: 0.5),radius: 0.6,color: .black)])
+        let old = try legacy.metadata()
+        require(!String(data: Data(base64Encoded: old)!,encoding: .utf8)!.contains("angle"),"legacy Mesh bytes must omit new default fields")
+        require(try MeshFill.fromMetadata(old).metadata() == old,"legacy canonical Mesh metadata must stay byte stable")
+        let oldRadial = try JSONDecoder().decode(RadialGradientGeometry.self,from: Data("{\"center\":[0.5,0.5],\"radius\":[0.4,0.6]}".utf8))
+        require(oldRadial.angle == 0,"old radial geometry must default to zero angle")
+        for angle in [33.0,127.0,298.0] { for size in [CGSize(width: 128,height: 80),CGSize(width: 60,height: 144)] {
+            let rect = CGRect(origin: .zero,size: size),w = Int(size.width),h = Int(size.height)
+            let geometry = RadialGradientGeometry(center: CGPoint(x: 0.42,y: 0.57),radius: CGSize(width: 0.56,height: 0.17),angle: angle)
+            let a = angle * .pi/180
+            let primary = geometry.unitPoint(CGPoint(x: 1,y: 0),in: size)
+            let secondary = geometry.unitPoint(CGPoint(x: 0,y: 1),in: size)
+            let dx = (primary.x-geometry.center.x)*size.width,dy = (primary.y-geometry.center.y)*size.height
+            require(abs(dx-cos(a)*0.56*size.width) < 1e-8 && abs(dy-sin(a)*0.56*size.width) < 1e-8,"primary axis uses physical angle")
+            require(abs(dx*(secondary.x-geometry.center.x)*size.width+dy*(secondary.y-geometry.center.y)*size.height) < 1e-8,"ellipse axes must stay perpendicular")
+            var dragged = geometry
+            dragged.movePrimary(to: primary,in: size,limit: 4); dragged.moveSecondary(to: secondary,in: size,limit: 4)
+            require(abs(dragged.radius.width-geometry.radius.width)<1e-8 && abs(dragged.radius.height-geometry.radius.height)<1e-8 && abs(dragged.angle-angle)<1e-8,"axis drag geometry agrees with rendered handles")
+            let halfway = CGPoint(x: (primary.x+geometry.center.x)/2,y: (primary.y+geometry.center.y)/2)
+            require(abs(geometry.stopPosition(at: halfway,in: size)-0.5)<1e-8,"turned stop drag projects onto physical radius")
+            let point = MeshPoint(position: geometry.center,radius: geometry.radius.width,color: RGBAColor(r: 0.9,g: 0.2,b: 0.4,a: 0.7),opacity: 0.6,radiusY: geometry.radius.height,angle: angle)
+            let mesh = MeshFill(base: .white,points: [point])
+            require(try JSONDecoder().decode(MeshFill.self,from: JSONEncoder().encode(mesh)) == mesh,"independent Mesh axes/angle/ID survive save")
+            let ctx = CGContext(data: nil,width: w,height: h,bitsPerComponent: 8,bytesPerRow: 0,space: space,bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            ctx.translateBy(x: 0,y: size.height); ctx.scaleBy(x: 1,y: -1)
+            try PaintRender.drawMesh(mesh,in: rect,ctx: ctx)
+            let direct = pixels(ctx.makeImage()!),pdf = pixels(MeshPDFView(mesh: mesh,size: size).raster())
+            var expected: [Int] = []
+            for y in 0..<h { for x in 0..<w {
+                let x = Double(x)+0.5-geometry.center.x*size.width,y = Double(y)+0.5-geometry.center.y*size.height
+                let u = (cos(a)*x+sin(a)*y)/(0.56*size.width),v = (-sin(a)*x+cos(a)*y)/(0.17*size.height)
+                let opacity = max(0,1-hypot(u,v))*0.7*0.6
+                expected += [0.9,0.2,0.4,1].map { Int((($0*opacity+1-opacity)*255).rounded()) }
+            }}
+            let mathError = zip(direct,expected).map { abs($0-$1) }.max()!
+            let pdfError = zip(pdf,expected).map { abs($0-$1) }.max()!
+            require(mathError<=4 && pdfError<=5,"turned Mesh independent analytic native/PDF error \(mathError)/\(pdfError)")
+            let server = try mesh.svgPattern(name: "testEllipse",bounds: rect)
+            let svg = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"\(w)\" height=\"\(h)\"><defs>\(server.definition)</defs><rect width=\"\(w)\" height=\"\(h)\" fill=\"url(#\(server.id))\"/></svg>"
+            let browser = try await page.sample(svg,width: w,height: h)
+            let svgError = zip(direct,browser).map { abs($0-$1) }.max()!
+            let css = try await page.cssPixels(mesh,width: w,height: h)
+            let cssError = zip(direct,css).map { abs($0-$1) }.max()!
+            require(svgError<=8 && cssError<=8,"turned Mesh native/SVG/CSS errors \(svgError)/\(cssError)")
+            let cssValue = try mesh.cssBackground(size: size)
+            require(EllipseCSSBackground.verified(cssValue)?.paint == .mesh(mesh),"canonical Mesh vector CSS own import")
+            let changed = try EllipseCSSBackground(paint: .mesh(mesh),size: size).svg().replacingOccurrences(of: "fill-opacity=\"1.0\"",with: "fill-opacity=\"0.2\"")
+            require(EllipseCSSBackground.verified("url(\"data:image/svg+xml;base64,\(Data(changed.utf8).base64EncodedString())\")") == nil,"changed visual must invalidate ellipse metadata")
+            let extraction = RenderedHTMLExtractionScript.source(sourceName: "Ellipse",sourceURL: "file:///ellipse.html",viewport: RenderedHTMLViewport(name: "Ellipse",width: CGFloat(w),renderHeight: CGFloat(h)))
+            let snapshot = try await page.web.evaluateJavaScript(extraction) as! String
+            let mapped = try RenderedHTMLImporter().read(snapshotData: [Data(snapshot.utf8)])
+            require(mapped.payload.pages[0].artboards[0].background.meshValue == mesh,"real rotated Mesh CSS extraction/import retains axes/angle/ID")
+            var radial = GradientFill(kind: .radial,stops: [GradientStop(color: RGBAColor(r: 1,g: 0.2,b: 0.4,a: 0.6),position: 0),GradientStop(color: RGBAColor(r: 0.1,g: 0.5,b: 1,a: 0.6),position: 1)])
+            radial.radial = geometry
+            let board = Artboard(name: "Ellipses",frame: rect,background: .clear)
+            let radialNode = Node(name: "Radial",frame: rect,content: .rectangle(RectangleShape(fill: .gradient(radial),strokeWidth: 0)))
+            let renderer = ExportRenderer(document: Document(artboards: [board],nodes: [radialNode]))
+            let radialSVG = renderer.svgString(for: board)
+            let image = NSBitmapImageRep(data: renderer.pngData(for: board,scale: 1,transparentBackground: true)!)!.cgImage!
+            let radialBrowser = try await page.sample(radialSVG,width: w,height: h)
+            let radialError = zip(pixels(image),radialBrowser).map { abs($0-$1) }.max()!
+            require(radialError<=8,"turned radial native/SVG error \(radialError)")
+            let radialCSS = DesignLanguageIO.cssGradient(radial,size: size)
+            let radialCSSPixels = try await page.cssPixels(MeshFill(base: .white),width: w,height: h,background: "background: "+radialCSS+";")
+            var radialCSSError = 0; let native = pixels(image)
+            for pixel in 0..<(w*h) { for ch in 0..<3 { radialCSSError = max(radialCSSError,abs(native[pixel*4+ch]+255-native[pixel*4+3]-radialCSSPixels[pixel*4+ch])) }}
+            require(radialCSSError<=8,"turned radial native/CSS error \(radialCSSError)")
+            let imported = SVGImporter.importDocument(from: Data(radialSVG.utf8))!
+            let roundtrip = NSBitmapImageRep(data: ExportRenderer(document: Document(artboards: [board],nodes: [imported.group])).pngData(for: board,scale: 1,transparentBackground: true)!)!.cgImage!
+            let roundtripError = zip(native,pixels(roundtrip)).map { abs($0-$1) }.max()!
+            require(roundtripError<=8,"turned radial own SVG import error \(roundtripError)")
+            let radialSnapshot = try await page.web.evaluateJavaScript(extraction) as! String
+            let radialMapped = try RenderedHTMLImporter().read(snapshotData: [Data(radialSnapshot.utf8)])
+            require(radialMapped.payload.pages[0].artboards[0].background == Paint.gradient(radial),"real radial vector CSS extraction/import retains stops/axes/angle")
+            if angle == 33 && w == 128 {
+                func allNodes(_ node: Node) -> [Node] {
+                    if case .group(let children) = node.content { return [node]+children.flatMap(allNodes) }
+                    return [node]
+                }
+                for fill in [Paint.mesh(mesh),Paint.gradient(radial)] {
+                    let css = try fill.meshValue?.cssBackground(size: size) ?? DesignLanguageIO.cssGradient(radial,size: size)
+                    _ = try await page.cssPixels(MeshFill(base: .white),width: w,height: h,background: "background: "+css+";")
+                    _ = try await page.web.evaluateJavaScript("(()=>{ const child=document.createElement('div'); child.style.cssText=document.body.style.cssText; child.style.position='absolute'; child.style.left='0'; child.style.top='0'; document.body.style.background='transparent'; document.body.append(child); })()")
+                    let childSnapshot = try await page.web.evaluateJavaScript(extraction) as! String
+                    let childMapped = try RenderedHTMLImporter().read(snapshotData: [Data(childSnapshot.utf8)])
+                    let nodes = childMapped.payload.pages[0].nodes.flatMap(allNodes)
+                    let leaves = nodes.filter { if case .group = $0.content { return false }; return true }
+                    require(leaves.filter { $0.layerPaintStyle?.fill == fill }.count == 1,"canonical ellipse element must create exactly one editable fill")
+                    require(!nodes.contains { if case .image = $0.content { return true }; return false },"canonical ellipse must not duplicate its fill as an image")
+                    _ = try await page.web.evaluateJavaScript("document.body.firstElementChild.style.backgroundSize='50% 50%'")
+                    let staleSnapshot = try await page.web.evaluateJavaScript(extraction) as! String
+                    let staleMapped = try RenderedHTMLImporter().read(snapshotData: [Data(staleSnapshot.utf8)])
+                    require(!staleMapped.payload.pages[0].nodes.flatMap(allNodes).contains {
+                        if case .group = $0.content { return false }
+                        return $0.frame.size == size && $0.layerPaintStyle?.fill == fill
+                    },"changed CSS placement must invalidate full-size editable ellipse collapse")
+                }
+                print("PASS: actual element ellipse CSS imports once; changed background size rejects stale geometry")
+                let points = [PathPoint(point: CGPoint(x: 8,y: 14),controlOut: CGPoint(x: 22,y: -15)),
+                    PathPoint(point: CGPoint(x: 111,y: 20),controlIn: CGPoint(x: 87,y: 45)),
+                    PathPoint(point: CGPoint(x: 100,y: 65)),PathPoint(point: CGPoint(x: 12,y: 53))]
+                for content in [NodeContent.path(PathShape(points: points,closed: true,fill: .gradient(radial),stroke: .gradient(radial),strokeWidth: 3)),
+                                .polygon(PolygonShape(sides: 3,fill: .gradient(radial),stroke: .gradient(radial),strokeWidth: 3))] {
+                    let node = Node(name: "Radial geometry bounds",frame: rect,content: content)
+                    let renderer = ExportRenderer(document: Document(artboards: [board],nodes: [node]))
+                    let svg = renderer.svgString(for: board)
+                    let source = pixels(NSBitmapImageRep(data: renderer.pngData(for: board,scale: 1,transparentBackground: true)!)!.cgImage!)
+                    let browser = try await page.sample(svg,width: w,height: h)
+                    let imported = SVGImporter.importDocument(from: Data(svg.utf8))!
+                    let restored = pixels(NSBitmapImageRep(data: ExportRenderer(document: Document(artboards: [board],nodes: [imported.group])).pngData(for: board,scale: 1,transparentBackground: true)!)!.cgImage!)
+                    let mean = Double(zip(source,browser).map { abs($0-$1) }.reduce(0,+))/Double(source.count)
+                    let importMean = Double(zip(source,restored).map { abs($0-$1) }.reduce(0,+))/Double(source.count)
+                    if importMean >= 1 {
+                        for node in allNodes(imported.group) {
+                            if case .path(let ps) = node.content { print("DEBUG radial path frame \(node.frame) fill \(String(describing: ps.fill.gradientValue?.radial)) stroke \(String(describing: ps.stroke.gradientValue?.radial))") }
+                        }
+                        print("DEBUG source SVG \(svg)")
+                    }
+                    require(mean < 1 && importMean < 1,"curved path/triangle radial fill/stroke must use actual paint bounds; SVG/import mean \(mean)/\(importMean)")
+                    print("PASS: path/polygon turned radial fill/stroke SVG/import mean \(mean)/\(importMean)")
+                }
+                for fill in [Paint.mesh(mesh),Paint.gradient(radial)] {
+                    let child = Node(name: "Ellipse child",frame: CGRect(x: 5,y: 4,width: 82,height: 48),rotation: 25,opacity: 0.65,content: .rectangle(RectangleShape(fill: fill,strokeWidth: 0)))
+                    var group = Node(name: "Ellipse group",frame: CGRect(x: 13,y: 10,width: 100,height: 65),content: .group(children: [child])); group.flipH = true
+                    let renderer = ExportRenderer(document: Document(artboards: [board],nodes: [group]))
+                    let bytes = pixels(NSBitmapImageRep(data: renderer.pngData(for: board,scale: 1,transparentBackground: true)!)!.cgImage!)
+                    let svg = renderer.svgString(for: board)
+                    let browser = try await page.sample(svg,width: w,height: h)
+                    let svgError = zip(bytes,browser).map { abs($0-$1) }.max()!
+                    let imported = SVGImporter.importDocument(from: Data(svg.utf8))!
+                    let restored = pixels(NSBitmapImageRep(data: ExportRenderer(document: Document(artboards: [board],nodes: [imported.group])).pngData(for: board,scale: 1,transparentBackground: true)!)!.cgImage!)
+                    let importError = zip(bytes,restored).map { abs($0-$1) }.max()!
+                    // The independent backends antialias rotated silhouette edges
+                    // differently. Measure interior paint separately; retain edge
+                    // maxima/whole-image mean rather than hide those differences.
+                    let fullAlpha = fill.isMesh ? 166 : 99
+                    var interior = 0,interiorCount = 0
+                    for pixel in 0..<(w*h) where abs(bytes[pixel*4+3]-fullAlpha)<=1 && abs(browser[pixel*4+3]-fullAlpha)<=1 {
+                        interiorCount += 1
+                        for ch in 0..<4 { interior = max(interior,abs(bytes[pixel*4+ch]-browser[pixel*4+ch])) }
+                    }
+                    let mean = Double(zip(bytes,browser).map { abs($0-$1) }.reduce(0,+))/Double(bytes.count)
+                    require(interiorCount > 2000 && interior <= 8 && mean < 1 && importError <= 8,"nested flipped/rotated ellipse interior/mean/import errors \(interior)/\(mean)/\(importError), count \(interiorCount)")
+                    print("PASS: nested/flipped/rotated \(fill.isMesh ? "Mesh" : "radial") carrier SVG interior/edge/mean/import \(interior)/\(svgError)/\(mean)/\(importError)")
+                }
+            }
+            if angle == 33 && w == 128,let directory = CommandLine.arguments.dropFirst().first(where: { !$0.hasPrefix("--") }) {
+                let folder = URL(fileURLWithPath: directory).deletingLastPathComponent()
+                try FileManager.default.createDirectory(at: folder,withIntermediateDirectories: true)
+                var meshNode = radialNode; meshNode.id = UUID(); meshNode.name = "Mesh"; meshNode.frame.origin.y = size.height+24
+                meshNode.content = .rectangle(RectangleShape(fill: .mesh(mesh),strokeWidth: 0))
+                let fixture = Document(artboards: [Artboard(name: "Ellipse controls",frame: CGRect(x: 0,y: 0,width: 200,height: 230))],nodes: [radialNode,meshNode])
+                try JSONEncoder().encode(fixture).write(to: folder.appendingPathComponent("ellipse-controls.design"))
+            }
+            print("PASS: ellipse \(angle)° \(w)x\(h); Mesh math/PDF/SVG/CSS \(mathError)/\(pdfError)/\(svgError)/\(cssError); radial SVG/CSS/re-import \(radialError)/\(radialCSSError)/\(roundtripError)")
+        }}
+        for bad in [-0.1,4.1,Double.infinity] {
+            var invalid = legacy; invalid.points[0].radiusY = bad
+            rejects("invalid Mesh Y radius") { try invalid.validate() }
+        }
+        var invalid = legacy; invalid.points[0].angle = 361
+        rejects("unbounded Mesh angle") { try invalid.validate() }
+        print("PASS: legacy defaults/canonical metadata, bounded ellipse decoding, physical handles and stop projection")
+    }
+
     @MainActor static func checkPatternScale(_ page: Page) async throws {
         let board = Artboard(name: "Pattern scale",frame: CGRect(x: 0,y: 0,width: 128,height: 80))
         var review: Document?
@@ -400,6 +566,8 @@ private final class Page: NSObject, WKNavigationDelegate {
     @MainActor static func checks() async throws {
         _ = NSApplication.shared; NSApp.setActivationPolicy(.prohibited)
         let page = Page(); try await page.load()
+        try await checkEllipses(page)
+        if CommandLine.arguments.contains("--ellipses-only") { return }
         try await checkPatternExportRegression(page)
         try await checkPatternPlacement(page)
         if CommandLine.arguments.contains("--pattern-regression-only") { return }
