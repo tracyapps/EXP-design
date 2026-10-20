@@ -330,6 +330,16 @@ battery as a baseline, adding new meaningful telemetry/signup/license checks.
       strict signatures, Gatekeeper and staple checks. Font guard passes.
       `../releases/v2.7/README.md` and `receipts/artifact.json` hold the handoff.
 - [ ] Owner authorizes publication; immutable download exists before feed publication.
+      October 20 owner publishes GitHub release/ZIP. Downloaded public asset is
+      byte-identical: 11,737,880 bytes and SHA-256 above. Updater feed is still
+      2.6/17, and the v2.7 notes URL returns the SPA shell, not release notes.
+      Prepared `../releases/v2.7/publication/publish-feed-and-notes.patch` passes
+      `git apply --check`; not applied/pushed/deployed during this verification.
+      Owner authorizes source-tag correction: remote/local `v2.7` now point to
+      `d92e61f6a272f3cc29bdbf648590e4c1051276b1`, matching all 141 packaged inputs.
+      Exact-old force-with-lease guards the remote correction from df61e06.
+      Release ID 418990026 and ZIP asset ID 660809364, length and digest unchanged.
+      Receipt: `../releases/v2.7/receipts/published-verification/source-tag-correction.json`.
 - [x] Staged appcast signature/size/build/URL verified; historical entries retained
       (`--maximum-versions 0`, `--maximum-deltas 0`).
       Independent CryptoKit Ed25519 verification against shipped SUPublicEDKey;

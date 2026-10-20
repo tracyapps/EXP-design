@@ -3523,6 +3523,36 @@ font import → Phase 9, shadows → Phase 10._
 
 ## Progress Log
 
+- **2026-10-20 — Corrected published v2.7 source tag [internal].**
+  Owner asks Codex to correct the source tag. Recheck all 141 packaged file hashes
+  against d92e61f; they match. Move remote v2.7 from df61e06 to
+  d92e61f6a272f3cc29bdbf648590e4c1051276b1 with an exact-old force-with-lease,
+  verify the remote result, then create the matching local tag. GitHub release
+  ID 418990026 and ZIP asset ID 660809364, 11,737,880-byte length and SHA-256
+  remain unchanged. Receipt: `../releases/v2.7/receipts/published-verification/source-tag-correction.json`.
+  No branch/source commit or production feed/notes pushed. Feed/notes rollout
+  and actual owner v2.6→v2.7 update/relaunch remain before closure and 2.8/19.
+
+- **2026-10-20 — Published v2.7 ZIP verified; rollout/closure still pending [internal].**
+  Owner publishes GitHub v2.7 and asks what remains before 2.8. Fresh GitHub asset
+  download matches the prepared ZIP exactly: 11,737,880 bytes, SHA-256
+  `449a0c37bf073801f47e931402f5d56c16f61b75232f314bdeb1a75d9202f2dc`.
+  Actual live feed remains 2.6/build 17. The v2.7 HTML notes URL returns HTTP 200
+  but contains the SPA shell, not staged notes. Prepare a feed/notes patch that
+  passes git apply --check without applying/deploying it. Remote v2.7 tag points
+  to df61e06, missing final SettingsWindow/notes; d92e61f matches all 141 packaged
+  input hashes. Correct the public tag only with explicit authorization.
+  Installed `/Applications/design/EXP [design].app` remains 2.6/17; no live
+  updater/relaunch proof yet. Local production artifact recheck passes.
+  Raw HTTP, downloaded asset and exact status summary are under
+  `../releases/v2.7/receipts/published-verification/`. Initial Python HTTPS fetch
+  could not validate its local CA store; system curl with normal TLS succeeds.
+  Web-reader cache also shows older data; fresh gh/system HTTP are authoritative.
+  Remaining: publish feed/notes after verified existing ZIP, correct tag source,
+  and owner Check for Updates/install/relaunch plus preferences/doc continuity.
+  Do not mark 2.7 complete or bump to 2.8/19 until that release closure is settled.
+  No public metadata, production deployment, installed app or version modified.
+
 - **2026-10-20 — v2.7/build 18 package ready; publication pending [internal].**
   Signed universal archive and Developer ID export pass. Apple upload succeeds;
   the first notarized-export request reports normal processing, retained as a
