@@ -1,5 +1,82 @@
 # v2.7 release preparation — October 19, 2026
 
+## October 20 packaged artifact — ready for publication review
+
+Final signed/notarized universal 2.7/18 package:
+`/Users/tapps/_dev/apps/exp-design/releases/v2.7/EXP-design-v2.7.zip`.
+**11,737,880 bytes**; SHA-256
+`449a0c37bf073801f47e931402f5d56c16f61b75232f314bdeb1a75d9202f2dc`.
+
+Canonical durable handoff: `../releases/v2.7/README.md`. Receipts under that
+folder include signed archive/export checks, actual notarized export, clean app,
+ZIP round-trip, final font audit, exact frozen source inputs and artifact metadata.
+Archive: `/Users/tapps/Library/Developer/Xcode/Archives/2026-10-20/EXP design v2.7.xcarchive`.
+Developer ID team is unchanged. First notarized export exits 65 while Apple is
+processing; the later export and all actual staple/Gatekeeper checks succeed.
+The archive's cached processing-event field can still say processing; the successful
+notarized export and actual production checks establish the final artifact result.
+
+`publication/site-files/` contains prepared appcast and HTML notes. Independent
+CryptoKit Ed25519 verification uses the final ZIP bytes and public key from the
+shipped app; it passes. Build/version/length/macOS 26.2+/URLs agree, previous
+builds 17/16/15/14 are unchanged, and deltas are absent. The normal public workspace
+feed remains byte-identical at 2.6/17. Earlier 2.6 ZIP also remains unchanged.
+
+Website source gains three v2.7 summaries, gated on the feed version: isolated
+2.6 build hides them, staged 2.7/18 build includes them, and both builds pass.
+Exact website generator patch is retained under `publication/site-source.patch`.
+No full browser/a11y rerun is inferred from these static build/data assertions.
+The accepted native accessibility scope and unverified Full Keyboard Access limit
+remain recorded. No new paid/hosted/community/telemetry feature is enabled.
+
+App inputs are frozen as base `df61e06` plus preserved working patch and 141
+matching file hashes, not a newly created source commit/tag. Publication remains
+separate: publish and byte-check the immutable GitHub asset before feed/site,
+then owner verifies real v2.6→v2.7 update/relaunch and continuity. No commit,
+push, public asset/feed, deployment, owner app replacement or version bump occurred.
+
+## October 20 final addition — optional account links
+
+Owner authorizes the agreed Settings → General → EXP account section. The final
+owner-approved revision consolidates the original two links into **Account…**,
+opening `https://expdesign.app/account` with a native SwiftUI Link. Its explanation
+reads “Manage your account, or sign in/create a free account in your browser.”
+The link uses EXP's secondary button style (30-point minimum, following the
+larger-target preference), descriptive visible title and browser-action hint.
+Text explains private profile/email preferences/beta-feedback choices, optional
+account-free editing/export, website-only preferences and no settings/file sync.
+There is no native account session or new community/template/sharing feature.
+The website uses its own session to select the account or sign-in/create view;
+the app does not guess whether someone has an account. Optional native connection
+with verified identity/Manage/Disconnect is a future separately scoped auth slice,
+recorded under FEAT-069, not a current implementation or release blocker.
+
+Read-only live checks on October 20: both destinations return HTTP 200, and
+`GET https://expdesign.app/api/account` returns `ok: true`,
+`registrationOpen: true`, `user: null`. This proves current route/service
+availability, not another completed signup or email-delivery test. No account
+was created, email sent, configuration enabled or website deployed.
+
+Native Link semantics/hints checked against Apple's current documentation before
+coding; citations recorded under FEAT-069. Existing interface policy verification
+passes (`/tmp/exp-v27-account-settings-interface-20261020.log`), Sparkle setup
+2.7/18 passes (`/tmp/exp-v27-account-settings-sparkle-20261020.log`), backlog
+identity checks and `git diff --check` pass. Universal unsigned Release build
+receipt: `/tmp/exp-v27-account-settings-release-20261020.log`; final button-style
+build receipt: `/tmp/exp-v27-account-settings-final-release-20261020.log`.
+Both builds exit 0, including the final styled links for arm64 and x86_64;
+existing compiler warnings remain. This is unsigned compilation, not a signed
+distribution or a new end-to-end native-link activation test.
+The subsequent single-link revision has its own build receipt:
+`/tmp/exp-v27-account-unified-release-20261020.log`.
+It exits 0 for the universal Release build. Interface policy, backlog IDs and
+`git diff --check` also pass for this revision (matching `account-unified`
+interface/backlog logs in `/tmp`). No new runtime or full AT pass is inferred.
+No new full human AT or keyboard-only pass is inferred from this small addition;
+the earlier accepted evidence/limitations remain. Source baseline is `df61e06`
+plus the uncommitted account-entry/documentation changes, not a frozen archive.
+The signed/notarized packaging and publication sequence below remains pending.
+
 ## October 20 final native packaging review
 
 This addendum supersedes the remaining-order section below. The owner accepts

@@ -3549,6 +3549,27 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: feature
 - Priority: P1
 - Area: accounts · community · support
+- October 20 native entry point: Settings → General → EXP account offers
+  one “Account…” link in the default browser, with “Manage your account, or sign
+  in/create a free account in your browser.” Owner-approved consolidation
+  supersedes the initial separate manage/register links. Explains
+  private profile, email preferences and beta/feedback choices, optional use,
+  account-free editing/export, and website-only preferences/no settings or file
+  sync. No native session, account data or future community/template/sharing
+  functionality is implied. Public routes return HTTP 200; read-only account
+  status returns `ok: true`, `registrationOpen: true`, `user: null` on October 20.
+  Apple native Link titles/hints checked before implementation:
+  https://developer.apple.com/documentation/swiftui/link and
+  https://developer.apple.com/documentation/swiftui/view/accessibilityhint(_:).
+  These are SwiftUI links with descriptive visible titles and browser-action
+  hints; no HTML/ARIA change or full new AT verification is claimed.
+- Follow-up direction accepted October 20: optional native connection can later
+  show the verified account name, Manage account and Disconnect from this Mac;
+  disconnected state offers sign-in/create-account. This needs the separately
+  scoped system-browser authentication/callback/PKCE/Keychain flow, including
+  session expiry/revocation and disconnect verification. Browser login is not
+  silently inferred. Native authentication remains unimplemented and outside
+  the current v2.7 packaging slice; no template/sharing/cloud sync claim follows.
 - Status: account, beta/Pro, community, news and private tickets locally verified
   2026-10-17; hosted operator/privacy/retention and owner acceptance remain open
 - Owner scope 2026-10-16: profile, preferences, feedback/beta participation, Pro

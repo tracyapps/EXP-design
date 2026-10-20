@@ -318,6 +318,8 @@ struct SettingsGroup<Content: View>: View {
 }
 
 private struct GeneralSettingsPane: View {
+    private let accountURL = URL(string: "https://expdesign.app/account")!
+
     @AppStorage(AppPreferences.toolbarLabels) private var toolbarLabels = EXPToolbarLabels.automatic.rawValue
     @AppStorage(AppPreferences.restoreLayout) private var restoreLayout =
         AppPreferences.defaultRestoreLayout
@@ -357,6 +359,20 @@ private struct GeneralSettingsPane: View {
                 }
                 .buttonStyle(.exp(.secondary))
                 .accessibilityHint("Forgets the saved panel arrangement, column widths, and window mode.")
+            }
+
+            SettingsGroup("EXP account") {
+                Text("Keep a private profile, manage email preferences, and choose whether to participate in beta testing and feedback. An account is optional; editing and exporting remain available without one.")
+                    .fixedSize(horizontal: false, vertical: true)
+                Link("Account\u{2026}", destination: accountURL)
+                    .buttonStyle(.exp(.secondary))
+                    .accessibilityHint("Opens the EXP website in your browser to manage your account, sign in, or create a free account.")
+                Text("Manage your account, or sign in/create a free account in your browser.")
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("Account preferences apply to the website. App settings and design files aren’t synced.")
+                    .font(.expLabel)
+                    .foregroundStyle(EXPColor.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }

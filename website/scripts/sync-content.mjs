@@ -305,7 +305,28 @@ const testerLatestReleaseCopy = [
   },
 ];
 
-function buildTesterFeatures(phases) {
+function buildTesterFeatures(phases, release) {
+  const [major = 0, minor = 0] = (release?.version ?? "0.0").split(".").map(Number);
+  const v27Features = major > 2 || (major === 2 && minor >= 7) ? [
+    {
+      phase: "v2.7 — Color editing",
+      title: "Shape color directly on the canvas",
+      status: "done",
+      body: "Edit Mesh color points and radial gradients with matching ellipse handles, exact radius and angle fields, and a paint editor that stays open. Duotone and all twenty Color Matrix coefficients add image-color control.",
+    },
+    {
+      phase: "v2.7 — Patterns and geometry",
+      title: "Seamless patterns with independent placement",
+      status: "done",
+      body: "Repeat tiles seamlessly, scale and anchor each fill independently, and export patterns to SVG. Round polygon corners and flip rotated artwork along the canvas axes.",
+    },
+    {
+      phase: "v2.7 — Interface and workspace",
+      title: "A clearer interface across your workspace",
+      status: "done",
+      body: "Choose interface text size and larger click targets, read stronger labels, and work with named collapsible panels across displays. Settings also links to your optional free EXP account; app settings and files are not synced.",
+    },
+  ] : [];
   const phaseFeatures = testerPhaseCopy
     .map((copy) => {
       const phase = phases.find((item) => item.title.includes(copy.match));
@@ -322,7 +343,7 @@ function buildTesterFeatures(phases) {
     })
     .filter(Boolean);
 
-  return [...phaseFeatures, ...testerLatestReleaseCopy];
+  return [...phaseFeatures, ...v27Features, ...testerLatestReleaseCopy];
 }
 
 function buildTesterKnownIssues(backlog, limit = 4) {
@@ -409,7 +430,7 @@ const content = {
   release,
   learnVideos,
   roadmap: buildRoadmapCards(phases, progressLog),
-  testerFeatures: buildTesterFeatures(phases),
+  testerFeatures: buildTesterFeatures(phases, release),
   testerKnownIssues: buildTesterKnownIssues(backlog),
   progressLog,
   backlog,

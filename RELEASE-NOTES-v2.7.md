@@ -1,6 +1,6 @@
 # EXP [design] v2.7
 
-Release candidate notes — not yet published. Updated October 20, 2026.
+Version 2.7 / build 18 · October 20, 2026.
 
 ## More control over color, with handles that stay out of the way
 
@@ -40,6 +40,9 @@ patterns retain their original sizing until explicitly changed to fixed tile siz
 
 ## Interface and accessibility
 
+- Settings → General links to your optional free EXP account for your profile,
+  email preferences and beta/feedback choices. Account preferences apply to the
+  website; app settings and design files are not synced.
 - Settings → Accessibility offers independent interface text size, larger click
   targets and panel help choices. These settings leave document artwork intact.
 - Layer names use clear, standard macOS system typography. Small interface labels

@@ -3523,6 +3523,74 @@ font import → Phase 9, shadows → Phase 10._
 
 ## Progress Log
 
+- **2026-10-20 — v2.7/build 18 package ready; publication pending [internal].**
+  Signed universal archive and Developer ID export pass. Apple upload succeeds;
+  the first notarized-export request reports normal processing, retained as a
+  failed export attempt. A later export succeeds. Notarized export, clean copy
+  and extracted ZIP each pass production signatures, Gatekeeper and staple
+  checks. Final font guard passes; all 141 frozen input hashes still agree.
+  Final `../releases/v2.7/EXP-design-v2.7.zip`: **11,737,880 bytes**, SHA-256
+  `449a0c37bf073801f47e931402f5d56c16f61b75232f314bdeb1a75d9202f2dc`.
+  Root/staged ZIPs are byte-identical and read-only. Earlier 2.6 ZIP unchanged.
+  Stage Sparkle feed/notes outside the public workspace: independent CryptoKit
+  verification succeeds against shipped SUPublicEDKey; exact size/version/build,
+  macOS 26.2+ and URLs agree, builds 17/16/15/14 preserved and deltas disabled.
+  Website release summaries are gated on the public feed reaching 2.7; isolated
+  pre-feed build hides them, staged 2.7 build includes all three. Both builds pass.
+  Full package/receipts/publication order: `../releases/v2.7/README.md` and
+  `docs/RELEASE-CHECKLIST-v2.7.md`. Source base/working patch and input hashes are
+  retained; no new commit/tag made. Public feed/download remain 2.6/17.
+  Remaining: separately authorized source/tag/asset publication, verify downloaded
+  asset bytes before publishing feed/notes/site, then actual owner v2.6→v2.7
+  update/install/relaunch and document/preferences continuity. No app replacement,
+  publication, deployment, hosted flag or developer-version bump performed.
+
+- **2026-10-20 — v2.7/build 18 signed release preparation [internal].**
+  Owner accepts the final Account entry and asks to wrap up for release.
+  Freeze exact app/extension/helper/project/notes input hashes and preserve
+  base `df61e06` plus the binary working patch under `../releases/v2.7/receipts/`;
+  no commit/tag is inferred. Signed universal archive succeeds at
+  `/Users/tapps/Library/Developer/Xcode/Archives/2026-10-20/EXP design v2.7.xcarchive`.
+  Local release-candidate and font checks pass; app/thumbnail IDs and 2.7/18,
+  helper/thumbnail architectures, absent usage endpoint and unchanged 141 input
+  hashes independently checked. Existing compiler warnings remain. Developer ID
+  export/notarization/clean ZIP and staged Sparkle metadata are the remaining
+  artifact steps; publication stays separate. Public feed/download remain 2.6/17.
+  The owner's accessibility acceptance and Full Keyboard Access limitation are
+  preserved; accounts/community/payments/telemetry are not enabled by packaging.
+
+- **2026-10-20 — Consolidated browser account entry; native connection deferred [internal].**
+  Owner accepts one Account link plus “Manage your account, or sign in/create a
+  free account in your browser.” Replace the initial separate manage/register
+  links in General; preserve native Link behavior, secondary button styling,
+  browser hint, optional use and website-only/no-sync explanation. The website
+  uses its own browser session to show account or sign-in/create choices.
+  Native authenticated identity/Manage/Disconnect is an accepted future direction,
+  requiring a separate verified auth/callback/PKCE/Keychain slice under FEAT-069.
+  Current app does not detect browser sessions or store account credentials.
+  Updated build receipt: `/tmp/exp-v27-account-unified-release-20261020.log`.
+  Universal unsigned Release, interface policy, backlog IDs and diff checks pass;
+  existing compiler warnings and previously recorded AT limits remain.
+  No publication, account operation or native authentication enablement.
+
+- **2026-10-20 — Optional account entry point in native Settings [internal].**
+  Owner approves the small browser-link connection before packaging so future
+  community/templates/sharing can grow from a familiar place. General now has
+  an EXP account section with Open account and Create a free account links,
+  private-profile/email-preference/beta-feedback explanation, optional-account
+  wording and explicit website-only preferences/no app-settings or file sync.
+  Existing native settings, sessions, editing and exports are unchanged. Uses
+  standard SwiftUI Link behavior and descriptive titles/browser hints, checked
+  against Apple's Link/accessibilityHint docs (references in FEAT-069).
+  Read-only live route/status checks pass: account pages HTTP 200 and account
+  registration open. No account created, email sent or web service changed.
+  Final universal unsigned Release build passes (both architectures), as do
+  interface policy, Sparkle setup, backlog IDs and diff hygiene. Exact logs in
+  `RELEASE-READINESS-v2.7-2026-10-19.md`; existing warnings remain. Release notes
+  and checklist record this bounded addition; no future feature
+  availability or cross-device sync is promised. Build receipt follows in the
+  release-readiness addendum. No commit, publication or packaging performed.
+
 - **2026-10-20 — Owner accessibility acceptance and final native packaging review [internal].**
   Owner accepts extensive testing: VoiceOver sounds fine; contrast, interface
   text size, click areas and save/open look good. macOS will not enable Full

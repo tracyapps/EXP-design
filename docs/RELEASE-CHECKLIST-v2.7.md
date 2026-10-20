@@ -30,8 +30,9 @@ payment and license records live outside the repository; use sanitized summaries
       and registration superseded by the owner's system-font selection.
 - [x] Final standard-width system-font clean Debug build resource audit recorded;
       no OTF/TTF/WOFF/WOFF2 files present.
-- [ ] Signed release app/archive contains no restricted font payload; run
+- [x] Signed release app/archive contains no restricted font payload; run
       `bash scripts/verify_font_distribution.sh "APP" website/dist "design/EXP [design] Design System"`.
+      October 20 signed archive passes; durable `../releases/v2.7/receipts/archive-fonts.log`.
 - [x] Owner accepts actual standard system layer titles as “clean and clear” (Oct 16).
 - [ ] Full revised layer typography matrix in light/dark and Large interface type
       on both the 1x Cinema Display and a 2x display;
@@ -52,6 +53,10 @@ payment and license records live outside the repository; use sanitized summaries
 
 ## Signup and privacy gate
 
+- [x] October 20 native Settings → General exposes one optional “Account…” browser
+      link for managing/signing in/creating an account, clear benefits and website-only preferences/no
+      settings or file sync. Live pages and read-only registration availability
+      checked; no native sign-in/session or new hosted feature enablement.
 - [x] INFRA-007 local live Pro-record deletion requires a fresh email confirmation;
       15-minute single-use token, explicit POST and seven new DB cases verified.
 - [x] INFRA-008 standalone optional support page verified locally with no-JS fallback;
@@ -307,13 +312,34 @@ battery as a baseline, adding new meaningful telemetry/signup/license checks.
       October 20: accepted native story, interface/a11y work and keyboard limit;
       existing SVG inner-shadow spread/import limits disclosed. Internal pricing
       and campaign dates removed from user-facing notes. Public feed stays 2.6/17.
-- [ ] Version/build agree across app, thumbnail and runtimes; release source frozen.
-- [ ] Signed universal archive passes local release-candidate checks.
-- [ ] Notarized/stapled app and clean ZIP round trip pass production checks;
+- [x] Version/build agree across app, thumbnail and runtimes; release inputs frozen.
+      Base `df61e06c0e22ec7c8fb7854d1bd9b903d786c2d0` plus retained binary working
+      patch; 141 app/extension/helper/project/release-note SHA-256 records match
+      after archive. This is an exact working-source snapshot, not a new commit/tag.
+      Durable `../releases/v2.7/receipts/source-{base.txt,working.patch,build-inputs.json}`.
+- [x] Signed universal archive passes local release-candidate checks October 20.
+      Archive: `/Users/tapps/Library/Developer/Xcode/Archives/2026-10-20/EXP design v2.7.xcarchive`.
+      Receipts: `../releases/v2.7/receipts/archive.log`, `archive-check.log` and
+      `archive-extra-checks.txt`. App/thumbnail IDs and 2.7/18 agree; app, thumbnail,
+      exp-mcp and sanaa-runtime universal; usage collection endpoint absent.
+- [x] Notarized/stapled app and clean ZIP round trip pass production checks;
       SHA-256/final byte length recorded, old artifacts unchanged.
+      October 20: `../releases/v2.7/EXP-design-v2.7.zip`, **11,737,880 bytes**;
+      SHA-256 `449a0c37bf073801f47e931402f5d56c16f61b75232f314bdeb1a75d9202f2dc`.
+      Developer ID export, notarized export, clean app and ZIP extraction pass
+      strict signatures, Gatekeeper and staple checks. Font guard passes.
+      `../releases/v2.7/README.md` and `receipts/artifact.json` hold the handoff.
 - [ ] Owner authorizes publication; immutable download exists before feed publication.
-- [ ] Appcast signature/size/build/URL verified; historical entries retained
+- [x] Staged appcast signature/size/build/URL verified; historical entries retained
       (`--maximum-versions 0`, `--maximum-deltas 0`).
+      Independent CryptoKit Ed25519 verification against shipped SUPublicEDKey;
+      2.7/18, macOS 26.2+, exact ZIP length and immutable GitHub URL agree.
+      Builds 17/16/15/14 remain identical; no deltas. Prepared files are under
+      `../releases/v2.7/publication/site-files/`, not the public workspace feed.
+- [x] Staged website builds as 2.7/18, with three accepted release summaries.
+      Summaries are gated by the feed version; the 2.6 build keeps them hidden.
+      No account/community/telemetry flags enabled. Logs and generated-content
+      receipt: `../releases/v2.7/receipts/website-*-build.log`, `staged-site-content.json`.
 - [ ] Public download/feed/notes/site match final artifacts after authorized deployment.
 - [ ] Owner completes real v2.6→v2.7 update/install/relaunch, retaining preferences,
       recent docs, document access, file contents and free behavior.
