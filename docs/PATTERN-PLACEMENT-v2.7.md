@@ -99,6 +99,14 @@ showed an idle AppKit event loop, not a crash. Restarting only the disposable ap
 restored automation. Sanaa overlap and physical app-switch/multi-display behavior
 remain owner checks; cropped panel captures cannot establish cross-window stacking.
 
+## Owner acceptance — October 19 follow-up
+
+Owner confirms overlapping and window-order functions work on the multi-monitor
+setup. BUG-077's palette/Sanaa/app-switch/window-order review is resolved; earlier
+pending physical-ordering notes above are superseded by this report. Owner also
+verifies pattern anchoring October 19, closing BUG-079/081.
+Scaling/SVG are also accepted in the follow-up below; full AT remains open.
+
 ## Owner checks
 
 1. Two shapes sharing a tile: change only one anchor; move and resize it in both
@@ -116,3 +124,10 @@ remain owner checks; cropped panel captures cannot establish cross-window stacki
 References: [Apple window deactivation](https://developer.apple.com/documentation/appkit/nswindow/hidesondeactivate),
 [SVG paint servers](https://www.w3.org/TR/SVG/latest/pservers.html),
 [SVG coordinate systems/viewBox](https://www.w3.org/TR/SVG2/coords.html).
+
+## Remaining pattern owner review accepted — October 19
+
+Owner confirms seamless repeats, per-fill scaling and SVG export in real artwork/
+browser or Quick Look: “Yes, all three work.” BUG-076/080 and FEAT-075 are closed.
+Anchoring and window ordering were accepted separately in the same session.
+Full accessibility/source-library combinations remain release gates.

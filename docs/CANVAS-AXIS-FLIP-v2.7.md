@@ -1,6 +1,6 @@
 # Canvas-axis Flip — October 19, 2026
 
-Development 2.7/build 18 · BUG-078 · local fix, owner review pending.
+Development 2.7/build 18 · BUG-078 · local fix, owner-verified October 19.
 
 ## Report and correction
 
@@ -58,3 +58,9 @@ Rebuild in Xcode; duplicate your rotated bowtie triangle and flip it horizontall
 Then try Vertical, Undo/Redo and save/reopen. Repeat after Convert to Path and
 compare your exports. The displayed rotation may change: that is necessary to
 keep local storage transforms while reflecting along the canvas directions.
+
+## Owner acceptance — October 19 follow-up
+
+Owner confirms “the pattern anchoring and flip are also verified now as well.”
+The functional owner review is closed. Earlier pending-review notes are historical;
+full accessibility/export/source-library combinations remain release gates.

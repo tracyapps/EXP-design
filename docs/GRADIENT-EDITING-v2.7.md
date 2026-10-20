@@ -1,13 +1,14 @@
 # Gradient editing refinement — October 19, 2026
 
 Development 2.7/build 18. The owner accepts the initial Mesh functionality
-(“that works nicely”) and requests these refinements. This revision needs owner
-review; full accessibility/display/stress and component/library gates stay open.
+(“that works nicely”) and requested these refinements. Owner accepts the latest
+radial/Mesh handle updates October 19; full accessibility/display/stress and
+component/library gates stay open.
 
-October 19 follow-up: the persistent paint surfaces now use normal app ordering,
-dismiss on app deactivation and hand off cleanly to pattern editors. This supersedes
-the earlier high-window-level behavior. `PATTERN-POLISH-v2.7.md` has fresh receipts
-and the remaining physical multi-display/app-switch owner gate.
+October 19 final ordering: persistent paint surfaces float above normal EXP peers,
+hide/dismiss on app deactivation and hand off to editors/Settings/Sanaa. This
+supersedes the intermediate normal-level repair. Owner confirms overlap/window
+ordering on the physical multi-monitor setup; see `PATTERN-PLACEMENT-v2.7.md`.
 
 ## Observable changes
 

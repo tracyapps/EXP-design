@@ -71,9 +71,9 @@
 
   /* Text — opacity-tiered hierarchy (the app's system: 100/80/70/60). */
   --text-primary:   rgba(242, 242, 245, 1.00);
-  --text-secondary: rgba(242, 242, 245, 0.62);
-  --text-tertiary:  rgba(242, 242, 245, 0.42);
-  --text-quaternary:rgba(242, 242, 245, 0.28);
+  --text-secondary: rgba(242, 242, 245, 0.78);
+  --text-tertiary:  rgba(242, 242, 245, 0.70);
+  --text-quaternary:rgba(242, 242, 245, 0.69);
   --text-on-accent: #ffffff;
   --text-accent:    #4aa3ff;
   --text-brand:     var(--brand-lime);
@@ -137,9 +137,9 @@
     --row-selected: var(--accent-subtle);
 
     --text-primary:    rgba(20, 20, 22, 1.00);
-    --text-secondary:  rgba(20, 20, 22, 0.60);
-    --text-tertiary:   rgba(20, 20, 22, 0.40);
-    --text-quaternary: rgba(20, 20, 22, 0.26);
+    --text-secondary:  rgba(20, 20, 22, 0.76);
+    --text-tertiary:   rgba(20, 20, 22, 0.68);
+    --text-quaternary: rgba(20, 20, 22, 0.66);
     --text-accent:     #007aff;
     --text-brand:      #2aa516;   /* lime darkened for contrast on light      */
 
@@ -169,8 +169,8 @@
   --surface-field-focus:rgba(0,0,0,0.07); --surface-popover:rgba(255,255,255,0.82);
   --surface-toolbar:rgba(248,248,250,0.65);
   --row-hover:rgba(0,0,0,0.05); --row-active:rgba(0,0,0,0.08); --row-selected:var(--accent-subtle);
-  --text-primary:rgba(20,20,22,1); --text-secondary:rgba(20,20,22,0.60);
-  --text-tertiary:rgba(20,20,22,0.40); --text-quaternary:rgba(20,20,22,0.26);
+  --text-primary:rgba(20,20,22,1); --text-secondary:rgba(20,20,22,0.76);
+  --text-tertiary:rgba(20,20,22,0.68); --text-quaternary:rgba(20,20,22,0.66);
   --text-accent:#007aff; --text-brand:#2aa516;
   --hairline:rgba(0,0,0,0.10); --border-soft:rgba(0,0,0,0.08);
   --border-glass:rgba(255,255,255,0.7); --border-strong:rgba(0,0,0,0.16);

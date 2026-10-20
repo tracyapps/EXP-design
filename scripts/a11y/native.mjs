@@ -18,6 +18,10 @@ export async function nativeChecks({ root, output, interactive }) {
   const results = [], directory = path.join(output, 'native');
   await mkdir(directory, { recursive: true });
   if (process.platform !== 'darwin') return { results: [{ name: 'native-build', status: 'blocked', detail: 'Xcode and macOS required.' }] };
+  const contrast = await command('node', ['--test', 'scripts/a11y/chrome-contrast.test.mjs', 'scripts/a11y/voiceover.test.mjs'],
+    path.join(directory, 'chrome-contrast.log'), { cwd: root });
+  results.push({ name: 'native-chrome-contrast', status: contrast.code === 0 ? 'passed' : 'failed',
+    detail: 'Small-text color compositing across both appearances and bounded wallpaper extremes; real screenshots/AT remain separate.' });
   const derived = '/tmp/exp-a11y-derived';
   const destination = `platform=macOS,arch=${process.arch === 'arm64' ? 'arm64' : 'x86_64'}`;
   const build = await command('xcodebuild', ['-project', 'EXP [design].xcodeproj', '-scheme', 'EXP Accessibility', '-configuration', 'Debug',

@@ -38,7 +38,7 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: bug
 - Priority: P1 — owner regression report October 19, 2026
 - Area: canvas · color · model · inspector
-- Status: needs-verify
+- Status: done — owner verifies pattern anchoring October 19, 2026
 - Causes: CGPattern receives current CTM without AppKit's layer/default-space
   mapping; native stamp coordinates omit the implicit device transform. Anchor
   switching recomputes the phase at the corner instead of retaining its offset.
@@ -50,12 +50,15 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   complex combinations remain owner checks. `PATTERN-ANCHOR-REGRESSION-v2.7.md`.
 - API reference: Apple CGPattern matrix maps to default user space:
   https://developer.apple.com/documentation/coregraphics/cgpattern/init(info:bounds:matrix:xstep:ystep:tiling:iscolored:callbacks:) .
+- Owner acceptance October 19: “the pattern anchoring and flip are also verified
+  now as well.” Functional review is closed; broader AT/export combinations remain
+  in the release checklist.
 
 ### BUG-080 — SVG pattern phase/viewBox and fractional repeat mismatch
 - Type: bug
 - Priority: P1 — owner artwork report October 19, 2026
 - Area: export · color · canvas
-- Status: needs-verify
+- Status: done — owner verifies seamless repeats, per-fill scaling and real-artwork SVG export October 19, 2026
 - Confirmed causes: SVG loses document-space artboard offset and defaults to meet
   viewBox fitting while EXP stretches the tile; native tiled images round fractional
   repeat periods. Mesh overlays themselves match after those pattern corrections.
@@ -66,11 +69,15 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Acceptance: owner re-export/browser/Quick Look, nested/rotated/pattern-stroke matrix.
   `PATTERN-PLACEMENT-v2.7.md` records receipts, standards and limits.
 
+- Owner acceptance October 19: “Yes, all three work” in response to the
+  explicit seamless repeats/per-fill scaling/SVG browser or Quick Look check.
+  Full accessibility/source-library combinations remain release gates.
+
 ### BUG-079 — Shape pattern stretching and shared anchoring scope
 - Type: bug
 - Priority: P1 — owner report October 19, 2026
 - Area: model · color · inspector · canvas
-- Status: needs-verify
+- Status: done — owner verifies pattern anchoring October 19, 2026
 - Confirmed cause: anchoring edits the shared PatternSource units, and Shape uses
   objectBoundingBox fractions, so all uses change and motifs stretch during resize.
 - Fix: per-reference placement, frozen physical tile basis on explicit anchor change;
@@ -80,12 +87,15 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Evidence: native independent fills/nonuniform resize/Undo/save, fixed-size model
   checks, codec/appearance and 135% native/SVG parity. Owner two-fill test and
   full library/instance/stroke/AT matrix remain. `PATTERN-PLACEMENT-v2.7.md`.
+- Owner acceptance October 19: “the pattern anchoring and flip are also verified
+  now as well.” Functional review is closed; broader AT/export combinations remain
+  in the release checklist.
 
 ### BUG-078 — Flip uses local axes on rotated triangles/paths
 - Type: bug
 - Priority: P2 — owner report October 19, 2026
 - Area: canvas · inspector · transforms
-- Status: needs-verify
+- Status: done — owner verifies pattern anchoring and Flip October 19, 2026
 - Repro/Detail: Rotated three-sided bowtie triangles appear unchanged with Horizontal
   Flip; conversion to a path preserves the issue. Commands toggled local flags before
   rotation instead of reflecting along canvas horizontal/vertical directions.
@@ -99,26 +109,30 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   confirm both. `CANVAS-AXIS-FLIP-v2.7.md` records receipts and remaining matrix.
 - Acceptance: owner bowtie document, both directions, Undo/save/export; full release
   combinations remain open.
+- Owner acceptance October 19: “the pattern anchoring and flip are also verified
+  now as well.” Functional review is closed; broader AT/export combinations remain
+  in the release checklist.
 
 ### BUG-077 — Persistent paint palette covers editors and other apps
 - Type: bug
 - Priority: P1 — regression reported October 19, 2026
 - Area: color · chrome · windows
-- Status: needs-verify
+- Status: done — owner confirms overlap/window ordering on physical multi-monitor setup October 19, 2026
 - Confirmed cause: persistent application-defined palette inherited the old global
   popUpMenu level. First repair used normal ordering, then owner found it below
   Sanaa. Current paint/color/stop palettes float above normal EXP peers, hide on
   app deactivation and dismiss on Settings/source-editor/Sanaa response handoff.
   Clear presentation before closing so document updates cannot re-open the palette.
 - Acceptance: Canvas editing keeps the palette; pattern editing and app switching
-  dismiss it; native handoff/return/Done verified, owner multi-display check remains.
+  dismiss it; native handoff/return/Done verified. Owner confirms overlapping and
+  window-order functions work on the multi-monitor setup October 19.
 - Evidence: `PATTERN-PLACEMENT-v2.7.md`; build, native handoffs and transient-surface contract pass.
 
 ### BUG-076 — Thin gaps between fractional pattern repeats
 - Type: bug
 - Priority: P1 — owner report October 19, 2026
 - Area: color · canvas · export
-- Status: needs-verify
+- Status: done — owner verifies seamless repeats, per-fill scaling and real-artwork SVG export October 19, 2026
 - Confirmed causes: requested tile density did not cover the rounded bitmap extent;
   independently antialiased repeat rectangles added another transparent join.
   Exact extent mapping plus a continuous tiled sampler passes opaque/translucent
@@ -126,6 +140,10 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Acceptance: Owner paisley tile and exports have no introduced joins; intentionally
   transparent artwork remains transparent. Fresh regression: 96/96 pattern checks;
   real dense-fill cache parity passes. `PATTERN-POLISH-v2.7.md`.
+
+- Owner acceptance October 19: “Yes, all three work” in response to the
+  explicit seamless repeats/per-fill scaling/SVG browser or Quick Look check.
+  Full accessibility/source-library combinations remain release gates.
 
 ### BUG-075 — Pattern creation leaks into a path-anchor menu
 - Type: bug
@@ -251,7 +269,7 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: bug
 - Priority: P1
 - Area: accessibility · chrome · inspector
-- Status: open — automated findings captured; human/VoiceOver triage pending
+- Status: release-accepted 2026-10-20 — bounded repairs locally checked; owner accepts extensive testing, with retained observations and Full Keyboard Access unverified
 - Repro/Detail: INFRA-009's real Xcode UI audit on an isolated v2.7/build 18
   default editor fixture collected 27 findings in one pass: nine missing
   descriptions, five missing actions, six contrast failures, three near-threshold
@@ -280,6 +298,42 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Sources: Apple app accessibility audits and installed XCUIAutomation/AX APIs;
   https://developer.apple.com/documentation/accessibility/performing-accessibility-audits-for-your-app
   Exact matrix/setup/evidence boundaries: `ACCESSIBILITY-VERIFICATION.md`.
+
+- October 19 release refresh: full native suite records 10 passing tests, seven
+  failed, one focus-permission skip and 36 audit observations. Real VoiceOver
+  smoke does not reach both core control and canvas. Three failing cases use
+  obsolete test selectors; all three corrected journeys pass in fresh isolated apps.
+  Other failures remain unresolved; saved detached-workspace interference is a
+  hypothesis. Final isolated run: four passing journeys / one failed audit / zero
+  skipped; clean audit has 31 observations (11 descriptions, five actions, 12
+  contrast, two near-threshold, one hierarchy). Default image check passes alone.
+  `RELEASE-READINESS-v2.7-2026-10-19.md` has receipts and boundaries.
+
+- October 20 repairs: named button semantics for detached headers/tear-out; readable
+  text tiers and filename extension; bounded glass background; named artboard
+  controls; scrollable Design Language instructions outside its view bar. Duplicate
+  hover help no longer redirects VoiceOver away from its source control. Source
+  control accessibilityHint remains complete, and actual hover/Escape checks pass.
+  Real VoiceOver navigation now passes (44 moves to Select + Design canvas).
+  Final named-control, viewport/bar geometry, detached header/settings/reveal and
+  primary-display regressions pass. Test-only preferences are reset between cases;
+  within-case persistence remains tested. Five text/reader guards and Debug builds
+  pass. The direct AX focus permission gap, named-menu activation, two remaining
+  contrast locations and human task/appearance checks remain; no broad AT pass.
+- October 20 owner disposition: VoiceOver sounds fine; contrast, text size, click
+  areas and save/open look good in owner testing. macOS will not enable Full
+  Keyboard Access, so keyboard-only remains environment-blocked/unverified.
+  Owner accepts this release evidence and proceeds toward packaging. Retain the
+  raw audit observations without suppression or inferred conformance. Any
+  confirmed user-reported accessibility barrier takes high-priority hotfix work.
+- Standards rechecked before native naming/semantics changes: Apple
+  https://developer.apple.com/documentation/swiftui/view/accessibilitylabel(_:)-9ek2h ,
+  https://developer.apple.com/documentation/swiftui/view/accessibilityhidden(_:) ,
+  https://developer.apple.com/documentation/appkit/nsaccessibilityprotocol ; contrast
+  threshold: https://www.w3.org/WAI/WCAG21/Understanding/contrast-minimum.html .
+  Group traversal follows Apple's VoiceOver guide and this Mac's public scripting
+  dictionary. No ARIA role/state/HTML changes. All scope/receipts/remaining tasks:
+  `NATIVE-ACCESSIBILITY-CLOSURE-v2.7.md`.
 
 ### BUG-068 — Eyedropper shortcut steals `i` while renaming or typing
 - Type: bug
@@ -3287,7 +3341,7 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: feature
 - Priority: P2 — owner request October 19, 2026, next v2.7 slice
 - Area: color · canvas · inspector · model · export
-- Status: needs-verify — owner explicitly authorized the radial-controls slice October 19
+- Status: done — owner resolves latest radial/Mesh handle updates October 19, 2026
 - Detail: Independent X/Y radii and angle, matching center/axis handles for radial
   fill and each Mesh point. Primary radius can turn around the center; secondary
   axis narrows/widens the ellipse. Stop/color selection stays active in the palette.
@@ -3297,14 +3351,15 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   Matching handles and exact percentage/angle fields now share the physical ellipse
   transform across native/PDF/SVG/HTML; legacy defaults and bounded own-import survive.
   Full math/render, native drag/Undo/save/reopen, appearance/interface/Handoff and
-  app/thumbnail checks pass locally; owner/full AT and interaction matrix remains.
+  app/thumbnail checks pass locally; owner accepts latest handle interactions.
+  Full AT/source-library/export/display matrix remains a release gate.
   Standards/naming citations and measured error/automation limits are in that document.
 
 ### FEAT-075 — Per-fill pattern scale
 - Type: feature
 - Priority: P2 — owner-requested v2.7 polish October 19, 2026
 - Area: model · color · canvas · inspector · export
-- Status: needs-verify
+- Status: done — owner verifies seamless repeats, per-fill scaling and real-artwork SVG export October 19, 2026
 - Detail: Each pattern reference stores its own default-100% scale. Picker slider
   1–400%, exact field 1–10,000%; Object/context Pattern Scale dialog validates a
   single unlocked shape. Shared tile/anchor and other uses stay unchanged. Slider
@@ -3317,6 +3372,10 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Naming: descriptive native slider/percentage field follows Apple's labels/value
   API: https://developer.apple.com/documentation/swiftui/accessibility-fundamentals .
   No ARIA host changes; full VoiceOver interaction is not claimed.
+
+- Owner acceptance October 19: “Yes, all three work” in response to the
+  explicit seamless repeats/per-fill scaling/SVG browser or Quick Look check.
+  Full accessibility/source-library combinations remain release gates.
 
 ### FEAT-074 — Editable polygon corner radius
 - Type: feature
@@ -6200,11 +6259,12 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: feature
 - Priority: P1 — selected for v2.7 on 2026-10-18
 - Area: color · canvas · export
-- Status: needs-verify — editable Mesh Paint, numeric controls/point actions,
+- Status: done — owner accepts initial Mesh and latest radial/Mesh handle updates
+  October 19, 2026. Editable Mesh Paint, numeric controls/point actions,
   shape position/radius handles and shared export/strict own-import implemented
   October 18. Owner accepted initial editable functionality October 19; requested
   point selection, persistent popup, radial handles and navigation refinements are
-  locally checked and await owner review. `GRADIENT-EDITING-v2.7.md` supplements
+  locally checked and owner-accepted October 19. `GRADIENT-EDITING-v2.7.md` supplements
   `MESH-FILL-VERIFICATION-v2.7.md` with scope, limits and fresh receipts.
 - Native naming/selected state checked against Apple accessibilityLabel and
   accessibilityTraits.isSelected: https://developer.apple.com/documentation/swiftui/view/accessibilitylabel(_:)-1d7jv

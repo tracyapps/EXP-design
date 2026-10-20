@@ -1306,7 +1306,7 @@ from the appcast; a development plan does not change the published release.
 - [x] Owner accepts Color Matrix on actual images, including drag Undo,
       save/reopen, export and normal panel/display/keyboard use before Mesh.
       Accepted October 18: “that works well, and all exports looked good as well.”
-- [ ] FEAT-033: prove layered-radial native/CSS/SVG and re-import contract, then
+- [x] FEAT-033: prove layered-radial native/CSS/SVG and re-import contract, then
       implement Mesh fill/on-object plus numeric editing; owner accepts.
       Work is sequential; notes accepted October 18. Dated work cards and
       acceptance: `VISUAL-FEATURES-v2.7.md`; Nov 6 scope/date review precedes freeze.
@@ -1319,25 +1319,33 @@ from the appcast; a development plan does not change the published release.
       bounded shared native/export, canonical SVG and verified CSS own-import.
       `MESH-FILL-VERIFICATION-v2.7.md` records honest limits and local evidence.
 - [x] Owner accepts initial editable Mesh functionality October 19: “that works nicely.”
-- [ ] Owner accepts October 19 gradient refinements: clear point selection/color dots,
+- [x] Owner accepts October 19 gradient refinements: clear point selection/color dots,
       persistent editor, radial center/radius handles and padded icon/text navigation.
       `GRADIENT-EDITING-v2.7.md` records native checks and remaining matrix.
-      Color grouping, full components/library, exports and keyboard/AT remain gates.
+      Latest radial/Mesh handle updates accepted October 19. Full components/library,
+      exports and keyboard/AT remain release gates.
 - [x] Owner accepts BUG-075 / FEAT-074 functional behavior October 19: corner radius
       “works great” and point menu “feels better.” Wider release matrix remains open.
-      `POLYGON-ROUNDING-v2.7.md`. Gradient review remains separate.
-- [ ] Owner accepts BUG-076 / BUG-077 / FEAT-075 pattern polish: seamless fractional
-      tiles, per-fill scale/Undo/save/export and app-local persistent palette ordering.
+      `POLYGON-ROUNDING-v2.7.md`. Latest gradient handles are also accepted.
+- [x] Owner accepts BUG-076 / FEAT-075 pattern polish October 19: seamless fractional
+      tiles and per-fill scale/Undo/save/export; palette ordering is accepted below.
       Follow-up BUG-079/080 covers per-fill fixed-size anchoring and real SVG phase/
       viewBox/precision. `PATTERN-PLACEMENT-v2.7.md` records current owner steps;
       old imported Shape fractions need one explicit Keep imported tile size fixed.
-- [ ] Owner accepts BUG-081 native pan/move/no-jump anchor repair; real native
+- [x] Owner accepts BUG-081 native pan/move/no-jump anchor repair October 19; real native
       and AppKit context tests pass. `PATTERN-ANCHOR-REGRESSION-v2.7.md`.
 - [x] FEAT-076 local matching radial/Mesh ellipse axes and rotation, explicitly
       authorized by owner October 19. `GRADIENT-ELLIPSES-v2.7.md` records evidence.
-- [ ] Owner accepts FEAT-076 handles/fields, Undo/save, exports and full matrix;
-      BUG-081 physical/full review remains a separate gate.
-- [ ] Owner accepts BUG-078 canvas-axis Flip repair. Rotated bowtie-triangle report
+- [x] Owner accepts FEAT-076 latest radial/Mesh handles October 19.
+      Full export/AT/source-library matrix remains a separate release gate.
+      BUG-081 anchoring is also owner-accepted October 19.
+- [x] Owner accepts BUG-080 real-artwork SVG export/browser or Quick Look review
+      October 19, alongside seamless repeats and per-fill scaling.
+- [x] Owner accepts BUG-079 per-fill anchoring and BUG-081 pan/anchor continuity
+      October 19. BUG-080 SVG fidelity and FEAT-075 scale are also owner-accepted October 19.
+- [x] Owner confirms latest palette overlap and multi-monitor window ordering
+      October 19, closing BUG-077. Pattern scale/SVG export checks above are also accepted.
+- [x] Owner accepts BUG-078 canvas-axis Flip repair October 19. Rotated bowtie-triangle report
       identifies local-axis command behavior; shared helper now adjusts local flags
       and rotation. Native polygon/converted-path plus Undo/Redo and bounded geometry/
       export checks pass. `CANVAS-AXIS-FLIP-v2.7.md` records the remaining matrix.
@@ -1360,6 +1368,10 @@ from the appcast; a development plan does not change the published release.
       Drawing toolbar labels live in General, with explicit icons/text/VoiceOver
       choices. Properties notes, inset fields and Pathfinder refinement: BUG-070.
       Existing preference choices are preserved. Verification/scope: `ACCESSIBILITY-VERIFICATION.md`.
+- [x] October 20 owner accepts extensive native accessibility testing for v2.7;
+      VoiceOver, contrast, text size, click areas and save/open look good.
+      Full Keyboard Access remains environment-blocked/unverified. Retain raw
+      observations; confirmed user barriers receive high-priority hotfix work.
 - [x] **FEAT-071 / BUG-071 / BUG-072 authoring and window fixes implemented:**
       create the first pattern from its empty library/fill picker; direct fill-editor
       opening; editable pattern/component bounds and Fit to Artwork; peer tray
@@ -3510,6 +3522,92 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-10-20 — Owner accessibility acceptance and final native packaging review [internal].**
+  Owner accepts extensive testing: VoiceOver sounds fine; contrast, interface
+  text size, click areas and save/open look good. macOS will not enable Full
+  Keyboard Access, so keyboard-only remains environment-blocked/unverified.
+  Record release acceptance without suppressing retained audit observations or
+  claiming conformance; confirmed accessibility barriers receive high-priority
+  investigation and hotfix treatment. BUG-069 and the closure guide record this
+  explicit decision. Optional hosted accounts/telemetry, paid-offer testing and
+  campaign milestones remain separate from this native packaging request.
+  Final release notes describe the accepted editing features, interface repairs
+  and known SVG/import limits, with internal launch dates/pricing removed.
+  Packaging review finds Sparkle's notices absent from the app resources: add
+  the exact license/external notices from pinned Sparkle 2.9.4, and make the
+  release-candidate script require a matching bundled copy. App identity and
+  telemetry endpoint remain unchanged; usage collection is still unavailable.
+  Final-source unsigned universal Release and five reader/contrast guards pass;
+  interface policy, appearance, transient ordering and Sparkle setup checks pass.
+  Final payload receipt follows in `RELEASE-READINESS-v2.7-2026-10-19.md`.
+  Next: freeze source, signed universal archive, signed font/payload checks,
+  notarization/stapling/clean ZIP and immutable hash/size, then separately
+  authorized publication and real v2.6→v2.7 update/relaunch continuity.
+  No commit, push, signing, notarization, deployment or public version change.
+
+- **2026-10-20 — Native accessibility repairs and a usable verification handoff, BUG-069 [internal].**
+  Owner supplies `output/a11y/2026-10-20T14-01-30-987Z/` and confirms manually
+  reviewing the website's gradient contrast. Native baseline: 13 passes / four
+  failed cases / one permission skip; website source remains unchanged.
+  Detached tray headers are now actual named collapse/expand buttons, with
+  decorative icons excluded and tear-out named. New artboard/preset controls and
+  native document controls have explicit names. Text tiers are more readable in
+  both appearances and synchronized with canonical CSS tokens; behind-window
+  chrome bounds wallpaper contrast and the filename extension is no longer 30%
+  opacity. Design Language's view bar reserves physical layout space and its
+  empty instructions wrap/scroll; the viewport/bar geometry check passes.
+  The real reader exposed a separate hover-window trap: it repeated “Keyboard
+  shortcut: V.”. Hide only that redundant accessibility subtree; the original
+  control retains its complete hint, and visual hover/escape behavior is preserved.
+  **Real VoiceOver now passes**: Select and Design canvas reached in 44 moves,
+  with speech retained at `native-closure-tooltip-final-20261020/voiceover-transcript.json`.
+  Native hover appearance/AX exclusion/Escape check passes. Detached headers,
+  Settings/reveal/Properties checks pass, including a final primary-display run.
+  Test setup resets only generated fixture preferences between cases, retaining
+  within-case persistence; both usage tests and the image check pass in the full
+  repair run. Position disposable windows on the primary display for XCTest's
+  menu traversal after secondary-display menu-notification timeouts; physical
+  multi-monitor proof remains separate. Reader startup uses NSWorkspace instead
+  of the timed-out System Events lookup and understands group interaction.
+  Final Debug app/thumbnail/helper/UI-test builds and five contrast/reader guards
+  pass; unsigned universal Release passed before the later layout/tooltip repairs.
+  Compiler warnings remain. Native audit still fails: post-tooltip snapshot has
+  14 retained observations (six disabled descriptions, five menu actions, two
+  contrast, one disabled hierarchy); different screen contexts preclude a numeric
+  before/after score. Direct AX focus assertion remains a permission skip.
+  No blanket suppression or full human AT claim. Exact results, failed attempts,
+  official references and three owner tasks: `NATIVE-ACCESSIBILITY-CLOSURE-v2.7.md`.
+  Native-only reports now give scoped, actionable manual checks instead of an
+  unrelated web/braille checklist. No model/export changes, commit, push, deploy,
+  release or edits to owner documents/preferences.
+
+- **2026-10-19 — Owner closes gradient/pattern/window reviews; v2.7 release preparation [internal].**
+  Owner resolves latest radial/Mesh handles (FEAT-033/076), overlapping palettes /
+  physical multi-monitor ordering (BUG-077), pattern anchoring (BUG-079/081) and
+  Flip (BUG-078). Explicit follow-up also accepts seamless repeats, per-fill scale
+  and real-artwork SVG/browser or Quick Look (BUG-076/080, FEAT-075). Backlog,
+  feature receipts and checklist reconciled; full AT/display/source-library gates
+  remain distinct. Release notes now describe accepted visual/editing changes and
+  export limits without advertising a public v2.7 release.
+  Fresh unsigned universal Release build, Debug UI-test build, font guard,
+  Sparkle 2.7/18 setup, Mesh/radial/PDF/SVG/CSS, Color Matrix, Handoff, SVG patterns,
+  appearance/interface/window contracts and all sixteen core regression scripts
+  pass. Node/path performance, source bounds and real stress-document cache parity
+  pass; 154 service tests plus native consent/wire checks and 201 web cases pass.
+  Web scans retain 86 distinct review findings. Native full run is not green:
+  10 pass / 7 fail / 1 skipped, 36 audit observations, failed real-reader smoke.
+  Final fresh-identity run: four passes / one failed audit / zero skipped; clean
+  audit retains 31 observations. Default decorative-image check passes in isolation.
+  Three cases use stale picker names/roles; four selector references corrected
+  in tests only; all three focused fresh-identity reruns pass with no skips. Other
+  failures stay open; test-order interference is not presumed to be a product pass.
+  A focused setup attempt omitted fixture directories and ran no app behavior;
+  retained separately from corrected preparation. Exact logs, results and next
+  release gates: `RELEASE-READINESS-v2.7-2026-10-19.md`.
+  Next: close BUG-069 and full owner AT/display/core-workflow evidence, then signed
+  archive/notarization and real v2.6→v2.7 continuity. No commit, push, deployment,
+  feed publication, provider mail or paid-feature enablement. Public v2.6 unchanged.
 
 - **2026-10-19 — Matching radial/Mesh ellipse controls [internal].**
   Owner explicitly authorizes FEAT-076. Both fill types have independent axes and

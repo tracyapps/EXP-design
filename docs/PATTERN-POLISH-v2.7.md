@@ -119,3 +119,10 @@ behavior has changed in this pattern slice.
 Follow-up implemented in the subsequent local slice: `CANVAS-AXIS-FLIP-v2.7.md`
 records the corrected canvas-axis command and fresh native/geometry/render proof.
 The initial report is no longer awaiting reproduction details; owner review remains.
+
+## Remaining pattern owner review accepted — October 19
+
+Owner confirms seamless repeats, per-fill scaling and SVG export in real artwork/
+browser or Quick Look: “Yes, all three work.” BUG-076/080 and FEAT-075 are closed.
+Anchoring and window ordering were accepted separately in the same session.
+Full accessibility/source-library combinations remain release gates.

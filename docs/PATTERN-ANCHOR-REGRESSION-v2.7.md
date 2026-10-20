@@ -1,6 +1,6 @@
 # Pattern pan and anchor continuity — October 19, 2026
 
-Development 2.7/build 18 · BUG-081 · local repair, owner verification pending.
+Development 2.7/build 18 · BUG-081 · local repair, owner-verified October 19.
 Supersedes the canvas coordinate handling and anchor-switch behavior described in
 `PATTERN-PLACEMENT-v2.7.md`; the fixed tile sizing and export corrections remain.
 
@@ -93,3 +93,9 @@ coverage is claimed. Keyboard movement, anchor switches, Undo/Redo/save continue
 The requested matching radial/Mesh ellipse controls are recorded as FEAT-076 in
 `GRADIENT-ELLIPSES-v2.7.md`. No new gradient model/rendering change starts while
 this repair awaits owner verification (AGENTS.md sequencing rule).
+
+## Owner acceptance — October 19 follow-up
+
+Owner confirms “the pattern anchoring and flip are also verified now as well.”
+The functional owner review is closed. Earlier pending-review notes are historical;
+full accessibility/export/source-library combinations remain release gates.

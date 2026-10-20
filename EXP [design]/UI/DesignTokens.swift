@@ -112,17 +112,17 @@ enum EXPColor {
     static var rowActive:   Color { dyn(0xFFFFFF, 0.10, 0x000000, 0.08) }
     static var rowSelected: Color { accentSubtle }
 
-    // ---- text tiers (hierarchy from opacity: 100 / 62 / 42 / 28) ----------
+    // ---- readable text tiers (including small labels over chrome) ----------
     static var textPrimary:    Color { dyn(0xF2F2F5, 1.00, 0x141416, 1.00) }
-    static var textSecondary:  Color { dyn(0xF2F2F5, 0.62, 0x141416, 0.60) }
-    static var textTertiary:   Color { dyn(0xF2F2F5, 0.42, 0x141416, 0.40) }
-    static var textQuaternary: Color { dyn(0xF2F2F5, 0.28, 0x141416, 0.26) }
+    static var textSecondary:  Color { dyn(0xF2F2F5, 0.78, 0x141416, 0.76) }
+    static var textTertiary:   Color { dyn(0xF2F2F5, 0.70, 0x141416, 0.68) }
+    static var textQuaternary: Color { dyn(0xF2F2F5, 0.69, 0x141416, 0.66) }
     static var textOnAccent:   Color { .white }
     static var textAccent:     Color { accent }                 // tracks the (overridable) accent
     static var textBrand:      Color { dyn(0x4CE62E, 1, 0x2AA516, 1) } // lime darkened for contrast on light
     static var textPrimaryNS:   NSColor { dynNS(0xF2F2F5, 1.00, 0x141416, 1.00) }
-    static var textSecondaryNS: NSColor { dynNS(0xF2F2F5, 0.62, 0x141416, 0.60) }
-    static var textTertiaryNS:  NSColor { dynNS(0xF2F2F5, 0.42, 0x141416, 0.40) }
+    static var textSecondaryNS: NSColor { dynNS(0xF2F2F5, 0.78, 0x141416, 0.76) }
+    static var textTertiaryNS:  NSColor { dynNS(0xF2F2F5, 0.70, 0x141416, 0.68) }
 
     // ---- lines & borders --------------------------------------------------
     static var hairline:     Color { dyn(0xFFFFFF, 0.09, 0x000000, 0.10) } // separatorColor analog

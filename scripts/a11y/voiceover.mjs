@@ -11,6 +11,12 @@ export function hasCoreEditorControl(phrase) {
   return /\b(?:Zoom (?:in|out)|Rectangle|Select)(?:[, ]+selected)?[, ]+(?:toggle )?button\b/i.test(phrase);
 }
 
+export function voiceOverMove(phrase, item, repetitions, depth) {
+  if (repetitions >= 3 && depth > 0) return 'out';
+  if (/^(scroll area|toolbar|group|split group|layout area)$/i.test(item.trim()) && repetitions === 1 && depth < 8) return 'into';
+  return 'right';
+}
+
 // Real VoiceOver output, not an AX-tree simulation. Setup is read-only: never
 // imports preference packs, writes TCC/VoiceOver defaults or touches the clipboard.
 export async function voiceOverSmoke({ output, appPath, fixture, bundleID, interactive }) {
@@ -33,23 +39,48 @@ export async function voiceOverSmoke({ output, appPath, fixture, bundleID, inter
     // creating the older com.apple.VoiceOver4/default preference domain.
     // Actual AppleScript calls below establish whether access is usable.
     if (!existsSync(enabledFile)) throw Error('Enable “Allow VoiceOver to be controlled with AppleScript” in VoiceOver Utility → General, and allow Accessibility/Automation for the terminal running this command. No settings were changed.');
-    previous = await apple('tell application "System Events" to get bundle identifier of first application process whose frontmost is true');
+    // NSWorkspace can read the frontmost app without System Events Automation.
+    previous = await run('/usr/bin/osascript', ['-l', 'JavaScript', '-e',
+      'ObjC.import("AppKit"); $.NSWorkspace.sharedWorkspace.frontmostApplication.bundleIdentifier.js']);
     await run('/usr/bin/open', ['-a', appPath, '--args', '-ApplePersistenceIgnoreState', 'YES', '-SUEnableAutomaticChecks', 'NO', '-SUAutomaticallyUpdate', 'NO']); opened = true;
     await run('/usr/bin/open', ['-a', appPath, fixture]);
     await apple(`tell application id ${JSON.stringify(bundleID)} to activate`);
+    await pause(1500);
     await run('/usr/bin/open', ['-a', '/System/Library/CoreServices/VoiceOver.app']); started = true;
     await pause(400);
     startedPid = await run('/usr/bin/pgrep', ['-x', 'VoiceOver']);
+    // VoiceOver's startup announcement/window can take focus. Re-establish the
+    // fixture before traversing rather than reading the desktop or welcome UI.
+    await apple(`tell application id ${JSON.stringify(bundleID)} to activate`);
+    await pause(700);
     // Commands and properties come from this Mac's VoiceOver.sdef dictionary.
     // Assert EXP-specific output, not merely that some desktop speech exists.
+    // "First item" is relative to the current interaction group. A previous
+    // session can leave the cursor in Properties/Handoff; exit nested groups
+    // before starting the bounded traversal of this document window.
+    for (let level = 0; level < 8; level++) {
+      await apple('tell application "VoiceOver" to tell vo cursor to move out of item');
+    }
     await apple('tell application "VoiceOver" to tell vo cursor to move to first item');
+    let previousItem, repetitions = 0, depth = 0;
     for (let index = 0; index < 45; index++) {
       await pause(100);
       const phrase = await apple('tell application "VoiceOver" to get content of last phrase');
       const item = await apple('tell application "VoiceOver" to get text under cursor of vo cursor');
       transcript.push({ index, phrase, item });
       if (/design canvas/i.test(phrase) && transcript.some(t => hasCoreEditorControl(t.phrase))) break;
-      await apple('tell application "VoiceOver" to tell vo cursor to move right');
+      const key = JSON.stringify([phrase, item]);
+      repetitions = key === previousItem ? repetitions + 1 : 1; previousItem = key;
+      const movement = voiceOverMove(phrase, item, repetitions, depth);
+      transcript.at(-1).movement = movement;
+      // The installed VoiceOver.sdef exposes containment navigation. A sequence
+      // of move-right commands alone cannot enter a scroll area or toolbar.
+      if (movement === 'into') {
+        await apple('tell application "VoiceOver" to tell vo cursor to move into item'); depth++;
+      } else if (movement === 'out') {
+        await apple('tell application "VoiceOver" to tell vo cursor to move out of item'); depth--;
+        await apple('tell application "VoiceOver" to tell vo cursor to move right');
+      } else await apple('tell application "VoiceOver" to tell vo cursor to move right');
     }
     const all = transcript.map(t => t.phrase).join('\n');
     if (!/design canvas/i.test(all) || !transcript.some(t => hasCoreEditorControl(t.phrase))) {

@@ -2,6 +2,14 @@
 
 October 17, 2026 · INFRA-009 · native v2.7/build 18 + local website.
 
+**October 20 owner release acceptance:** extensive native testing accepted;
+VoiceOver sounds fine and contrast, text size, click areas and save/open look
+good. Full Keyboard Access cannot be enabled on this Mac and remains unverified.
+Raw audit observations and skipped checks remain preserved. Confirmed barriers
+reported by users take high-priority hotfix work. This bounded release decision
+allows packaging without implying complete accessibility conformance; details
+and receipts: `NATIVE-ACCESSIBILITY-CLOSURE-v2.7.md`.
+
 Run from the repository root:
 
 ```sh
@@ -328,3 +336,13 @@ checks, not a new blanket accessibility-audit pass. Real reader traversal, large
 text/full appearance and physical multi-display behavior remain owner gates.
 Receipts, earlier failures/repairs and repeat checklist:
 `SOURCE-BOUNDS-VERIFICATION.md`.
+
+## October 20 native repair and finishing verification
+
+Owner's baseline: `output/a11y/2026-10-20T14-01-30-987Z/`. Native repairs and
+reader/harness corrections are documented in
+[NATIVE-ACCESSIBILITY-CLOSURE-v2.7.md](NATIVE-ACCESSIBILITY-CLOSURE-v2.7.md).
+Real VoiceOver navigation now passes; human editing/menu activation and the
+remaining retained audit observations are separate. That guide is the current
+owner checklist: keyboard task, VoiceOver task, physical appearance review.
+`--native-only` now reports that scope without repeating unrelated web tasks.

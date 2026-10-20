@@ -763,11 +763,24 @@ private struct PanelSection: View {
 
     private var header: some View {
         HStack(spacing: 6) {
-            Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-                .font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
-            Image(systemName: panel.icon).font(.system(size: 12, weight: .medium))
-            Text(panel.title).font(.system(size: 12, weight: .semibold))
-            Spacer(minLength: 4)
+            Button { hub.toggleTrayPanelCollapsed(panel, tray: trayID) } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                        .font(.system(size: 10, weight: .semibold))
+                        .accessibilityHidden(true)
+                    Image(systemName: panel.icon)
+                        .font(.system(size: 12, weight: .medium))
+                        .accessibilityHidden(true)
+                    Text(panel.title).font(.system(size: 12, weight: .semibold))
+                    Spacer(minLength: 4)
+                }
+                .frame(maxWidth: .infinity, minHeight: 30)
+                .foregroundStyle(EXPColor.textPrimary)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(isCollapsed ? "Expand" : "Collapse") \(panel.title)")
+            .accessibilityValue(isCollapsed ? "Collapsed" : "Expanded")
             if canTearOut {
                 Button { hub.tearOutPanel(panel) } label: {
                     Image(systemName: "rectangle.portrait.and.arrow.right")
@@ -776,6 +789,7 @@ private struct PanelSection: View {
                 }
                 .buttonStyle(.plain)
                 .help("Pop “\(panel.title)” out into its own window")
+                .accessibilityLabel("Detach \(panel.title)")
             }
         }
         .padding(.horizontal, 8)
@@ -783,7 +797,6 @@ private struct PanelSection: View {
         .frame(maxWidth: .infinity)
         .background(EXPColor.surfaceToolbar)
         .contentShape(Rectangle())
-        .onTapGesture { hub.toggleTrayPanelCollapsed(panel, tray: trayID) }
         .onDrag {
             hub.trayDraggingPanel = panel
             return NSItemProvider(object: panel.rawValue as NSString)

@@ -59,11 +59,9 @@ private struct VisualEffectBackground: NSViewRepresentable {
 // MARK: - Window-level glass (floating panel windows) =======================
 
 /// Liquid glass for a floating panel WINDOW: real BEHIND-window blur that stays
-/// glassy and gets THINNER when the window is inactive — instead of the system
-/// default of darkening/muting on resign-key. Drive `active` from the call site's
-/// `\.controlActiveState`. `state = .active` (set in VisualEffectBackground) means
-/// the material itself never auto-dims; we express "active vs inactive" purely as a
-/// heavier vs lighter brand tint over a constant blur. Reduce-Transparency → solid.
+/// glassy while bounding wallpaper luminance behind small text. The backing and
+/// text remain readable when the window resigns key. `state = .active` keeps the
+/// material from auto-dimming; Reduce Transparency uses the opaque plate.
 struct WindowGlassBackground: View {
     var active: Bool
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
@@ -73,9 +71,9 @@ struct WindowGlassBackground: View {
             EXPColor.surfacePanelSolid
         } else {
             VisualEffectBackground(material: .sidebar, blending: .behindWindow)
-                // Thin brand tint when focused; even thinner (lighter, more glass)
-                // when not — never darker. Tune these two if it reads heavy/light.
-                .overlay(active ? EXPColor.glassTintThin : EXPColor.glassTintThin.opacity(0.45))
+                // Bound the wallpaper contribution so text keeps its contrast even
+                // when a detached panel is inactive over a bright/dark desktop.
+                .overlay(EXPColor.surfacePanelSolid.opacity(0.88))
                 .ignoresSafeArea()
         }
     }
@@ -522,7 +520,11 @@ private final class EXPFieldTipWindow {
     func show(_ bubble: EXPFieldTipBubble, id: UUID, anchor: CGRect, parent: NSWindow,
               edge: VerticalEdge, align: HorizontalAlignment) {
         hide()
-        let host = NSHostingView(rootView: bubble)
+        // The source control already exposes this complete detail as its hint.
+        // A separate accessible child window redirects VoiceOver into the hover
+        // text and traps traversal. Keep the visual, hoverable help, but do not
+        // duplicate that hint in the accessibility window hierarchy.
+        let host = NSHostingView(rootView: bubble.accessibilityHidden(true))
         let size = host.fittingSize
         let panel = NSPanel(contentRect: CGRect(origin: .zero, size: size),
                             styleMask: [.borderless, .nonactivatingPanel],
@@ -536,6 +538,8 @@ private final class EXPFieldTipWindow {
         panel.acceptsMouseMovedEvents = true
         panel.isReleasedWhenClosed = false
         panel.contentView = host
+        panel.setAccessibilityElement(false)
+        panel.setAccessibilityChildren([])
         // Field tips are transient chrome too. A sibling floating tray must not
         // cover the explanation while the pointer moves between nearby panels.
         panel.level = .popUpMenu

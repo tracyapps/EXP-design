@@ -14,12 +14,17 @@ const output = path.join(root, 'output/a11y', stamp);
 await mkdir(output, { recursive: true });
 const results = [];
 const manual = [
-  'Human judgment: understandable announcements, useful navigation and task completion with an experienced screen-reader user.',
-  'Native: selected layer/Inspector edits, export/reopen, complex/nested canvas content and Sanaa reader journeys beyond the initial editor smoke.',
-  'Actual Safari + VoiceOver, rotor, Quick Nav, verbosity/speech-language variants and braille.',
-  'Website homepage/download/learn/ARIA guide and expanded header-menu keyboard/escape flows beyond the first account/Pro/support matrix.',
-  'macOS Full Keyboard Access on/off, Increase Contrast, Reduce Transparency/Motion, Large interface type and real 1x/2x displays.',
-  'Real inbox/provider/hosted account lifecycle. The web suite uses real local PostgreSQL with captured mail and isolates all external browser requests.'
+  ...(!args.has('--web-only') ? [
+    'Native keyboard task: Full Keyboard Access; Tab/Shift-Tab to controls, edit a layer, Undo, save/reopen and open/cancel export. Record useful return focus. A skipped direct AX assertion is not a keyboard pass.',
+    'Native VoiceOver task: identify and activate toolbar/panel/menu controls, enter/leave groups, reach Design canvas and a layer/Properties edit. Record the first failed step. See docs/NATIVE-ACCESSIBILITY-CLOSURE-v2.7.md for exact steps.',
+    'Native appearance: real 1x/2x displays, light/dark, Large interface type, Increase Contrast and Reduce Transparency/Motion. Check small labels and detached headings over bright/dark desktops.',
+    'Native audit triage: retained contrast/action/container observations need evidence. A disabled framework group is not automatically an app defect; do not suppress observations or add no-op actions to get a green audit.'
+  ] : []),
+  ...(!args.has('--native-only') ? [
+    'Web human judgment: actual Safari + VoiceOver, understandable announcements, focus/keyboard failure messages and the marketed signup/account/core task. Automated Chromium/WebKit checks do not certify human usability.',
+    'Web contrast: inspect the incomplete gradient/transparent-surface findings. A needs-review result is not an automated contrast pass.',
+    'Hosted inbox/provider/account lifecycle, retention and operating coverage. Local PostgreSQL and captured mail do not demonstrate hosted behavior.'
+  ] : [])
 ];
 let native;
 console.log(`Accessibility evidence: ${output}`);

@@ -6,6 +6,17 @@ Scope/owners/dependencies: [self-launch plan](SELF-LAUNCH-PLAN-v2.7.md).
 Public v2.6/build 17 and its receipts remain immutable. Development is 2.7/18;
 any release build-number change must be synchronized before packaging.
 
+**October 20 packaging scope:** owner accepts extensive native accessibility
+testing and asks to finish native release preparation now. VoiceOver, contrast,
+text size, click areas and save/open are owner-accepted; Full Keyboard Access
+remains environment-blocked/unverified. Raw audit observations stay retained.
+Confirmed accessibility barriers receive high-priority hotfix treatment.
+The November/December dates above describe the earlier self-launch plan; they do
+not delay preparing this native update. Optional hosted hub, telemetry, paid
+offer, participant recruitment and campaign work retain separate gates and are
+not enabled by packaging the native app. Unchecked broad matrices remain
+unverified; they are not silently converted to passes.
+
 Receipts should include date, source commit, environment, command/task, result,
 artifact path and owner acceptance where applicable. Private participant/contact,
 payment and license records live outside the repository; use sanitized summaries.
@@ -26,11 +37,16 @@ payment and license records live outside the repository; use sanitized summaries
       on both the 1x Cinema Display and a 2x display;
       standard-width system 12pt Regular/Medium selected; condensed trials superseded;
       document font records and saved files unaffected.
-- [ ] Existing bundle ID/helper identities retained; no migration introduced.
+- [x] Existing bundle ID/helper identities retained; no migration introduced.
+      October 19/20 Release payload identity and universal architecture checks.
 - [ ] Seller identity, support contact, payment-provider eligibility and actual
       ownership documented privately by owner; entity/IP questions resolved as needed.
 - [ ] Owner chooses repository license posture; third-party asset/dependency notices
       and AI-assisted provenance inventory reviewed. No automatic open-source grant.
+      October 20 native packaging correction: retain the exact pinned Sparkle 2.9.4
+      `LICENSE` (including its external notices) as `Resources/Sparkle-LICENSE.txt`.
+      Release-candidate verification now rejects missing/different bundled notices.
+      This grants no license to EXP's own source and is not a general legal review.
 - [ ] EULA, privacy, refund and support terms reflect actual app/site/provider behavior,
       reviewed by owner and qualified advisers where needed; published only with approval.
 
@@ -145,18 +161,41 @@ payment and license records live outside the repository; use sanitized summaries
 
 ## Core workflow and human verification gate
 
+- [x] October 20 local BUG-069 repair slice: native label/header/tooltip/layout
+      repairs and scoped harness fixes. Real VoiceOver reaches core controls and
+      Design canvas in 44 moves; native visual-hover/AX exclusion/Escape and
+      primary-display detached-window checks pass. Native-only reports now link
+      the scoped owner tasks; retained observations are not suppressed.
+      `NATIVE-ACCESSIBILITY-CLOSURE-v2.7.md` holds exact scope and receipts.
+- [x] October 20 owner accepts extensive native accessibility work for release;
+      VoiceOver, contrast, text size, click areas and save/open look good.
+      Full Keyboard Access cannot be enabled on this Mac and remains unverified.
+      Retained audit observations/direct-focus permission gaps are accepted limits,
+      not passes; future confirmed barriers receive high-priority hotfixes.
+      `NATIVE-ACCESSIBILITY-CLOSURE-v2.7.md` records the decision and evidence.
+
 - [x] INFRA-009 repeatable web/native verification harness implemented and run.
-      72 web checks pass; native named-controls/Open/Escape/Cmd-S checks pass.
-      Native audit findings (BUG-069) and 40 web contrast scans need review.
+      Initial baseline: 72 web checks pass; native named-controls/Open/Escape/Cmd-S
+      checks pass. Original audit findings and 40 web contrast scans are retained.
       AX focus passes with the exact authorized runner; new ad-hoc copies need a
-      stable authorization strategy. Real reader navigation still needs verification. This does not
-      close the human gates below. Run/setup: `ACCESSIBILITY-VERIFICATION.md`.
+      stable authorization strategy. October 20 reader/owner results and release
+      disposition supersede this initial handoff above. Run/setup:
+      `ACCESSIBILITY-VERIFICATION.md`.
+
+- [x] October 19 baseline retained: full native suite fails (10 pass / 7 fail / 1 skipped);
+      corrected isolated journeys give four passes / one failed audit / zero skips.
+      Clean native audit retains 31 observations and real VoiceOver smoke fails.
+      Superseded for release disposition by the October 20 repairs and owner
+      acceptance above; these historical results remain failures, not passes.
+      `RELEASE-READINESS-v2.7-2026-10-19.md` holds all receipts.
 
 - [ ] 10–20 eligible first-use task attempts summarized; assistance explicitly recorded;
       7-day windows mature before activation rates are finalized.
 - [ ] Create/import → edit → save/reopen → export/handoff completes with owned fixtures.
 - [ ] VoiceOver and Full Keyboard Access pass for marketed core task, signup/consent
       and any paid surfaces; traversal/names/states/focus and failure messages recorded.
+      Full cross-surface coverage is not claimed. Native release acceptance uses
+      the October 20 decision above; hosted/paid surfaces retain their own gates.
 - [ ] FEAT-070 accessibility preferences accepted across supported contexts;
       default semantics available in every mode, explicit choices override Automatic,
       actual larger targets work, and persistence/live updates are verified.
@@ -186,26 +225,30 @@ payment and license records live outside the repository; use sanitized summaries
 - [ ] FEAT-033 Mesh: base plus editable radial points; numeric/on-object editing,
       layering/radii/opacity, save/reopen/undo and native/CSS/SVG/PNG/PDF fidelity
       verified; EXP-authored re-import retains editable points. Local editable
-      slice passes; initial functionality owner-accepted October 19. Requested gradient
-      refinements and full matrix remain open. Evidence and limits:
+      slice passes; initial functionality and latest handle refinements owner-accepted
+      October 19. Full matrix remains open. Evidence and limits:
       `MESH-FILL-VERIFICATION-v2.7.md`, `GRADIENT-EDITING-v2.7.md`.
 - [ ] BUG-075 / FEAT-074 full matrix: initial menu/radius behavior owner-accepted
       October 19. Local geometry/codec/export/appearance/native checks pass; real
       document combinations remain. `POLYGON-ROUNDING-v2.7.md`.
-- [ ] BUG-076 / BUG-077 / FEAT-075 owner pattern review: repeats, scale/Undo/save/export,
-      palette editor handoff and physical multi-display/app-switch behavior.
+- [x] BUG-076/080 / FEAT-075 owner review: seamless repeats, per-fill scaling
+      and real-artwork SVG browser or Quick Look export accepted October 19.
       BUG-079/080 adds independent fixed-size anchoring and real-artwork SVG
       phase/viewBox/fractional precision. `PATTERN-PLACEMENT-v2.7.md` records current
-      evidence and legacy opt-in. Physical Sanaa/monitor/app-switch review stays open.
-- [ ] BUG-081 owner native pan/anchor continuity: both axes/modes, Document→Shape
-      at positioned artwork, move/resize, Undo/Redo/save/reopen on actual displays.
+      evidence and legacy opt-in. BUG-077 overlap/window ordering is owner-accepted
+      on the multi-monitor setup October 19; full AT/source-library matrix remains open.
+- [x] BUG-079/081 owner confirms pattern anchoring works October 19. Local checks
+      cover pan, Document→Shape, move/resize, Undo/Redo/save/reopen.
       `PATTERN-ANCHOR-REGRESSION-v2.7.md`; native/AppKit/pixel checks pass locally.
 - [x] FEAT-076 local radial/Mesh ellipse-axis/rotation slice and focused verification;
       owner explicitly authorizes October 19. `GRADIENT-ELLIPSES-v2.7.md`.
-- [ ] Owner FEAT-076 interaction/export/AT/source-library/monitor matrix; very-narrow
-      center drag remains a native owner check. BUG-081 full review stays separate.
-- [ ] BUG-078 rotated-triangle canvas-axis Flip owner review: polygon/path, both
-      directions, Undo/save/export. Local native/geometry/render checks pass;
+- [x] Owner accepts latest radial/Mesh handle updates (FEAT-033/076) October 19.
+- [x] Owner accepts overlap/window ordering on the multi-monitor setup (BUG-077)
+      October 19. Earlier BUG-072 ordering acceptance remains valid.
+- [ ] Remaining FEAT-076 export/AT/source-library/display matrix. Latest handle
+      review and BUG-079/081 anchoring are accepted; full matrix stays separate.
+- [x] BUG-078 canvas-axis Flip owner review accepted October 19.
+      Local native/geometry/render checks pass;
       `CANVAS-AXIS-FLIP-v2.7.md`. Prior stored artwork retains its appearance.
 - [ ] Both: panel-fit, keyboard/VoiceOver, appearance, shared thumbnail target,
       component-state/style-library behavior, real stress performance and owner
@@ -242,16 +285,28 @@ Payments require all of the following; an interest-only launch does not:
 Run the focused check for each changed seam. At freeze use the v2.6 regression
 battery as a baseline, adding new meaningful telemetry/signup/license checks.
 
-- [ ] `bash scripts/verify_backlog_ids.sh` and `git diff --check` pass.
-- [ ] Native Debug/Release builds and `verify_appearance_style.sh` pass.
-- [ ] Existing nested-component, anchored-relationship, canvas-page, XD/Figma,
+- [x] October 19: `bash scripts/verify_backlog_ids.sh` and `git diff --check` pass.
+- [x] Native unsigned Debug test build, universal Release build and
+      `verify_appearance_style.sh` pass October 19. Existing warnings remain;
+      signed release validation is separate. `RELEASE-READINESS-v2.7-2026-10-19.md`.
+- [x] October 19: existing nested-component, anchored-relationship, canvas-page, XD/Figma,
       semantic HTML/package, SVG pattern/token, effect export, CodePen, rendered
       HTML/WebKit, Storybook, ruler/vector and performance checks pass with fixtures.
-- [ ] Pattern-raster check runs with an explicit fixture (not the no-argument command);
-      real stress-document smoke test recorded without reopening accepted old work.
-- [ ] Website build and core browser/API flows pass; hosted delivery evidence separate.
-- [ ] Release notes describe only verified scope and honest limits; site sync does not
+      Full command/exit/log ledger: `RELEASE-READINESS-v2.7-2026-10-19.md`.
+- [x] Pattern-raster check passes October 19 with the real `stresstest.design`
+      fixture. Renderer/cache parity is recorded; this is not a fresh whole-app
+      owner-interaction performance claim. `RELEASE-READINESS-v2.7-2026-10-19.md`.
+- [x] October 19: website build, 201 local browser checks and 154 service tests
+      pass. 128 incomplete web scans / 86 distinct findings still need review;
+      hosted delivery and human AT evidence remain separate.
+      October 20 owner manually reviews website gradient contrast and accepts
+      the website. Incomplete automated scans stay incomplete, not false passes.
+      `RELEASE-READINESS-v2.7-2026-10-19.md`.
+- [x] Release notes describe only verified scope and honest limits; site sync does not
       advertise the development version prematurely.
+      October 20: accepted native story, interface/a11y work and keyboard limit;
+      existing SVG inner-shadow spread/import limits disclosed. Internal pricing
+      and campaign dates removed from user-facing notes. Public feed stays 2.6/17.
 - [ ] Version/build agree across app, thumbnail and runtimes; release source frozen.
 - [ ] Signed universal archive passes local release-candidate checks.
 - [ ] Notarized/stapled app and clean ZIP round trip pass production checks;

@@ -140,7 +140,7 @@ struct MainWindow: View {
             VStack(spacing: 1) {
                 HStack(spacing: 0) {
                     Text(windowChrome.name).foregroundStyle(EXPColor.textPrimary)
-                    Text(windowChrome.ext).foregroundStyle(EXPColor.textPrimary.opacity(0.3))
+                    Text(windowChrome.ext).foregroundStyle(EXPColor.textSecondary)
                 }
                 .font(.expDocName)
                 .lineLimit(1)
@@ -177,22 +177,31 @@ struct MainWindow: View {
 
     /// New-Artboard split button (primary click = default board; menu = presets).
     private var newArtboardMenu: some View {
-        Menu {
-            ForEach(ArtboardPreset.all) { preset in
-                Button {
-                    addArtboard(width: preset.width, height: preset.height, name: preset.name)
-                } label: { Text(preset.menuLabel) }
+        HStack(spacing: 2) {
+            Button {
+                addArtboard(width: 375, height: 667, name: "Artboard")
+            } label: {
+                Image(systemName: "plus.viewfinder")
             }
-        } label: {
-            Label("New Artboard", systemImage: "plus.viewfinder").labelStyle(.iconOnly)
-        } primaryAction: {
-            addArtboard(width: 375, height: 667, name: "Artboard")
+            .buttonStyle(.plain)
+            .accessibilityLabel("New artboard")
+            .help("New artboard (⇧⌘N). Press F to draw one on the canvas.")
+            .keyboardShortcut("n", modifiers: [.command, .shift])
+            Menu {
+                ForEach(ArtboardPreset.all) { preset in
+                    Button(preset.menuLabel) {
+                        addArtboard(width: preset.width, height: preset.height, name: preset.name)
+                    }
+                }
+            } label: {
+                Image(systemName: "chevron.down")
+            }
+            .menuIndicator(.hidden)
+            .menuStyle(.borderlessButton)
+            .accessibilityLabel("Artboard sizes")
+            .help("Choose an artboard size")
         }
-        .menuIndicator(.visible)
-        .menuStyle(.borderlessButton)
         .fixedSize()
-        .help("New artboard (⇧⌘N for default; use the menu for sizes). Press F to draw one on the canvas instead.")
-        .keyboardShortcut("n", modifiers: [.command, .shift])
     }
 
     @discardableResult
@@ -288,6 +297,8 @@ struct MainWindow: View {
         fileprivate static func syncNativeDocumentTitleControls(in window: NSWindow) {
             let iconButton = window.standardWindowButton(.documentIconButton)
             let versionsButton = window.standardWindowButton(.documentVersionsButton)
+            iconButton?.setAccessibilityLabel("Document location")
+            versionsButton?.setAccessibilityLabel("Rename or move document")
             [iconButton, versionsButton].compactMap { $0 }.forEach { button in
                 button.alphaValue = 0.001
                 button.isHidden = false

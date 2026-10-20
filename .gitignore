@@ -16,6 +16,7 @@ docs/*
 !docs/HANDOFF-SCHEMA.md
 !docs/RELEASE-CHECKLIST.md
 !docs/RELEASE-CHECKLIST-v*.md
+!docs/RELEASE-READINESS-v2.7-2026-10-19.md
 !docs/ROADMAP.md
 !docs/V2-INTEROP-PLAN.md
 !docs/SEMANTIC-HTML-CONTRACT.md
@@ -82,6 +83,7 @@ docs/launch/*
 # Reproducible accessibility receipts and disposable app/document fixtures.
 output/a11y/
 !docs/ACCESSIBILITY-VERIFICATION.md
+!docs/NATIVE-ACCESSIBILITY-CLOSURE-v2.7.md
 
 # Pattern/component authoring evidence and owner review checklist
 !docs/SOURCE-BOUNDS-VERIFICATION.md

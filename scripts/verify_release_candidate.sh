@@ -6,8 +6,8 @@ usage() {
   cat <<'EOF'
 Usage: scripts/verify_release_candidate.sh [--local] <app-path> <version> <build>
 
-Verifies the signed app, bundled exp-mcp helper, architectures, version, and
-security entitlements. Production mode also requires Gatekeeper acceptance and
+Verifies the signed app, bundled exp-mcp helper, architectures, version, license
+notices and security entitlements. Production mode also requires Gatekeeper acceptance and
 a valid notarization staple. Use --local only for an Xcode-built/archive app
 that has not been exported through Direct Distribution yet.
 EOF
@@ -38,6 +38,17 @@ if [[ ! -f "$INFO_PLIST" ]]; then
   echo "FAIL: missing Info.plist: $INFO_PLIST" >&2
   exit 1
 fi
+
+# Preserve the exact updater notices in the delivered app, including Sparkle's
+# bundled third-party notices. The source file comes from pinned Sparkle 2.9.4.
+SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SPARKLE_NOTICE="$APP_PATH/Contents/Resources/Sparkle-LICENSE.txt"
+if [[ ! -s "$SPARKLE_NOTICE" ]] || ! cmp -s \
+  "$SCRIPT_ROOT/EXP [design]/Resources/Sparkle-LICENSE.txt" "$SPARKLE_NOTICE"; then
+  echo "FAIL: bundled Sparkle license notices are missing or differ from source" >&2
+  exit 1
+fi
+echo "PASS: bundled Sparkle license notices match source"
 
 read_plist() {
   /usr/libexec/PlistBuddy -c "Print :$2" "$1" 2>/dev/null

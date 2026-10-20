@@ -17,10 +17,24 @@ final class EditorAccessibilityTests: XCTestCase {
               path.contains("/output/a11y/"), directory.contains("/output/a11y/"),
               let bundle = Bundle(path: path),
               let identity = environment["EXP_A11Y_BUNDLE_ID"],
-              identity.hasPrefix("design.tapps.exp.a11y-fixture."),
+              identity.range(of: #"^design\.tapps\.exp\.a11y-fixture\.[a-f0-9]{10}$"#, options: .regularExpression) != nil,
               bundle.bundleIdentifier == identity else {
             throw XCTSkip("Run npm run test:a11y -- --interactive; isolated app/fixtures are required.")
         }
+        // Each case starts from a clean disposable domain. Relaunches WITHIN a
+        // case still preserve settings/consent so persistence checks remain real.
+        let existingApp = XCUIApplication(url: URL(fileURLWithPath: path))
+        if existingApp.state != .notRunning { existingApp.terminate() }
+        let preferences = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Containers/\(identity)/Data/Library/Preferences/\(identity)")
+        if FileManager.default.fileExists(atPath: preferences.path + ".plist") {
+            let reset = Process()
+            reset.executableURL = URL(fileURLWithPath: "/usr/bin/defaults")
+            reset.arguments = ["delete", preferences.path]
+            try reset.run(); reset.waitUntilExit()
+            XCTAssertEqual(reset.terminationStatus, 0, "Could not reset the disposable test preferences")
+        }
+        try FileManager.default.createDirectory(at: URL(fileURLWithPath: directory), withIntermediateDirectories: true)
         fixture = URL(fileURLWithPath: directory).appendingPathComponent("Keyboard Fixture.design")
         var model: [String: Any] = ["artboards": [["id": UUID().uuidString, "name": "Keyboard Artboard",
             "frame": [[0, 0], [393, 852]]]], "nodes": []]
@@ -68,6 +82,20 @@ final class EditorAccessibilityTests: XCTestCase {
         app.typeKey(.escape, modifierFlags: []) // Dismiss a first-launch file chooser.
         app.open(fixture)
         XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 20))
+        // XCTest's global menu traversal can time out on a secondary display.
+        // Keep only the disposable fixture on the primary display; physical
+        // multi-monitor acceptance remains the owner's separate verification.
+        let window = app.windows.firstMatch
+        let frame = window.frame
+        let primaryWidth = NSScreen.screens.first?.frame.width ?? frame.maxX
+        if frame.minX < 0 || frame.maxX > primaryWidth {
+            let grab = window.coordinate(withNormalizedOffset: CGVector(dx: 0.35, dy: 0.02))
+            let destination = window.coordinate(withNormalizedOffset: .zero)
+                .withOffset(CGVector(dx: 30 - frame.minX + frame.width * 0.35,
+                                     dy: 80 - frame.minY + frame.height * 0.02))
+            grab.press(forDuration: 0.2, thenDragTo: destination)
+            XCTAssertGreaterThanOrEqual(window.frame.minX, 0, "Could not position the test window on the primary display")
+        }
     }
 
     override func tearDownWithError() throws {
@@ -92,6 +120,43 @@ final class EditorAccessibilityTests: XCTestCase {
         }
         XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Design canvas")).firstMatch.exists)
         XCTAssertTrue(app.textFields["Zoom percentage"].firstMatch.exists)
+        XCTAssertTrue(app.buttons["New artboard"].firstMatch.exists)
+        XCTAssertTrue(app.menuButtons["Artboard sizes"].firstMatch.exists)
+        let explanation = "Select a shape and press Add to save its fill. Colors you apply from here also collect under Recents."
+        let libraryScroll = app.scrollViews.containing(.staticText, identifier: explanation)
+            .allElementsBoundByIndex.filter { $0.frame.width < 400 }.min { $0.frame.height < $1.frame.height }
+        XCTAssertNotNil(libraryScroll, "Empty Design Language help must be scrollable")
+        if let libraryScroll {
+            XCTAssertLessThanOrEqual(libraryScroll.frame.maxY,
+                                     app.buttons["View as swatches"].firstMatch.frame.minY,
+                                     "The view bar must not overlap the help's scroll viewport")
+        }
+    }
+
+    func testHoverHelpIsVisualWithoutAnotherAccessibleWindow() throws {
+        let tool = app.buttons["Select"].firstMatch
+        XCTAssertTrue(tool.waitForExistence(timeout: 5))
+        let identity = try XCTUnwrap(ProcessInfo.processInfo.environment["EXP_A11Y_BUNDLE_ID"])
+        let pid = try XCTUnwrap(NSRunningApplication.runningApplications(withBundleIdentifier: identity).first).processIdentifier
+        func visibleWindows() -> Set<Int> {
+            let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+            return Set(windows.compactMap {
+                guard ($0[kCGWindowOwnerPID as String] as? Int) == Int(pid) else { return nil }
+                return $0[kCGWindowNumber as String] as? Int
+            })
+        }
+        let baseline = visibleWindows()
+        tool.hover()
+        // AppKit can normalize a child panel's server level to its parent.
+        // Observe a new real window rather than assuming its CG layer number.
+        let visible = NSPredicate { _, _ in !visibleWindows().subtracting(baseline).isEmpty }
+        expectation(for: visible, evaluatedWith: nil)
+        waitForExpectations(timeout: 5)
+        XCTAssertFalse(app.staticTexts["Keyboard shortcut: V."].exists,
+                       "The hover hint must not become another accessible window; the control retains its hint")
+        app.typeKey(.escape, modifierFlags: [])
+        expectation(for: NSCompoundPredicate(notPredicateWithSubpredicate: visible), evaluatedWith: nil)
+        waitForExpectations(timeout: 5)
     }
 
     func testSettingsAccessibilityChoicesApplyLive() {
@@ -121,10 +186,10 @@ final class EditorAccessibilityTests: XCTestCase {
         panelHelp.click()
         app.menuItems["Automatic with VoiceOver"].firstMatch.click()
         XCTAssertTrue(app.popUpButtons["Interface type size"].firstMatch.exists)
-        XCTAssertFalse(app.popUpButtons["Drawing toolbar labels"].exists)
+        XCTAssertFalse(app.popUpButtons["Toolbar and fill-type labels"].exists)
         app.staticTexts["General"].firstMatch.click()
         XCTAssertFalse(app.popUpButtons["Interface type size"].exists)
-        let labels = app.popUpButtons["Drawing toolbar labels"].firstMatch
+        let labels = app.popUpButtons["Toolbar and fill-type labels"].firstMatch
         XCTAssertTrue(labels.exists)
         labels.click()
         app.menuItems["Icons and text"].firstMatch.click()
@@ -237,7 +302,7 @@ final class EditorAccessibilityTests: XCTestCase {
         collapseOtherRightPanels()
         app.staticTexts["Pattern host"].firstMatch.click()
         app.buttons["Edit fill"].firstMatch.click()
-        let mode = app.radioButtons["Pattern"].firstMatch
+        let mode = app.buttons["Pattern fill"].firstMatch
         XCTAssertTrue(mode.waitForExistence(timeout: 5)); mode.click()
         let create = app.buttons["New Pattern…"].firstMatch
         XCTAssertTrue(create.waitForExistence(timeout: 5)); create.click()
@@ -289,7 +354,15 @@ final class EditorAccessibilityTests: XCTestCase {
         let general = app.staticTexts["General"].firstMatch
         XCTAssertTrue(general.waitForExistence(timeout: 8))
         general.click()
-        XCTAssertTrue(app.popUpButtons["Drawing toolbar labels"].firstMatch.isHittable)
+        XCTAssertTrue(app.popUpButtons["Toolbar and fill-type labels"].firstMatch.isHittable)
+        let collapse = app.buttons["Collapse Components"].firstMatch
+        XCTAssertTrue(collapse.waitForExistence(timeout: 5))
+        collapse.click()
+        let expand = app.buttons["Expand Components"].firstMatch
+        XCTAssertTrue(expand.waitForExistence(timeout: 5))
+        expand.click()
+        XCTAssertFalse(app.images["rectangle.3.group"].exists)
+        XCTAssertFalse(app.images["square.2.layers.3d.top.filled"].exists)
         let identity = ProcessInfo.processInfo.environment["EXP_A11Y_BUNDLE_ID"]!
         let pid = NSRunningApplication.runningApplications(withBundleIdentifier: identity).first!.processIdentifier
         let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
@@ -305,7 +378,7 @@ final class EditorAccessibilityTests: XCTestCase {
         app.menuItems["Properties"].firstMatch.click()
         let properties = app.dialogs["Properties"].firstMatch
         XCTAssertTrue(properties.waitForExistence(timeout: 5), "Menu must reveal the existing panel, not hide it")
-        XCTAssertTrue(properties.staticTexts["Properties"].firstMatch.isHittable)
+        XCTAssertTrue(properties.buttons["Collapse Properties"].firstMatch.isHittable)
         XCTAssertTrue(properties.textFields["Grid size"].firstMatch.isHittable, "Raised panel must accept interaction above Settings")
     }
 

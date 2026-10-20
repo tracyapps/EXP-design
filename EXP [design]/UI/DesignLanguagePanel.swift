@@ -54,14 +54,11 @@ struct DesignLanguagePanel: View {
         VStack(spacing: 0) {
             toolbar
             Divider()
-            ZStack(alignment: .bottom) {
-                content
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                VStack(spacing: 0) {
-                    Divider()
-                    viewOptionsBar
-                }
-            }
+            content
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            Divider()
+            viewOptionsBar
+                .background(EXPColor.surfacePanelSolid)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .alert("Rename swatch", isPresented: renameActive) {
@@ -103,7 +100,6 @@ struct DesignLanguagePanel: View {
                     recentsSection
                 }
                 .padding(10)
-                .padding(.bottom, 38)
             }
         }
     }
@@ -213,16 +209,23 @@ struct DesignLanguagePanel: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "swatchpalette")
-                .font(.system(size: 26)).foregroundStyle(EXPColor.textTertiary)
-            Text("No saved colors yet").font(.expLabel).foregroundStyle(EXPColor.textSecondary)
-            Text("Select a shape and press Add to save its fill. Colors you apply from here also collect under Recents.")
-                .font(.system(size: EXPType.mini)).foregroundStyle(EXPColor.textTertiary)
-                .multilineTextAlignment(.center)
+        GeometryReader { bounds in
+            ScrollView {
+                VStack(spacing: 8) {
+                    Image(systemName: "swatchpalette")
+                        .font(.system(size: 26)).foregroundStyle(EXPColor.textTertiary)
+                        .accessibilityHidden(true)
+                    Text("No saved colors yet").font(.expLabel).foregroundStyle(EXPColor.textSecondary)
+                    Text("Select a shape and press Add to save its fill. Colors you apply from here also collect under Recents.")
+                        .font(.system(size: EXPType.mini)).foregroundStyle(EXPColor.textTertiary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(16)
+                .frame(minHeight: bounds.size.height)
+            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(16)
     }
 
     // MARK: Sections (type first, then category clusters within)

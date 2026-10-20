@@ -1,13 +1,23 @@
 # Matching radial and Mesh ellipse editing — next v2.7 slice
 
-Owner request October 19, 2026 · FEAT-076 · implemented locally; owner verification pending.
-Owner explicitly authorized this slice October 19; BUG-081 physical/full review stays open.
+Owner request October 19, 2026 · FEAT-076 · latest radial/Mesh handles owner-accepted.
+Owner explicitly authorized this slice October 19 and later accepted pattern anchoring too.
 
 The existing radial secondary handle edits the second ellipse radius; it is not a
 3D plane. Mesh currently has one radius, applied to both unit-box axes. Radial
 handles currently stay on the horizontal/vertical axes. The owner wants to narrow
 an ellipse and turn it to any angle, consistently on a radial fill or each Mesh
 point, while keeping the selected point/color active in the persistent palette.
+
+## Owner acceptance — October 19
+
+Owner asks to mark “the latest updates on the radial/mesh gradient handles as
+resolved” and confirms overlapping/window ordering works on multiple monitors.
+This closes FEAT-076's handle review, FEAT-033's refinement review and BUG-077.
+It does not claim completion of every export/source-library/AT/display combination
+listed below. Owner also closes pattern-anchor/Flip reviews in a follow-up.
+Pending wording in dated implementation receipts describes the evidence available
+at that time.
 
 ## Observable contract
 
@@ -55,7 +65,7 @@ verify malformed geometry is rejected, old fixtures unchanged, Undo/save/reopen,
 shared target builds and accessible numeric alternatives. Owner native interaction
 and physical display/AT checks remain distinct from synthetic evidence.
 
-## Implemented October 19 — local evidence, owner review pending
+## Implementation receipt — before owner acceptance
 
 The owner explicitly said “go ahead and continue on the radial controls.” This
 starts FEAT-076 by owner direction; it does not close BUG-081's physical-display
@@ -137,7 +147,7 @@ uses the shared paint codec. Full owner interaction across those surfaces remain
   returned `noWindowsAvailable` while AX editing still worked. No AT/physical
   display/complete native interaction matrix is claimed. The test app is closed.
 
-### Owner verification before another document-changing slice
+### Original owner verification steps — handles now accepted
 
 1. On radial and Mesh fills, narrow the ellipse with the secondary handle, then
    turn/lengthen it with the primary handle. Check center grabbing on very narrow
