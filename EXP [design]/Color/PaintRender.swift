@@ -38,6 +38,9 @@ struct ResolvedPattern {
 
 /// Resolves a fill's pattern reference to a drawable tile (FEAT-062 Stage B).
 struct PatternResolver {
+    /// Current CGContext coordinates -> Quartz default user space. Native
+    /// flipped views supply their backing-layer mapping; bitmap/PDF use identity.
+    var baseSpaceAdjustment: CGAffineTransform = .identity
     /// `bounds` is the filled shape's frame in DOCUMENT points —
     /// `objectBoundingBox` tiles are sized and anchored as fractions of it
     /// (FEAT-064), while `userSpaceOnUse` ignores it. `scale` is the
@@ -380,7 +383,9 @@ enum PaintRender {
         // draw(..., byTiling: true) rounds the device repeat interval (21.6
         // points becomes 22 at 1x), accumulating phase drift versus SVG. A
         // no-distortion pattern distributes pixel coverage while retaining the
-        // requested lattice spacing. Its matrix maps to the context's base space.
+        // requested lattice spacing. Its matrix includes AppKit's implicit
+        // backing-layer axis mapping.
+        // ctm alone omits that mapping on a native flipped view, reversing Y pan.
         let cell = PatternCell(image: pattern.image,size: CGSize(width: tw,height: th))
         let info = Unmanaged.passRetained(cell).toOpaque()
         var callbacks = CGPatternCallbacks(version: 0,drawPattern: { info,target in
@@ -398,7 +403,7 @@ enum PaintRender {
             if let info { Unmanaged<PatternCell>.fromOpaque(info).release() }
         })
         guard let tiled = CGPattern(info: info,bounds: CGRect(x: 0,y: 0,width: tw,height: th),
-            matrix: ctx.ctm,xStep: tw,yStep: th,tiling: .noDistortion,isColored: true,callbacks: &callbacks),
+            matrix: ctx.ctm.concatenating(resolver.baseSpaceAdjustment),xStep: tw,yStep: th,tiling: .noDistortion,isColored: true,callbacks: &callbacks),
               let colorSpace = CGColorSpace(patternBaseSpace: nil) else { return false }
         ctx.setFillColorSpace(colorSpace)
         ctx.setPatternPhase(.zero)

@@ -170,6 +170,35 @@ private func path(_ shape: PathShape, origin: CGPoint, zoom: CGFloat, pan: CGPoi
                 precondition(maximum <= 4 && mean < 0.25, "Transparent/lattice/winding pixels drifted")
             }
         }
+        // AppKit owns an implicit flipped/default coordinate mapping. Fresh
+        // bitmap-only parity cannot catch a native layer stamp drifting in Y.
+        let nativeCache = CanvasPatternRasterCache<Int>()
+        let neutral = bitmap(8)
+        neutral.setFillColor(CGColor(gray: 0.8,alpha: 0.65)); neutral.fill(CGRect(x: 1,y: 1,width: 4,height: 5))
+        let nativeTile = neutral.makeImage()!
+        let nativePath = NSBezierPath(rect: CGRect(x: 17.375,y: 23.125,width: 140,height: 160))
+        for pan in [CGPoint.zero,CGPoint(x: 19,y: -13)] {
+            func native(_ cached: Bool) -> [UInt8] {
+                let image = NSImage(size: CGSize(width: 400,height: 400)); image.lockFocusFlipped(true)
+                let c = NSGraphicsContext.current!.cgContext
+                var resolver = PatternResolver { _,_,_ in ResolvedPattern(image: nativeTile,tileSize: CGSize(width: 2,height: 4),transform: .identity) }
+                resolver.baseSpaceAdjustment = c.ctm.inverted().concatenating(CGAffineTransform(translationX: 0,y: 400).scaledBy(x: 1,y: -1))
+                c.setFillColor(CGColor(gray: 0.15,alpha: 1)); c.fill(CGRect(x: 0,y: 0,width: 400,height: 400))
+                let path = nativePath.copy() as! NSBezierPath
+                path.transform(using: AffineTransform(translationByX: pan.x,byY: pan.y))
+                let space = CGAffineTransform(translationX: pan.x,y: pan.y)
+                if cached { precondition(nativeCache.draw(nodeID: testID,revision: 1,ref: testRef,path: path,bounds: path.bounds,patterns: resolver,space: space,in: c)) }
+                else { PaintRender.fill(.pattern(testRef),path: path,bounds: path.bounds,in: c,patterns: resolver,patternSpace: space) }
+                image.unlockFocus()
+                let cg = image.cgImage(forProposedRect: nil,context: nil,hints: nil)!,converted = bitmap(cg.width)
+                converted.draw(cg,in: CGRect(x: 0,y: 0,width: cg.width,height: cg.height))
+                return data(converted)
+            }
+            let differences = zip(native(false),native(true)).map { abs(Int($0)-Int($1)) }
+            let mean = Double(differences.reduce(0,+))/Double(differences.count),maximum = differences.max()!
+            print("APPKIT CACHE pan \(pan): mean \(mean), max \(maximum)")
+            precondition(maximum <= 4 && mean < 0.25,"Native AppKit cache drift")
+        }
         let tiny = NSBezierPath(rect: CGRect(x: 0, y: 0, width: 10, height: 10))
         precondition(!syntheticCache.draw(nodeID: testID, revision: 1, ref: testRef, path: tiny,
                                          bounds: tiny.bounds, patterns: nil, space: .identity, in: bitmap(16)))

@@ -3912,7 +3912,8 @@ extension PatternRef {
     }
 
     /// Explicit authoring changes apply to this paint, never to the shared tile.
-    func anchored(_ anchor: PatternAnchor, source: PatternSource, reference: CGSize?) -> PatternRef? {
+    func anchored(_ anchor: PatternAnchor, source: PatternSource, reference: CGSize?, origin: CGPoint = .zero) -> PatternRef? {
+        if placement?.anchor == anchor { return self }
         let basis: CGSize
         if let placement { basis = placement.referenceSize }
         else if source.units == .objectBoundingBox {
@@ -3920,7 +3921,11 @@ extension PatternRef {
                   reference.width > 0,reference.height > 0 else { return nil }
             basis = reference
         } else { basis = CGSize(width: 1,height: 1) }
+        let bounds = CGRect(origin: origin,size: reference ?? .zero)
+        let before = tileGeometry(source: source,bounds: bounds)
         var copy = self; copy.placement = PatternPlacement(anchor: anchor,referenceSize: basis)
+        let after = copy.tileGeometry(source: source,bounds: bounds)
+        copy.placement?.offset = CGPoint(x: before.origin.x-after.origin.x,y: before.origin.y-after.origin.y)
         return copy
     }
 
@@ -3946,6 +3951,7 @@ extension PatternRef {
             }
             origin.x += anchor.x; origin.y += anchor.y
         }
+        if let placement { origin.x += placement.offset.x; origin.y += placement.offset.y }
         return (size,origin)
     }
 }

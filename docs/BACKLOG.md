@@ -34,6 +34,23 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 
 ## 🐞 Bugs
 
+### BUG-081 — Pattern Y pan mirrors, Shape anchor drifts and anchor switches snap
+- Type: bug
+- Priority: P1 — owner regression report October 19, 2026
+- Area: canvas · color · model · inspector
+- Status: needs-verify
+- Causes: CGPattern receives current CTM without AppKit's layer/default-space
+  mapping; native stamp coordinates omit the implicit device transform. Anchor
+  switching recomputes the phase at the corner instead of retaining its offset.
+- Fix: explicit layer-local default-space adjustment; device-space cache stamps;
+  saved per-fill offset with no-jump conversion at actual nested/path paint bounds.
+- Evidence: actual editor vertical pan, both anchor switches, Shape/Document
+  movement, Undo/Redo/save; AppKit pan/cache and real stress parity; 96 patterns,
+  owner SVG/Mesh comparisons and app/thumbnail pass. Physical monitor/live-drag/
+  complex combinations remain owner checks. `PATTERN-ANCHOR-REGRESSION-v2.7.md`.
+- API reference: Apple CGPattern matrix maps to default user space:
+  https://developer.apple.com/documentation/coregraphics/cgpattern/init(info:bounds:matrix:xstep:ystep:tiling:iscolored:callbacks:) .
+
 ### BUG-080 — SVG pattern phase/viewBox and fractional repeat mismatch
 - Type: bug
 - Priority: P1 — owner artwork report October 19, 2026
@@ -3265,6 +3282,19 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   both fixed on the reported PNG document.
 
 ## ✨ Features
+
+### FEAT-076 — Matching rotatable ellipse controls for radial and Mesh gradients
+- Type: feature
+- Priority: P2 — owner request October 19, 2026, next v2.7 slice
+- Area: color · canvas · inspector · model · export
+- Status: open — queued behind owner verification of BUG-081
+- Detail: Independent X/Y radii and angle, matching center/axis handles for radial
+  fill and each Mesh point. Primary radius can turn around the center; secondary
+  axis narrows/widens the ellipse. Stop/color selection stays active in the palette.
+- Acceptance: exact numeric alternatives, single-gesture Undo/save/reopen, legacy
+  rendering, native/PDF/SVG/browser/own-import parity, shared target and AT checks.
+  `GRADIENT-ELLIPSES-v2.7.md` records implementation seams and verification plan.
+  No gradient geometry code is implemented in the pattern regression repair.
 
 ### FEAT-075 — Per-fill pattern scale
 - Type: feature

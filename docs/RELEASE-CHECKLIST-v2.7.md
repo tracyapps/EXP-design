@@ -197,6 +197,11 @@ payment and license records live outside the repository; use sanitized summaries
       BUG-079/080 adds independent fixed-size anchoring and real-artwork SVG
       phase/viewBox/fractional precision. `PATTERN-PLACEMENT-v2.7.md` records current
       evidence and legacy opt-in. Physical Sanaa/monitor/app-switch review stays open.
+- [ ] BUG-081 owner native pan/anchor continuity: both axes/modes, Document→Shape
+      at positioned artwork, move/resize, Undo/Redo/save/reopen on actual displays.
+      `PATTERN-ANCHOR-REGRESSION-v2.7.md`; native/AppKit/pixel checks pass locally.
+- [ ] FEAT-076 radial/Mesh ellipse-axis/rotation slice, queued behind BUG-081
+      owner verification. `GRADIENT-ELLIPSES-v2.7.md` is a plan, not shipped code.
 - [ ] BUG-078 rotated-triangle canvas-axis Flip owner review: polygon/path, both
       directions, Undo/save/export. Local native/geometry/render checks pass;
       `CANVAS-AXIS-FLIP-v2.7.md`. Prior stored artwork retains its appearance.

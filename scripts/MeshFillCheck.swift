@@ -265,6 +265,33 @@ private final class Page: NSObject, WKNavigationDelegate {
             print("PATTERN EXPORT \(name): mean channel difference \(mean)")
             if mean >= 3 { problems.append(name) }
         }
+        // Neutral tiles isolate geometry from focus-context gamut clipping.
+        // AppKit focus contexts carry an implicit axis mapping absent from
+        // CGContext.ctm. Exercise it, rather than only fresh bitmap contexts.
+        for pan in [CGPoint.zero,CGPoint(x: 19,y: 23),CGPoint(x: -13,y: -17)] {
+            let source = PatternSource(name: "Pan probe",children: [
+                Node(name: "base",frame: CGRect(x: 0,y: 0,width: 32,height: 40),content: .rectangle(RectangleShape(fill: .solid(RGBAColor(r: 0.8,g: 0.8,b: 0.8,a: 1)),strokeWidth: 0))),
+                Node(name: "corner",frame: CGRect(x: 0,y: 0,width: 12,height: 12),content: .rectangle(RectangleShape(fill: .solid(RGBAColor(r: 0.2,g: 0.2,b: 0.2,a: 1)),strokeWidth: 0)))
+            ],tileSize: CGSize(width: 32,height: 40))
+            let frame = CGRect(x: 20,y: 20,width: 100,height: 100)
+            var doc = Document(nodes: [Node(name: "carrier",frame: frame,content: .rectangle(RectangleShape(fill: .pattern(source.reference),strokeWidth: 0)))])
+            doc.patterns = [source]
+            let image = NSImage(size: CGSize(width: 160,height: 160)); image.lockFocusFlipped(true)
+            let c = NSGraphicsContext.current!.cgContext,store = PatternTileStore()
+            c.clear(CGRect(x: 0,y: 0,width: 160,height: 160))
+            var nativeResolver = store.resolver(document: doc)
+            nativeResolver.baseSpaceAdjustment = c.ctm.inverted().concatenating(CGAffineTransform(translationX: 0,y: 160).scaledBy(x: 1,y: -1))
+            PaintRender.fillRect(.pattern(source.reference),rect: frame.offsetBy(dx: pan.x,dy: pan.y),in: c,patterns: nativeResolver,patternSpace: CGAffineTransform(translationX: pan.x,y: pan.y))
+            image.unlockFocus()
+            let nativeImage = image.cgImage(forProposedRect: nil,context: nil,hints: nil)!
+            let board = Artboard(name: "camera",frame: CGRect(x: -pan.x,y: -pan.y,width: 160,height: 160))
+            doc.artboards = [board]
+            let expected = try await page.sample(ExportRenderer(document: doc).svgString(for: board),width: nativeImage.width,height: nativeImage.height)
+            let native = pixels(nativeImage)
+            let mean = Double(zip(native,expected).map { abs($0-$1) }.reduce(0,+))/Double(native.count)
+            print("APPKIT PATTERN PAN \(pan): mean \(mean)")
+            if mean >= 3 { problems.append("AppKit-pan-\(pan)") }
+        }
         if let flag = CommandLine.arguments.firstIndex(of: "--owner-pattern-file"),CommandLine.arguments.count > flag+1 {
             let file = URL(fileURLWithPath: CommandLine.arguments[flag+1])
             let doc = try JSONDecoder().decode(Document.self,from: Data(contentsOf: file))
@@ -309,9 +336,10 @@ private final class Page: NSObject, WKNavigationDelegate {
             let imported = SVGImporter.importDocument(from: Data(input.utf8))!
             let source = imported.patterns[0],legacy = source.reference
             let frame = CGRect(x: 154,y: 236,width: 80,height: 90)
-            var local = legacy.anchored(.shape,source: source,reference: frame.size)!
+            var local = legacy.anchored(.shape,source: source,reference: frame.size,origin: frame.origin)!
+            require(local.tileGeometry(source: source,bounds: frame).origin == legacy.tileGeometry(source: source,bounds: frame).origin,"Document to Shape preserves the displayed tile phase")
             local.scale = 1.35
-            let documentRef = local.anchored(.document,source: source,reference: CGSize(width: 999,height: 2))!
+            let documentRef = local.anchored(.document,source: source,reference: frame.size,origin: frame.origin)!
             require(legacy.placement == nil && documentRef.placement?.anchor == .document && local.placement?.anchor == .shape,"placement applies to each independent paint")
             let base = local.tileGeometry(source: source,bounds: frame)
             let resize = local.tileGeometry(source: source,bounds: CGRect(x: frame.minX,y: frame.minY,width: 190,height: 31))
@@ -360,7 +388,9 @@ private final class Page: NSObject, WKNavigationDelegate {
                 print("FRACTIONAL DIAGNOSTIC direct bitmap/SVG mean \(directMean), PDF PNG/SVG \(mean), tile \(resolved.image.width)x\(resolved.image.height), period \(resolved.tileSize)")
             }
             require(mean < 3,"per-fill anchored native/SVG drift \(units): \(mean)")
-            require(svg.components(separatedBy: "<pattern ").count == 3,"distinct anchors of shared source export separately")
+            require(svg.components(separatedBy: "<pattern ").count == 2,"matching physical phases share a standard SVG definition")
+            var shiftedDoc = doc; shiftedDoc.nodes[0].frame.origin.x += 7
+            require(ExportRenderer(document: shiftedDoc).svgString(for: board).components(separatedBy: "<pattern ").count == 3,"moved Shape fill gets an independent phase definition")
             var styled = nodes[1]; _ = styled.applyPaintStyle(nodes[0].layerPaintStyle!)
             require(styled.layerPaintStyle?.fill?.patternValue == local,"appearance preserves fill anchor and frozen size")
             print("PASS: per-fill anchors, fixed-size resize/move, scale, appearance, codec and native/SVG \(units), mean \(mean)")

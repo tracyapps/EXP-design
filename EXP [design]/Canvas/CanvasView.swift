@@ -5384,7 +5384,17 @@ final class CanvasNSView: NSView {
     }
     private var blurBackingSpace: CGColorSpace?
 
+    private var nativePatternBaseAdjustment: CGAffineTransform = .identity
+
     override func draw(_ dirtyRect: NSRect) {
+        if let ctx = NSGraphicsContext.current?.cgContext {
+            // This canvas is layer-backed: Quartz patterns use the layer's
+            // unflipped point space, while AppKit exposes a flipped view CTM.
+            // Strip its initial mapping and supply the local backing-layer flip;
+            // window coordinates would add docked-panel offsets a second time.
+            let viewToBase = CGAffineTransform(translationX: 0,y: bounds.minY+bounds.maxY).scaledBy(x: 1,y: -1)
+            nativePatternBaseAdjustment = ctx.ctm.inverted().concatenating(viewToBase)
+        }
         guard let app, let document else { return }
         perf.enabled = (app.testingMode == true)
         let perfFrameT0 = CFAbsoluteTimeGetCurrent()   // always — feeds fullFrameEMA
@@ -7272,7 +7282,9 @@ final class CanvasNSView: NSView {
             }
             patternStoreGen = document.resolveGeneration
         }
-        return patternStore.resolver(document: document.model)
+        var resolver = patternStore.resolver(document: document.model)
+        if NSGraphicsContext.current?.isDrawingToScreen == true { resolver.baseSpaceAdjustment = nativePatternBaseAdjustment }
+        return resolver
     }
 
     /// Document points → the coordinates `drawNode` actually draws in.
@@ -13686,8 +13698,13 @@ final class CanvasNSView: NSView {
     private func setPatternAnchor(_ anchor: PatternAnchor) {
         guard let document,let id = app?.singleSelectedNodeID,let selected = node(id),!selected.isLocked,
               selectedPatternID != nil,let ref = selected.layerPaintStyle?.fill?.patternValue,
-              let source = document.model.pattern(for: ref.patternID),
-              let next = ref.anchored(anchor,source: source,reference: selected.frame.size),next != ref else { return }
+              let source = document.model.pattern(for: ref.patternID) else { return }
+        let offset = ancestorGroups(of: id).reduce(CGPoint.zero) { CGPoint(x: $0.x+$1.frame.minX,y: $0.y+$1.frame.minY) }
+        let frame = selected.frame.offsetBy(dx: offset.x,dy: offset.y)
+        let bounds: CGRect
+        if case .path(let path) = selected.content { bounds = ExportRenderView.nsPath(path,origin: frame.origin).bounds }
+        else { bounds = frame }
+        guard let next = ref.anchored(anchor,source: source,reference: bounds.size,origin: bounds.origin),next != ref else { return }
         var nodes = currentNodes
         Self.mutateNested(id,in: &nodes) { node in
             guard var style = node.layerPaintStyle else { return }

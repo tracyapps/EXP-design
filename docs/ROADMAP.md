@@ -1331,6 +1331,10 @@ from the appcast; a development plan does not change the published release.
       Follow-up BUG-079/080 covers per-fill fixed-size anchoring and real SVG phase/
       viewBox/precision. `PATTERN-PLACEMENT-v2.7.md` records current owner steps;
       old imported Shape fractions need one explicit Keep imported tile size fixed.
+- [ ] Owner accepts BUG-081 native pan/move/no-jump anchor repair; real native
+      and AppKit context tests pass. `PATTERN-ANCHOR-REGRESSION-v2.7.md`.
+- [ ] FEAT-076 matching radial/Mesh ellipse axes and rotation, after BUG-081 owner
+      verification. `GRADIENT-ELLIPSES-v2.7.md` records requested behavior and gates.
 - [ ] Owner accepts BUG-078 canvas-axis Flip repair. Rotated bowtie-triangle report
       identifies local-axis command behavior; shared helper now adjusts local flags
       and rotation. Native polygon/converted-path plus Undo/Redo and bounded geometry/
@@ -3504,6 +3508,22 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-10-19 — Native pattern pan and no-jump anchor repair [internal].**
+  Owner accepts resizing/export improvement but finds vertical pattern movement,
+  mirrored Shape drift and anchor-switch snapping (BUG-081). CGPattern default
+  space differs from a flipped, layer-backed Canvas context; bitmap-only checks
+  missed it. Resolver now carries the layer-local base adjustment; stamp caches use
+  true device coordinates. Per-fill offset preserves phase through both anchor
+  switches at the actual nested/path bounds. Actual editor and independent native
+  probe verify Y pan, zero-jump switches, correct Shape/Document object movement,
+  Undo/Redo/save and unchanged second fill. Added 2x AppKit pan/cache checks are
+  exact; 96 seam checks, real stress parity, owner SVG/Mesh integration, appearance,
+  interface/Handoff and app/thumbnail pass. Owner physical/full matrix stays open;
+  `PATTERN-ANCHOR-REGRESSION-v2.7.md` retains counts, files and automation limits.
+  Requested rotatable ellipse axes for both radial/Mesh are FEAT-076, next after
+  this repair's owner verification; `GRADIENT-ELLIPSES-v2.7.md` is plan only.
+  Local commit only, no push/deploy/release or original artwork changes.
 
 - **2026-10-19 — Per-fill pattern anchors, precision and real SVG repair [internal].**
   Owner's real a11ycat report exposes BUG-079 shared anchoring/stretch and BUG-080

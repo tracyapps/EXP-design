@@ -27,7 +27,7 @@ final class CanvasPatternRasterCache<Revision: Equatable> {
         }
         guard let patterns, abs(space.determinant) > 1e-9 else { return false }
         let documentBounds = bounds.applying(space.inverted())
-        let effective = space.concatenating(ctx.ctm)
+        let effective = space.concatenating(ctx.userSpaceToDeviceSpaceTransform)
         let scale = min(4, max(1, abs(effective.determinant).squareRoot()))
         guard let resolved = patterns.resolve(ref, documentBounds, scale),
               resolved.tileSize.width > 0.01, resolved.tileSize.height > 0.01,
@@ -42,13 +42,13 @@ final class CanvasPatternRasterCache<Revision: Equatable> {
 
         // Whole paint bounds keep stamps stable on pan. Large/high-zoom fills
         // retain the live path rather than allocate or undersample giant bitmaps.
-        let pixels = bounds.applying(ctx.ctm).insetBy(dx: -2, dy: -2).integral
+        let pixels = bounds.applying(ctx.userSpaceToDeviceSpaceTransform).insetBy(dx: -2, dy: -2).integral
         guard pixels.width.isFinite, pixels.height.isFinite,
               pixels.width > 0, pixels.height > 0,
               pixels.width <= 2048, pixels.height <= 2048,
               pixels.width * pixels.height <= 1_048_576 else { return false }
         let width = Int(pixels.width), height = Int(pixels.height)
-        let toStamp = ctx.ctm.concatenating(CGAffineTransform(translationX: -pixels.minX, y: -pixels.minY))
+        let toStamp = ctx.userSpaceToDeviceSpaceTransform.concatenating(CGAffineTransform(translationX: -pixels.minX, y: -pixels.minY))
         var pathTransform = toStamp
         guard let localPath = path.cgPath.copy(using: &pathTransform) else { return false }
         let lattice = resolved.transform.concatenating(space).concatenating(toStamp)
@@ -85,7 +85,7 @@ final class CanvasPatternRasterCache<Revision: Equatable> {
             }
         }
         ctx.saveGState()
-        ctx.concatenate(ctx.ctm.inverted())
+        ctx.concatenate(ctx.userSpaceToDeviceSpaceTransform.inverted())
         ctx.interpolationQuality = .none
         ctx.draw(image, in: pixels) // integer device pixels, no resampling
         ctx.restoreGState()

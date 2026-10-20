@@ -1969,7 +1969,7 @@ struct RightPanel: View {
                     Divider()
                     PaintWell(label: "Background", paint: artboardBackgroundBinding,
                               supportsOpacity: false,
-                              gradientSize: selectedArtboard?.frame.size,
+                              gradientSize: selectedArtboard?.frame.size,patternBounds: selectedArtboard?.frame,
                               selectedGradientStopID: gradientStopSelection)
                 }
                 .font(.callout)
@@ -2265,6 +2265,16 @@ struct RightPanel: View {
         .font(.callout)
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
+    }
+
+    private var selectedPatternBounds: CGRect? {
+        guard let node = selectedNode else { return nil }
+        let offset = indexedNodes.ancestorGroups(of: node.id).reduce(CGPoint.zero) {
+            CGPoint(x: $0.x+$1.frame.minX,y: $0.y+$1.frame.minY)
+        }
+        let frame = node.frame.offsetBy(dx: offset.x,dy: offset.y)
+        if case .path(let path) = node.content { return ExportRenderView.nsPath(path,origin: frame.origin).bounds }
+        return frame
     }
 
     private func flipSelectedLayer(horizontal: Bool) {
@@ -2653,7 +2663,7 @@ struct RightPanel: View {
                     .help("Space outside the background")
                 apInsets(margin: true)
                 PaintWell(label: "Fill", paint: apFillBinding,
-                          gradientSize: selectedNode?.frame.size,
+                          gradientSize: selectedNode?.frame.size,patternBounds: selectedPatternBounds,
                           selectedGradientStopID: gradientStopSelection)
                 HStack(spacing: 8) {
                     Text("Corner").foregroundStyle(EXPColor.textSecondary)
@@ -5133,7 +5143,7 @@ struct RightPanel: View {
         VStack(alignment: .leading, spacing: 8) {
             Divider()
             PaintWell(label: "Fill", paint: shapeFillBinding,
-                      gradientSize: selectedNode?.frame.size,
+                      gradientSize: selectedNode?.frame.size,patternBounds: selectedPatternBounds,
                       selectedGradientStopID: gradientStopSelection)
             if corner {
                 HStack(spacing: 8) {
@@ -5179,7 +5189,7 @@ struct RightPanel: View {
             }
             Divider()
             InspectorSectionTitle(title: "Stroke", icon: "pencil.line")
-            PaintWell(label: "Paint", paint: shapeStrokeBinding,gradientSize: selectedNode?.frame.size)
+            PaintWell(label: "Paint", paint: shapeStrokeBinding,gradientSize: selectedNode?.frame.size,patternBounds: selectedPatternBounds)
             HStack(spacing: 8) {
                 Text("Width").foregroundStyle(EXPColor.textSecondary).font(.callout)
                 TextField("Stroke width", value: strokeWidthShapeBinding, format: .number.precision(.fractionLength(0)))
@@ -5471,12 +5481,12 @@ extension RightPanel {
                     .font(.callout)
                 if ps.closed {
                     PaintWell(label: "Fill", paint: pathFillBinding,
-                              gradientSize: ps.fill.gradientValue?.kind == .radial ? ExportRenderView.nsPath(ps,origin: .zero).bounds.size : selectedNode?.frame.size,
+                              gradientSize: ps.fill.gradientValue?.kind == .radial ? ExportRenderView.nsPath(ps,origin: .zero).bounds.size : selectedNode?.frame.size,patternBounds: selectedPatternBounds,
                               selectedGradientStopID: gradientStopSelection)
                 }
                 Divider()
                 InspectorSectionTitle(title: "Stroke", icon: "pencil.line")
-                PaintWell(label: "Paint", paint: pathStrokeBinding,gradientSize: selectedNode?.frame.size)
+                PaintWell(label: "Paint", paint: pathStrokeBinding,gradientSize: selectedNode?.frame.size,patternBounds: selectedPatternBounds)
                 HStack(spacing: 8) {
                     Text("Width").foregroundStyle(EXPColor.textSecondary).font(.callout)
                     TextField("Path stroke width", value: pathStrokeWidthBinding, format: .number.precision(.fractionLength(0)))

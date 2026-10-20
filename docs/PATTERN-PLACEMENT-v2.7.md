@@ -5,6 +5,13 @@ Implemented and locally checked; owner artwork/display review remains open.
 This supersedes the sampler and normal-window-ordering choices in
 `PATTERN-POLISH-v2.7.md`; that document retains the first pass's receipts.
 
+## Follow-up: native pan and anchor-switch continuity
+
+Owner finds a native-only Y mapping regression and anchor-switch snapping after
+this first placement pass. `PATTERN-ANCHOR-REGRESSION-v2.7.md` supersedes those
+parts with explicit backing-layer default-space mapping and saved per-fill phase.
+Resizing and SVG fixes below remain; the new repair still awaits owner review.
+
 ## Behavior
 
 - Anchoring now belongs to each paint reference, alongside scale. Document keeps

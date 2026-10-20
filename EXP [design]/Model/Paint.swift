@@ -272,16 +272,18 @@ enum PatternAnchor: String, Codable, Sendable { case document, shape }
 struct PatternPlacement: Codable, Equatable, Sendable {
     let anchor: PatternAnchor
     let referenceSize: CGSize
-    init(anchor: PatternAnchor, referenceSize: CGSize) {
-        self.anchor = anchor; self.referenceSize = referenceSize
+    var offset: CGPoint = .zero
+    init(anchor: PatternAnchor, referenceSize: CGSize, offset: CGPoint = .zero) {
+        self.anchor = anchor; self.referenceSize = referenceSize; self.offset = offset
     }
-    private enum CodingKeys: String, CodingKey { case anchor, referenceSize }
+    private enum CodingKeys: String, CodingKey { case anchor, referenceSize, offset }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         anchor = try c.decode(PatternAnchor.self,forKey: .anchor)
         referenceSize = try c.decode(CGSize.self,forKey: .referenceSize)
+        offset = try c.decodeIfPresent(CGPoint.self,forKey: .offset) ?? .zero
         guard referenceSize.width.isFinite,referenceSize.height.isFinite,
-              referenceSize.width > 0,referenceSize.height > 0 else {
+              referenceSize.width > 0,referenceSize.height > 0,offset.x.isFinite,offset.y.isFinite else {
             throw DecodingError.dataCorruptedError(forKey: .referenceSize,in: c,debugDescription: "Pattern reference size must be positive and finite.")
         }
     }

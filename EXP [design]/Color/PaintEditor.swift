@@ -21,6 +21,7 @@ struct PaintWell: View {
     /// The owning object's size lets an angle edit preserve the physical length
     /// of an explicitly placed gradient line on non-square objects.
     var gradientSize: CGSize? = nil
+    var patternBounds: CGRect? = nil
     /// Shared with the canvas when this PaintWell edits the selected object.
     var selectedGradientStopID: Binding<UUID?>? = nil
 
@@ -39,7 +40,7 @@ struct PaintWell: View {
             .background(PersistentPaintPopover(isPresented: $showing) {
                 VStack(alignment: .trailing,spacing: 8) {
                     PaintEditor(paint: $paint, supportsOpacity: supportsOpacity,supportsMesh: supportsMesh,
-                                gradientSize: gradientSize,selectedGradientStopID: selectedGradientStopID)
+                                gradientSize: gradientSize,patternBounds: patternBounds,selectedGradientStopID: selectedGradientStopID)
                     Button("Done") { showing = false }.keyboardShortcut(.cancelAction)
                 }
                 .padding(16)
@@ -250,6 +251,7 @@ struct PaintEditor: View {
     var supportsOpacity: Bool
     var supportsMesh: Bool = true
     var gradientSize: CGSize? = nil
+    var patternBounds: CGRect? = nil
     var selectedGradientStopID: Binding<UUID?>? = nil
 
     @State private var localSelectedStopID: UUID?
@@ -507,7 +509,7 @@ struct PaintEditor: View {
             return ref.anchor(for: source)
         },set: { anchor in
             guard let ref = paint.patternValue,let source = patternLibrary.sources().first(where: { $0.id == ref.patternID }),
-                  let next = ref.anchored(anchor,source: source,reference: gradientSize),next != ref else { return }
+                  let next = ref.anchored(anchor,source: source,reference: patternBounds?.size ?? gradientSize,origin: patternBounds?.origin ?? .zero),next != ref else { return }
             paint = .pattern(next)
         })
     }
