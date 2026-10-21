@@ -3549,6 +3549,25 @@ font import → Phase 9, shadows → Phase 10._
 
 ## Progress Log
 
+- **2026-10-20 — BUG-082 fixed LIVE; owner saves verified in Brave [internal].**
+  Source `9b9573801d225a4465ebfd8911fb9834c7b7041b` pushed as authorized; Vercel
+  `dpl_AAnbnhk5KPxzSJL2wdiYbygiHZPC` READY and assigned to `expdesign.app`.
+  Fresh live session returns `engagementOpen:true`. With the owner's existing
+  signed-in Brave account, confirm editable feedback controls, save one explicitly
+  labeled private feature verification note and reload it successfully; testimonial
+  permission remains off. Owner `tapps` shows available, saves and restores preview
+  on reload. Test `admin`: inline reserved reason appears before submission; submit
+  adds visible explanation and focuses handle without losing other fields. Restore
+  `tapps`, save again, leave community unpublished (public API 404). One private
+  verification note remains for the owner's review; no outgoing message or public
+  testimonial/profile created. Full local services pass (115 account tests) and
+  expanded web checks pass 241 / failed 0 / blocked 0, 148 manual-review observations
+  retained. Screenshots and sanitized operational receipt:
+  `output/a11y/bug082-live-20261020/`; contract/rollout details in
+  `launch/ACCOUNT-FIRST-GROWTH-v2.8.md`. This closes the reported form/save defects;
+  broader hosted referral/privacy/provider checks retain their existing boundaries.
+
+
 - **2026-10-20 — BUG-082 approved hosted repair and live handle validation [internal].**
   Owner authorizes source push, production setup and signed-in Brave testing.
   Apply 010/011, private runtime grants and guarded owner-only `tapps` reservation

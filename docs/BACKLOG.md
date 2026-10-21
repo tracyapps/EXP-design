@@ -38,7 +38,7 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: bug
 - Priority: P1 — owner report October 20, 2026
 - Area: hosted accounts · website · community
-- Status: approved live repair underway — schema/grants/owner binding applied; validation source verified; production deployment/feedback browser proof pending
+- Status: done — fixed live October 20, 2026; source 9b95738, migrations/grants/owner reservation, engagement enablement and signed-in Brave save/reload proof complete
 - Repro/Detail: Production GET `/api/account` reports `engagementOpen:false`;
   all five migration-010 tables are absent. Feedback's disabled fieldset correctly
   reflects unavailable hosted service; removing disabled would not fix persistence.
@@ -66,7 +66,8 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   `launch/ACCOUNT-FIRST-GROWTH-v2.8.md` (approved live repair section).
 - Hosted follow-up and exact files: `launch/ACCOUNT-FIRST-GROWTH-v2.8.md`,
   October 20 owner-reported rollout section. No live migration/flag/deployment or
-  profile publication is implied by the source fix.
+  profile publication is implied by the source fix. The later approved live repair
+  is complete; see the deployment receipt in that document.
 
 ### BUG-081 — Pattern Y pan mirrors, Shape anchor drifts and anchor switches snap
 - Type: bug

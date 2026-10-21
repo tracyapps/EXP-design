@@ -270,3 +270,35 @@ incomplete/manual-review entries retained:
 `output/a11y/2026-10-21T04-51-32-200Z/report.md`. It covers inline invalid/taken
 checks, stale replies, required-name/HTTPS errors, actual concurrent handle claim,
 input preservation and successful save/reload/preview. Production build passes.
+
+### Live verification complete — October 20
+
+This supersedes the pending deployment/runtime confirmations above. Authorized
+source push: `9b9573801d225a4465ebfd8911fb9834c7b7041b`.
+Production deployment `dpl_AAnbnhk5KPxzSJL2wdiYbygiHZPC` is READY and assigned to
+`expdesign.app`. Fresh public session response confirms `engagementOpen:true`.
+
+Using the owner's existing signed-in Brave account:
+
+- Feedback's general mode has editable controls. Feature-request mode accepts
+  a clearly labeled private verification note, reports success and shows the same
+  saved note after reload. Testimonial permission remains false. One private note
+  is intentionally left for review rather than deleting account data during QA.
+- Owner `tapps` reports available, saves through the form and restores the correct
+  saved preview after reload. Entering `admin` produces an inline reserved reason
+  before submit; submission shows the same actionable error near the button and
+  focuses Handle. Other fields survive correction; restoring `tapps` saves again.
+- Public community publication remains paused and unselected; public API lookup
+  for `tapps` returns 404. No public profile, testimonial or email was generated.
+
+Live proof images: `output/a11y/bug082-live-20261020/reserved-handle-error.jpg`,
+`owner-profile-saved.jpg`, and `feedback-enabled-and-saved.jpg` in that folder.
+`verification.json` records only sanitized booleans/counts/deployment references.
+Brave's extension intermittently blocked the DOM controller; native Brave
+accessibility controls supplied independent visible save/reload proof. No cookies,
+authentication secrets or private account IDs were extracted for testing.
+
+The local test suite is not a claim of full hosted cross-account referral,
+mail-provider delivery, backup erasure, VoiceOver or complete WCAG conformance.
+Existing wider gates remain. Native 2.7 signed artifacts and 2.8 baseline are
+unchanged by these website repairs.
