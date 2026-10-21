@@ -351,6 +351,10 @@ battery as a baseline, adding new meaningful telemetry/signup/license checks.
       No account/community/telemetry flags enabled. Logs and generated-content
       receipt: `../releases/v2.7/receipts/website-*-build.log`, `staged-site-content.json`.
 - [ ] Public download/feed/notes/site match final artifacts after authorized deployment.
+      October 20 website-version follow-up: verified 2.7 feed/HTML notes are now
+      applied locally in `website/public/`; website build derives 2.7/18 and all
+      three summaries. Matching staged bytes and independent signature verified.
+      Await commit/push/Vercel deployment, then fresh public byte/version checks.
 - [ ] Owner completes real v2.6→v2.7 update/install/relaunch, retaining preferences,
       recent docs, document access, file contents and free behavior.
 

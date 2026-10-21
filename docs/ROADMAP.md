@@ -3523,6 +3523,21 @@ font import → Phase 9, shadows → Phase 10._
 
 ## Progress Log
 
+- **2026-10-20 — Website version diagnosis and local feed/notes fix [internal].**
+  Owner reports website still showing 2.6. Fresh HTTPS feed confirms 2.6/17;
+  latest source also lacks the prepared update item/HTML notes. Public GitHub
+  ZIP already has the verified 11,737,880-byte length and SHA-256. Apply the
+  prepared metadata patch locally: add 2.7/18 appcast item and the real HTML
+  notes file, preserving all previous entries. Website build now derives 2.7/18
+  and includes the three gated release summaries. Source and built static files
+  match the verified staging bytes; independent Ed25519 signature and Sparkle
+  setup checks pass; diff hygiene passes. Receipts:
+  `../releases/v2.7/receipts/website-rollout-{build.log,verification.txt,sparkle-check.log}`.
+  These website changes still require commit/push through the existing Vercel
+  deployment workflow. No production deploy, branch push or owner-app change
+  performed in this check. After deployment, verify live feed/notes/site and the
+  actual owner v2.6→v2.7 update/relaunch before closure and 2.8/19.
+
 - **2026-10-20 — Corrected published v2.7 source tag [internal].**
   Owner asks Codex to correct the source tag. Recheck all 141 packaged file hashes
   against d92e61f; they match. Move remote v2.7 from df61e06 to
