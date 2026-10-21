@@ -29,9 +29,10 @@ before(async () => {
   await pool.query(await readFile(new URL('../migrations/007_community_profiles.sql', import.meta.url), 'utf8'));
   await pool.query(await readFile(new URL('../migrations/008_news_and_tickets.sql', import.meta.url), 'utf8'));
   await pool.query(await readFile(new URL('../migrations/009_ticket_mail_and_retention.sql', import.meta.url), 'utf8'));
+  await pool.query(await readFile(new URL('../migrations/010_member_engagement.sql', import.meta.url), 'utf8'));
   await pool.query('CREATE DATABASE exp_interest');
   for (const file of ['001_pro_interest.sql', '002_pro_interest_erasure.sql']) await interestPool.query(await readFile(new URL(`../migrations/${file}`, import.meta.url), 'utf8'));
-  service = createAccountService({ pool, origin, secret, betaEnabled: true, interestStore: interest, proLinkEnabled: true, communityEnabled: true, newsEnabled:true, ticketsEnabled:true, sendOTP: async mail => {
+  service = createAccountService({ pool, origin, secret, betaEnabled: true, engagementEnabled: true, interestStore: interest, proLinkEnabled: true, communityEnabled: true, newsEnabled:true, ticketsEnabled:true, sendOTP: async mail => {
   if (failMail) throw new Error('Mail transport failure with private data');
   mailbox.push(mail);
 } });
@@ -327,7 +328,7 @@ test('reviewed migration matches the pinned auth schema', async () => {
 });
 test('anonymous session has no profile; private routes require authentication', async () => {
   const result = await call();
-  assert.deepEqual(result.body, { ok: true, registrationOpen: true, user: null });
+  assert.deepEqual(result.body, { ok: true, registrationOpen: true, engagementOpen: true, user: null });
   assert.equal(result.headers.get('cache-control'), 'no-store');
   assert.equal((await call({ action: 'save-profile', name: 'Nobody', bio: '', link: '' })).status, 401);
 });
@@ -618,7 +619,7 @@ test('Node adapter works over HTTP and overwrites spoofed IP/host headers', asyn
   try {
     const response = await fetch(`http://127.0.0.1:${server.address().port}/api/account`, { headers: { origin, 'x-exp-client-ip': 'evil' } });
     assert.equal(response.status, 200);
-    assert.deepEqual(await response.json(), { ok: true, registrationOpen: true, user: null });
+    assert.deepEqual(await response.json(), { ok: true, registrationOpen: true, engagementOpen: true, user: null });
   } finally { await new Promise(resolve => server.close(resolve)); }
 });
 test('paused registration still permits existing-member access, logout and deletion', async () => {
@@ -958,4 +959,95 @@ test('the service works through a restricted non-owner login with read-only staf
     assert.equal((await request({action:'ticket',id})).body.events[1].by,'support');
     assert.equal((await request({action:'delete-ticket',id,confirmation:'DELETE'})).status,200);
   }finally{await restricted.end();await pool.query(`DROP OWNED BY ${name}; DROP ROLE ${name}`);}
+});
+
+test('member engagement is authenticated and exposes only the current member records',async()=>{
+  assert.equal((await call({action:'engagement'})).status,401);
+  const a=await register('engagement-owner@example.test'), b=await register('engagement-other@example.test');
+  const first=(await call({action:'engagement'},a)).body;
+  assert.equal(first.enabled,true);assert.match(first.shareCode,/^[A-Za-z0-9_-]{32}$/);
+  assert.equal((await call({action:'engagement'},a)).body.shareCode,first.shareCode);
+  assert.notEqual((await call({action:'engagement'},b)).body.shareCode,first.shareCode);
+  const id=randomUUID(), body={action:'submit-member-feedback',id,kind:'feature',subject:'A useful idea',message:'Please add a better workflow.',testimonial:false};
+  assert.equal((await call(body,a)).status,200);assert.equal((await call(body,a)).status,200);
+  assert.equal((await call({action:'engagement'},a)).body.feedback.length,1);
+  assert.equal((await call({action:'engagement'},b)).body.feedback.length,0);
+  assert.equal((await call({...body,message:'Another message'},a)).status,409);
+  assert.equal((await call(body,b)).status,409);
+  assert.equal((await call({action:'withdraw-testimonial',id},b)).status,404);
+  assert.equal((await call({action:'delete-member-feedback',id},b)).status,404);
+  assert.equal((await call({...body,id:randomUUID(),userId:'forged'},a)).status,400);
+});
+test('testimonials require explicit current permission and attribution; withdrawal survives a pause',async()=>{
+  const cookie=await register('testimonial-choice@example.test');
+  const base={action:'submit-member-feedback',id:randomUUID(),kind:'feedback',subject:'Useful',message:'This helped me.',testimonial:true,firstName:'Alex',lastInitial:'R',consentVersion:'testimonial-v1'};
+  assert.equal((await call({...base,consentVersion:'old'},cookie)).status,400);
+  assert.equal((await call({...base,lastInitial:'Full surname'},cookie)).status,400);
+  assert.equal((await call({...base,testimonial:false},cookie)).status,400);
+  assert.equal((await call(base,cookie)).status,200);
+  let note=(await call({action:'engagement'},cookie)).body.feedback[0];assert.equal(note.attribution,'Alex R.');assert.equal(note.testimonial,true);assert.ok(note.acceptedAt);
+  const paused=createAccountService({pool,origin,secret,sendOTP:async()=>{}});
+  const r=await paused.handle(new Request(`${origin}/api/account`,{method:'POST',headers:{origin,'content-type':'application/json',cookie,'x-exp-client-ip':`198.51.100.${++ip%250+1}`} ,body:JSON.stringify({action:'withdraw-testimonial',id:base.id})}));assert.equal(r.status,200);
+  note=(await call({action:'engagement'},cookie)).body.feedback[0];assert.equal(note.testimonial,false);assert.equal(note.attribution,null);assert.ok(note.withdrawnAt);
+  assert.equal((await call({action:'delete-member-feedback',id:base.id},cookie)).status,200);
+});
+test('referral signup credit is optional, single, private, withdrawable and refuses self/old accounts',async()=>{
+  const sender=await register('referral-sender@example.test'),recipient=await register('referral-recipient@example.test');
+  const code=(await call({action:'engagement'},sender)).body.shareCode;
+  const claim={action:'claim-referral',code,consent:true,consentVersion:'referral-credit-v1'};
+  assert.equal((await call({...claim,consent:false},recipient)).status,400);
+  assert.equal((await call({...claim,consentVersion:'old'},recipient)).status,400);
+  assert.equal((await call(claim,sender)).status,400);
+  assert.equal((await call({action:'engagement'},sender)).body.creditedSignups,0);
+  assert.equal((await call(claim,recipient)).status,200);assert.equal((await call(claim,recipient)).status,200);
+  const data=(await call({action:'engagement'},sender)).body;assert.equal(data.creditedSignups,1);assert.equal(JSON.stringify(data).includes('referral-recipient'),false);
+  assert.equal((await call({action:'withdraw-referral-credit'},recipient)).status,200);
+  assert.equal((await call({action:'engagement'},sender)).body.creditedSignups,0);
+  assert.equal((await call(claim,recipient)).status,409);
+  const old=await register('referral-old@example.test');await pool.query(`UPDATE exp_member_user SET "createdAt"=now()-interval '2 days' WHERE email='referral-old@example.test'`);
+  assert.equal((await call(claim,old)).status,409);
+});
+test('share actions are idempotent, bounded and clearable without claiming actual posts',async()=>{
+  const cookie=await register('share-record@example.test');const code=(await call({action:'engagement'},cookie)).body.shareCode;const body={action:'record-member-share',id:randomUUID(),target:'copy',code};
+  assert.equal((await call(body,cookie)).status,200);assert.equal((await call(body,cookie)).status,200);
+  assert.equal((await call({...body,target:'email'},cookie)).status,409);
+  assert.equal((await call({...body,id:randomUUID(),target:'arbitrary-url'},cookie)).status,400);
+  assert.equal((await call({...body,id:randomUUID(),code:'Z'.repeat(32)},cookie)).status,409);
+  assert.equal((await call({action:'engagement'},cookie)).body.shareActions,1);
+  const user=(await pool.query("SELECT id FROM exp_member_user WHERE email='share-record@example.test'")).rows[0];
+  await pool.query('UPDATE exp_member_engagement_limit SET count=60,window_start=now() WHERE user_id=$1',[user.id]);
+  assert.equal((await call({...body,id:randomUUID()},cookie)).status,429);
+  assert.equal((await call({action:'clear-member-shares'},cookie)).status,200);
+  assert.equal((await call({action:'engagement'},cookie)).body.shareActions,0);
+});
+test('feedback accepts Unicode within the advertised character limit and account deletion cascades',async()=>{
+  const cookie=await register('feedback-unicode@example.test');const message='🎨'.repeat(700);
+  assert.equal((await call({action:'submit-member-feedback',id:randomUUID(),kind:'feedback',subject:'Unicode',message,testimonial:false},cookie)).status,200);
+  const user=(await pool.query("SELECT id FROM exp_member_user WHERE email='feedback-unicode@example.test'")).rows[0];
+  const code=(await call({action:'engagement'},cookie)).body.shareCode;await call({action:'record-member-share',id:randomUUID(),target:'copy',code},cookie);
+  assert.equal((await call({action:'delete-account',confirmation:'DELETE'},cookie)).status,200);
+  for(const table of ['exp_member_feedback','exp_member_share_link','exp_member_share_event','exp_member_engagement_limit'])assert.equal(Number((await pool.query(`SELECT count(*) FROM ${table} WHERE user_id=$1`,[user.id])).rows[0].count),0);
+});
+test('engagement flags fail closed while preserving existing account functionality',async()=>{
+  const cookie=await register('engagement-paused@example.test');const code=(await call({action:'engagement'},cookie)).body.shareCode;const paused=createAccountService({pool,origin,secret,sendOTP:async()=>{}});
+  const invoke=body=>paused.handle(new Request(`${origin}/api/account`,{method:'POST',headers:{origin,'content-type':'application/json',cookie,'x-exp-client-ip':`198.51.100.${++ip%250+1}`} ,body:JSON.stringify(body)}));
+  assert.equal((await invoke({action:'record-member-share',id:randomUUID(),target:'copy',code})).status,503);
+  assert.equal((await invoke({action:'claim-referral',code:'A'.repeat(32),consent:true,consentVersion:'referral-credit-v1'})).status,503);
+  const read=await invoke({action:'engagement'});assert.equal(read.status,200);assert.equal((await read.json()).enabled,false);
+  const session=await paused.handle(new Request(`${origin}/api/account`,{headers:{cookie,'x-exp-client-ip':`198.51.100.${++ip%250+1}`} }));assert.equal(session.status,200);assert.equal((await session.json()).engagementOpen,false);
+});
+test('engagement is safe before its additive migration is installed',async()=>{
+  const cookie=await register('engagement-before-migration@example.test');
+  await pool.query('ALTER TABLE exp_member_feedback RENAME TO exp_member_feedback_pending');
+  try {
+    const read=await call({action:'engagement'},cookie);assert.equal(read.status,200);assert.equal(read.body.enabled,false);assert.deepEqual(read.body.feedback,[]);
+    assert.equal((await call({action:'submit-member-feedback',id:randomUUID(),kind:'feedback',subject:'Not yet',message:'No missing-table failure leaks.',testimonial:false},cookie)).status,503);
+    assert.equal((await call(undefined,cookie)).status,200);
+  }finally{await pool.query('ALTER TABLE exp_member_feedback_pending RENAME TO exp_member_feedback');}
+});
+test('feedback cap serializes concurrent submissions without losing the existing 49 notes',async()=>{
+  const cookie=await register('engagement-concurrent@example.test');const userId=(await call(undefined,cookie)).body.user.id;
+  await pool.query("INSERT INTO exp_member_feedback(id,user_id,kind,subject,message) SELECT gen_random_uuid(),$1,'feedback','Existing','Kept' FROM generate_series(1,49)",[userId]);
+  const send=()=>call({action:'submit-member-feedback',id:randomUUID(),kind:'feature',subject:'Concurrent',message:'Bounded',testimonial:false},cookie);
+  const writes=await Promise.all([send(),send()]);assert.deepEqual(writes.map(r=>r.status).sort(),[200,409]);assert.equal((await call({action:'engagement'},cookie)).body.feedback.length,50);
 });

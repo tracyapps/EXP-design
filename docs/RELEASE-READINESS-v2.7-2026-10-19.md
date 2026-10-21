@@ -1,5 +1,18 @@
 # v2.7 release preparation — October 19, 2026
 
+## Closed October 20 — owner Sparkle proof and production verification
+
+Native v2.7/build 18 is released and complete. Owner confirms successful Sparkle
+update on their Mac and authorizes closure. Installed app reads 2.7/18 and passes
+production release-candidate checks. Live appcast and HTML notes match verified
+staging bytes; website advertises 2.7. Evidence:
+`../releases/v2.7/receipts/closure/closure.json`, `installed-app-check.log` and
+live HTTP/bundle copies. Previous publication/tag verification remains recorded.
+The raw bundle probe first expected a build property optimized out by minification;
+actual public version/date plus feed and installed build establish the result.
+v2.8/build 19 is opened locally; immutable v2.7 files/tag/feed stay unchanged.
+Earlier preparation statuses below remain historical receipts.
+
 ## October 20 packaged artifact — ready for publication review
 
 Final signed/notarized universal 2.7/18 package:

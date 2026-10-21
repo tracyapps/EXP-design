@@ -1286,9 +1286,35 @@ promote them into release gates.
 
 ---
 
-## v2.7 — self launch readiness (scope selected 2026-10-16)
+## v2.8 — development OPEN (2.8 / build 19)
 
-Development identity: **2.7 / build 18**. Public v2.6/build 17 and older artifacts,
+Opened October 20, 2026 after owner-confirmed v2.6→v2.7 Sparkle update/relaunch.
+Public v2.7/build 18, its source tag, signed app/ZIP and updater item remain
+immutable. App/thumbnail/runtime configurations use 2.8/19; website public version
+continues to come from the 2.7 appcast.
+
+- [x] Open the next development identity and preserve published v2.7 artifacts.
+- [x] Owner selects FEAT-077: account-first website, private feedback/features,
+      separate optional testimonial permission, member sharing and optional signup
+      attribution. Locally implemented; see `launch/ACCOUNT-FIRST-GROWTH-v2.8.md`.
+- [ ] Owner reviews FEAT-077, then separately authorize hosted migration/grants,
+      deployment and feature enablement; verify two hosted accounts and delivery.
+- [ ] FEAT-078: community resources/templates/components/design languages and a
+      member work showcase. Define licensing, consent and moderation first.
+- [ ] FEAT-079: optional device/settings sync; define privacy, conflicts and deletion.
+- [ ] FEAT-080: optional native account connection, basic account info and news.
+      Future candidates have no selected implementation slice or promised release.
+      Native 2.8 feature scope remains unselected.
+
+## v2.7 — native RELEASED AND COMPLETE; self-launch follow-ups retained
+
+Native release closed October 20, 2026 after owner-confirmed Sparkle update,
+installed-app production checks and live feed/notes/site verification.
+`RELEASE-CHECKLIST-v2.7.md` holds receipts and the accepted accessibility limits.
+The original planning checklist below is retained; unchecked hosted/commercial/
+campaign work is separate and is not silently marked complete or made new scope.
+
+Historical development identity: **2.7 / build 18**. Public v2.6/build 17 and older artifacts,
 tags and updater entries remain immutable. The website derives its public version
 from the appcast; a development plan does not change the published release.
 
@@ -3522,6 +3548,46 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-10-20 — FEAT-077 account-first website/member engagement [local].**
+  Owner selected free-account/Pro promotion, ungated download, sharing, private
+  feedback/features, separate testimonial permission and optional recipient
+  signup credit. Implemented paired responsive panels using the supplied Pro SVG,
+  separate follow-up choices, authenticated ownership/idempotency/quotas and
+  withdraw/delete controls. Migration 010 + app grants are additive; new engagement
+  flag defaults off and missing schema returns paused safely. Native release 2.7,
+  source tag/ZIP/feed and native 2.8 baseline are unchanged by this website slice.
+  Full services/usage regressions pass (110 account tests); browser rerun passes
+  233 selected checks, zero failures/blocked, 144 retained manual-review entries.
+  Contrast defects fixed; production build and backlog/diff checks pass. Read
+  `launch/ACCOUNT-FIRST-GROWTH-v2.8.md` for evidence and hosted rollout gates.
+  FEAT-078/079/080 preserve community resources/showcase, optional sync and native
+  account/news directions without selecting those implementations or dates.
+  `launch/CREATOR-OUTREACH-v2.8.md` supplies three unsent scripts and a bounded
+  private-tryout recommendation. Owner visual review/hosted migration, grants,
+  deployment, feature enablement and two-account hosted proof remain; no commit,
+  push, deployment or messages sent. Existing native a11y acceptance retained.
+
+
+- **2026-10-20 — v2.7 RELEASED AND COMPLETE; v2.8/19 baseline opened [internal].**
+  Owner: “ok success. and updated on my mac using sparkle. so that all can be
+  closed out.” Installed app reads 2.7/18 and passes every production release
+  check without replacing/quitting it. Live appcast and HTML notes match verified
+  staging byte for byte; website bundle advertises 2.7. The initial bundle probe
+  expected an unused build property removed by minification; inspect actual
+  version/date and independently verify build 18 in feed/installed plist instead.
+  Raw evidence: `../releases/v2.7/receipts/closure/`. Published ZIP/tag and prior
+  source/tag correction remain unchanged. Close the native release, preserving
+  owner accessibility acceptance, unverified Full Keyboard Access and separate
+  hosted/commercial/campaign gates. Open 2.8/build 19 across app/thumbnail/runtime
+  configurations and a development notes placeholder; next feature scope awaits
+  owner selection. AGENTS/CLAUDE current status updated using writing-for-agents.
+  Baseline build receipt: `/tmp/exp-v28-baseline-20261020.log`; no source commit,
+  push, deployment or next-version feed item is implied by local preparation.
+  Universal unsigned Release baseline passes; built app/thumbnail read 2.8/19,
+  unchanged IDs. Sparkle setup passes for 2.8/19; website build still derives
+  public 2.7/18. Exact v2.7 ZIP hash, public feed and remote source tag unchanged.
+  Logs: `/tmp/exp-v28-{baseline,sparkle-setup,public-website}-20261020.log`.
 
 - **2026-10-20 — Website version diagnosis and local feed/notes fix [internal].**
   Owner reports website still showing 2.6. Fresh HTTPS feed confirms 2.6/17;

@@ -3337,6 +3337,53 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 
 ## ✨ Features
 
+### FEAT-077 — Account-first website, private ideas and optional member credit
+- Type: feature
+- Priority: P1 — owner-selected October 20, 2026 website slice
+- Area: website · accounts · launch
+- Status: implemented locally; owner review and hosted migration/enablement pending
+- Detail: Ungated downloads, paired free-account/Pro panels using the owner's SVG,
+  separate optional follow-up choices, private general feedback/feature requests,
+  explicit withdrawable testimonial permission, sharing tools/action receipts and
+  recipient-selected signup credit. No rewards promised or automatic enrollment.
+- Acceptance: server-verified ownership, explicit unchecked permissions, idempotency,
+  concurrent limits, withdrawal/deletion and account cascade; keyboard/browser
+  journeys in Chromium/WebKit, desktop/mobile, light/dark. Feature flag defaults off.
+- Contract, data/rollout gates and evidence: `launch/ACCOUNT-FIRST-GROWTH-v2.8.md`.
+  Unsent creator scripts: `launch/CREATOR-OUTREACH-v2.8.md`.
+
+### FEAT-078 — Community resources and member showcase
+- Type: feature
+- Priority: candidate — owner roadmap request October 20, 2026
+- Area: community · templates · sharing
+- Status: planned; implementation slice and target release unselected
+- Detail: Share resources, templates, components and design languages; showcase
+  members' work. Extend the existing opt-in public-profile foundation.
+- Acceptance before implementation: define ownership/licenses, attribution,
+  moderation/reporting, publication consent, withdrawal and safe download/import.
+  No public library, collaborative editing or delivery date promised today.
+
+### FEAT-079 — Optional device and settings sync
+- Type: feature
+- Priority: candidate — owner roadmap request October 20, 2026
+- Area: accounts · native · privacy
+- Status: planned research; implementation slice and target release unselected
+- Detail: Explore explicitly enabled device/settings continuity. Decide which
+  preferences sync, conflict/version handling, storage, revocation and deletion
+  before adding data flows. Design files remain local; document sync is not implied.
+
+### FEAT-080 — Native account and news continuity
+- Type: feature
+- Priority: candidate — owner roadmap request October 20, 2026
+- Area: native · accounts · news
+- Status: planned; implementation slice and target release unselected
+- Detail: Optional native account connection followed by basic profile/news display,
+  then separately scoped community/resources. Build on FEAT-069's browser hub.
+- Acceptance before implementation: system-browser authentication and secure token
+  storage, session expiry/revocation, offline/sign-out states, accessible news and
+  accurate current/planned copy. The shipped app currently opens browser accounts.
+
+
 ### FEAT-076 — Matching rotatable ellipse controls for radial and Mesh gradients
 - Type: feature
 - Priority: P2 — owner request October 19, 2026, next v2.7 slice

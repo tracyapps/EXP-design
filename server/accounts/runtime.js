@@ -79,6 +79,7 @@ export default async function accountEndpoint(request, response) {
       communityEnabled: env.ACCOUNT_COMMUNITY_ENABLED === 'true',
       newsEnabled: env.ACCOUNT_NEWS_ENABLED === 'true', ticketsEnabled: env.ACCOUNT_TICKETS_ENABLED === 'true',
       ticketMailEnabled: env.ACCOUNT_TICKET_MAIL_ENABLED === 'true',
+      engagementEnabled: env.ACCOUNT_ENGAGEMENT_ENABLED === 'true',
       betaEnabled: env.ACCOUNT_BETA_ENABLED === 'true', async sendOTP({ email, otp }) {
       if (!env.RESEND_API_KEY || !env.SIGNUP_FROM_EMAIL) throw new Error('Account mail unavailable');
       const result = await fetch('https://api.resend.com/emails', { method: 'POST',

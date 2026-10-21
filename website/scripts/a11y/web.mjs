@@ -95,7 +95,7 @@ try {
         assert.ok(await create.isChecked());
         await type(page, page.getByLabel('Email address'), email);
         await type(page, page.getByLabel('Display name'), 'Keyboard Designer');
-        await tabTo(page, page.getByRole('checkbox')); await page.keyboard.press('Space');
+        await tabTo(page, page.getByRole('checkbox', { name: /Create my optional EXP account/ })); await page.keyboard.press('Space');
         await tabTo(page, page.getByRole('button', { name: 'Email me a code' })); await page.keyboard.press('Enter');
         const code = page.getByLabel('Six-digit code'); await code.waitFor();
         assert.ok(await code.evaluate(el => document.activeElement === el), 'Code field must receive focus');
@@ -363,7 +363,7 @@ try {
         await type(page, page.getByLabel('email (required)', { exact: true }), email);
         await tabTo(page, page.getByLabel('which payment model would you consider? (required)'));
         await page.keyboard.type('s'); await page.keyboard.press(tabKeys.get(page) || 'Tab');
-        await tabTo(page, page.getByRole('checkbox')); await page.keyboard.press('Space');
+        await tabTo(page, page.getByRole('checkbox', { name: /Email me about the proposed EXP Pro offer/ })); await page.keyboard.press('Space');
         await tabTo(page, page.getByRole('button', { name: 'email me a confirmation' })); await page.keyboard.press('Enter');
         await page.getByRole('status').filter({ hasText: 'Check your inbox' }).waitFor();
         const mail = fixture.mail.findLast(item => item.kind === 'interest' && item.email === email); assert.ok(mail);
@@ -466,7 +466,7 @@ try {
         const model = page.getByLabel('which payment model would you consider? (required)');
         await tabTo(page, model); await page.keyboard.type('s'); await page.keyboard.press(tabKeys.get(page) || 'Tab');
         assert.ok(await model.inputValue());
-        const permission = page.getByRole('checkbox'); await tabTo(page, permission); await page.keyboard.press('Space');
+        const permission = page.getByRole('checkbox', { name: /Email me about the proposed EXP Pro offer/ }); await tabTo(page, permission); await page.keyboard.press('Space');
         await tabTo(page, page.getByRole('button', { name: 'email me a confirmation' })); await page.keyboard.press('Enter');
         await page.getByRole('status').filter({ hasText: 'Check your inbox' }).waitFor();
         const mail = fixture.mail.findLast(item => item.kind === 'interest' && item.email === `pro-${email}`); assert.ok(mail);
@@ -484,7 +484,7 @@ try {
       });
       await check(`${variant.name}-account-explanation-and-guest-menu`,page,async()=>{
         await page.route('**/api/account',route=>route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:'Accounts temporarily unavailable.'})}));
-        await page.goto(`${fixture.origin}/accounts`);await page.getByRole('heading',{name:'Your corner of EXP.'}).waitFor();
+        await page.goto(`${fixture.origin}/accounts`);await page.getByRole('heading',{name:'Your corner of EXP.',level:1}).waitFor();
         await page.getByText('Settings sync is not available today.',{exact:false}).waitFor();
         const guest=page.getByRole('button',{name:'Sign in or create an EXP account',exact:true});
         await tabTo(page,guest);await page.keyboard.press('Enter');await page.getByText('Account service is unavailable right now.',{exact:false}).waitFor();
@@ -508,6 +508,82 @@ try {
           await second.getByRole('button',{name:'Sign in or create an EXP account',exact:true}).waitFor();
           assert.equal((await (await context.request.get(`${fixture.origin}/api/account`)).json()).user,null);
         }finally{await second.close();}
+      });
+      await check(`${variant.name}-account-first-download`,page,async()=>{
+        await page.goto(`${fixture.origin}/download`);
+        await page.getByRole('heading',{name:'Make something with EXP [design].',level:1}).waitFor();
+        assert.equal(await page.getByRole('textbox',{name:'email',exact:true}).count(),0);
+        const account=page.locator('.member-callout-account'),pro=page.locator('.member-callout-pro');
+        const alsoPro=account.getByRole('checkbox');assert.equal(await alsoPro.isChecked(),false);
+        await tabTo(page,alsoPro);await page.keyboard.press('Space');
+        assert.match(await account.getByRole('link',{name:/create a free account/}).getAttribute('href'),/next=pro/);
+        const alsoAccount=pro.getByRole('checkbox');assert.equal(await alsoAccount.isChecked(),false);
+        await tabTo(page,alsoAccount);await page.keyboard.press('Space');
+        assert.match(await pro.getByRole('link',{name:/interested in Pro/}).getAttribute('href'),/next=account/);
+        assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+        await scan(`${variant.name}-account-first-panels`,page);
+      });
+      await check(`${variant.name}-member-feedback-permission`,page,async()=>{
+        const address=`growth-${email}`;
+        assert.equal((await context.request.post(`${fixture.origin}/api/account`,{headers:{origin:fixture.origin},data:{action:'send-code',email:address}})).status(),200);
+        const otp=fixture.mail.findLast(item=>item.kind==='account'&&item.email===address).otp;
+        assert.equal((await context.request.post(`${fixture.origin}/api/account`,{headers:{origin:fixture.origin},data:{action:'verify-code',email:address,otp,intent:'register',name:'Growth Tester',accountConsent:true,consentVersion:'free-account-v1'}})).status(),200);
+        await page.goto(`${fixture.origin}/account/feedback`);
+        const subject=page.getByLabel('Subject (up to 120 characters)');await subject.waitFor();
+        await page.getByLabel('What are you sending?').selectOption('feature');
+        await type(page,subject,'Reusable handoff preset');await type(page,page.getByLabel('What would you like me to know? (up to 1,500 characters)'),'Please make a useful preset.');
+        const permission=page.getByRole('checkbox',{name:/Optional: EXP may quote/});assert.equal(await permission.isChecked(),false);
+        await tabTo(page,permission);await page.keyboard.press('Space');
+        await type(page,page.getByLabel('First name',{exact:true}),'Alex');await type(page,page.getByLabel('Last initial',{exact:true}),'R');
+        await page.getByText('Attribution preview:',{exact:false}).waitFor();
+        await tabTo(page,page.getByRole('button',{name:'Send feature request',exact:true}));await page.keyboard.press('Enter');
+        await page.getByRole('status').filter({hasText:'Your private note was saved.'}).waitFor();
+        await page.getByText('Testimonial permission granted as Alex R.',{exact:true}).waitFor();
+        await scan(`${variant.name}-member-feedback-consent`,page);
+        await tabTo(page,page.getByRole('button',{name:'Withdraw testimonial permission',exact:true}));await page.keyboard.press('Enter');
+        await page.getByRole('status').filter({hasText:'Testimonial permission withdrawn.'}).waitFor();
+        await page.reload();await page.getByText('Private feedback. No current testimonial permission.',{exact:true}).waitFor();
+        await scan(`${variant.name}-member-feedback-withdrawn`,page);
+      });
+      await check(`${variant.name}-member-copy-action`,page,async()=>{
+        const read=async()=>{const response=await context.request.post(`${fixture.origin}/api/account`,{headers:{origin:fixture.origin},data:{action:'engagement'}});assert.equal(response.status(),200);return response.json();};
+        await page.goto(`${fixture.origin}/account/share`);const copy=page.getByRole('button',{name:'copy link',exact:true});await copy.waitFor();
+        const before=(await read()).shareActions;
+        await tabTo(page,copy);await page.keyboard.press('Enter');
+        const status=page.locator('.share-tools [role=status]');await status.filter({hasText:/Link copied|Select and copy/}).waitFor();
+        if((await status.textContent()).includes('Link copied')){
+          await page.waitForFunction(async expected=>(await (await fetch('/api/account',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'engagement'})})).json()).shareActions===expected,before+1);
+        }else{assert.equal((await read()).shareActions,before);await page.getByLabel('Link to copy',{exact:true}).waitFor();}
+      });
+      await check(`${variant.name}-optional-referral-credit`,page,async()=>{
+        const summary=await context.request.post(`${fixture.origin}/api/account`,{headers:{origin:fixture.origin},data:{action:'engagement'}});assert.equal(summary.status(),200);
+        const code=(await summary.json()).shareCode;
+        const recipient=await browser.newContext({viewport:{width:variant.width,height:1000}}),receiver=await recipient.newPage();
+        try{
+          tabKeys.set(receiver,variant.engine === webkit ? 'Alt+Tab' : 'Tab');
+          await recipient.route('**/*',route=>new URL(route.request().url()).origin===fixture.origin?route.continue():route.fulfill({status:200,body:'',contentType:'text/css'}));
+          await receiver.goto(`${fixture.origin}/?ref=${code}`);
+          const create=receiver.locator('.hero-actions').getByRole('link',{name:'create a free account',exact:true});await create.waitFor();
+          assert.ok((await create.getAttribute('href')).includes(`ref=${code}`));await create.click();
+          await receiver.getByLabel('Email address').waitFor();const address=`credited-${email}`;
+          await type(receiver,receiver.getByLabel('Email address'),address);await type(receiver,receiver.getByLabel('Display name'),'New Member');
+          const credit=receiver.getByRole('checkbox',{name:/Optional: credit the EXP member/});assert.equal(await credit.isChecked(),false);
+          await tabTo(receiver,receiver.getByRole('checkbox',{name:/Create my optional EXP account/}));await receiver.keyboard.press('Space');
+          await tabTo(receiver,credit);await receiver.keyboard.press('Space');
+          await tabTo(receiver,receiver.getByRole('checkbox',{name:/Also show me the Pro-interest/}));await receiver.keyboard.press('Space');
+          await tabTo(receiver,receiver.getByRole('button',{name:'Email me a code',exact:true}));await receiver.keyboard.press('Enter');
+          const input=receiver.getByLabel('Six-digit code');await input.waitFor();
+          const otp=fixture.mail.findLast(item=>item.kind==='account'&&item.email===address).otp;await type(receiver,input,otp);
+          await tabTo(receiver,receiver.getByRole('button',{name:'Create my account',exact:true}));await receiver.keyboard.press('Enter');
+          await receiver.getByRole('status').filter({hasText:'Your optional signup credit was saved.'}).waitFor();
+          await receiver.getByRole('link',{name:'Continue to Pro interest',exact:true}).waitFor();
+          const count=await context.request.post(`${fixture.origin}/api/account`,{headers:{origin:fixture.origin},data:{action:'engagement'}});assert.equal((await count.json()).creditedSignups,1);
+          await receiver.goto(`${fixture.origin}/account/share`);await receiver.getByRole('button',{name:'Withdraw my signup credit',exact:true}).waitFor();
+          await scan(`${variant.name}-member-share`,receiver);
+          await tabTo(receiver,receiver.getByRole('button',{name:'Withdraw my signup credit',exact:true}));await receiver.keyboard.press('Enter');
+          await receiver.getByRole('status').filter({hasText:'Your optional signup credit has been withdrawn.'}).waitFor();
+          const cleared=await context.request.post(`${fixture.origin}/api/account`,{headers:{origin:fixture.origin},data:{action:'engagement'}});assert.equal((await cleared.json()).creditedSignups,0);
+        }finally{await recipient.close();}
       });
       await context.close();
     } catch (error) { results.push({ name: variant.name, status: 'failed', detail: error.message }); }

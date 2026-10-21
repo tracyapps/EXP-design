@@ -128,36 +128,40 @@ EXP [design]/
 ```
 
 ## Current status
-Public **v2.6/build 17** is released, notarized and complete (2026-10-02).
-The performance, Knife/Unite and convenience bundle is owner-verified, including
-its live v2.5→v2.6 Sparkle update/relaunch. The installed app reads 2.6/17 and
-passes all 18 release-candidate checks; receipts in
-`docs/RELEASE-CHECKLIST-v2.6.md`.
-**v2.7 development is OPEN** (`MARKETING_VERSION 2.7`,
-`CURRENT_PROJECT_VERSION 18`) across app, thumbnail and runtime configurations.
-Immutable v2.6 and older releases are unchanged. Owner selected self-launch
-readiness on 2026-10-16. For v2.7 implementation, pricing, analytics or campaign
-work, read `docs/SELF-LAUNCH-PLAN-v2.7.md` and `docs/RELEASE-CHECKLIST-v2.7.md`
-first. Owner accepted standard system layer typography on 2026-10-16; full
-display/accessibility and signed-payload gates remain. For account/community/privacy work, read
-`docs/launch/ACCOUNTS-AND-PRIVACY-v2.7.md`: owner selected the free member-hub
-scope; FEAT-069 auth/private-profile/account-text preferences are locally verified
-with Better Auth 1.7.10. Hosted enablement, email-purpose linking, community and
-tickets remain open. For signup/privacy work,
-read `docs/launch/PRO-INTEREST-v2.7.md` and the linked data map: INFRA-005/006
-are locally checked; hosted PostgreSQL/setup, delivery, privacy and abuse gates
-remain before enablement. Preserve bundle identity and sequential owner verification.
-Prices and paid features await the offer gate.
+Public **v2.7/build 18** is released, notarized and complete (2026-10-20).
+Owner confirms the live v2.6→v2.7 Sparkle update on their Mac. Installed app
+reads 2.7/18 and passes production release checks; live feed/notes match the
+verified package and website advertises 2.7. Receipts:
+`docs/RELEASE-CHECKLIST-v2.7.md` and `../releases/v2.7/receipts/closure/`.
+**v2.8 development is OPEN** (`MARKETING_VERSION 2.8`,
+`CURRENT_PROJECT_VERSION 19`) across app, thumbnail and runtime configurations.
+Immutable v2.7 and older releases remain unchanged. Owner selected FEAT-077's
+account-first website/member-engagement slice October 20; read
+`docs/launch/ACCOUNT-FIRST-GROWTH-v2.8.md` for its consent, data and rollout gates.
+Local implementation is not hosted enablement. Native 2.8 scope remains unselected.
+Owner accepts extensive v2.7 accessibility testing with Full Keyboard Access
+unverified because macOS would not enable it. Retain observations; confirmed
+accessibility barriers receive high-priority hotfix treatment.
+For account/community/privacy work, read
+`docs/launch/ACCOUNTS-AND-PRIVACY-v2.7.md`. Optional native account connection,
+community/templates/sharing, hosted rollout, telemetry, pricing and campaign
+work retain their own scope/evidence gates. Native Settings currently links to
+the browser account; it does not hold a native account session or sync settings
+or files. The earlier self-launch plan remains in `docs/SELF-LAUNCH-PLAN-v2.7.md`;
+its unfinished commercial/web gates do not reopen the completed native release.
+Preserve bundle identity and sequential owner verification. Prices and paid
+features await the offer gate.
 The native editor, Design Language, component states/behavior contract, semantic
 Handoff Package, agent bridge, nested components, canvas pages, XD/Figma import,
 rendered HTML/CSS import, CodePen handoff/import, static Storybook import, and the
 five-family compatibility matrix are shipped. Documents save as **`.design`**
 (legacy `.exp` opens for migration).
 
-Release receipts live in `docs/RELEASE-CHECKLIST-v2.5.md` and
-`docs/RELEASE-CHECKLIST-v2.6.md`. The older v2.3→v2.4 updater proof was
-superseded by owner decision; v2.5's live update proof is complete.
-Next development scope follows the self-launch plan; FEAT-057/059/060, SVG
+Release receipts live in `docs/RELEASE-CHECKLIST-v2.5.md`,
+`docs/RELEASE-CHECKLIST-v2.6.md` and `docs/RELEASE-CHECKLIST-v2.7.md`.
+The older v2.3→v2.4 updater proof was superseded by owner decision;
+v2.5's live update proof is complete.
+Native development scope awaits owner selection; FEAT-057/059/060, SVG
 `clip-path` import and other backlog entries remain candidates, not commitments.
 Do not infer the next release plan from backlog order.
 

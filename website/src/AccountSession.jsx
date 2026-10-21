@@ -4,17 +4,17 @@ import accountRequest from './account-request.js';
 const Context=createContext(null);
 export const useAccountSession=()=>useContext(Context);
 export function AccountSessionProvider({children}) {
-  const [state,setState]=useState({ready:false,available:false,user:null,registrationOpen:false,error:''});
+  const [state,setState]=useState({ready:false,available:false,user:null,registrationOpen:false,engagementOpen:false,error:''});
   const flight=useRef(null),generation=useRef(0),channel=useRef(null),lastLoad=useRef(0);
   const refresh=useCallback((force=false,announce=false)=>{
     if(flight.current && !force)return flight.current;
     const version=++generation.current;lastLoad.current=Date.now();
     if(announce)channel.current?.postMessage('changed');
     const request=accountRequest().then(result=>{
-      if(version===generation.current)setState({ready:true,available:true,user:result.user,registrationOpen:result.registrationOpen,error:''});
+      if(version===generation.current)setState({ready:true,available:true,user:result.user,registrationOpen:result.registrationOpen,engagementOpen:result.engagementOpen===true,error:''});
       return result;
     }).catch(error=>{
-      if(version===generation.current)setState({ready:true,available:false,user:null,registrationOpen:false,error:error.message});
+      if(version===generation.current)setState({ready:true,available:false,user:null,registrationOpen:false,engagementOpen:false,error:error.message});
       throw error;
     }).finally(()=>{if(version===generation.current)flight.current=null;});
     flight.current=request;return request;

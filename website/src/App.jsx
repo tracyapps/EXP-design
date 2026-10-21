@@ -1,6 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
 import siteContent from "./generated/siteContent.json";
 import InterestPage from "./InterestPage.jsx";
+import MemberCallout from "./MemberCallout.jsx";
+import ShareTools from "./ShareTools.jsx";
+import { registrationHref } from "./engagement-links.js";
 import AccountPage from "./AccountPage.jsx";
 import PeoplePage from "./PeoplePage.jsx";
 import NewsPage from "./NewsPage.jsx";
@@ -273,8 +276,9 @@ function Hero() {
           and flexible ways to bring work in or hand it onward.
         </p>
         <div className="hero-actions" aria-label="primary actions">
-          <a className="button primary" href="/download">tester download</a>
-          <a className="button secondary" href="#roadmap">read the roadmap</a>
+          <a className="button primary" href={registrationHref()}>create a free account</a>
+          <a className="button secondary" href="/download">download EXP for Mac</a>
+          <a className="button secondary" href="/pro">interested in Pro?</a>
         </div>
       </div>
       <div className="hero-stage" aria-label="EXP product preview">
@@ -766,81 +770,6 @@ function Roadmap() {
   );
 }
 
-function SignupForm({
-  id,
-  source,
-  buttonLabel = "request invite",
-  idleMessage = "No spam. Just build notes and release notifications for EXP [design].",
-  successMessage = "you are on the list. quiet little victory.",
-  onSuccess,
-}) {
-  const [email, setEmail] = useState("");
-  const [website, setWebsite] = useState("");
-  const [status, setStatus] = useState("idle");
-  const [message, setMessage] = useState(idleMessage);
-
-  async function handleSubmit(event) {
-    event.preventDefault();
-    setStatus("submitting");
-    setMessage("sending...");
-
-    try {
-      const response = await fetch("/api/signup", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email, website, source }),
-      });
-      const result = await response.json().catch(() => ({}));
-
-      if (!response.ok || result.ok !== true) {
-        throw new Error(result.error ?? "signup failed. Please try again.");
-      }
-
-      setStatus("success");
-      setMessage(successMessage);
-      setEmail("");
-      onSuccess?.();
-    } catch (error) {
-      setStatus("error");
-      setMessage(error.message || "something failed. try again in a minute.");
-    }
-  }
-
-  return (
-      <form className="invite-form" aria-label="tester release notification form" onSubmit={handleSubmit}>
-        <label htmlFor={`${id}-email`}>email</label>
-        <label className="visually-hidden" htmlFor={`${id}-website`}>website</label>
-        <input
-          className="signup-trap"
-          id={`${id}-website`}
-          type="text"
-          tabIndex="-1"
-          autoComplete="off"
-          value={website}
-          onChange={(event) => setWebsite(event.target.value)}
-        />
-        <div>
-          <input
-            id={`${id}-email`}
-            type="email"
-            placeholder="name@example.com"
-            autoComplete="email"
-            required
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            disabled={status === "submitting"}
-          />
-          <button type="submit" disabled={status === "submitting"}>
-            {status === "submitting" ? "sending" : buttonLabel}
-          </button>
-        </div>
-        <p className={`form-message ${status}`} role="status" aria-live="polite">
-          {message}
-        </p>
-      </form>
-  );
-}
-
 function TestingInvite() {
   return (
     <section id="testing" className="testing-section glass-thick glass-edge" aria-labelledby="testing-title">
@@ -849,7 +778,7 @@ function TestingInvite() {
         <h2 id="testing-title">want to help shape the next builds?</h2>
         <p>
           The download page now has the current build, install notes, reporting
-          examples, known issues, and the release-notification signup in one
+          examples, known issues, and your free account in one
           place.
         </p>
       </div>
@@ -926,16 +855,14 @@ function DownloadHero() {
   return (
     <section id="top" className="download-hero">
       <div className="download-hero-copy">
-        <h1>EXP [design] tester download</h1>
+        <h1>Make something with EXP [design].</h1>
         <p>
-          thanks for helping shape the app while it is still becoming itself.
-          this page has the latest build path, install notes, what to expect,
-          and what makes feedback useful.
+          A native Mac design tool for detailed work, reusable components and thoughtful handoff. Get the free build, find your way around, and help shape where it goes next.
         </p>
         <div className="hero-actions" aria-label="download actions">
           <a className="button primary" href="#download-signup">
             <i className="ph ph-download-simple" aria-hidden="true" />
-            join list + download
+            download EXP for Mac
           </a>
           <a className="button secondary" href="#reporting">
             how to report feedback
@@ -943,9 +870,8 @@ function DownloadHero() {
         </div>
         <p className="download-note">
           EXP uses Sparkle for updates: it asks before enabling automatic checks,
-          and Check for Updates… is always available from the app menu. The email
-          list is only for EXP [design] product and release updates, and it will
-          not be sold.
+          and Check for Updates… is always available from the app menu. No email or
+          account is required to download, edit, save or export.
         </p>
       </div>
       <div className="download-preview" aria-label="EXP tester build preview">
@@ -961,38 +887,12 @@ function DownloadHero() {
 }
 
 function DownloadSignup() {
-  function openLatestReleaseSoon() {
-    window.setTimeout(() => {
-      window.location.href = releaseUrl;
-    }, 650);
-  }
-
-  return (
-    <section id="download-signup" className="download-signup glass-thick glass-edge" aria-labelledby="download-signup-title">
-      <div>
-        <p className="section-label">download</p>
-        <h2 id="download-signup-title">get notified, then grab the latest build.</h2>
-        <p>
-          Sign up for release notes so new builds do not disappear into GitHub.
-          The download opens after signup, and the release page stays public if
-          you would rather skip the list.
-        </p>
-      </div>
-      <div className="download-signup-panel">
-        <SignupForm
-          id="download-signup-form"
-          source="download page"
-          buttonLabel="join list + open GitHub"
-          idleMessage="Build notifications only. No marketing list, no selling addresses."
-          successMessage="you are on the release list. opening GitHub Releases..."
-          onSuccess={openLatestReleaseSoon}
-        />
-        <a className="skip-download" href={releaseUrl} target="_blank" rel="noreferrer">
-          skip email and open GitHub Releases
-        </a>
-      </div>
-    </section>
-  );
+  return <section id="download-signup" className="download-signup glass-thick glass-edge" aria-labelledby="download-signup-title">
+    <div><p className="section-label">free Mac app</p><h2 id="download-signup-title">Get the build. Make something.</h2>
+      <p>No list to join and no account required. Download EXP [design], install it on macOS 26.2 or later, and keep your files on your Mac.</p></div>
+    <div className="download-signup-panel"><a className="button primary" href={releaseUrl}>download EXP for Mac</a>
+      <p>Already installed? Use EXP → Check for Updates…</p><a href="/learn">find your way around EXP</a></div>
+  </section>;
 }
 
 function InstallGuide() {
@@ -1165,7 +1065,7 @@ function TesterFooterCta() {
       </div>
       <a className="button primary" href="#download-signup">
         <i className="ph ph-download-simple" aria-hidden="true" />
-        join list + download
+        download EXP for Mac
       </a>
     </section>
   );
@@ -1195,12 +1095,14 @@ function DownloadPage() {
       <main>
         <DownloadHero />
         <DownloadSignup />
+        <MemberCallout />
         <InstallGuide />
         <Expectations />
         <ReportingGuide />
         <TesterFeatures />
         <KnownIssues />
         <TesterFooterCta />
+        <ShareTools />
       </main>
       <Footer />
     </>
@@ -1517,7 +1419,7 @@ export default function App() {
   }, []);
 
   if(path==='/accounts')return <div className="account-shell"><Header progress={progress} brandHref="/"/><main className="account-main"><AccountsIntro/></main><Footer/></div>;
-  if (["/account", "/account/profile", "/account/preferences", "/account/beta", "/account/pro", "/account/community", "/account/tickets", "/account/support"].includes(path)) {
+  if (["/account", "/account/profile", "/account/preferences", "/account/beta", "/account/pro", "/account/community", "/account/tickets", "/account/support", "/account/feedback", "/account/share"].includes(path)) {
     return <div className="account-shell">
       <Header progress={progress} actionLabel="get the free app" actionHref="/download" brandHref="/" />
       <main className="account-main"><AccountPage path={path} /></main>
@@ -1579,6 +1481,8 @@ export default function App() {
         <DesignLanguageCallout />
         <ImportHandoffCallout />
         <Roadmap />
+        <MemberCallout />
+        <ShareTools />
         <TestingInvite />
       </main>
       <Footer />

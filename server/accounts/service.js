@@ -9,6 +9,7 @@ import { communityActions, handleCommunity } from './community.js';
 import { newsActions, handleNews } from './news.js';
 import { ticketActions, handleTickets } from './tickets.js';
 import { avatarActions,handleAvatar,privateAvatar } from './avatar.js';
+import { engagementActions, handleEngagement } from './engagement.js';
 
 export const accountConsentVersion = 'free-account-v1';
 const privateHeaders = { 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer', 'X-Robots-Tag': 'noindex' };
@@ -22,7 +23,7 @@ const text = (value, max, required = false) => typeof value === 'string' && valu
 // Established library owns challenges, atomic OTP consumption, sessions and CSRF.
 // The single public endpoint does not expose password/OAuth/admin/plugin routes.
 export function createAccountService({ pool, origin, secret, sendOTP, registrationEnabled = true, betaEnabled = false,
-  interestStore = null, proLinkEnabled = false, communityEnabled = false, newsEnabled = false, ticketsEnabled = false, ticketMailEnabled = false }) {
+  interestStore = null, proLinkEnabled = false, communityEnabled = false, newsEnabled = false, ticketsEnabled = false, ticketMailEnabled = false, engagementEnabled = false }) {
   const delivery = new AsyncLocalStorage();
   const auth = betterAuth({
     appName: 'EXP [design]', baseURL: origin, basePath: '/api/auth', secret,
@@ -107,16 +108,16 @@ export function createAccountService({ pool, origin, secret, sendOTP, registrati
         body = JSON.parse(raw);
         if (!body || typeof body !== 'object' || Array.isArray(body)) return json({ error: 'Invalid request.' }, 400);
         action = body.action;
-        if ((size>12288 && action!=='save-avatar') || (size > 4096 && !['create-ticket','reply-ticket','save-avatar'].includes(action))) return json({ error: 'Request is too large.' }, 413);
+        if ((size>12288 && action!=='save-avatar') || (size > 4096 && !['create-ticket','reply-ticket','save-avatar','submit-member-feedback'].includes(action))) return json({ error: 'Request is too large.' }, 413);
       }
       const allowed = {
-        ...avatarActions, ...betaActions, ...proActions, ...communityActions, ...newsActions, ...ticketActions, session: [], 'send-code': ['email'],
+        ...engagementActions, ...avatarActions, ...betaActions, ...proActions, ...communityActions, ...newsActions, ...ticketActions, session: [], 'send-code': ['email'],
         'verify-code': ['email', 'otp', 'intent', 'name', 'accountConsent', 'consentVersion'],
         'save-profile': ['name', 'bio', 'link'], 'save-preferences': ['largeText'],
         'sign-out': [], 'sign-out-all': [], 'delete-account': ['confirmation']
       };
       if (typeof action !== 'string' || !Object.hasOwn(allowed, action) || Object.keys(body).some(k => k !== 'action' && !allowed[action].includes(k))) return json({ error: 'Invalid account action or field.' }, 400);
-      if (Object.hasOwn(avatarActions,action) || Object.hasOwn(betaActions, action) || Object.hasOwn(proActions, action) || Object.hasOwn(communityActions, action) || Object.hasOwn(newsActions, action) || Object.hasOwn(ticketActions, action)) {
+      if (Object.hasOwn(engagementActions,action) || Object.hasOwn(avatarActions,action) || Object.hasOwn(betaActions, action) || Object.hasOwn(proActions, action) || Object.hasOwn(communityActions, action) || Object.hasOwn(newsActions, action) || Object.hasOwn(ticketActions, action)) {
         // Same database-backed auth/abuse checks as the existing account actions.
         const session = await auth.handler(new Request(`${origin}/api/auth/get-session`, { headers: request.headers }));
         const member = (await session.json().catch(() => null))?.user;
@@ -124,7 +125,9 @@ export function createAccountService({ pool, origin, secret, sendOTP, registrati
         for (const cookie of session.headers.getSetCookie()) headers.append('set-cookie', cookie);
         if (!session.ok) return json({ error: session.status === 429 ? 'Please wait before trying again.' : 'Account service is unavailable. Please try later.' }, session.status, headers);
         if (!member?.id || member.emailVerified !== true) return json({ error: 'Please sign in again.' }, 401, headers);
-        const response = Object.hasOwn(avatarActions,action)
+        const response = Object.hasOwn(engagementActions,action)
+          ? await handleEngagement({pool,userId:member.id,body,enabled:engagementEnabled})
+          : Object.hasOwn(avatarActions,action)
           ? await handleAvatar({pool,userId:member.id,body,secret})
           : Object.hasOwn(betaActions, action)
           ? await handleBeta({ pool, userId: member.id, body, enabled: betaEnabled })
@@ -185,7 +188,7 @@ export function createAccountService({ pool, origin, secret, sendOTP, registrati
       if (action === 'session') {
         const user = result?.user;
         // Never return bearer/session tokens, IPs or user-agent details to JS.
-        return json({ ok: true, registrationOpen: registrationEnabled, user: user ? { id: user.id, email: user.email, name: user.name,
+        return json({ ok: true, registrationOpen: registrationEnabled, engagementOpen: engagementEnabled, user: user ? { id: user.id, email: user.email, name: user.name,
           bio: user.bio || '', link: user.link || '', largeText: user.largeText === true,
           avatar:privateAvatar(user.image), profileVisibility: 'private' } : null }, 200, outputHeaders);
       }

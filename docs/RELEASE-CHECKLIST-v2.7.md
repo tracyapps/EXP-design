@@ -1,5 +1,15 @@
 # EXP design v2.7 launch readiness checklist
 
+**NATIVE v2.7/build 18 RELEASED AND COMPLETE — October 20, 2026.**
+Owner confirms the actual Sparkle update on their Mac. Installed app reads
+2.7/18 and passes production checks. Live feed and HTML notes match the verified
+staging bytes; website advertises 2.7. Raw closure evidence:
+`../releases/v2.7/receipts/closure/`. Remaining unchecked commercial, campaign,
+hosted-service and broad research matrices retain their own scope; they do not
+reopen the accepted native release. Full Keyboard Access remains explicitly
+unverified under the owner's accepted accessibility disposition.
+Next development baseline: **2.8/build 19**, with no new feature scope selected.
+
 Opened October 16, 2026. **Only checked items have evidence; all other gates remain pending.**
 Internal RC review November 16; conditional release November 20; campaign December 1.
 Scope/owners/dependencies: [self-launch plan](SELF-LAUNCH-PLAN-v2.7.md).
@@ -329,7 +339,7 @@ battery as a baseline, adding new meaningful telemetry/signup/license checks.
       Developer ID export, notarized export, clean app and ZIP extraction pass
       strict signatures, Gatekeeper and staple checks. Font guard passes.
       `../releases/v2.7/README.md` and `receipts/artifact.json` hold the handoff.
-- [ ] Owner authorizes publication; immutable download exists before feed publication.
+- [x] Owner authorizes publication; immutable download exists before feed publication.
       October 20 owner publishes GitHub release/ZIP. Downloaded public asset is
       byte-identical: 11,737,880 bytes and SHA-256 above. Updater feed is still
       2.6/17, and the v2.7 notes URL returns the SPA shell, not release notes.
@@ -350,13 +360,22 @@ battery as a baseline, adding new meaningful telemetry/signup/license checks.
       Summaries are gated by the feed version; the 2.6 build keeps them hidden.
       No account/community/telemetry flags enabled. Logs and generated-content
       receipt: `../releases/v2.7/receipts/website-*-build.log`, `staged-site-content.json`.
-- [ ] Public download/feed/notes/site match final artifacts after authorized deployment.
+- [x] Public download/feed/notes/site match final artifacts after owner deployment.
       October 20 website-version follow-up: verified 2.7 feed/HTML notes are now
       applied locally in `website/public/`; website build derives 2.7/18 and all
       three summaries. Matching staged bytes and independent signature verified.
       Await commit/push/Vercel deployment, then fresh public byte/version checks.
-- [ ] Owner completes real v2.6→v2.7 update/install/relaunch, retaining preferences,
+      **Closure:** owner pushes `784dc4f`; live feed/HTML notes are byte-identical
+      to verified staging. Website bundle advertises 2.7; feed/build is 18.
+      Published ZIP was independently downloaded/hash-matched. Tag v2.7 remains
+      d92e61f, matching packaged inputs. `receipts/closure/` holds fresh evidence.
+- [x] Owner completes real v2.6→v2.7 update/install/relaunch, retaining preferences,
       recent docs, document access, file contents and free behavior.
+      Owner: “ok success. and updated on my mac using sparkle. so that all can be
+      closed out.” Installed `/Applications/design/EXP [design].app` reads 2.7/18
+      and passes every production release-candidate check. Record the owner's
+      acceptance at face value; no additional formal AT or exhaustive document
+      matrix is inferred. `../releases/v2.7/receipts/closure/installed-app-check.log`.
 
 ## Campaign gate and review
 

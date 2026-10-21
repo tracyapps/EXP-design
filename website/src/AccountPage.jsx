@@ -8,6 +8,8 @@ import TicketsPage from './TicketsPage.jsx';
 import accountRequest from './account-request.js';
 import {useAccountSession} from './AccountSession.jsx';
 import ProfilePhoto from './ProfilePhoto.jsx';
+import AccountEngagement from './AccountEngagement.jsx';
+import { incomingReferral, withReferral } from './engagement-links.js';
 
 
 export default function AccountPage({ path }) {
@@ -29,6 +31,10 @@ export default function AccountPage({ path }) {
   const [profile, setProfile] = useState({ name: '', bio: '', link: '' });
   const [largeText, setLargeText] = useState(false);
   const [confirmation, setConfirmation] = useState('');
+  const [referral] = useState(incomingReferral);
+  const [creditChoice, setCreditChoice] = useState(false);
+  const [creditState, setCreditState] = useState('');
+  const [wantPro, setWantPro] = useState(() => new URLSearchParams(window.location.search).get('next') === 'pro');
   const [proToken, setProToken] = useState(() => path === '/account/pro' ? window.location.hash.slice(1) : '');
 
   function receive(next,preserveProfile=false) {
@@ -78,20 +84,27 @@ export default function AccountPage({ path }) {
       return false;
     } finally { setBusy(false); }
   }
-  const section = path === '/account/profile' ? 'profile' : path === '/account/preferences' ? 'preferences' : path === '/account/beta' ? 'beta' : path === '/account/pro' ? 'pro' : path === '/account/community' ? 'community' : path === '/account/tickets' ? 'tickets' : path === '/account/support' ? 'support' : 'home';
+  async function claimReferral() {
+    setBusy(true);
+    try { await accountRequest({ action: 'claim-referral', code: referral, consent: true, consentVersion: 'referral-credit-v1' }); setCreditState('saved'); setMessage('Your optional signup credit was saved. No reward is promised.'); }
+    catch (error) { setCreditState('retry'); setMessage(`Your account is ready, but signup credit was not saved: ${error.message}`); }
+    finally { setBusy(false); }
+  }
+  const section = path === '/account/feedback' ? 'feedback' : path === '/account/share' ? 'share' : path === '/account/profile' ? 'profile' : path === '/account/preferences' ? 'preferences' : path === '/account/beta' ? 'beta' : path === '/account/pro' ? 'pro' : path === '/account/community' ? 'community' : path === '/account/tickets' ? 'tickets' : path === '/account/support' ? 'support' : 'home';
   return <section className={`account-page${user?.largeText ? ' account-large-text' : ''}`} aria-labelledby="account-title">
     <p className="section-label">EXP [design] · free account</p>
-    <h1 id="account-title" tabIndex={-1} ref={headingRef}>{user ? section === 'profile' ? 'Your private profile.' : section === 'preferences' ? 'Your preferences.' : section === 'beta' ? 'Help shape EXP.' : section === 'pro' ? 'Your Pro interest.' : section === 'community' ? 'Your community profile.' : section === 'tickets' ? 'Your private tickets.' : section === 'support' ? 'EXP support inbox.' : `Hello, ${user.name}.` : 'A place for you.'}</h1>
+    <h1 id="account-title" tabIndex={-1} ref={headingRef}>{user ? section === 'profile' ? 'Your private profile.' : section === 'preferences' ? 'Your preferences.' : section === 'feedback' ? 'Your feedback and feature ideas.' : section === 'share' ? 'Share EXP.' : section === 'beta' ? 'Help shape EXP.' : section === 'pro' ? 'Your Pro interest.' : section === 'community' ? 'Your community profile.' : section === 'tickets' ? 'Your private tickets.' : section === 'support' ? 'EXP support inbox.' : `Hello, ${user.name}.` : 'A place for you.'}</h1>
     <p className="account-lead">{user ? 'Your account details stay private. You choose whether to publish a separate community profile.' : 'An optional account, separate from your design files. The editor and shipped exports stay free to use without signing in.'}</p>
     {!user && <p><a href="/accounts">What is a free EXP account?</a> A private profile, preferences and a place for feedback. Settings sync is a future idea, not available today.</p>}
     <p className="account-status" role="status">{message}</p>
     {!user && proToken && <p>Sign in with the email used for Pro interest, then choose whether to connect that record. Signing in does not subscribe you. Reopen the email link if this page is reloaded.</p>}
     {!ready && <p>Loading…</p>}
     {ready && !available && <p>Account registration is not available right now. <a href="/account">Check again</a> or <a href="/download">get the free app</a>.</p>}
-    {ready && available && !user && <form className="account-card" onSubmit={event => {
+    {ready && available && !user && <form className="account-card" onSubmit={async event => {
       event.preventDefault();
-      act(sent ? { action: 'verify-code', email, otp, intent, name, accountConsent: consent, consentVersion: 'free-account-v1' } :
+      const verified = await act(sent ? { action: 'verify-code', email, otp, intent, name, accountConsent: consent, consentVersion: 'free-account-v1' } :
         { action: 'send-code', email }, sent ? 'You’re signed in.' : 'Code sent. Check your inbox; it expires in five minutes. You can request another after one minute.');
+      if (verified && sent && intent === 'register' && referral && creditChoice && session.engagementOpen) await claimReferral();
     }}>
       <fieldset disabled={busy}>
         <legend>{sent ? 'Enter your email code' : 'Sign in or create an account'}</legend>
@@ -107,6 +120,8 @@ export default function AccountPage({ path }) {
           <label className="account-check"><input type="checkbox" required checked={consent} onChange={e => setConsent(e.target.checked)} />
             <span>Create my optional EXP account and store my private profile. This does not subscribe me to email updates or Pro offers.</span></label>
         </>}
+        {intent === 'register' && <label className="engagement-check"><input type="checkbox" checked={wantPro} onChange={e => setWantPro(e.target.checked)} />Also show me the Pro-interest form after my account is ready. This does not enroll me.</label>}
+        {intent === 'register' && referral && session.engagementOpen && <label className="engagement-check"><input type="checkbox" checked={creditChoice} onChange={e => setCreditChoice(e.target.checked)} />Optional: credit the EXP member who shared this link when my account is verified. This stores a private connection between our accounts, not my name/email in their dashboard. No reward is promised. I can withdraw it in Share EXP; a credit cannot be reassigned.</label>}
         {sent && <><label htmlFor="account-code">Six-digit code</label>
           <input id="account-code" ref={codeRef} inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" minLength={6} maxLength={6} required value={otp} onChange={e => setOTP(e.target.value)} />
         </>}
@@ -117,10 +132,14 @@ export default function AccountPage({ path }) {
       <p>No password to remember. Signing in again requires a new email code. Email access is needed to recover access; changing the account email is a later slice.</p>
     </form>}
     {ready && user && <>
+      {creditState === 'retry' && <div className="account-card"><p>Your account works normally. Signup credit was not saved.</p><button disabled={busy} type="button" onClick={claimReferral}>Retry optional signup credit</button></div>}
+      {wantPro && <div className="account-card"><h2>Next: help shape Pro.</h2><p>Your account is ready. Pro interest has its own permission and email confirmation.</p><a href={withReferral('/pro')}>Continue to Pro interest</a></div>}
       <nav className="account-nav" aria-label="Your account">
         <a href="/account" aria-current={section === 'home' ? 'page' : undefined}>Overview</a>
         <a href="/account/profile" aria-current={section === 'profile' ? 'page' : undefined}>Private profile</a>
         <a href="/account/preferences" aria-current={section === 'preferences' ? 'page' : undefined}>Preferences</a>
+        <a href="/account/feedback" aria-current={section === 'feedback' ? 'page' : undefined}>Feedback & feature requests</a>
+        <a href="/account/share" aria-current={section === 'share' ? 'page' : undefined}>Share EXP</a>
         <a href="/account/beta" aria-current={section === 'beta' ? 'page' : undefined}>Beta & feedback</a>
         <a href="/account/pro" aria-current={section === 'pro' ? 'page' : undefined}>Pro interest</a>
         <a href="/account/community" aria-current={section === 'community' ? 'page' : undefined}>Community profile</a>
@@ -129,10 +148,12 @@ export default function AccountPage({ path }) {
       </nav>
       {section === 'home' && <div className="account-card">
         <h2>Your account is ready.</h2>
+        <p><a href="/account/feedback">Send feedback or request a feature</a> · <a href="/account/share">Share EXP with your personal link</a></p>
         <p>Signed in as <strong>{user.email}</strong>. Edit your private profile or choose larger text for this account area.</p>
         <p><a href="/pro">Help shape EXP Pro</a> uses its own confirmation and permission. <a href="/support.html">Support the developer</a> is optional and account-free.</p>
-        <p><a href="/account/beta">Choose beta participation or send private feedback</a>. <a href="/account/community">Prepare an optional community profile</a>. <a href="/news">Read news and updates</a> or <a href="/account/tickets">open a private support ticket</a>.</p>
+        <p><a href="/account/beta">Choose beta participation</a>. <a href="/account/community">Prepare an optional community profile</a>. <a href="/news">Read news and updates</a> or <a href="/account/tickets">open a private support ticket</a>.</p>
       </div>}
+      {['feedback','share'].includes(section) && <AccountEngagement key={user.id + section} view={section} user={user} request={accountRequest} onSignedOut={() => { receive(null); setMessage('Please sign in again.'); }} />}
       {section === 'profile' && <ProfilePhoto key={user.id} user={user} busy={busy} onSave={body=>act(body,body.action==='remove-avatar'?'Profile photo removed.':'Profile photo saved.')}/>}
       {section === 'profile' && <form className="account-card" onSubmit={e => { e.preventDefault(); act({ action: 'save-profile', ...profile }, 'Private profile saved.'); }}>
         <fieldset disabled={busy}><legend>Private profile</legend>
@@ -166,7 +187,7 @@ export default function AccountPage({ path }) {
         <button type="button" disabled={busy} onClick={() => act({ action: 'sign-out-all' }, 'Signed out everywhere.')}>Sign out everywhere</button>
       </div>
       {section === 'preferences' && <details className="account-card account-delete"><summary>Delete this free account</summary>
-        <p>This removes your live account, private profile, account preferences, beta choices, feedback, Pro account connection, community draft/public profile, associated community reports, development-news permission, ticket email choice and queued alerts, your authored tickets and all their replies, support grants and sessions. Replies you wrote as support on other members’ tickets remain with those threads without your account ID. It does not remove local design files, separate release/Pro list permissions, sent email, provider logs or backups.</p>
+        <p>This removes your live account, private profile, account preferences, beta choices, private feedback and testimonial permission, your share link/action history, signup credit, Pro account connection, community draft/public profile, associated community reports, development-news permission, ticket email choice and queued alerts, your authored tickets and all their replies, support grants and sessions. Replies you wrote as support on other members’ tickets remain with those threads without your account ID. It does not remove local design files, separate release/Pro list permissions, sent email, provider logs or backups.</p>
         <p>Sign in with a fresh email code, then confirm within five minutes. This cannot be undone.</p>
         <form onSubmit={e => { e.preventDefault(); act({ action: 'delete-account', confirmation }, 'Your live free account has been deleted. Separate email permissions are unchanged.'); }}>
           <fieldset disabled={busy}><legend>Confirm account deletion</legend>

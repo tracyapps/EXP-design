@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import './interest.css';
+import { registrationHref } from './engagement-links.js';
 
 const permission = 'Email me about the proposed EXP Pro offer and invite me to give feedback.';
 
@@ -21,6 +22,7 @@ export default function InterestPage({ mode = 'request' }) {
   const [model, setModel] = useState('');
   const [consent, setConsent] = useState(false);
   const [website, setWebsite] = useState('');
+  const [wantAccount, setWantAccount] = useState(() => new URLSearchParams(window.location.search).get('next') === 'account');
   const [status, setStatus] = useState('idle');
   const [message, setMessage] = useState('');
   const [erasureStatus, setErasureStatus] = useState('idle');
@@ -146,10 +148,12 @@ export default function InterestPage({ mode = 'request' }) {
         <label className="signup-trap" htmlFor="pro-website">website</label>
         <input className="signup-trap" id="pro-website" type="text" tabIndex={-1} autoComplete="off"
           value={website} onChange={event => setWebsite(event.target.value)} />
+        <label className="engagement-check"><input type="checkbox" checked={wantAccount} onChange={event => setWantAccount(event.target.checked)} disabled={busy || done} />Also help me create a free EXP account afterward. This request does not create one.</label>
         <button className="interest-button" type="submit" disabled={busy || done}>{busy ? 'Sending…' : 'email me a confirmation'}</button>
         <p className="interest-hint">You'll join after confirming your email. The email also includes a link to withdraw your interest.</p>
         <p className={`interest-message ${status}`} role="status">{message}</p>
       </form>
+      {done && wantAccount && <div className="account-card"><h2>Next: your free account.</h2><p>Check your inbox to confirm Pro interest separately. You can now create an optional EXP account using its own email code and account permission.</p><a className="button primary" href={registrationHref()}>Create my free account</a></div>}
     </section>
   );
 }

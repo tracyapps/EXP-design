@@ -469,3 +469,12 @@ hosted/retention/AT gates: [news and ticket handoff](NEWS-AND-TICKETS-v2.7.md).
 The account suite now has 71 real-PostgreSQL cases. Hosted operator enrollment,
 private two-account/staff journey and retention/restore-erasure remain unverified.
 The native editor and its release remain independent of this web rollout.
+
+## October 20 follow-up: account-first website
+
+FEAT-077 is a separate owner-selected website slice. Read
+`ACCOUNT-FIRST-GROWTH-v2.8.md` for migration 010, private feedback/testimonial
+permissions, sharing receipts, explicit recipient signup credit, deletion and
+rollout gates. `ACCOUNT_ENGAGEMENT_ENABLED` defaults off; this source work does
+not enable hosted services or change native sign-in. FEAT-078/079/080 preserve
+community resources/showcase, optional device sync and native account/news ideas.

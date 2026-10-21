@@ -2,6 +2,7 @@ import React,{useEffect,useId,useRef,useState} from 'react';
 import {useAccountSession} from './AccountSession.jsx';
 import accountRequest from './account-request.js';
 import './account-menu.css';
+import { registrationHref } from './engagement-links.js';
 
 export function avatarInitials(user) {
   const words=user?.name?.trim().split(/\s+/u)??[];
@@ -37,10 +38,10 @@ export default function AccountMenu() {
         <p className="account-menu-name">{user.name}</p>
         <a href="/account">Account overview</a><a href="/account/profile">Private profile</a><a href="/account/preferences">Preferences</a>
         <a href="/account/beta">Beta &amp; feedback</a><a href="/account/pro">Pro interest</a><a href="/account/community">Community profile</a>
-        <a href="/account/tickets">My tickets</a>
+        <a href="/account/tickets">My tickets</a><a href="/account/feedback">Feedback & feature requests</a><a href="/account/share">Share EXP</a>
       </>:<>
         <p className="account-menu-name">Your free EXP account</p>
-        <a href="/account">Sign in</a><a href="/account?intent=register">Create account</a>
+        <a href="/account">Sign in</a><a href={registrationHref()}>Create account</a>
         {session.ready && !session.available && <p>Account service is unavailable right now. You can still browse and download EXP.</p>}
       </>}
       <a href="/accounts">About free accounts</a><a href="/news">News &amp; updates</a><a href="/download">Download EXP</a>
