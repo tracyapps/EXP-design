@@ -1,6 +1,7 @@
 # Optional community profiles — FEAT-069
 
-October 17, 2026 (America/Chicago). Local implementation; public rollout disabled.
+October 17, 2026 (America/Chicago). Initial local implementation; public rollout was disabled.
+Production enabled by owner approval October 21; see the enablement receipt below.
 Owner's successful hosted account creation/email-code sign-in is separate evidence
 for the existing account foundation, not acceptance of this new public surface.
 
@@ -134,3 +135,26 @@ W3C sources rechecked before form/name/status/disclosure changes:
 [groups](https://www.w3.org/WAI/tutorials/forms/grouping/),
 [status](https://www.w3.org/TR/wai-aria-1.2/#status),
 [native details](https://www.w3.org/TR/html-aria/#el-details).
+
+## Production enablement — October 21, 2026
+
+Owner explicitly approved enabling public profiles and reviewing reports through
+its private database queue. Set production `ACCOUNT_COMMUNITY_ENABLED=true` and
+redeploy source `2c7089e0fc2fe72badc5797beea035e59b39d1c6` as
+`dpl_HExmLVVyirKm6uHskoEXyD3UubtW`; READY, aliased to `expdesign.app`.
+This supersedes the earlier paused-rollout status, not the historical evidence.
+
+Read-only production preflight found zero saved publications, one private draft
+and zero unresolved reports. Fresh owner Brave reload removes the paused notice,
+loads the saved private preview and enables the unchecked publication choice.
+Checking it enables Publish; unchecking disables Publish again. Leave it unchecked;
+no Publish action was performed. Public lookup for `tapps` remains 404, with
+`no-store`, `no-referrer` and `noindex` headers. Proof and sanitized receipt:
+`output/a11y/community-launch-20261021/`.
+
+The owner is the moderation operator using the existing private database console;
+there is still no moderation dashboard or report email notification. Actual hosted
+publish/view/unpublish and cross-account report/hold lifecycle evidence remain
+open, as do the previously documented retention, backup and human accessibility
+checks. Enabling the feature does not claim those checks have passed. No private
+draft, testimonial or report was published as part of this operation.

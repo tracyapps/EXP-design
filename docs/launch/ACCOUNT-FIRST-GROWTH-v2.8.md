@@ -302,3 +302,26 @@ The local test suite is not a claim of full hosted cross-account referral,
 mail-provider delivery, backup erasure, VoiceOver or complete WCAG conformance.
 Existing wider gates remain. Native 2.7 signed artifacts and 2.8 baseline are
 unchanged by these website repairs.
+
+## Production enablement — October 21, 2026
+
+Owner explicitly approved enabling public profiles and reviewing reports through
+its private database queue. Set production `ACCOUNT_COMMUNITY_ENABLED=true` and
+redeploy source `2c7089e0fc2fe72badc5797beea035e59b39d1c6` as
+`dpl_HExmLVVyirKm6uHskoEXyD3UubtW`; READY, aliased to `expdesign.app`.
+This supersedes the earlier paused-rollout status, not the historical evidence.
+
+Read-only production preflight found zero saved publications, one private draft
+and zero unresolved reports. Fresh owner Brave reload removes the paused notice,
+loads the saved private preview and enables the unchecked publication choice.
+Checking it enables Publish; unchecking disables Publish again. Leave it unchecked;
+no Publish action was performed. Public lookup for `tapps` remains 404, with
+`no-store`, `no-referrer` and `noindex` headers. Proof and sanitized receipt:
+`output/a11y/community-launch-20261021/`.
+
+The owner is the moderation operator using the existing private database console;
+there is still no moderation dashboard or report email notification. Actual hosted
+publish/view/unpublish and cross-account report/hold lifecycle evidence remain
+open, as do the previously documented retention, backup and human accessibility
+checks. Enabling the feature does not claim those checks have passed. No private
+draft, testimonial or report was published as part of this operation.

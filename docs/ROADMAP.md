@@ -3549,6 +3549,18 @@ font import → Phase 9, shadows → Phase 10._
 
 ## Progress Log
 
+- **2026-10-21 — Optional public profiles enabled with owner approval [internal].**
+  Production `ACCOUNT_COMMUNITY_ENABLED=true`; redeploy
+  `dpl_HExmLVVyirKm6uHskoEXyD3UubtW` READY on `expdesign.app` from `2c7089e`.
+  Owner accepts private database report-queue review. Preflight: zero publications,
+  one private draft, zero pending reports. Fresh signed-in Brave reload confirms
+  checkbox enabled; checking activates Publish, unchecking disables it. Leave
+  consent unchecked and owner draft private; public `tapps` lookup stays 404 with
+  no-store/no-referrer/noindex. No publication performed. Hosted publication and
+  cross-account report/hold proof, retention/backup and human accessibility checks
+  retain their open status. Receipts: `launch/COMMUNITY-PROFILES-v2.7.md` and
+  `output/a11y/community-launch-20261021/`. No native release changes.
+
 - **2026-10-20 — BUG-082 fixed LIVE; owner saves verified in Brave [internal].**
   Source `9b9573801d225a4465ebfd8911fb9834c7b7041b` pushed as authorized; Vercel
   `dpl_AAnbnhk5KPxzSJL2wdiYbygiHZPC` READY and assigned to `expdesign.app`.
