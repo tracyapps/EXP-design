@@ -3,6 +3,9 @@ export const communityActions = { community: [], 'save-community': ['handle','di
   'publish-community': ['revision','confirmed','consentVersion'], 'unpublish-community': [], 'report-community': ['handle','category','reason'] };
 const reserved = new Set(['admin','administrator','api','account','accounts','community','delete','developer','download','exp','help','login','moderator','news','people','privacy','pro','profile','settings','signup','staff','support','system','tapps','team','terms']);
 export const validHandle = handle => typeof handle === 'string' && /^[a-z0-9][a-z0-9-]{1,28}[a-z0-9]$/.test(handle) && !reserved.has(handle);
+// The owner's brand handle is readable/reportable only after an operator-bound
+// reservation permits saving it. Other reserved names remain unavailable.
+const profileHandle = handle => validHandle(handle) || handle === 'tapps';
 const text = (value, max, required=false) => typeof value === 'string' && value.length <= max && (!required || value.trim().length > 0);
 const result = (body, status=200) => ({ body, status });
 // The only public projection. No account identity, email, permissions, drafts or reports.
@@ -12,7 +15,8 @@ export async function handleCommunity({ pool, userId, body, enabled }) {
   const { action } = body;
   const handle = typeof body.handle === 'string' ? body.handle.trim().toLowerCase() : body.handle;
   if (action === 'save-community') {
-    if (!validHandle(handle) || !text(body.displayName,80,true) || !text(body.bio,500) || !text(body.link,300)) return result({ error: 'Use an available handle (3–30 letters, numbers or hyphens), a display name and the stated field limits.' },400);
+    if (typeof handle==='string' && reserved.has(handle) && handle!=='tapps') return result({error:'That handle is reserved. Choose a different handle; your entered details have not been saved.'},400);
+    if (!profileHandle(handle) || !text(body.displayName,80,true) || !text(body.bio,500) || !text(body.link,300)) return result({ error: 'Use an available handle (3–30 letters, numbers or hyphens), a display name and the stated field limits.' },400);
     if (body.link) {
       try { const url=new URL(body.link); if(url.protocol!=='https:' || url.username || url.password) throw Error(); }
       catch { return result({ error:'Use a complete HTTPS website link without login details, or leave it empty.' },400); }
@@ -20,7 +24,7 @@ export async function handleCommunity({ pool, userId, body, enabled }) {
   }
   if (action === 'publish-community' && (body.confirmed!==true || body.consentVersion!==communityVersion ||
       typeof body.revision!=='string' || !/^[a-f0-9-]{36}$/.test(body.revision))) return result({ error:'Preview the saved profile and confirm public publication.' },400);
-  if (action === 'report-community' && (!validHandle(handle) || !['spam','harassment','privacy','other'].includes(body.category) || !text(body.reason,500,true))) return result({ error:'Choose a report category and add a reason up to 500 characters.' },400);
+  if (action === 'report-community' && (!profileHandle(handle) || !['spam','harassment','privacy','other'].includes(body.category) || !text(body.reason,500,true))) return result({ error:'Choose a report category and add a reason up to 500 characters.' },400);
   const client=await pool.connect();
   try {
     await client.query('BEGIN');
@@ -54,6 +58,11 @@ export async function handleCommunity({ pool, userId, body, enabled }) {
       return result({ok:true});
     }
     if(action==='save-community') {
+      if(handle==='tapps') {
+        const ready=(await client.query("SELECT to_regclass('public.exp_member_community_reservation') IS NOT NULL AS ready")).rows[0].ready;
+        const permitted=ready && (await client.query('SELECT 1 FROM exp_member_community_reservation WHERE handle=$1 AND user_id=$2',[handle,userId])).rowCount>0;
+        if(!permitted)return result({error:'That handle is reserved for the verified EXP owner. Choose another handle; your entered details have not been saved.'},400);
+      }
       if(row?.first_published_at && row.handle!==handle) return result({error:'A published handle cannot be renamed yet. You can edit the public details or unpublish.'},409);
       if(row && row.handle===handle && row.display_name===body.displayName.trim() && row.bio===body.bio.trim() && row.link===body.link.trim()) return result({ok:true});
       if(!await slot()) return limited();
@@ -90,7 +99,7 @@ export function createPublicProfileHandler({ pool, enabled=false }) {
   return async request=>{
     if(request.method!=='GET') return Response.json({error:'Use GET.'},{status:405,headers:{...headers,Allow:'GET'}});
     const url=new URL(request.url), handle=url.searchParams.get('handle');
-    if(!enabled || !validHandle(handle) || url.searchParams.getAll('handle').length!==1) return json({error:'Profile not found.'},404);
+    if(!enabled || !profileHandle(handle) || url.searchParams.getAll('handle').length!==1) return json({error:'Profile not found.'},404);
     try {
       const row=(await pool.query(`SELECT handle,published_name,published_bio,published_link FROM exp_member_community
         WHERE handle=$1 AND published_at IS NOT NULL AND NOT moderation_hold`,[handle])).rows[0];

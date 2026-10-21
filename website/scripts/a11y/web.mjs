@@ -244,6 +244,11 @@ try {
         const handle=page.getByLabel('Handle (3–30 letters, numbers or hyphens)');await handle.waitFor();
         const name=page.getByLabel('Public display name (up to 80 characters)');
         assert.equal(await name.inputValue(),'','Private identity must not be copied automatically');
+        await type(page,handle,'admin');await type(page,name,'Public Keyboard Designer');
+        await tabTo(page,page.getByRole('button',{name:'Save and preview'}));await page.keyboard.press('Enter');
+        await page.getByRole('status').filter({hasText:'That handle is reserved.'}).waitFor();
+        assert.equal(await handle.inputValue(),'admin','Rejected form entries remain available for correction');
+        assert.equal(await page.getByRole('heading',{name:'Public preview',exact:true}).count(),0);
         const slug=`public-${variant.name}`;
         await type(page,handle,slug);await type(page,name,'Public Keyboard Designer');
         await type(page,page.getByLabel('Public bio (optional, up to 500 characters)'),'<img src=x onerror=alert(1)> Public text only.');
@@ -255,6 +260,10 @@ try {
         assert.ok(await publish.isDisabled());
         assert.equal((await context.request.get(`${fixture.origin}/api/people?handle=${slug}`)).status(),404);
         await scan(`${variant.name}-community-preview`,page);
+        await page.reload();await preview.waitFor();
+        assert.equal(await page.getByLabel('Handle (3–30 letters, numbers or hyphens)').inputValue(),slug);
+        assert.equal(await page.getByRole('checkbox',{name:'Publish these previewed details publicly.'}).isChecked(),false,'Reload restores draft preview without publication consent');
+
         await tabTo(page,page.getByRole('checkbox',{name:'Publish these previewed details publicly.'}));await page.keyboard.press('Space');
         await tabTo(page,publish);await page.keyboard.press('Enter');
         await page.getByRole('status').filter({hasText:'Your community profile is published.'}).waitFor();

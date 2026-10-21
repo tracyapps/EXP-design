@@ -10,7 +10,7 @@ export default function CommunityPage({ request, onSignedOut }) {
   const previewHeading=useRef(null), publicationHeading=useRef(null), active=useRef(false);
   useEffect(()=>{
     let current=true; active.current=true;
-    request({action:'community'}).then(next=>{if(current){setData(next);if(next.draft)setDraft(editable(next.draft));setMessage('');}})
+    request({action:'community'}).then(next=>{if(current){setData(next);if(next.draft){setDraft(editable(next.draft));setPreview(next.draft);}setMessage(next.draft?'Your private draft is loaded. Review the preview before choosing whether to publish.':'');}})
       .catch(error=>{if(current){if(error.status===401)onSignedOut();else setMessage(error.message);}});
     return ()=>{current=false;active.current=false;};
   },[request]);

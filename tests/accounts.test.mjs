@@ -30,6 +30,7 @@ before(async () => {
   await pool.query(await readFile(new URL('../migrations/008_news_and_tickets.sql', import.meta.url), 'utf8'));
   await pool.query(await readFile(new URL('../migrations/009_ticket_mail_and_retention.sql', import.meta.url), 'utf8'));
   await pool.query(await readFile(new URL('../migrations/010_member_engagement.sql', import.meta.url), 'utf8'));
+  await pool.query(await readFile(new URL('../migrations/011_owner_community_handle.sql', import.meta.url), 'utf8'));
   await pool.query('CREATE DATABASE exp_interest');
   for (const file of ['001_pro_interest.sql', '002_pro_interest_erasure.sql']) await interestPool.query(await readFile(new URL(`../migrations/${file}`, import.meta.url), 'utf8'));
   service = createAccountService({ pool, origin, secret, betaEnabled: true, engagementEnabled: true, interestStore: interest, proLinkEnabled: true, communityEnabled: true, newsEnabled:true, ticketsEnabled:true, sendOTP: async mail => {
@@ -1050,4 +1051,56 @@ test('feedback cap serializes concurrent submissions without losing the existing
   await pool.query("INSERT INTO exp_member_feedback(id,user_id,kind,subject,message) SELECT gen_random_uuid(),$1,'feedback','Existing','Kept' FROM generate_series(1,49)",[userId]);
   const send=()=>call({action:'submit-member-feedback',id:randomUUID(),kind:'feature',subject:'Concurrent',message:'Bounded',testimonial:false},cookie);
   const writes=await Promise.all([send(),send()]);assert.deepEqual(writes.map(r=>r.status).sort(),[200,409]);assert.equal((await call({action:'engagement'},cookie)).body.feedback.length,50);
+});
+
+test('reserved tapps handle belongs only to the explicitly bound owner, including public reads and reports',async()=>{
+  const owner=await register('reserved-owner@example.test'),other=await register('reserved-other@example.test');
+  const ownerId=(await call(undefined,owner)).body.user.id,otherId=(await call(undefined,other)).body.user.id;
+  const body={action:'save-community',handle:'tapps',displayName:'EXP developer',bio:'Owner-selected public text',link:'https://example.test/work'};
+  const denied=await call(body,owner);assert.equal(denied.status,400);assert.match(denied.body.error,/reserved for the verified EXP owner/);
+  assert.equal((await call({action:'community'},owner)).body.draft,null);
+  await pool.query("INSERT INTO exp_member_support_grant(user_id,operator_reference) VALUES($1,'Test staff is not the owner')",[otherId]);
+  assert.equal((await call(body,other)).status,400,'Support access does not confer owner handle access');
+  await pool.query("INSERT INTO exp_member_support_grant(user_id,operator_reference) VALUES($1,'Owner authorized support access 2026-10-17')",[ownerId]);
+  const bind=await readFile(new URL('../migrations/operator/011_bind_owner_handle.sql',import.meta.url),'utf8');
+  // The operator script targets the production database name; only adapt that
+  // guard to the explicitly disposable database for this integration check.
+  const localBind=bind.replace("current_database()<>'exp_accounts'", "current_database()<>'"+new URL(db).pathname.slice(1)+"'");
+  await pool.query(localBind);await pool.query(localBind);
+  assert.equal((await call({...body,userId:ownerId},other)).status,400,'Client cannot forge the bound owner');
+  assert.equal((await call(body,other)).status,400);
+  assert.equal((await call(body,owner)).status,200);
+  const saved=(await call({action:'community'},owner)).body;
+  assert.equal(saved.draft.handle,'tapps');assert.equal(saved.draft.bio,body.bio);assert.equal(saved.published,null);
+  assert.equal((await publicProfile('tapps')).status,404,'Saving does not publish');
+  assert.equal((await publishCommunity(owner,saved.draft)).status,200);
+  const published=await publicProfile('tapps');assert.equal(published.status,200);assert.equal(published.body.profile.displayName,body.displayName);
+  assert.doesNotMatch(JSON.stringify(published.body),new RegExp(ownerId+'|reserved-owner|user_id'));
+  assert.equal((await call({action:'report-community',handle:'tapps',category:'other',reason:'Test report'},other)).status,200);
+  await call({action:'unpublish-community'},owner);assert.equal((await publicProfile('tapps')).status,404);
+  const reserved=await call({...body,handle:'admin'},owner);assert.equal(reserved.status,400);assert.match(reserved.body.error,/That handle is reserved/);
+  await call({action:'delete-account',confirmation:'DELETE'},owner);
+  assert.equal((await pool.query("SELECT handle FROM exp_member_community_reservation WHERE handle='tapps'")).rowCount,0);
+  assert.equal((await call(body,other)).status,400,'Deleting the owner does not open the reserved handle');
+});
+
+test('before owner-handle migration, normal drafts work and tapps fails closed without a database error',async()=>{
+  const member=await register('reserved-before-migration@example.test');
+  await pool.query('ALTER TABLE exp_member_community_reservation RENAME TO exp_member_community_reservation_test_hidden');
+  try{
+    assert.equal((await call({action:'save-community',handle:'tapps',displayName:'A name',bio:'',link:''},member)).status,400);
+    const draft=await communityDraft(member,'before-owner-migration');assert.equal(draft.handle,'before-owner-migration');
+  }finally{await pool.query('ALTER TABLE exp_member_community_reservation_test_hidden RENAME TO exp_member_community_reservation');}
+});
+
+test('runtime can read owner-handle reservations but cannot assign, change or delete them',async()=>{
+  const name=`exp_handle_runtime_${randomBytes(4).toString('hex')}`;
+  await pool.query(`CREATE ROLE ${name}`);
+  try{
+    await pool.query(`GRANT USAGE ON SCHEMA public TO ${name}; GRANT SELECT ON exp_member_community_reservation TO ${name}`);
+    for(const privilege of ['INSERT','UPDATE','DELETE'])assert.equal((await pool.query('SELECT has_table_privilege($1,$2,$3) allowed',[name,'exp_member_community_reservation',privilege])).rows[0].allowed,false);
+    const connection=await pool.connect();
+    try{await connection.query('BEGIN');await connection.query(`SET LOCAL ROLE ${name}`);assert.equal((await connection.query('SELECT count(*) FROM exp_member_community_reservation')).rowCount,1);await assert.rejects(connection.query("INSERT INTO exp_member_community_reservation(handle,user_id) VALUES('tapps',gen_random_uuid())"),/permission denied/);await connection.query('ROLLBACK');}
+    finally{connection.release();}
+  }finally{await pool.query(`DROP OWNED BY ${name}; DROP ROLE ${name}`);}
 });

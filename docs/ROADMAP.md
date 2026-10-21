@@ -3549,6 +3549,21 @@ font import → Phase 9, shadows → Phase 10._
 
 ## Progress Log
 
+- **2026-10-20 — BUG-082 hosted feedback diagnosis and owner handle fix [internal].**
+  Owner pushed FEAT-077 (`ed79b33`), then reports disabled feedback and community
+  save/preview failure. Production session flag is false and all five engagement
+  tables are absent: feedback needs hosted migration/grants/enablement, not a UI
+  disabled bypass. Live community form uses reserved `tapps`; no owner draft is
+  stored. Owner chooses owner-only handle permission. Add migration 011, runtime
+  SELECT-only reservation grants and guarded operator binding; nobody else,
+  including support staff, can claim it. Show precise reserved errors and restore
+  saved preview on reload without public consent. 113 account tests and 233 web
+  checks pass (0 failed/blocked, 144 manual-review observations retained); build
+  passes. Read `launch/ACCOUNT-FIRST-GROWTH-v2.8.md` for fresh evidence and exact
+  hosted steps. Existing owner browser entries preserved. Hosted setup, source
+  commit/push and production deployment remain pending; no profiles published.
+
+
 - **2026-10-20 — FEAT-077 account-first website/member engagement [local].**
   Owner selected free-account/Pro promotion, ungated download, sharing, private
   feedback/features, separate testimonial permission and optional recipient

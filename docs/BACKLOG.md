@@ -34,6 +34,34 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 
 ## 🐞 Bugs
 
+### BUG-082 — Feedback rollout incomplete and owner community handle rejected
+- Type: bug
+- Priority: P1 — owner report October 20, 2026
+- Area: hosted accounts · website · community
+- Status: local community fix verified; production migration/enablement and source deployment pending
+- Repro/Detail: Production GET `/api/account` reports `engagementOpen:false`;
+  all five migration-010 tables are absent. Feedback's disabled fieldset correctly
+  reflects unavailable hosted service; removing disabled would not fix persistence.
+  Community form used the reserved handle `tapps`, rejected with a generic bounds
+  error; no owner draft was stored. Existing browser entries were left intact.
+- Owner decision: allow `tapps` only for their verified owner account. Migration
+  011 adds a private, operator-bound reservation with runtime SELECT only; the
+  operator binding script uses exactly one verified, previously authorized owner
+  grant and refuses ambiguous or conflicting ownership. Staff access alone is not
+  sufficient. Other reserved handles remain unavailable.
+- Fix: specific reserved-handle errors, owner-bound save exception, working public
+  read/report paths for the eventual owner publication, and restored saved-draft
+  preview on reload without publication consent. Account/Pro mail permissions and
+  community publication flag are unchanged.
+- Evidence: 113 real-PostgreSQL account tests pass; 233 selected Chromium/WebKit
+  browser checks pass (0 failed/blocked; 144 incomplete/manual-review entries).
+  Browser checks exercise rejected-input preservation and save → reload → preview
+  → explicit publish. Production build passes through the browser harness.
+  Report: `output/a11y/2026-10-21T04-31-49-166Z/report.md`.
+- Hosted follow-up and exact files: `launch/ACCOUNT-FIRST-GROWTH-v2.8.md`,
+  October 20 owner-reported rollout section. No live migration/flag/deployment or
+  profile publication is implied by the source fix.
+
 ### BUG-081 — Pattern Y pan mirrors, Shape anchor drifts and anchor switches snap
 - Type: bug
 - Priority: P1 — owner regression report October 19, 2026

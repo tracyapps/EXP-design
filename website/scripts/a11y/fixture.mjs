@@ -17,7 +17,7 @@ export async function startFixture() {
   const databaseURL = process.env.EXP_A11Y_DATABASE_URL;
   if (!databaseURL || !new URL(databaseURL).searchParams.get('host')?.startsWith('/tmp/exp-a11y-pg.') || process.env.NODE_ENV === 'production') throw Error('Disposable accessibility runner required');
   const pool = new pg.Pool({ connectionString: databaseURL });
-  for (const name of ['001_pro_interest.sql', '002_pro_interest_erasure.sql', '003_free_accounts.sql', '005_member_beta.sql', '006_account_pro_link.sql', '007_community_profiles.sql', '008_news_and_tickets.sql', '009_ticket_mail_and_retention.sql', '010_member_engagement.sql']) {
+  for (const name of ['001_pro_interest.sql', '002_pro_interest_erasure.sql', '003_free_accounts.sql', '005_member_beta.sql', '006_account_pro_link.sql', '007_community_profiles.sql', '008_news_and_tickets.sql', '009_ticket_mail_and_retention.sql', '010_member_engagement.sql', '011_owner_community_handle.sql']) {
     await pool.query(await readFile(new URL(`../../../migrations/${name}`, import.meta.url), 'utf8'));
   }
   const mail = [], errors = [], dist = path.resolve(fileURLToPath(new URL('../../dist/', import.meta.url)));

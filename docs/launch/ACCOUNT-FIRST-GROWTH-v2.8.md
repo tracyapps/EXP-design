@@ -162,3 +162,59 @@ passes. This run uses disposable PostgreSQL and captured mail; it proves no
 hosted email delivery, real social post/share delivery, VoiceOver session or
 native Full Keyboard Access verification. No source commit, push, hosted
 migration, deployment, email send or feature enablement was performed.
+
+## October 20 owner-reported rollout and community follow-up (BUG-082)
+
+Owner pushed FEAT-077 as `ed79b33`. Fresh production observations:
+
+- Anonymous `/api/account`: HTTP 200, `engagementOpen:false`.
+- Neon project EXPdesign, production branch `br-late-sunset-b5sm69kl`, database
+  `exp_accounts`: zero of the five engagement tables present. Migration 010 has
+  not been applied. Community table exists; zero saved drafts match owner support
+  grants. Existing verified owner-grant reference matches exactly one account.
+- Live community form reports a save validation error with handle `tapps`, which
+  was reserved in the service. Its entered name/bio/link remain in the browser;
+  the form was not navigated, cleared, submitted or published by this check.
+- Vercel environment settings contain no `ACCOUNT_ENGAGEMENT_ENABLED`; the runtime
+  default is false. The env-list MCP endpoint denied access; existing authenticated
+  Vercel settings UI and public session metadata supplied the independent evidence.
+
+Owner explicitly selected `tapps` for their verified owner account only. Source
+fix adds migration 011 and `migrations/grants/011_owner_community_handle.sql`.
+`migrations/operator/011_bind_owner_handle.sql` binds that handle to exactly the
+verified account identified by the existing operator-only owner grant reference.
+It refuses a missing/ambiguous owner or conflicting binding. No email or UUID is
+hardcoded in source. Runtime has SELECT only on the reservation; support status,
+display name or a client-supplied ID cannot acquire it. Deleting the owner clears
+the binding while the name remains reserved. Other reserved names remain blocked.
+
+Normal drafts continue working before migration 011; `tapps` fails closed with an
+explicit explanation until bound. Saved drafts restore their preview on returning
+to the page. Publication remains separately confirmed and respects the existing
+community flag. No public publishing is authorized by the owner-handle choice.
+
+After review and explicit authorization for hosted setup:
+
+1. Push/deploy the follow-up source fix. Preserve the current browser draft until
+   its author saves it successfully; avoid a needless reload of unsaved entries.
+2. In `exp_accounts`, apply migration 010 and its matching app-role grants, then
+   migration 011 and its SELECT-only app-role grant. Do not rerun already applied
+   CREATE TABLE statements; confirm readiness before each application.
+3. Run `migrations/operator/011_bind_owner_handle.sql` as the operator. Confirm
+   exactly one `tapps` reservation, owner identity matches the verified owner grant,
+   and runtime cannot INSERT/UPDATE/DELETE reservations.
+4. Set only `ACCOUNT_ENGAGEMENT_ENABLED=true` in Production and redeploy so runtime
+   receives it. Preserve existing flags/credentials and public-profile pause.
+5. Confirm live feedback is enabled and saves/reloads privately; author can withdraw
+   testimonial permission/delete. Save the owner's existing community form and
+   verify preview/reload; keep public publication separate and unselected.
+
+Verification of the follow-up: 113 account-service tests pass, including the exact
+operator binding SQL (database-name guard adapted only for a disposable DB), owner
+exclusivity, forged identity/staff denial, public read/report paths, deletion and
+before-migration behavior. Browser rerun: 233 selected checks pass, 0 failed or
+blocked, 144 retained manual-review observations. Reserved errors preserve input;
+saved drafts and previews survive reload without rechecking publication consent.
+Evidence: `output/a11y/2026-10-21T04-31-49-166Z/report.md` and
+`/tmp/exp-owner-handle-accounts-final-20261020.log`. No hosted writes, deployment,
+commit/push, email send or public profile publication performed in this follow-up.
