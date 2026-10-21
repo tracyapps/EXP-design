@@ -5,12 +5,14 @@
   "outputDirectory": "website/dist",
   "functions": { "api/account-jobs.js": { "maxDuration": 180 } },
   "rewrites": [
+    { "source": "/share", "destination": "/share.html" },
+    { "source": "/share/", "destination": "/share.html" },
     {
       "source": "/support",
       "destination": "/support.html"
     },
     {
-      "source": "/((?!assets/|api/|support(?:\\.html|/|$)|aria-roles(?:/|$)).*)",
+      "source": "/((?!assets/|api/|share(?:\\.html|/|$)|support(?:\\.html|/|$)|aria-roles(?:/|$)).*)",
       "destination": "/"
     }
   ],

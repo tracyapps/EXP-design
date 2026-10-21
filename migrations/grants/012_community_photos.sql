@@ -1,0 +1,2 @@
+-- Existing runtime table-level SELECT/INSERT/UPDATE/DELETE grants from 007 cover
+-- the new columns. No new table, role or privilege is introduced by 012.

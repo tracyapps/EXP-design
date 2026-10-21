@@ -1,7 +1,7 @@
 import React,{useEffect,useRef,useState} from 'react';
 import {Avatar} from './AccountMenu.jsx';
 
-async function preparePhoto(file) {
+export async function preparePhoto(file) {
   if(!['image/png','image/jpeg','image/webp'].includes(file.type) || file.size>5*1024*1024)throw new Error('Choose a PNG, JPEG or WebP photo up to 5 MB.');
   const bitmap=await createImageBitmap(file);
   try{
@@ -38,7 +38,7 @@ export default function ProfilePhoto({user,busy,onSave}) {
   return <section className="account-card" aria-labelledby="profile-photo-title">
     <h2 id="profile-photo-title">Profile photo</h2>
     <div className="profile-photo-preview"><Avatar user={{...user,avatar:draft??user.avatar}}/></div>
-    <p>Your photo appears in your account menu. It stays private and is not published with your community profile.</p>
+    <p>Your photo appears in your account menu. It stays private here. You can separately choose to copy it into your community profile and preview it before publishing.</p>
     <label htmlFor="profile-photo">Choose a profile photo (PNG, JPEG or WebP, up to 5 MB)</label>
     <input id="profile-photo" ref={input} type="file" accept="image/png,image/jpeg,image/webp" disabled={busy} onChange={e=>choose(e.target.files?.[0])}/>
     <p>Preview a centered square crop, shown as a circle. Only the small cropped photo is uploaded when you save; the original stays on your device.</p>

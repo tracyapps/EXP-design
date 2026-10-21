@@ -36,7 +36,7 @@ export default function ShareTools({ memberData, onChanged }) {
   ];
   return <section className="share-tools" aria-labelledby={`${id}-title`}>
     <div><p className="section-label">good tools travel by word of mouth</p><h2 id={`${id}-title`}>Know someone who would make something with EXP?</h2>
-      <p>Send them a link. No signup is required to try the app.</p></div>
+      <p>Send them a link. No signup is required to try the app. <a href="/share">Get logos, images and words to share.</a></p></div>
     <div className="share-actions"><button className="button secondary" type="button" onClick={copy}>copy link</button>
       {typeof navigator.share === 'function' && <button className="button secondary" type="button" onClick={nativeShare}>share…</button>}
       {targets.map(([target,label,href]) => <a key={target} className="button secondary" href={href} target={target === 'email' ? undefined : '_blank'} rel="noreferrer" onClick={() => { void record(target); }}>{label}</a>)}

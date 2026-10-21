@@ -169,7 +169,7 @@ export default function AccountPage({ path }) {
       </form>}
       {section === 'beta' && <BetaPage key={user.id} request={accountRequest} onSignedOut={() => { receive(null); setSent(false); setMessage('Please sign in again.'); window.requestAnimationFrame(() => headingRef.current?.focus()); }} />}
       {section === 'pro' && <AccountProPage key={user.id} request={accountRequest} token={proToken} clearToken={() => setProToken('')} onSignedOut={() => { receive(null); setProToken(''); setSent(false); setMessage('Please sign in again.'); window.requestAnimationFrame(() => headingRef.current?.focus()); }} />}
-      {section === 'community' && <CommunityPage key={user.id} request={accountRequest} onSignedOut={() => { receive(null); setSent(false); setMessage('Please sign in again.'); window.requestAnimationFrame(() => headingRef.current?.focus()); }} />}
+      {section === 'community' && <CommunityPage key={user.id} user={user} request={accountRequest} onSignedOut={() => { receive(null); setSent(false); setMessage('Please sign in again.'); window.requestAnimationFrame(() => headingRef.current?.focus()); }} />}
       {['tickets','support'].includes(section) && <TicketsPage key={user.id} request={accountRequest} support={section==='support'} onSignedOut={() => { receive(null); setSent(false); setMessage('Please sign in again.'); }} />}
       {section === 'preferences' && <NewsPreferences key={user.id} request={accountRequest} onSignedOut={() => { receive(null); setSent(false); setMessage('Please sign in again.'); }} />}
       {section === 'preferences' && <form className="account-card" onSubmit={e => { e.preventDefault(); act({ action: 'save-preferences', largeText }, 'Account text preference saved.'); }}>

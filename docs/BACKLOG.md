@@ -3419,6 +3419,32 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   accurate current/planned copy. The shipped app currently opens browser accounts.
 
 
+### FEAT-081 — Public sharing kit, social previews and chosen public photos
+- Type: feature
+- Priority: owner-selected website slice October 21, 2026
+- Area: website · sharing · account/community photos
+- Status: built locally; hosted migration/deployment and owner review pending
+- Detail: Public `/share` page with real logo/screenshots, wide/square social PNGs,
+  copyable descriptions and Say this / Not this / Because claims table in the
+  owner's casual voice. Single editable `website/content/share-kit.html` source;
+  build-generated static page works without JS. Site HTML has crawler-readable
+  Open Graph/Twitter metadata. Existing private uploads remain private; members
+  choose a copied private photo, a separate public upload or no public photo,
+  then save/preview and explicitly publish an immutable revision.
+- Acceptance: own-session image validation/normalization; private/public separation,
+  stale-preview denial, removal/unpublish and account cascade; keyboard/radio
+  behavior, desktop/mobile dark/light, copy fallback, downloads and no-JS content.
+- Sources checked: W3C table scope/caption guidance
+  https://www.w3.org/WAI/tutorials/tables/two-headers/ ; form notifications
+  https://www.w3.org/WAI/tutorials/forms/notifications/ ; named region/status
+  https://www.w3.org/TR/wai-aria-1.2/#region and
+  https://www.w3.org/TR/wai-aria-1.2/#status ; native mappings
+  https://www.w3.org/TR/html-aria/ and radio fieldsets
+  https://www.w3.org/WAI/tutorials/forms/grouping/ .
+- Contract, migration 012, Gravatar deferral and deployment handoff:
+  `launch/SHARING-AND-PUBLIC-PHOTOS-v2.8.md`. Gravatar deferred because automatic
+  email-derived identifiers/third-party image requests need explicit member choice.
+
 ### FEAT-076 — Matching rotatable ellipse controls for radial and Mesh gradients
 - Type: feature
 - Priority: P2 — owner request October 19, 2026, next v2.7 slice

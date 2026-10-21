@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
-    "sync": "node scripts/sync-content.mjs",
+    "sync": "node scripts/sync-content.mjs && node scripts/build-share-kit.mjs",
     "predev": "npm run sync",
     "prebuild": "npm run sync",
     "build": "vite build",

@@ -1299,6 +1299,10 @@ continues to come from the 2.7 appcast.
       attribution. Locally implemented; see `launch/ACCOUNT-FIRST-GROWTH-v2.8.md`.
 - [ ] Owner reviews FEAT-077, then separately authorize hosted migration/grants,
       deployment and feature enablement; verify two hosted accounts and delivery.
+- [x] FEAT-081 built locally: public sharing kit/social images and explicit public
+      photo choices; easy HTML editing. See `launch/SHARING-AND-PUBLIC-PHOTOS-v2.8.md`.
+- [ ] Review FEAT-081 copy/images; separately authorize migration 012/deployment
+      and verify hosted photo lifecycle and real social-preview crawls.
 - [ ] FEAT-078: community resources/templates/components/design languages and a
       member work showcase. Define licensing, consent and moderation first.
 - [ ] FEAT-079: optional device/settings sync; define privacy, conflicts and deletion.
@@ -3548,6 +3552,36 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-10-21 — FEAT-081 sharing kit/social preview and chosen public photos [website].**
+  Owner requests social thumbnail, public share assets/casual honest claims and a
+  simple edit source; clarifies members choose the same private/public photo or a
+  different public upload. Add static `/share`, real logo/screenshots and wide/square
+  branded PNGs, copy snippets/fallback, three-column claims guide, footer/share links
+  and crawler-readable Open Graph/Twitter metadata. Edit all kit content in
+  `website/content/share-kit.html`; build generates page/artwork. No-JS text/downloads
+  remain usable. Gravatar deferred pending explicit third-party/email-hash choice.
+  Extend existing private upload normalization to independent community draft/public
+  snapshots. Keep/copy-private/upload-different/no-photo options require saved preview
+  and explicit revision-confirmed publication. Private edits never alter publication.
+  Migration 012 adds nullable photos; pre-migration text workflows keep working.
+  Contract/editor/deployment handoff: `launch/SHARING-AND-PUBLIC-PHOTOS-v2.8.md`.
+  Full `npm test` passes: 15 signup, 23 Pro, 117 account and 14 usage cases, plus native
+  usage consent/transport regressions (`/tmp/exp-share-all-tests.log`). Final web run:
+  257 passed, 0 failed/blocked, 154 retained manual-review entries at
+  `output/a11y/2026-10-21T13-56-10-745Z/report.md`. New checks cover no-JS kit,
+  download/image metadata, clipboard fallback, keyboard/radio photo choices,
+  preview/reload/publication/removal and private/public independence. Initial runs
+  exposed test assumptions (Tab into unselected radio, WebKit backward wrapping)
+  and an existing asynchronous beta focus assertion; use forward native arrow keys
+  and wait for the actual focus change, then rerun all variants. Earlier failed
+  receipts retained. Dark desktop/light mobile and both banner graphics inspected.
+  Final production build, backlog IDs and diff whitespace checks pass; raw local
+  `/share` returns HTTP 200 and real static content. Playwright CLI's separate cached
+  browsers were unavailable; repository-pinned Chromium/WebKit supplied the actual
+  successful browser evidence. No hosted migration/deployment, source commit/push,
+  external message or real public profile publication. Real network social caches,
+  hosted photo lifecycle and human VoiceOver remain unverified. Native releases unchanged.
 
 - **2026-10-21 — Optional public profiles enabled with owner approval [internal].**
   Production `ACCOUNT_COMMUNITY_ENABLED=true`; redeploy

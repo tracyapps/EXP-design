@@ -108,7 +108,7 @@ export function createAccountService({ pool, origin, secret, sendOTP, registrati
         body = JSON.parse(raw);
         if (!body || typeof body !== 'object' || Array.isArray(body)) return json({ error: 'Invalid request.' }, 400);
         action = body.action;
-        if ((size>12288 && action!=='save-avatar') || (size > 4096 && !['create-ticket','reply-ticket','save-avatar','submit-member-feedback'].includes(action))) return json({ error: 'Request is too large.' }, 413);
+        if ((size>12288 && !['save-avatar','save-community'].includes(action)) || (size > 4096 && !['create-ticket','reply-ticket','save-avatar','save-community','submit-member-feedback'].includes(action))) return json({ error: 'Request is too large.' }, 413);
       }
       const allowed = {
         ...engagementActions, ...avatarActions, ...betaActions, ...proActions, ...communityActions, ...newsActions, ...ticketActions, session: [], 'send-code': ['email'],

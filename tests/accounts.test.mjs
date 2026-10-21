@@ -31,6 +31,7 @@ before(async () => {
   await pool.query(await readFile(new URL('../migrations/009_ticket_mail_and_retention.sql', import.meta.url), 'utf8'));
   await pool.query(await readFile(new URL('../migrations/010_member_engagement.sql', import.meta.url), 'utf8'));
   await pool.query(await readFile(new URL('../migrations/011_owner_community_handle.sql', import.meta.url), 'utf8'));
+  await pool.query(await readFile(new URL('../migrations/012_community_photos.sql', import.meta.url), 'utf8'));
   await pool.query('CREATE DATABASE exp_interest');
   for (const file of ['001_pro_interest.sql', '002_pro_interest_erasure.sql']) await interestPool.query(await readFile(new URL(`../migrations/${file}`, import.meta.url), 'utf8'));
   service = createAccountService({ pool, origin, secret, betaEnabled: true, engagementEnabled: true, interestStore: interest, proLinkEnabled: true, communityEnabled: true, newsEnabled:true, ticketsEnabled:true, sendOTP: async mail => {
@@ -100,7 +101,7 @@ test('public community projection excludes identity and drafts and does not foll
   assert.equal((await publicProfile(draft.handle)).status,404);
   await publishCommunity(cookie,draft);
   const view=await publicProfile(draft.handle);
-  assert.deepEqual(view.body,{ok:true,profile:{handle:'projection-designer',displayName:'Chosen public name',bio:'Chosen bio',link:'https://example.test/public'}});
+  assert.deepEqual(view.body,{ok:true,profile:{handle:'projection-designer',displayName:'Chosen public name',bio:'Chosen bio',link:'https://example.test/public',photo:null}});
   assert.equal(view.headers.get('cache-control'),'no-store');assert.equal(view.headers.get('referrer-policy'),'no-referrer');assert.equal(view.headers.get('x-robots-tag'),'noindex');
   await communityDraft(cookie,draft.handle,{displayName:'Unpublished name',bio:'Unpublished biography'});
   await call({action:'save-profile',name:'Another private identity',bio:'Still private',link:''},cookie);
@@ -1136,4 +1137,56 @@ test('live owner-handle checks use the same protected reservation as saving and 
   const locked=await check('another-open-handle',owner);assert.equal(locked.body.available,false);assert.match(locked.body.reason,/cannot be renamed/i);
   assert.equal((await check('tapps',owner)).body.available,true);
   await call({action:'delete-account',confirmation:'DELETE'},owner);
+});
+
+test('public photos require a chosen draft and publication; private edits never change published photos',async()=>{
+  const cookie=await register('public-photo-owner@example.test');
+  const png=await sharp({create:{width:80,height:40,channels:3,background:'red'}}).withMetadata({exif:{IFD0:{Artist:'PRIVATE'}}}).png().toBuffer();
+  const image=`data:image/png;base64,${png.toString('base64')}`;
+  await call({action:'save-avatar',image},cookie);
+  const first=await communityDraft(cookie,'photo-designer');
+  assert.equal(first.photo,null,'private photo is never copied automatically');
+  await publishCommunity(cookie,first);
+  assert.equal((await publicProfile(first.handle)).body.profile.photo,null);
+  assert.equal((await call({action:'save-community',handle:first.handle,displayName:first.displayName,bio:first.bio,link:first.link,usePrivatePhoto:true},cookie)).status,200);
+  let draft=(await call({action:'community'},cookie)).body.draft;
+  assert.match(draft.photo,/^data:image\/webp;base64,/);
+  assert.equal((await publicProfile(first.handle)).body.profile.photo,null,'saved photo is private until confirmed');
+  assert.equal((await publishCommunity(cookie,first)).status,409);
+  await publishCommunity(cookie,draft);
+  const published=(await publicProfile(first.handle)).body.profile.photo;
+  assert.equal(published,draft.photo);
+  await call({action:'remove-avatar'},cookie);
+  assert.equal((await publicProfile(first.handle)).body.profile.photo,published,'private removal does not alter chosen public snapshot');
+  const other=await register('public-photo-other@example.test');
+  assert.equal((await call({action:'community'},other)).body.draft,null);
+  const different=await sharp({create:{width:40,height:80,channels:3,background:'blue'}}).png().toBuffer();
+  await communityDraft(cookie,first.handle,{photo:`data:image/png;base64,${different.toString('base64')}`});
+  draft=(await call({action:'community'},cookie)).body.draft;
+  assert.notEqual(draft.photo,published);
+  assert.equal((await publicProfile(first.handle)).body.profile.photo,published);
+  await publishCommunity(cookie,draft);
+  const meta=await sharp(Buffer.from(draft.photo.split(',')[1],'base64')).metadata();
+  assert.equal(meta.width,256);assert.equal(meta.height,256);assert.equal(meta.exif,undefined);
+  await communityDraft(cookie,first.handle,{photo:null});
+  draft=(await call({action:'community'},cookie)).body.draft;await publishCommunity(cookie,draft);
+  assert.equal((await publicProfile(first.handle)).body.profile.photo,null);
+  await call({action:'unpublish-community'},cookie);
+  assert.equal((await publicProfile(first.handle)).status,404);
+  assert.equal((await pool.query('SELECT published_photo FROM exp_member_community WHERE handle=$1',[first.handle])).rows[0].published_photo,null);
+});
+
+test('public photo uploads reject unsafe sources, identity forgery and missing migration without changing drafts',async()=>{
+  const cookie=await register('public-photo-invalid@example.test');
+  const draft=await communityDraft(cookie,'photo-invalid');
+  for(const extra of [{photo:'https://example.test/tracker.png'},{photo:'data:image/png;base64,PHN2Zz48L3N2Zz4='},{photo:7},{usePrivatePhoto:true},{usePrivatePhoto:'yes'},{photo:null,userId:randomUUID()}]){
+    assert.equal((await call({action:'save-community',handle:draft.handle,displayName:draft.displayName,bio:draft.bio,link:draft.link,...extra},cookie)).status,400);
+  }
+  await pool.query('ALTER TABLE exp_member_community RENAME COLUMN published_photo TO fixture_unavailable_photo');
+  try{
+    assert.equal((await call({action:'community'},cookie)).body.photoEnabled,false);
+    assert.equal((await call({action:'save-community',handle:draft.handle,displayName:draft.displayName,bio:draft.bio,link:draft.link,photo:null},cookie)).status,503);
+    assert.equal((await call({action:'save-community',handle:draft.handle,displayName:'Text still works',bio:draft.bio,link:draft.link},cookie)).status,200);
+  }finally{await pool.query('ALTER TABLE exp_member_community RENAME COLUMN fixture_unavailable_photo TO published_photo');}
+  assert.equal((await call({action:'community'},cookie)).body.draft.photo,null);
 });

@@ -1,5 +1,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import PublicProfileCard from './PublicProfileCard.jsx';
+import {preparePhoto} from './ProfilePhoto.jsx';
+import {Avatar} from './AccountMenu.jsx';
 
 const blank = { handle:'', displayName:'', bio:'', link:'' };
 const handleHint='Use 3–30 lowercase letters, numbers or hyphens; start and end with a letter or number.';
@@ -14,7 +16,9 @@ function draftProblem(draft) {
   return null;
 }
 const editable = value => ({handle:value.handle,displayName:value.displayName,bio:value.bio,link:value.link});
-export default function CommunityPage({ request, onSignedOut }) {
+export default function CommunityPage({ request, onSignedOut, user }) {
+  const [photoChoice,setPhotoChoice]=useState('keep'),[photo,setPhoto]=useState(null),[photoBusy,setPhotoBusy]=useState(false),[photoMessage,setPhotoMessage]=useState('');
+  const photoGeneration=useRef(0);
   const [data,setData]=useState(null), [draft,setDraft]=useState(blank), [preview,setPreview]=useState(null);
   const [consent,setConsent]=useState(false), [busy,setBusy]=useState(false), [message,setMessage]=useState('Loading community profile…');
   const [focusTarget,setFocusTarget]=useState(null), [formError,setFormError]=useState(null);
@@ -27,7 +31,7 @@ export default function CommunityPage({ request, onSignedOut }) {
     let current=true; active.current=true;
     request({action:'community'}).then(next=>{if(current){setData(next);if(next.draft){setDraft(editable(next.draft));setPreview(next.draft);}setMessage(next.draft?'Your private draft is loaded. Review the preview before choosing whether to publish.':'');}})
       .catch(error=>{if(current){if(error.status===401)onSignedOut();else setMessage(error.message);}});
-    return ()=>{current=false;active.current=false;};
+    return ()=>{current=false;active.current=false;photoGeneration.current++;};
   },[request]);
   useEffect(()=>{
     if(!data)return;
@@ -60,10 +64,11 @@ export default function CommunityPage({ request, onSignedOut }) {
   function change(key,value){if(key==='handle')handleSequence.current++;setDraft(current=>({...current,[key]:value}));setPreview(null);setConsent(false);setFormError(null);setMessage('');}
   function save(event){
     event.preventDefault();
+    if(photoBusy || (photoChoice==='upload' && !photo)){setPhotoMessage('Choose a photo and wait for its preview, or choose another photo option.');return;}
     if(currentHandle.state==='unavailable'){setFormError({field:'handle',message:currentHandle.message});setMessage('');return;}
     const problem=draftProblem(draft);
     if(problem){setFormError(problem);setMessage('');return;}
-    void act({action:'save-community',...draft},'Private draft saved. Review the public preview before publishing.');
+    void act({action:'save-community',...draft,...(data.photoEnabled?(photoChoice==='private'?{usePrivatePhoto:true}:photoChoice==='upload'?{photo}:photoChoice==='remove'?{photo:null}:{}):{})},'Private draft saved. Review the public preview before publishing.');
   }
   async function act(body,success){
     if(busy)return;setBusy(true);setFormError(null);setMessage('Saving…');setConsent(false);setFocusTarget(null);
@@ -74,11 +79,19 @@ export default function CommunityPage({ request, onSignedOut }) {
       try{
         const next=await request({action:'community'});if(!active.current)return;
         setData(next);setMessage(success);
-        if(body.action==='save-community'){setDraft(editable(next.draft));setPreview(next.draft);setFocusTarget('preview');}
+        if(body.action==='save-community'){setDraft(editable(next.draft));setPreview(next.draft);setPhotoChoice('keep');setPhoto(null);setPhotoMessage('');setFocusTarget('preview');}
         else setFocusTarget('publication');
       }catch(error){if(!active.current)return;if(error.status===401)onSignedOut();else setMessage(`${success} Reload to check the saved details; they could not be refreshed.`);}
     }catch(error){if(!active.current)return;if(error.status===401)onSignedOut();else{setPreview(null);const explanation=error.name==='TimeoutError'?'That took too long. Reload to check the saved state before retrying.':error.message;setMessage('');setFormError({field:error.field,message:explanation});if(error.field==='handle'){handleSequence.current++;setHandleCheck({handle:draft.handle,state:'unavailable',message:explanation});}}}
     finally{if(active.current)setBusy(false);}
+  }
+  function choosePhotoSource(value){photoGeneration.current++;setPhotoChoice(value);setPhoto(null);setPhotoBusy(false);setPhotoMessage('');setPreview(null);setConsent(false);}
+  async function uploadPhoto(file){
+    const generation=++photoGeneration.current;setPhoto(null);setPreview(null);setConsent(false);setPhotoMessage('');
+    if(!file){setPhotoBusy(false);return;}setPhotoBusy(true);
+    try{const image=await preparePhoto(file);if(active.current && generation===photoGeneration.current)setPhoto(image);}
+    catch(error){if(active.current && generation===photoGeneration.current)setPhotoMessage(error.message);}
+    finally{if(active.current && generation===photoGeneration.current)setPhotoBusy(false);}
   }
   return <>
     <p role="status" className="account-status">{message}</p>
@@ -98,16 +111,24 @@ export default function CommunityPage({ request, onSignedOut }) {
           <textarea id="community-bio" aria-invalid={formError?.field==='bio' || undefined} aria-describedby={formError?.field==='bio'?'community-save-error':undefined} rows={4} maxLength={500} value={draft.bio} onChange={e=>change('bio',e.target.value)}/>
           <label htmlFor="community-link">Public website (optional HTTPS link)</label>
           <input id="community-link" aria-invalid={formError?.field==='link' || undefined} aria-describedby={formError?.field==='link'?'community-save-error':undefined} type="url" maxLength={300} value={draft.link} onChange={e=>change('link',e.target.value)}/>
+          {data.photoEnabled ? <fieldset><legend>Public profile photo (optional)</legend>
+            <p>Choose a copy of your private photo or a different public one. Saving a draft does not publish it. Later changes to your private photo won't change your public photo.</p>
+            {[['keep','Keep the saved public draft photo'],['private','Use a copy of my private profile photo'],['upload','Upload a different public photo'],['remove','No public photo']].map(([value,label])=><label className="account-check" key={value}><input type="radio" name="community-photo-source" value={value} checked={photoChoice===value} disabled={value==='private' && !user?.avatar} onChange={()=>choosePhotoSource(value)}/><span>{label}</span></label>)}
+            {!user?.avatar && <p><a href="/account/profile">Add a private profile photo</a> to use it here, or upload a separate public photo.</p>}
+            {photoChoice==='upload' && <><label htmlFor="community-photo">Choose a public photo (PNG, JPEG or WebP, up to 5 MB)</label><input key={photoChoice} id="community-photo" type="file" accept="image/png,image/jpeg,image/webp" onChange={e=>uploadPhoto(e.target.files?.[0])}/><p>Preview a centered square crop, shown as a circle. Only the small cropped photo is uploaded when you save.</p></>}
+            <div className="profile-photo-preview"><Avatar user={{name:draft.displayName,avatar:photoChoice==='private'?user?.avatar:photoChoice==='upload'?photo:photoChoice==='remove'?null:data.draft?.photo}}/></div>
+            <p role="status">{photoBusy?'Preparing photo…':photoMessage}</p>
+          </fieldset> : <p>Public profile photo uploads are not available yet. Private account photos are separate.</p>}
           <p>These details are separate from your private profile. Your account email, beta choices, feedback and Pro interest are not added to this page.</p>
           <p id="community-save-error" ref={errorSummary} role="alert" tabIndex={-1} className="community-save-error">{formError?.message}</p>
-          <button type="submit">{busy?'Saving…':'Save and preview'}</button>
+          <button type="submit" disabled={photoBusy}>{busy?'Saving…':'Save and preview'}</button>
         </fieldset>
       </form>
       {preview && <div className="account-card">
         <h2 ref={previewHeading} tabIndex={-1}>Public preview</h2>
         <PublicProfileCard profile={preview}/>
         <p>Profile path: /people/{preview.handle}</p>
-        <p>Anyone can view, copy or share published details. Unpublishing removes EXP’s public view; other people may retain copies. Reports may preserve a private copy for moderation.</p>
+        <p>Anyone can view, copy or share published details, including the photo you choose. Unpublishing removes EXP’s public view; other people may retain copies. Reports may preserve a private copy for moderation.</p>
         <label className="account-check"><input type="checkbox" checked={consent} disabled={busy || !data.communityOpen || data.publicationBlocked} onChange={e=>setConsent(e.target.checked)}/><span>Publish these previewed details publicly.</span></label>
         <button type="button" disabled={busy || !consent || !data.communityOpen || data.publicationBlocked} onClick={()=>act({action:'publish-community',revision:preview.revision,confirmed:true,consentVersion:'community-profile-v1'},'Your community profile is published.')}>Publish community profile</button>
       </div>}

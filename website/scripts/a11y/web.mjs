@@ -78,6 +78,25 @@ try {
       page.setDefaultTimeout(7000); page.setDefaultNavigationTimeout(15000);
       page.on('pageerror', error => results.push({ name: `${variant.name}-javascript`, status: 'failed', detail: error.message }));
       const email = `${variant.name}@example.test`;
+      await check(`${variant.name}-public-sharing-kit`,page,async()=>{
+        await page.goto(`${fixture.origin}/share`);await page.getByRole('heading',{name:'Share EXP.',exact:true}).waitFor();
+        assert.equal(await page.getByRole('columnheader').allTextContents().then(c=>c.join('|')),'Say this|Not this|Because…');
+        assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+        const raw=await (await context.request.get(`${fixture.origin}/`)).text();
+        assert.match(raw,/property="og:image" content="https:\/\/expdesign.app\/assets\/share\/exp-social.png"/);
+        for(const link of await page.locator('a[download]').all())assert.equal((await context.request.get(fixture.origin+await link.getAttribute('href'))).status(),200);
+        const png=await (await context.request.get(`${fixture.origin}/assets/share/exp-social.png`)).body();
+        const metadata=await sharp(png).metadata();assert.equal(metadata.width,1200);assert.equal(metadata.height,630);
+        const copy=page.getByRole('button',{name:'Copy one-liner',exact:true});await tabTo(page,copy);await page.keyboard.press('Enter');
+        await page.getByRole('status').filter({hasText:/Copied|text is selected/}).waitFor();
+        await page.evaluate(()=>Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async()=>{throw Error('blocked')}}}));
+        await page.getByRole('button',{name:'Copy description',exact:true}).click();
+        await page.getByRole('status').filter({hasText:'text is selected'}).waitFor();
+        assert.match(await page.evaluate(()=>getSelection().toString()),/EXP \[design\] brings/);
+        await scan(`${variant.name}-sharing-kit`,page);
+        const plain=await browser.newContext({javaScriptEnabled:false,viewport:{width:variant.width,height:1000}});
+        try{const noJS=await plain.newPage();await noJS.goto(`${fixture.origin}/share`);await noJS.getByRole('heading',{name:'Share EXP.',exact:true}).waitFor();assert.equal(await noJS.getByRole('button').count(),0);assert.equal(await noJS.locator('a[download]').count(),5);}finally{await plain.close();}
+      });
       await check(`${variant.name}-news-public`,page,async()=>{
         const accountCalls=[];const observe=r=>{if(new URL(r.url()).pathname==='/api/account')accountCalls.push(r.method());};page.on('request',observe);
         try{await page.goto(`${fixture.origin}/news`);await page.getByRole('heading',{name:'News and updates.',exact:true}).waitFor();
@@ -360,7 +379,7 @@ try {
         await tabTo(page, page.getByRole('button', { name: 'Confirm deletion' })); await page.keyboard.press('Enter');
         await page.getByRole('status').filter({ hasText: 'Feedback deleted from the live account store.' }).waitFor();
         assert.equal(await page.locator('.account-feedback-list li').count(), 0);
-        assert.ok(await page.getByRole('heading', { name: 'Your saved feedback' }).evaluate(el => el === document.activeElement));
+        await page.waitForFunction(()=>document.activeElement?.textContent==='Your saved feedback');
         await page.reload(); await participation.waitFor();
         assert.equal(await participation.isChecked(), false); assert.equal(await invitations.isChecked(), false);
       });
@@ -594,6 +613,33 @@ try {
           assert.equal(await page.getByRole('checkbox',{name:'Publish these previewed details publicly.'}).isChecked(),false);
           await scan(`${variant.name}-community-inline-validation`,page);
         }finally{await other.close();}
+      });
+      await check(`${variant.name}-public-photo-choices`,page,async()=>{
+        const post=body=>context.request.post(`${fixture.origin}/api/account`,{headers:{origin:fixture.origin},data:body});
+        assert.equal((await post({action:'save-avatar',image:`data:image/png;base64,${avatarFixture.toString('base64')}`})).status(),200);
+        await page.goto(`${fixture.origin}/account/community`);
+        const shared=page.getByRole('radio',{name:'Use a copy of my private profile photo',exact:true});await shared.waitFor();
+        await tabTo(page,page.getByRole('radio',{name:'Keep the saved public draft photo',exact:true}));await page.keyboard.press('ArrowRight');assert.ok(await shared.isChecked());
+        const save=page.getByRole('button',{name:'Save and preview',exact:true});await tabTo(page,save);await page.keyboard.press('Enter');
+        await page.getByRole('heading',{name:'Public preview',exact:true}).waitFor();
+        assert.equal(await page.locator('.community-public-card img').count(),1);
+        await scan(`${variant.name}-public-photo-preview`,page);
+        const consent=page.getByRole('checkbox',{name:'Publish these previewed details publicly.'});await tabTo(page,consent);await page.keyboard.press('Space');
+        const publish=page.getByRole('button',{name:'Publish community profile',exact:true});await tabTo(page,publish);await page.keyboard.press('Enter');
+        await page.getByRole('status').filter({hasText:'Your community profile is published.'}).waitFor();
+        const handle=await page.getByLabel('Handle (3–30 letters, numbers or hyphens)').inputValue();
+        const published=await (await context.request.get(`${fixture.origin}/api/people?handle=${handle}`)).json();assert.ok(published.profile.photo);
+        const upload=page.getByRole('radio',{name:'Upload a different public photo',exact:true});await tabTo(page,page.getByRole('radio',{name:'Keep the saved public draft photo',exact:true}));await page.keyboard.press('ArrowRight');await page.keyboard.press('ArrowRight');assert.ok(await upload.isChecked());
+        await page.locator('#community-photo').setInputFiles({name:'public.png',mimeType:'image/png',buffer:avatarFixture});
+        await page.waitForFunction(()=>document.querySelector('.profile-photo-preview img') && !document.body.textContent.includes('Preparing photo…'));
+        await tabTo(page,save);await page.keyboard.press('Enter');await page.getByRole('heading',{name:'Public preview',exact:true}).waitFor();
+        await page.reload();await page.getByRole('heading',{name:'Public preview',exact:true}).waitFor();assert.equal(await consent.isChecked(),false);
+        const remove=page.getByRole('radio',{name:'No public photo',exact:true});await tabTo(page,page.getByRole('radio',{name:'Keep the saved public draft photo',exact:true}));await page.keyboard.press('ArrowRight');await page.keyboard.press('ArrowRight');await page.keyboard.press('ArrowRight');assert.ok(await remove.isChecked());await tabTo(page,save);await page.keyboard.press('Enter');
+        await page.getByRole('heading',{name:'Public preview',exact:true}).waitFor();
+        assert.equal((await (await context.request.get(`${fixture.origin}/api/people?handle=${handle}`)).json()).profile.photo,published.profile.photo);
+        await tabTo(page,consent);await page.keyboard.press('Space');await tabTo(page,publish);await page.keyboard.press('Enter');await page.getByRole('status').filter({hasText:'Your community profile is published.'}).waitFor();
+        assert.equal((await (await context.request.get(`${fixture.origin}/api/people?handle=${handle}`)).json()).profile.photo,null);
+        await tabTo(page,page.getByRole('button',{name:'Unpublish community profile'}));await page.keyboard.press('Enter');await page.getByRole('status').filter({hasText:'Your community profile is unpublished.'}).waitFor();
       });
       await check(`${variant.name}-member-copy-action`,page,async()=>{
         const read=async()=>{const response=await context.request.post(`${fixture.origin}/api/account`,{headers:{origin:fixture.origin},data:{action:'engagement'}});assert.equal(response.status(),200);return response.json();};

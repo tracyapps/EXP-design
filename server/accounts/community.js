@@ -1,5 +1,6 @@
+import {normalizePhoto,privateAvatar} from './avatar.js';
 export const communityVersion = 'community-profile-v1';
-export const communityActions = { community: [], 'check-community-handle':['handle'], 'save-community': ['handle','displayName','bio','link'],
+export const communityActions = { community: [], 'check-community-handle':['handle'], 'save-community': ['handle','displayName','bio','link','photo','usePrivatePhoto'],
   'publish-community': ['revision','confirmed','consentVersion'], 'unpublish-community': [], 'report-community': ['handle','category','reason'] };
 const reserved = new Set(['admin','administrator','api','account','accounts','community','delete','developer','download','exp','help','login','moderator','news','people','privacy','pro','profile','settings','signup','staff','support','system','tapps','team','terms']);
 export const validHandle = handle => typeof handle === 'string' && /^[a-z0-9][a-z0-9-]{1,28}[a-z0-9]$/.test(handle) && !reserved.has(handle);
@@ -14,7 +15,7 @@ const handleProblem = handle => {
 const text = (value, max, required=false) => typeof value === 'string' && value.length <= max && (!required || value.trim().length > 0);
 const result = (body, status=200) => ({ body, status });
 // The only public projection. No account identity, email, permissions, drafts or reports.
-export const publicProfile = row => ({ handle: row.handle, displayName: row.published_name, bio: row.published_bio, link: row.published_link });
+export const publicProfile = row => ({ handle: row.handle, displayName: row.published_name, bio: row.published_bio, link: row.published_link, photo:privateAvatar(row.published_photo) });
 
 export async function handleCommunity({ pool, userId, body, enabled }) {
   const { action } = body;
@@ -33,12 +34,13 @@ export async function handleCommunity({ pool, userId, body, enabled }) {
   if (action === 'publish-community' && (body.confirmed!==true || body.consentVersion!==communityVersion ||
       typeof body.revision!=='string' || !/^[a-f0-9-]{36}$/.test(body.revision))) return result({ error:'Preview the saved profile and confirm public publication.' },400);
   if (action === 'report-community' && (!profileHandle(handle) || !['spam','harassment','privacy','other'].includes(body.category) || !text(body.reason,500,true))) return result({ error:'Choose a report category and add a reason up to 500 characters.' },400);
+  if(action==='save-community' && ((body.photo!==undefined && body.photo!==null && typeof body.photo!=='string') || (body.usePrivatePhoto!==undefined && typeof body.usePrivatePhoto!=='boolean') || (body.usePrivatePhoto && body.photo)))return result({error:'Choose one source for the public photo.'},400);
   const client=await pool.connect();
   try {
     await client.query('BEGIN');
-    const owner=await client.query('SELECT id FROM exp_member_user WHERE id=$1 FOR UPDATE',[userId]);
+    const owner=await client.query('SELECT id,image FROM exp_member_user WHERE id=$1 FOR UPDATE',[userId]);
     if (!owner.rowCount) { await client.query('ROLLBACK'); return result({error:'Please sign in again.'},401); }
-    const response=await perform();
+    const response=await perform(owner.rows[0]);
     await client.query('COMMIT'); return response;
   } catch(error) {
     await client.query('ROLLBACK');
@@ -66,29 +68,40 @@ export async function handleCommunity({ pool, userId, body, enabled }) {
     if((await client.query('SELECT 1 FROM exp_member_community WHERE handle=$1 AND user_id<>$2',[handle,userId])).rowCount)return {available:false,reason:'That handle is already taken. Choose another.',status:409};
     return {available:true,reason:'This handle is available for your account.'};
   }
-  async function perform() {
+  async function perform(owner) {
+    const photoReady=(await client.query("SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='exp_member_community' AND column_name='published_photo') AS ready")).rows[0].ready;
     const row=(await client.query('SELECT * FROM exp_member_community WHERE user_id=$1',[userId])).rows[0];
     if(action==='check-community-handle') {
       const checked=await checkHandle(row);
       return result({ok:true,handle:typeof handle==='string'?handle:null,available:checked.available,reason:checked.reason});
     }
-    if(action==='community') return result({ok:true,communityOpen:enabled,publicationBlocked:row?.moderation_hold??false,
+    if(action==='community') return result({ok:true,communityOpen:enabled,photoEnabled:photoReady,publicationBlocked:row?.moderation_hold??false,
       handleLocked:Boolean(row?.first_published_at),
-      draft:row?{handle:row.handle,displayName:row.display_name,bio:row.bio,link:row.link,revision:row.revision}:null,
+      draft:row?{handle:row.handle,displayName:row.display_name,bio:row.bio,link:row.link,photo:privateAvatar(row.draft_photo),revision:row.revision}:null,
       published:row?.published_at?publicProfile(row):null});
     if(action==='unpublish-community') {
       await client.query(`UPDATE exp_member_community SET published_at=NULL,published_revision=NULL,published_name=NULL,
-        published_bio=NULL,published_link=NULL,publication_version=NULL WHERE user_id=$1`,[userId]);
+        published_bio=NULL,published_link=NULL,publication_version=NULL${photoReady?',published_photo=NULL':''} WHERE user_id=$1`,[userId]);
       return result({ok:true});
     }
     if(action==='save-community') {
       const checked=await checkHandle(row);
       if(!checked.available)return result({error:checked.reason+' Your entered details have not been saved.',field:'handle'},checked.status);
-      if(row && row.handle===handle && row.display_name===body.displayName.trim() && row.bio===body.bio.trim() && row.link===body.link.trim()) return result({ok:true});
+      const changingPhoto=body.photo!==undefined || body.usePrivatePhoto===true;
+      if(changingPhoto && !photoReady)return result({error:'Public photo uploads are not available yet. Your draft has not changed.'},503);
+      let photo=privateAvatar(row?.draft_photo);
+      if(changingPhoto){
+        const source=body.usePrivatePhoto?privateAvatar(owner.image):body.photo;
+        if(body.usePrivatePhoto && !source)return result({error:'Add a private profile photo first, or upload a public one.'},400);
+        if(source===null)photo=null;
+        else try{photo=await normalizePhoto(source);}catch{return result({error:'Choose a still PNG, JPEG or WebP photo. Your draft has not changed.'},400);}
+      }
+      if(row && (!photoReady || photo===privateAvatar(row.draft_photo)) && row.handle===handle && row.display_name===body.displayName.trim() && row.bio===body.bio.trim() && row.link===body.link.trim()) return result({ok:true});
       if(!await slot()) return limited();
       await client.query(`INSERT INTO exp_member_community(user_id,handle,display_name,bio,link) VALUES($1,$2,$3,$4,$5)
         ON CONFLICT(user_id) DO UPDATE SET handle=$2,display_name=$3,bio=$4,link=$5,revision=pg_catalog.gen_random_uuid()`,
       [userId,handle,body.displayName.trim(),body.bio.trim(),body.link.trim()]);
+      if(photoReady)await client.query('UPDATE exp_member_community SET draft_photo=$2 WHERE user_id=$1',[userId,photo]);
       return result({ok:true});
     }
     if(action==='publish-community') {
@@ -98,7 +111,7 @@ export async function handleCommunity({ pool, userId, body, enabled }) {
       if(row.published_revision===row.revision) return result({ok:true});
       if(!await slot()) return limited();
       await client.query(`UPDATE exp_member_community SET first_published_at=COALESCE(first_published_at,now()),published_at=now(),
-        published_revision=revision,published_name=display_name,published_bio=bio,published_link=link,publication_version=$2 WHERE user_id=$1`,[userId,communityVersion]);
+        published_revision=revision,published_name=display_name,published_bio=bio,published_link=link,publication_version=$2${photoReady?',published_photo=draft_photo':''} WHERE user_id=$1`,[userId,communityVersion]);
       return result({ok:true});
     }
     if(!enabled) return result({error:'Community reports are not open right now.'},503);
@@ -121,7 +134,7 @@ export function createPublicProfileHandler({ pool, enabled=false }) {
     const url=new URL(request.url), handle=url.searchParams.get('handle');
     if(!enabled || !profileHandle(handle) || url.searchParams.getAll('handle').length!==1) return json({error:'Profile not found.'},404);
     try {
-      const row=(await pool.query(`SELECT handle,published_name,published_bio,published_link FROM exp_member_community
+      const row=(await pool.query(`SELECT handle,published_name,published_bio,published_link,to_jsonb(exp_member_community)->>'published_photo' AS published_photo FROM exp_member_community
         WHERE handle=$1 AND published_at IS NOT NULL AND NOT moderation_hold`,[handle])).rows[0];
       return row?json({ok:true,profile:publicProfile(row)}):json({error:'Profile not found.'},404);
     } catch { return json({error:'Community profiles are unavailable. Please try later.'},503); }

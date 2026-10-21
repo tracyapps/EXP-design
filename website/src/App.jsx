@@ -1142,6 +1142,7 @@ function Footer() {
           <p className="footer-sitemap-heading">more</p>
           <a href="/#roadmap">roadmap</a>
           <a href="/download">download</a>
+          <a href="/share">share EXP · images & words</a>
           <a href="/support.html">support the developer</a>
         </div>
       </nav>

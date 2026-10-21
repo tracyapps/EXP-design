@@ -4,6 +4,11 @@ October 18, 2026 · FEAT-069. Owner selects a circular account control at the
 right end of the website header, photo upload and a public account explanation.
 Local implementation; owner push/deployment and hosted photo review remain ahead.
 
+October 21 follow-up: FEAT-081 adds separately chosen public photos. The original
+private photo remains excluded from public reads; a member can now explicitly
+copy it to a separate draft/snapshot. See `SHARING-AND-PUBLIC-PHOTOS-v2.8.md` for
+migration 012, photo choices, preview/publication and current rollout gates.
+
 ## Observable behavior
 
 - The far-right header button shows a saved photo, initials or a person icon.

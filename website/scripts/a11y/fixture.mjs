@@ -17,7 +17,7 @@ export async function startFixture() {
   const databaseURL = process.env.EXP_A11Y_DATABASE_URL;
   if (!databaseURL || !new URL(databaseURL).searchParams.get('host')?.startsWith('/tmp/exp-a11y-pg.') || process.env.NODE_ENV === 'production') throw Error('Disposable accessibility runner required');
   const pool = new pg.Pool({ connectionString: databaseURL });
-  for (const name of ['001_pro_interest.sql', '002_pro_interest_erasure.sql', '003_free_accounts.sql', '005_member_beta.sql', '006_account_pro_link.sql', '007_community_profiles.sql', '008_news_and_tickets.sql', '009_ticket_mail_and_retention.sql', '010_member_engagement.sql', '011_owner_community_handle.sql']) {
+  for (const name of ['001_pro_interest.sql', '002_pro_interest_erasure.sql', '003_free_accounts.sql', '005_member_beta.sql', '006_account_pro_link.sql', '007_community_profiles.sql', '008_news_and_tickets.sql', '009_ticket_mail_and_retention.sql', '010_member_engagement.sql', '011_owner_community_handle.sql', '012_community_photos.sql']) {
     await pool.query(await readFile(new URL(`../../../migrations/${name}`, import.meta.url), 'utf8'));
   }
   const mail = [], errors = [], dist = path.resolve(fileURLToPath(new URL('../../dist/', import.meta.url)));
@@ -35,7 +35,7 @@ export async function startFixture() {
         response.writeHead(503, { 'Content-Type': 'application/json' }).end(JSON.stringify({ error: 'Release signup is unavailable in this local fixture.' })); return;
       }
       if (url.pathname.startsWith('/api/')) { response.writeHead(404).end(); return; }
-      const requested = url.pathname === '/support' ? '/support.html' : url.pathname;
+      const requested = url.pathname === '/support' ? '/support.html' : ['/share','/share/'].includes(url.pathname)?'/share.html':url.pathname;
       const filename = path.resolve(dist, `.${requested}`);
       if (!filename.startsWith(dist + path.sep) && filename !== dist) { response.writeHead(404).end(); return; }
       const extension = path.extname(filename);
