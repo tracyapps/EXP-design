@@ -5,7 +5,7 @@ export default async function accountRequest(body) {
   const result = await response.json().catch(() => ({}));
   if (!response.ok || result.ok !== true) {
     const error = new Error(result.error || 'Account service is unavailable. Please try later.');
-    error.status = response.status; throw error;
+    error.status = response.status; error.field = result.field; throw error;
   }
   return result;
 }

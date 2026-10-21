@@ -246,7 +246,7 @@ try {
         assert.equal(await name.inputValue(),'','Private identity must not be copied automatically');
         await type(page,handle,'admin');await type(page,name,'Public Keyboard Designer');
         await tabTo(page,page.getByRole('button',{name:'Save and preview'}));await page.keyboard.press('Enter');
-        await page.getByRole('status').filter({hasText:'That handle is reserved.'}).waitFor();
+        await page.getByRole('alert').filter({hasText:'That handle is reserved.'}).waitFor();
         assert.equal(await handle.inputValue(),'admin','Rejected form entries remain available for correction');
         assert.equal(await page.getByRole('heading',{name:'Public preview',exact:true}).count(),0);
         const slug=`public-${variant.name}`;
@@ -553,6 +553,47 @@ try {
         await page.getByRole('status').filter({hasText:'Testimonial permission withdrawn.'}).waitFor();
         await page.reload();await page.getByText('Private feedback. No current testimonial permission.',{exact:true}).waitFor();
         await scan(`${variant.name}-member-feedback-withdrawn`,page);
+      });
+      await check(`${variant.name}-community-inline-validation`,page,async()=>{
+        const other=await browser.newContext(), taken=`taken-${variant.name}`, fresh=`fresh-${variant.name}`;
+        try{
+          const address=`handle-check-${email}`;
+          const post=body=>other.request.post(`${fixture.origin}/api/account`,{headers:{origin:fixture.origin},data:body});
+          assert.equal((await post({action:'send-code',email:address})).status(),200);
+          const otp=fixture.mail.findLast(item=>item.kind==='account'&&item.email===address).otp;
+          assert.equal((await post({action:'verify-code',email:address,otp,intent:'register',name:'Other member',accountConsent:true,consentVersion:'free-account-v1'})).status(),200);
+          assert.equal((await post({action:'save-community',handle:taken,displayName:'Other member',bio:'',link:''})).status(),200);
+          await page.goto(`${fixture.origin}/account/community`);
+          const handle=page.getByLabel('Handle (3–30 letters, numbers or hyphens)'), status=page.locator('#community-handle-status'),save=page.getByRole('button',{name:'Save and preview',exact:true});
+          await handle.waitFor();await tabTo(page,save);await page.keyboard.press('Enter');
+          await page.getByRole('alert').filter({hasText:'Handle: Use 3–30'}).waitFor();
+          await type(page,handle,'bad name');await page.waitForFunction(()=>document.getElementById('community-handle').getAttribute('aria-invalid')==='true');
+          await type(page,handle,taken);await status.filter({hasText:'already taken'}).waitFor();
+          assert.equal(await handle.getAttribute('aria-invalid'),'true');
+          await tabTo(page,save);await page.keyboard.press('Enter');await page.getByRole('alert').filter({hasText:'already taken'}).waitFor();
+          // A late availability response must not overwrite the newer taken result.
+          let release,started,finished;const gate=new Promise(resolve=>release=resolve),began=new Promise(resolve=>started=resolve),done=new Promise(resolve=>finished=resolve);
+          const slow=`slow-${variant.name}`;
+          const delayed=async route=>{const body=route.request().postDataJSON();if(body?.action==='check-community-handle'&&body.handle===slow){const response=await route.fetch();started();await gate;await route.fulfill({response});finished();}else await route.continue();};
+          await page.route('**/api/account',delayed);
+          try{await type(page,handle,slow);await began;await type(page,handle,taken);await status.filter({hasText:'already taken'}).waitFor();release();await done;await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));assert.match(await status.textContent(),/already taken/);}
+          finally{release();await page.unroute('**/api/account',delayed);}
+          await type(page,handle,fresh);await status.filter({hasText:'available for your account'}).waitFor();
+          await tabTo(page,save);await page.keyboard.press('Enter');await page.getByRole('alert').filter({hasText:'Public display name is required'}).waitFor();
+          await type(page,page.getByLabel('Public display name (up to 80 characters)'),'Validation Designer');
+          const website=page.getByLabel('Public website (optional HTTPS link)');await type(page,website,'http://example.test');
+          await tabTo(page,save);await page.keyboard.press('Enter');await page.getByRole('alert').filter({hasText:'complete HTTPS link'}).waitFor();
+          await type(page,website,'https://example.test');
+          // Claim it in the other account after the green check, before submission.
+          assert.equal((await post({action:'save-community',handle:fresh,displayName:'Other member',bio:'',link:''})).status(),200);
+          await tabTo(page,save);await page.keyboard.press('Enter');await page.getByRole('alert').filter({hasText:'already taken'}).waitFor();
+          assert.equal(await handle.inputValue(),fresh);assert.equal(await page.getByLabel('Public display name (up to 80 characters)').inputValue(),'Validation Designer');
+          await type(page,handle,`saved-${variant.name}`);await status.filter({hasText:'available for your account'}).waitFor();
+          await tabTo(page,save);await page.keyboard.press('Enter');await page.getByRole('heading',{name:'Public preview',exact:true}).waitFor();
+          await page.reload();await page.getByRole('heading',{name:'Public preview',exact:true}).waitFor();
+          assert.equal(await page.getByRole('checkbox',{name:'Publish these previewed details publicly.'}).isChecked(),false);
+          await scan(`${variant.name}-community-inline-validation`,page);
+        }finally{await other.close();}
       });
       await check(`${variant.name}-member-copy-action`,page,async()=>{
         const read=async()=>{const response=await context.request.post(`${fixture.origin}/api/account`,{headers:{origin:fixture.origin},data:{action:'engagement'}});assert.equal(response.status(),200);return response.json();};

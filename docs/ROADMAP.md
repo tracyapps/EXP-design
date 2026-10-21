@@ -3549,6 +3549,24 @@ font import → Phase 9, shadows → Phase 10._
 
 ## Progress Log
 
+- **2026-10-20 — BUG-082 approved hosted repair and live handle validation [internal].**
+  Owner authorizes source push, production setup and signed-in Brave testing.
+  Apply 010/011, private runtime grants and guarded owner-only `tapps` reservation
+  in the verified production account DB. Final row: one reservation, feedback CRUD
+  true, reservation SELECT true / INSERT false. Production engagement flag saved
+  true through authorized Vercel UI after connector scope denial; deployment must
+  pick it up. Actual owner `tapps` save produces a private preview; no publication.
+  Add authenticated debounced availability checks, safe format/reserved/taken/locked
+  reasons, stale-result guards and precise submit errors near the button with field
+  focus/input preservation. Save remains authoritative against concurrent claims.
+  Full service/usage suite passes (115 account cases); expanded Chromium/WebKit
+  keyboard + axe evidence: `output/a11y/2026-10-21T04-51-32-200Z/report.md`.
+  Initial new tests caught an immediate-render assertion race and error-priority
+  mismatch; await rendered invalid state and prioritize known handle errors first.
+  See `launch/ACCOUNT-FIRST-GROWTH-v2.8.md` for checked WAI references and exact
+  rollout evidence. Source push/deployment and live feedback save proof follow.
+
+
 - **2026-10-20 — BUG-082 hosted feedback diagnosis and owner handle fix [internal].**
   Owner pushed FEAT-077 (`ed79b33`), then reports disabled feedback and community
   save/preview failure. Production session flag is false and all five engagement

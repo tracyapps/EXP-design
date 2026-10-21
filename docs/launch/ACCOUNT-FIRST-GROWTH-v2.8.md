@@ -218,3 +218,55 @@ saved drafts and previews survive reload without rechecking publication consent.
 Evidence: `output/a11y/2026-10-21T04-31-49-166Z/report.md` and
 `/tmp/exp-owner-handle-accounts-final-20261020.log`. No hosted writes, deployment,
 commit/push, email send or public profile publication performed in this follow-up.
+
+## October 20 approved live repair and inline validation
+
+Owner explicitly authorized hosted setup, source push and live troubleshooting.
+Applied migrations 010 and 011, their existing-role grants, and the guarded owner
+binding in one transaction on the verified EXPdesign production account database.
+The final result confirms exactly one owner reservation, feedback CRUD granted,
+reservation SELECT granted and reservation INSERT denied to the runtime role.
+No other role, credential, email permission or feature flag was changed.
+
+Set Production `ACCOUNT_ENGAGEMENT_ENABLED=true` through the existing authenticated
+Vercel settings page after the connector denied production env-write scope. The
+settings page confirms success and requires a new deployment. Source push and
+runtime confirmation are recorded below when complete. This is not an assumption
+that changing a saved variable updates an already-running deployment.
+
+Closed the user's DevTools inspection window after it interfered with browser
+control. In signed-in Brave, restored their previously entered handle/name/bio/link
+and successfully saved the owner's `tapps` draft through the actual form. The
+private preview shows their details; the public-publish checkbox was not selected
+and no public profile was published.
+
+Additional requested source behavior:
+
+- Authenticated `check-community-handle` accepts only a handle; checks format,
+  reserved names, protected owner binding, published-handle lock and duplicates.
+  Responses include only availability/reason and normalized handle, never the
+  other account's identity or profile. Checking does not save or reserve a name.
+- The client checks local syntax immediately and debounces server availability
+  by 400 ms. Cancelled/stale replies cannot replace a newer check or save error.
+  Checking failures provide a retry path; submission always rechecks on the server
+  and the unique database constraint remains authoritative for concurrent claims.
+- Explicit submit validation replaces browser-only silent blocking. Invalid,
+  reserved, taken, missing-name and unsafe-website errors explain the problem near
+  the button and focus the affected field. Draft values remain available for
+  correction. Saved previews and separate public publication remain unchanged.
+- Accessible status and error relationships follow the freshly checked WAI form
+  notifications, WCAG 2.1 SC 4.1.3 and WAI-ARIA 1.2 `aria-invalid`/`aria-describedby`:
+  https://www.w3.org/WAI/tutorials/forms/notifications/ ,
+  https://www.w3.org/WAI/WCAG21/Understanding/status-messages.html ,
+  https://www.w3.org/TR/wai-aria-1.2/#aria-invalid and
+  https://www.w3.org/TR/wai-aria-1.2/#aria-describedby .
+
+Sanitized operational receipt: `output/a11y/bug082-live-20261020/verification.json`.
+
+Local verification before the authorized push: `npm test` passes (115 account
+cases, signup/Pro/usage services and native usage-consent/transport regressions).
+The expanded web run passes 241 selected checks, 0 failed/blocked, with 148
+incomplete/manual-review entries retained:
+`output/a11y/2026-10-21T04-51-32-200Z/report.md`. It covers inline invalid/taken
+checks, stale replies, required-name/HTTPS errors, actual concurrent handle claim,
+input preservation and successful save/reload/preview. Production build passes.

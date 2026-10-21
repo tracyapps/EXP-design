@@ -38,7 +38,7 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: bug
 - Priority: P1 — owner report October 20, 2026
 - Area: hosted accounts · website · community
-- Status: local community fix verified; production migration/enablement and source deployment pending
+- Status: approved live repair underway — schema/grants/owner binding applied; validation source verified; production deployment/feedback browser proof pending
 - Repro/Detail: Production GET `/api/account` reports `engagementOpen:false`;
   all five migration-010 tables are absent. Feedback's disabled fieldset correctly
   reflects unavailable hosted service; removing disabled would not fix persistence.
@@ -58,6 +58,12 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   Browser checks exercise rejected-input preservation and save → reload → preview
   → explicit publish. Production build passes through the browser harness.
   Report: `output/a11y/2026-10-21T04-31-49-166Z/report.md`.
+- October 20 owner explicitly authorizes push and live setup. Authenticated live
+  handle checks now report format/reserved/taken/locked reasons, preserve input,
+  ignore stale checks and recheck concurrent claims on save. Client submit errors
+  appear next to the button and focus the affected field; native browser validation
+  cannot silently bypass the submit handler. WAI citations and expanded evidence:
+  `launch/ACCOUNT-FIRST-GROWTH-v2.8.md` (approved live repair section).
 - Hosted follow-up and exact files: `launch/ACCOUNT-FIRST-GROWTH-v2.8.md`,
   October 20 owner-reported rollout section. No live migration/flag/deployment or
   profile publication is implied by the source fix.

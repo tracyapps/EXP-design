@@ -47,3 +47,7 @@
 .profile-photo-preview .account-avatar { font-size: 28px; border: 1px solid var(--text-secondary); }
 .account-card input[type=file] { max-width: 100%; height: auto; }
 .account-card h2, .account-card time { overflow-wrap: anywhere; }
+
+.account-page .community-save-error:not(:empty) { color: var(--text-primary); border: 2px solid currentColor; border-radius: 6px; padding: 12px; font-weight: 600; }
+.account-page .community-save-error:empty { margin: 0; }
+.account-card [aria-invalid=true] { border-width: 2px; outline: 2px solid var(--text-primary); outline-offset: 2px; }

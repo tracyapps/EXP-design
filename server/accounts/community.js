@@ -1,11 +1,16 @@
 export const communityVersion = 'community-profile-v1';
-export const communityActions = { community: [], 'save-community': ['handle','displayName','bio','link'],
+export const communityActions = { community: [], 'check-community-handle':['handle'], 'save-community': ['handle','displayName','bio','link'],
   'publish-community': ['revision','confirmed','consentVersion'], 'unpublish-community': [], 'report-community': ['handle','category','reason'] };
 const reserved = new Set(['admin','administrator','api','account','accounts','community','delete','developer','download','exp','help','login','moderator','news','people','privacy','pro','profile','settings','signup','staff','support','system','tapps','team','terms']);
 export const validHandle = handle => typeof handle === 'string' && /^[a-z0-9][a-z0-9-]{1,28}[a-z0-9]$/.test(handle) && !reserved.has(handle);
 // The owner's brand handle is readable/reportable only after an operator-bound
 // reservation permits saving it. Other reserved names remain unavailable.
 const profileHandle = handle => validHandle(handle) || handle === 'tapps';
+const handleProblem = handle => {
+  if(typeof handle!=='string' || !/^[a-z0-9][a-z0-9-]{1,28}[a-z0-9]$/.test(handle))return 'Handle must be 3–30 lowercase letters, numbers or hyphens, and start and end with a letter or number.';
+  if(reserved.has(handle) && handle!=='tapps')return 'That handle is reserved. Choose a different handle.';
+  return null;
+};
 const text = (value, max, required=false) => typeof value === 'string' && value.length <= max && (!required || value.trim().length > 0);
 const result = (body, status=200) => ({ body, status });
 // The only public projection. No account identity, email, permissions, drafts or reports.
@@ -15,11 +20,14 @@ export async function handleCommunity({ pool, userId, body, enabled }) {
   const { action } = body;
   const handle = typeof body.handle === 'string' ? body.handle.trim().toLowerCase() : body.handle;
   if (action === 'save-community') {
-    if (typeof handle==='string' && reserved.has(handle) && handle!=='tapps') return result({error:'That handle is reserved. Choose a different handle; your entered details have not been saved.'},400);
-    if (!profileHandle(handle) || !text(body.displayName,80,true) || !text(body.bio,500) || !text(body.link,300)) return result({ error: 'Use an available handle (3–30 letters, numbers or hyphens), a display name and the stated field limits.' },400);
+    const problem=handleProblem(handle);
+    if(problem)return result({error:problem+' Your entered details have not been saved.',field:'handle'},400);
+    if(!text(body.displayName,80,true))return result({error:'Public display name is required and must be no more than 80 characters.',field:'displayName'},400);
+    if(!text(body.bio,500))return result({error:'Public bio must be no more than 500 characters.',field:'bio'},400);
+    if(!text(body.link,300))return result({error:'Public website must be no more than 300 characters.',field:'link'},400);
     if (body.link) {
       try { const url=new URL(body.link); if(url.protocol!=='https:' || url.username || url.password) throw Error(); }
-      catch { return result({ error:'Use a complete HTTPS website link without login details, or leave it empty.' },400); }
+      catch { return result({ error:'Use a complete HTTPS website link without login details, or leave it empty.',field:'link' },400); }
     }
   }
   if (action === 'publish-community' && (body.confirmed!==true || body.consentVersion!==communityVersion ||
@@ -34,7 +42,7 @@ export async function handleCommunity({ pool, userId, body, enabled }) {
     await client.query('COMMIT'); return response;
   } catch(error) {
     await client.query('ROLLBACK');
-    if(error.code==='23505') return result({error:'That handle is unavailable. Choose another.'},409);
+    if(error.code==='23505') return result({error:'That handle is already taken. Choose another.',field:'handle'},409);
     throw error;
   } finally { client.release(); }
 
@@ -46,8 +54,24 @@ export async function handleCommunity({ pool, userId, body, enabled }) {
       WHERE exp_member_community_limit.window_start<=now()-interval '1 hour' OR exp_member_community_limit.count<30 RETURNING user_id`,[userId])).rowCount>0;
   }
   function limited() { return result({error:'Too many changes. Please try again in an hour. You can still unpublish.'},429); }
+  async function checkHandle(row) {
+    const problem=handleProblem(handle);
+    if(problem)return {available:false,reason:problem,status:400};
+    if(row?.first_published_at && row.handle!==handle)return {available:false,reason:'A published handle cannot be renamed yet. You can edit the public details or unpublish.',status:409};
+    if(handle==='tapps') {
+      const ready=(await client.query("SELECT to_regclass('public.exp_member_community_reservation') IS NOT NULL AS ready")).rows[0].ready;
+      const permitted=ready && (await client.query('SELECT 1 FROM exp_member_community_reservation WHERE handle=$1 AND user_id=$2',[handle,userId])).rowCount>0;
+      if(!permitted)return {available:false,reason:'That handle is reserved for the verified EXP owner. Choose another handle.',status:400};
+    }
+    if((await client.query('SELECT 1 FROM exp_member_community WHERE handle=$1 AND user_id<>$2',[handle,userId])).rowCount)return {available:false,reason:'That handle is already taken. Choose another.',status:409};
+    return {available:true,reason:'This handle is available for your account.'};
+  }
   async function perform() {
     const row=(await client.query('SELECT * FROM exp_member_community WHERE user_id=$1',[userId])).rows[0];
+    if(action==='check-community-handle') {
+      const checked=await checkHandle(row);
+      return result({ok:true,handle:typeof handle==='string'?handle:null,available:checked.available,reason:checked.reason});
+    }
     if(action==='community') return result({ok:true,communityOpen:enabled,publicationBlocked:row?.moderation_hold??false,
       handleLocked:Boolean(row?.first_published_at),
       draft:row?{handle:row.handle,displayName:row.display_name,bio:row.bio,link:row.link,revision:row.revision}:null,
@@ -58,12 +82,8 @@ export async function handleCommunity({ pool, userId, body, enabled }) {
       return result({ok:true});
     }
     if(action==='save-community') {
-      if(handle==='tapps') {
-        const ready=(await client.query("SELECT to_regclass('public.exp_member_community_reservation') IS NOT NULL AS ready")).rows[0].ready;
-        const permitted=ready && (await client.query('SELECT 1 FROM exp_member_community_reservation WHERE handle=$1 AND user_id=$2',[handle,userId])).rowCount>0;
-        if(!permitted)return result({error:'That handle is reserved for the verified EXP owner. Choose another handle; your entered details have not been saved.'},400);
-      }
-      if(row?.first_published_at && row.handle!==handle) return result({error:'A published handle cannot be renamed yet. You can edit the public details or unpublish.'},409);
+      const checked=await checkHandle(row);
+      if(!checked.available)return result({error:checked.reason+' Your entered details have not been saved.',field:'handle'},checked.status);
       if(row && row.handle===handle && row.display_name===body.displayName.trim() && row.bio===body.bio.trim() && row.link===body.link.trim()) return result({ok:true});
       if(!await slot()) return limited();
       await client.query(`INSERT INTO exp_member_community(user_id,handle,display_name,bio,link) VALUES($1,$2,$3,$4,$5)

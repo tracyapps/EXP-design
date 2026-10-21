@@ -1104,3 +1104,36 @@ test('runtime can read owner-handle reservations but cannot assign, change or de
     finally{connection.release();}
   }finally{await pool.query(`DROP OWNED BY ${name}; DROP ROLE ${name}`);}
 });
+
+test('live community handle checks validate availability without saving or exposing another account',async()=>{
+  assert.equal((await call({action:'check-community-handle',handle:'open-designer'})).status,401);
+  const a=await register('handle-check-a@example.test'),b=await register('handle-check-b@example.test');
+  const check=(handle,cookie=a)=>call({action:'check-community-handle',handle},cookie);
+  for(const handle of ['', 'ab','-invalid','admin','support','bad name','x'.repeat(31)]){
+    const response=await check(handle);assert.equal(response.status,200);assert.equal(response.body.available,false);assert.ok(response.body.reason);
+  }
+  assert.equal((await check('Open-Designer')).body.handle,'open-designer');
+  const available=await check('open-designer');assert.equal(available.status,200);assert.equal(available.body.available,true);
+  assert.equal((await call({action:'community'},a)).body.draft,null,'Checking does not save a draft');
+  await communityDraft(b,'open-designer');
+  const taken=await check('open-designer');assert.equal(taken.body.available,false);assert.match(taken.body.reason,/already taken/i);
+  assert.doesNotMatch(JSON.stringify(taken.body),/handle-check-b|user_id|Chosen public name/);
+  assert.equal((await check('open-designer',b)).body.available,true,'A saved handle stays available to its own account');
+  assert.equal((await call({action:'check-community-handle',handle:'open-designer',userId:randomUUID()},a)).status,400);
+  const conflict=await call({action:'save-community',handle:'open-designer',displayName:'A name',bio:'',link:''},a);
+  assert.equal(conflict.status,409);assert.equal(conflict.body.field,'handle');assert.match(conflict.body.error,/already taken/i);
+});
+
+test('live owner-handle checks use the same protected reservation as saving and enforce published locks',async()=>{
+  const owner=await register('handle-check-owner@example.test'),other=await register('handle-check-other@example.test');
+  const id=(await call(undefined,owner)).body.user.id;
+  const check=(handle,cookie)=>call({action:'check-community-handle',handle},cookie);
+  assert.equal((await check('tapps',owner)).body.available,false);
+  await pool.query("INSERT INTO exp_member_community_reservation(handle,user_id) VALUES('tapps',$1)",[id]);
+  assert.equal((await check('tapps',owner)).body.available,true);
+  assert.equal((await check('tapps',other)).body.available,false);
+  const draft=await communityDraft(owner,'tapps');await publishCommunity(owner,draft);
+  const locked=await check('another-open-handle',owner);assert.equal(locked.body.available,false);assert.match(locked.body.reason,/cannot be renamed/i);
+  assert.equal((await check('tapps',owner)).body.available,true);
+  await call({action:'delete-account',confirmation:'DELETE'},owner);
+});
