@@ -48,7 +48,8 @@ verified package and website advertises 2.7. Receipts:
 Immutable v2.7 and older releases remain unchanged. Owner selected FEAT-077's
 account-first website/member-engagement slice October 20; read
 `docs/launch/ACCOUNT-FIRST-GROWTH-v2.8.md` for its consent, data and rollout gates.
-Local implementation is not hosted enablement. Native 2.8 scope remains unselected.
+Local implementation is not hosted enablement. Native 2.8 scope: component & token sync
+(`docs/COMPONENT-SYNC-v2.8.md`, FEAT-082…086), owner-selected 2026-10-22.
 Owner accepts extensive v2.7 accessibility testing with Full Keyboard Access
 unverified because macOS would not enable it. Retain observations; confirmed
 accessibility barriers receive high-priority hotfix treatment.
@@ -117,8 +118,8 @@ See ROADMAP.md for the authoritative checklist and newest Progress Log entry.
 **v2.6 is RELEASED AND COMPLETE (2026-10-02)**; live update proof and all release
 checks pass in `docs/RELEASE-CHECKLIST-v2.6.md`. **v2.7 is RELEASED AND COMPLETE
 (2026-10-20)**; receipts in `docs/RELEASE-CHECKLIST-v2.7.md`. **v2.8/build 19**
-is the development baseline. FEAT-077 website work is selected; native candidates
-await owner scope selection.
+is the development baseline. FEAT-077 website work is selected; native scope is
+component & token sync (`docs/COMPONENT-SYNC-v2.8.md`).
 Dropbox note: the
 folder is supposed to be excluded from sync (one machine only); a known
 ongoing Dropbox issue has been corrupting the owner's dev folders (ticket

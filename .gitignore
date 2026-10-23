@@ -19,6 +19,7 @@ docs/*
 !docs/RELEASE-READINESS-v2.7-2026-10-19.md
 !docs/ROADMAP.md
 !docs/V2-INTEROP-PLAN.md
+!docs/COMPONENT-SYNC-v2.8.md
 !docs/SEMANTIC-HTML-CONTRACT.md
 # The allowlist had drifted: these were already tracked (git keeps tracking a file
 # regardless of ignore rules), so the list did not match reality and a fresh clone

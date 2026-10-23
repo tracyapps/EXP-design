@@ -3445,6 +3445,68 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   `launch/SHARING-AND-PUBLIC-PHOTOS-v2.8.md`. Gravatar deferred because automatic
   email-derived identifiers/third-party image requests need explicit member choice.
 
+### FEAT-082 — Library tokens in the Design Language
+- Type: feature
+- Priority: owner-selected v2.8 native slice 1, October 22, 2026
+- Area: design language · import/export · model
+- Status: built 2026-10-23; awaiting owner verification (`COMPONENT-SYNC-v2.8.md`)
+- Detail: Import DTCG tokens with stable ID/path, type, alias, light/dark modes and
+  origin revision; show and export source token names; bind layers by token ID.
+  Unsupported tokens preserved and marked read-only, never flattened. Free.
+- Acceptance: Start token set survives import → save → reopen with IDs, aliases
+  and modes; unsupported values untouched; older-version save risk decided.
+
+### FEAT-083 — Web components import as EXP components
+- Type: feature
+- Priority: owner-selected v2.8 native slice 2
+- Area: components · import · model · inspector
+- Status: planned; starts after FEAT-082 owner verification
+- Detail: Custom Elements Manifest elements become `ComponentSource`s with a
+  contract (typed props, variants, slots, parts, CSS custom properties; events
+  read-only). EXP auto-detects sources and renders previews itself from the
+  library's built files; library needs no changes. Settings saved in `.expsync/`.
+  Variants/states map to named states. Honest "static representation" label. Free.
+- Acceptance: Start disclosure/card/callout import with all variants; instance
+  variant switching; save/reopen keeps contracts/bindings; ARIA verified per spec.
+
+### FEAT-084 — Changeset export to code
+- Type: feature
+- Priority: owner-selected v2.8 native slice 3
+- Area: export · code bridge
+- Status: planned; Start-side apply tracked in Start Workbench roadmap §7
+- Detail: Diff against import baseline limited to the declared editable vocabulary;
+  JSON changeset with target ID, expected old value/hash, proposed value. Out-of-
+  vocabulary edits listed as developer tasks. Free conflict detection refuses stale
+  targets; resolution UI is Pro.
+- Acceptance: edit → changeset → Start apply → WP frontend/editor/guide → re-import
+  shows no repeated changes.
+
+### FEAT-085 — Refresh from library revision
+- Type: feature
+- Priority: owner-selected v2.8 native slice 4
+- Area: import · code bridge
+- Status: planned
+- Detail: Re-import a newer library revision; keep local design edits; explicit
+  decisions for deleted/changed IDs using baseline/current/proposed. Free.
+
+### FEAT-086 — Pro collaboration layer for components and tokens
+- Type: feature
+- Priority: candidate — owner vision October 22, 2026; not v2.8
+- Area: Pro · collaboration · accounts
+- Status: planned research; depends on Pro offer gate, FEAT-080 and backend choice
+- Detail: Changeset history with messages, branches, PRs, review/approve/merge,
+  merge-conflict resolution, rollback, audit. Roles: viewer, contributor, reviewer,
+  maintainer, admin. v2.8 changeset format must carry over unchanged.
+
+### FEAT-087 — Storybook args/argTypes component adapter
+- Type: feature
+- Priority: owner-selected v2.8 follow-on, after FEAT-085
+- Area: import · Storybook · components
+- Status: planned
+- Detail: Read props/variants from a static Storybook build's args/argTypes so
+  libraries without a Custom Elements Manifest (React/Vue/Svelte) import as
+  components through the same contract and `.expsync/` mapping.
+
 ### FEAT-076 — Matching rotatable ellipse controls for radial and Mesh gradients
 - Type: feature
 - Priority: P2 — owner request October 19, 2026, next v2.7 slice

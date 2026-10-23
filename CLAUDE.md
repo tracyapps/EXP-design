@@ -138,7 +138,8 @@ verified package and website advertises 2.7. Receipts:
 Immutable v2.7 and older releases remain unchanged. Owner selected FEAT-077's
 account-first website/member-engagement slice October 20; read
 `docs/launch/ACCOUNT-FIRST-GROWTH-v2.8.md` for its consent, data and rollout gates.
-Local implementation is not hosted enablement. Native 2.8 scope remains unselected.
+Local implementation is not hosted enablement. Native 2.8 scope: component & token sync
+(`docs/COMPONENT-SYNC-v2.8.md`, FEAT-082…086), owner-selected 2026-10-22.
 Owner accepts extensive v2.7 accessibility testing with Full Keyboard Access
 unverified because macOS would not enable it. Retain observations; confirmed
 accessibility barriers receive high-priority hotfix treatment.
