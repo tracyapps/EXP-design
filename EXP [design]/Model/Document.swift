@@ -328,6 +328,39 @@ struct CanvasPage: Identifiable, Codable, Sendable {
     }
 }
 
+
+/// The app that wrote a `.design` file. Additive: v2.7 and earlier ignore it.
+nonisolated struct DocumentWriter: Codable, Equatable, Sendable {
+    var appVersion: String?
+    var build: Int?
+    var schemaVersion: Int
+
+    static var running: DocumentWriter? {
+        let info = Bundle.main.infoDictionary
+        let version = info?["CFBundleShortVersionString"] as? String
+        let build = (info?["CFBundleVersion"] as? String).flatMap(Int.init)
+        guard version != nil || build != nil else { return nil }
+        return DocumentWriter(appVersion: version, build: build,
+                              schemaVersion: Document.currentSchemaVersion)
+    }
+
+    var displayVersion: String? {
+        switch (appVersion, build) {
+        case let (v?, b?): return "\(v) (build \(b))"
+        case let (v?, nil): return v
+        case let (nil, b?): return "build \(b)"
+        default: return nil
+        }
+    }
+}
+
+/// Shown once when a file from a newer EXP opens here (Adobe-style "save a copy
+/// first" warning). The copy is the ORIGINAL bytes, not a re-save by this version.
+nonisolated struct NewerVersionNotice: Equatable, Sendable {
+    var writerVersion: String?
+    var reasons: [String]
+}
+
 // MARK: - Document
 
 /// The whole design file: its artboards plus the library of component sources
@@ -393,6 +426,13 @@ struct Document: Codable, Sendable {
     /// that travel with the file. Empty until the user saves swatches (Phase 18).
     var designLanguage: DesignLanguage = DesignLanguage()
 
+    /// Which EXP wrote the file this was decoded from (v2.8+ files only), and any
+    /// top-level keys this build doesn't know. Read-only facts about the source
+    /// file: never re-encoded as-is. Encoding always writes the RUNNING app as the
+    /// writer. Older EXP versions ignore the key, so adding it is safe.
+    var decodedWriter: DocumentWriter?
+    var unknownTopLevelKeys: [String] = []
+
     /// Relationships anchored at the DOCUMENT root — the fallback anchor for two
     /// top-level nodes that share no group. Authoring never creates one of these
     /// (the neighborhood rule requires a group), but migration can, so the case
@@ -418,9 +458,17 @@ struct Document: Codable, Sendable {
     }
 
     // Custom decode so files saved before `guides` existed still open.
-    enum CodingKeys: String, CodingKey {
+    enum CodingKeys: String, CodingKey, CaseIterable {
         case schemaVersion, formatVersion, pages, artboards, nodes, sources, guides,
-             designLanguage, anchoredRelationships, codeBridges, patterns
+             designLanguage, anchoredRelationships, codeBridges, patterns, writtenBy
+    }
+
+    /// Any-key container used only to list keys a newer EXP added.
+    private struct AnyKey: CodingKey {
+        var stringValue: String
+        var intValue: Int? { nil }
+        init?(stringValue: String) { self.stringValue = stringValue }
+        init?(intValue: Int) { nil }
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -450,6 +498,10 @@ struct Document: Codable, Sendable {
         codeBridges = ((try? c.decodeIfPresent([CodeBridgeManifest].self,
                                                forKey: .codeBridges)) ?? nil) ?? []
         designLanguage = try c.decodeIfPresent(DesignLanguage.self, forKey: .designLanguage) ?? DesignLanguage()
+        decodedWriter = try? c.decodeIfPresent(DocumentWriter.self, forKey: .writtenBy)
+        let known = Set(CodingKeys.allCases.map(\.rawValue))
+        unknownTopLevelKeys = ((try? decoder.container(keyedBy: AnyKey.self))?.allKeys ?? [])
+            .map(\.stringValue).filter { !known.contains($0) }.sorted()
         // FEAT-012 chunk I-b. Derive the anchored form for anything still stored
         // the old way. Deliberately ADDITIVE: the legacy arrays are left intact and
         // still encoded, so a wrong migration is recoverable instead of destroying
@@ -476,8 +528,28 @@ struct Document: Codable, Sendable {
         if !patterns.isEmpty { try c.encode(patterns, forKey: .patterns) }
         if !codeBridges.isEmpty { try c.encode(codeBridges, forKey: .codeBridges) }
         try c.encode(designLanguage, forKey: .designLanguage)
+        // Omitted when the running binary has no version (command-line checks), so
+        // fixture output stays deterministic there.
+        if let writer = DocumentWriter.running { try c.encode(writer, forKey: .writtenBy) }
     }
 
+    /// Why opening this file in the running EXP could lose data, or nil when it's
+    /// safe. Compares against `runningBuild` (CFBundleVersion) so the check is
+    /// testable without an app bundle.
+    func newerVersionNotice(runningBuild: Int?) -> NewerVersionNotice? {
+        var reasons: [String] = []
+        if schemaVersion > Document.currentSchemaVersion {
+            reasons.append("It uses file format \(schemaVersion); this version understands up to \(Document.currentSchemaVersion).")
+        }
+        if let build = decodedWriter?.build, let runningBuild, build > runningBuild {
+            reasons.append("It was saved by a newer build of EXP.")
+        }
+        if !unknownTopLevelKeys.isEmpty {
+            reasons.append("It contains data this version doesn't recognize: \(unknownTopLevelKeys.joined(separator: ", ")).")
+        }
+        guard !reasons.isEmpty else { return nil }
+        return NewerVersionNotice(writerVersion: decodedWriter?.displayVersion, reasons: reasons)
+    }
     private mutating func ensureFirstPage() {
         if pages.isEmpty { pages = [CanvasPage()] }
     }

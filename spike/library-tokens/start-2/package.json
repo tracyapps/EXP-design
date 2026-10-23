@@ -1,0 +1,23 @@
+{
+  "name": "start-2-theme",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Classic WordPress starter theme with curated editor tooling.",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev": "node scripts/build.mjs --watch",
+    "spinup": "node scripts/spinup.mjs"
+  },
+  "devDependencies": {
+    "browser-sync": "^3.0.3",
+    "chokidar": "^3.6.0",
+    "cssnano": "^7.0.6",
+    "esbuild": "^0.28.1",
+    "fast-glob": "^3.3.2",
+    "postcss": "^8.4.41",
+    "postcss-import": "^16.1.0",
+    "postcss-preset-env": "^10.0.0",
+    "svgo": "^3.3.2"
+  }
+}

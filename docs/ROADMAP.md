@@ -1308,7 +1308,28 @@ continues to come from the 2.7 appcast.
 - [ ] FEAT-079: optional device/settings sync; define privacy, conflicts and deletion.
 - [ ] FEAT-080: optional native account connection, basic account info and news.
       Future candidates have no selected implementation slice or promised release.
-      Native 2.8 feature scope remains unselected.
+
+### v2.8 native scope — component & token sync (owner-selected 2026-10-22)
+
+Code is the source of truth; a web-component library syncs into EXP as real
+components and named tokens, and design changes return as a reviewable changeset.
+Plan, contract and free/Pro boundary: `COMPONENT-SYNC-v2.8.md`. Start is the first
+adapter (Custom Elements Manifest + DTCG); the contract stays library-agnostic.
+Free: import-as-components, token names, edit, changeset export, refresh, conflict
+detection. Pro (later): history, branches/PRs, review/merge tools, roles, rollback.
+Sequencing rule applies: owner-verify each slice before the next mutating one.
+
+- [x] Owner selects scope, free/Pro line and generic contract; plan written.
+- [ ] FEAT-082 — library tokens in the Design Language (IDs, aliases, modes).
+      Built 2026-10-23; 17-check script + app/thumbnail builds pass. **Awaiting
+      owner verification** (steps in `COMPONENT-SYNC-v2.8.md`). FEAT-083 waits.
+- [ ] FEAT-083 — CEM components import as EXP components with a contract.
+      Read-only manifest reader + check built 2026-10-23; document-mutating part
+      waits for FEAT-082 owner verification.
+- [ ] FEAT-084 — changeset export against the import baseline (Start applies).
+- [ ] FEAT-085 — refresh from a newer library revision.
+- [ ] FEAT-086 — Pro collaboration layer: planned only, not v2.8.
+- [ ] FEAT-087 — Storybook args/argTypes adapter (after FEAT-085).
 
 ## v2.7 — native RELEASED AND COMPLETE; self-launch follow-ups retained
 
@@ -3552,6 +3573,62 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-10-23 — FEAT-083 groundwork: Custom Elements Manifest reader [native, read-only].**
+  `Model/ComponentManifestReader.swift` + `scripts/verify_component_manifest.sh`;
+  passes synthetic cases and Web Awesome Pro 3.14.0's manifest (90 elements).
+  Creates nothing in documents, so it doesn't break the sequencing rule; turning
+  contracts into components waits for FEAT-082 owner verification.
+
+- **2026-10-23 — Newer-version file warning [native].** Owner asked for the old
+  Adobe behavior: warn when a file may lose data in this version and offer a copy.
+  Saves now write `writtenBy` {version, build, schema} (ignored by v2.7). Opening a
+  file with a newer schema/build or unknown top-level keys shows a one-time warning
+  with **Keep a Copy of the Original…** (exact original bytes). Covered in
+  `verify_library_token_sync.sh`; app/thumbnail builds and the canvas-pages,
+  nested-component, SVG-token, semantic HTML, Storybook and rendered-HTML checks pass.
+
+- **2026-10-23 — FEAT-082 built: library tokens in the Design Language [native].**
+  New `Model/LibraryTokenSync.swift`: auto-detects DTCG files, `:root` CSS custom
+  properties (with light/dark from `prefers-color-scheme`, `[data-theme]`,
+  `.dark`-style root markers) and theme.json; keeps stable IDs, exact names,
+  aliases, modes and unsupported values verbatim. Stored in an `expsync-library`
+  CodeBridgeManifest (snapshot JSON + exact source bytes + bindings) — fields v2.7
+  already round-trips, so no schema bump. File ▸ Import Library Tokens… and the
+  Design Language Import menu; panel shows token names, dark chips and a read-only
+  list of non-color tokens; CSS export keeps source variable names. Fixture copy of
+  Start 2.0 at `spike/library-tokens/start-2`. `verify_library_token_sync.sh`: 17
+  checks pass (also against the live start-2 theme); app + EXPThumbnail Debug
+  builds and `verify_svg_token_bridge.sh` pass. Not run in the app UI by Claude;
+  owner verification steps are in COMPONENT-SYNC-v2.8.md. Nothing committed.
+
+- **2026-10-23 — Component sync decisions [planning].** Owner: point EXP at any
+  library and it works with no library-side changes. Decided: `.expsync/` folder of
+  plain JSON (like `.git`/`.storybook`), format published openly as a versioned
+  draft, EXP auto-detects sources and renders previews itself, first test set =
+  disclosure/button/service card/contact callout. Added FEAT-087 (Storybook
+  argTypes). Open: whether Pro builds on the team's git host. Docs only.
+
+- **2026-10-22 — v2.8 native scope selected: component & token sync [planning].**
+  Owner vision: code is the source of truth, synced into EXP, edited, merged back;
+  solo features free, git-style collaboration is Pro. Owner chose tokens +
+  components-as-components + changeset out for v2.8 (no live runtime), solo
+  sync-back free, and a generic CEM/DTCG contract with Start as first adapter.
+  Inspected Start Workbench roadmap/docs, Start 2 tokens/theme.json, the
+  start-components blocks and Web Awesome Pro 3.14.0's `custom-elements.json`
+  (schema 1.0.0, 90 elements). Wrote `COMPONENT-SYNC-v2.8.md`; logged
+  FEAT-082…086. No Swift or Start source changed; nothing built.
+
+- **2026-10-21 — FEAT-081 push awaiting GitHub deployment trigger [internal].**
+  Owner pushed `fd3de8212dfc3ffa46d2a4154de07341c46ffc53` to main. Fresh
+  `git ls-remote` confirms that SHA; GitHub has no Vercel statuses/check runs.
+  Vercel deployment API lists no attempt for it; current production remains READY
+  on `e26956c` (`dpl_7cr4TUbjdDeoz3vvbSCYSghiPV39`). The authenticated project
+  Deployments dashboard visibly reports “GitHub Outage” and “Automatic deployments
+  from GitHub may be delayed,” linking incident `nms1dpzmh9d9`. This is consistent
+  with a delayed integration trigger, not evidence of a build error. No manual
+  deployment, configuration change or hosted migration performed. Migration 012
+  and hosted photo acceptance remain pending as documented in the FEAT-081 handoff.
 
 - **2026-10-21 — FEAT-081 sharing kit/social preview and chosen public photos [website].**
   Owner requests social thumbnail, public share assets/casual honest claims and a

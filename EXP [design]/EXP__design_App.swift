@@ -203,6 +203,8 @@ private struct FileCommandItems: View {
             .disabled(menu == nil)
         Button("Import Storybook Build…") { sendEditorAction("importStorybookPackageAction:") }
             .disabled(menu == nil)
+        Button("Import Library Tokens…") { sendEditorAction("importLibraryTokensAction:") }
+            .disabled(menu == nil)
         Button("Import Figma File…") { sendEditorAction("importFigmaAction:") }
             .disabled(menu == nil)
         Button("Show Last Import Report…") { sendEditorAction("showLastImportReportAction:") }

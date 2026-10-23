@@ -1,0 +1,19 @@
+@import "./tokens.css";
+@import "./base.css";
+@import "./layout.css";
+@import "./blocks.css";
+@import "./utilities.css";
+
+.editor-styles-wrapper {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+}
+
+.editor-styles-wrapper .wp-block {
+  max-width: var(--layout-content);
+}
+
+.editor-styles-wrapper .wp-block[data-align="wide"] {
+  max-width: var(--layout-wide);
+}

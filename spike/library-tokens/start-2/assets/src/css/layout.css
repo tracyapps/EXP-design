@@ -1,0 +1,48 @@
+.site-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.site-main {
+  flex: 1;
+}
+
+.layout {
+  width: var(--layout-content);
+  margin-inline: auto;
+}
+
+.layout--wide {
+  width: var(--layout-wide);
+}
+
+.layout--narrow {
+  width: var(--layout-narrow);
+}
+
+.flow > * + * {
+  margin-block-start: var(--flow-space, var(--space-md));
+}
+
+.page-header {
+  padding-block: var(--space-xl) var(--space-lg);
+}
+
+.page-title {
+  max-width: 14ch;
+  font-size: clamp(2rem, 5vw, 4rem);
+  letter-spacing: 0;
+}
+
+.page-tagline {
+  max-width: 42rem;
+  font-size: 1.25rem;
+  color: var(--color-muted);
+}
+
+.content-index {
+  display: grid;
+  gap: var(--space-lg);
+  padding-block-end: var(--space-section);
+}

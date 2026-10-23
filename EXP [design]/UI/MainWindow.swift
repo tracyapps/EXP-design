@@ -7,12 +7,46 @@
 
 
 import SwiftUI
+import UniformTypeIdentifiers
 import AppKit
 
 /// The main editor window: a three-pane layout (left panel · canvas · right panel),
 /// the arrangement every design tool uses. We use HSplitView rather than
 /// NavigationSplitView because this is an editor, not a navigation app — the
 /// side panels are persistent inspectors, not a navigation hierarchy.
+/// Adobe-style safety net: a file from a newer EXP may contain things this
+/// version would drop on save. Offer an exact copy of the original first.
+@MainActor
+private func newerVersionWarning(_ notice: NewerVersionNotice, fileURL: URL?,
+                                 original: Data?) {
+    let alert = NSAlert()
+    alert.alertStyle = .warning
+    let source = notice.writerVersion.map { "EXP \($0)" } ?? "a newer version of EXP"
+    let running = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "this version"
+    alert.messageText = "This document was saved by \(source)"
+    alert.informativeText = notice.reasons.joined(separator: " ")
+        + "\n\nEXP \(running) may not keep everything in it. If you save here, anything it doesn't understand could be removed. Keep a copy of the original first to be safe."
+    alert.addButton(withTitle: "Keep a Copy of the Original…")
+    alert.addButton(withTitle: "Continue Without a Copy")
+    guard alert.runModal() == .alertFirstButtonReturn, let original else { return }
+
+    let panel = NSSavePanel()
+    panel.allowedContentTypes = [.expDocument]
+    let base = fileURL?.deletingPathExtension().lastPathComponent ?? "Untitled"
+    panel.nameFieldStringValue = "\(base) (original).\(fileURL?.pathExtension.isEmpty == false ? fileURL!.pathExtension : "design")"
+    panel.directoryURL = fileURL?.deletingLastPathComponent()
+    panel.message = "Saves the file exactly as it was, untouched by this version."
+    panel.prompt = "Keep Copy"
+    guard panel.runModal() == .OK, let url = panel.url else { return }
+    do {
+        try original.write(to: url, options: [.atomic])
+    } catch {
+        let failure = NSAlert(error: error)
+        failure.messageText = "The copy couldn't be saved"
+        failure.runModal()
+    }
+}
+
 struct MainWindow: View {
     // The document this window is editing (provided by DocumentGroup). The
     // design data lives in `document.model`.
@@ -99,6 +133,10 @@ struct MainWindow: View {
             app.activeCanvasPageID = document.model.pageID(resolving: app.activeCanvasPageID)
             activate()
             UsageMetrics.shared.opened(document, source: document.usageOrigin)
+            if document.newerVersionNotice != nil {
+                // After the window is on screen, so the alert has a parent.
+                DispatchQueue.main.async { presentNewerVersionWarning() }
+            }
         }
         .onDisappear { SourceEditorWindowManager.shared.closeAll(for: document) }
         .onChange(of: controlActiveState) { _, state in if state == .key { activate() } }
@@ -409,6 +447,12 @@ struct MainWindow: View {
 
     /// Make the shared panels target this document, then bring the tray windows
     /// in line with the current mode + arrangement.
+    private func presentNewerVersionWarning() {
+        guard let notice = document.newerVersionNotice else { return }
+        document.newerVersionNotice = nil   // once per opened window
+        newerVersionWarning(notice, fileURL: fileURL, original: document.originalFileData)
+    }
+
     private func activate() {
         if let window = windowChrome.window { PanelHub.shared.activeEditorWindow = window }
         PanelHub.shared.setActive(app: app, document: document, fileURL: fileURL,

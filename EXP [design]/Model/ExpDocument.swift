@@ -45,6 +45,13 @@ final class ExpDocument: ReferenceFileDocument {
     /// as a document identifier. Registration waits for the usable editor view.
     private(set) var usageOrigin: UsageSource = .newDocument
 
+    /// Set when the opened file came from a newer EXP (see `Document
+    /// .newerVersionNotice`). The window shows a one-time "keep a copy" warning;
+    /// `originalFileData` is the untouched file so that copy is exact, not a
+    /// re-save by this older version. Session only; never written.
+    var newerVersionNotice: NewerVersionNotice?
+    private(set) var originalFileData: Data?
+
     /// The live design data. @Published so SwiftUI + the canvas redraw on change.
     /// `didSet` bumps `resolveGeneration` on EVERY mutation — whether the model is
     /// replaced (setModel/undo) or edited in place (a live drag mutates `model.nodes`
@@ -95,6 +102,11 @@ final class ExpDocument: ReferenceFileDocument {
             return
         }
         var decoded = try JSONDecoder().decode(Document.self, from: data)
+        let runningBuild = (Bundle.main.infoDictionary?["CFBundleVersion"] as? String).flatMap(Int.init)
+        if let notice = decoded.newerVersionNotice(runningBuild: runningBuild) {
+            newerVersionNotice = notice
+            originalFileData = data
+        }
         Self.stripBackgroundBlurEffects(&decoded)
         Self.sanitizePDFImages(&decoded)
         model = decoded

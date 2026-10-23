@@ -1,0 +1,55 @@
+:root {
+  color-scheme: light dark;
+  --font-sans: var(--wp--preset--font-family--sans, Inter, ui-sans-serif, system-ui, sans-serif);
+  --font-serif: var(--wp--preset--font-family--serif, Georgia, serif);
+  --base-size: 1rem;
+  --layout-content: min(100% - 2rem, var(--wp--style--global--content-size, 72rem));
+  --layout-wide: min(100% - 2rem, var(--wp--style--global--wide-size, 88rem));
+  --layout-narrow: min(100% - 2rem, 48rem);
+  --space-2xs: 0.25rem;
+  --space-xs: 0.5rem;
+  --space-sm: 1rem;
+  --space-md: 1.5rem;
+  --space-lg: 2.5rem;
+  --space-xl: 4rem;
+  --space-section: clamp(3rem, 8vw, 6rem);
+  --radius-sm: 0.25rem;
+  --radius-md: 0.5rem;
+  --shadow-soft: 0 0.5rem 2rem rgb(24 33 47 / 0.12);
+  --color-ink: #18212f;
+  --color-paper: #f8f6f1;
+  --color-accent: #1f7a70;
+  --color-accent-strong: #c4492d;
+  --color-muted: #6a7280;
+  --color-border: color-mix(in srgb, var(--color-ink) 18%, transparent);
+  --color-bg: var(--color-paper);
+  --color-surface: #ffffff;
+  --color-text: var(--color-ink);
+  --color-link: var(--color-accent);
+  --color-focus: var(--color-accent-strong);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-bg: #111820;
+    --color-surface: #18212f;
+    --color-text: #f8f6f1;
+    --color-link: #75c8bd;
+    --color-border: color-mix(in srgb, var(--color-text) 20%, transparent);
+  }
+}
+
+:root[data-theme="dark"] {
+  --color-bg: #111820;
+  --color-surface: #18212f;
+  --color-text: #f8f6f1;
+  --color-link: #75c8bd;
+  --color-border: color-mix(in srgb, var(--color-text) 20%, transparent);
+}
+
+:root[data-theme="light"] {
+  --color-bg: var(--color-paper);
+  --color-surface: #ffffff;
+  --color-text: var(--color-ink);
+  --color-link: var(--color-accent);
+}

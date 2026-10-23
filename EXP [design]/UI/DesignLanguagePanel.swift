@@ -44,6 +44,8 @@ struct DesignLanguagePanel: View {
     @State private var mergeMode: DesignLanguage.MergeMode = .keepBoth
     @State private var showingGenerate = false
     @State private var seed: RGBAColor = .black
+    /// FEAT-082: which libraries' non-color token lists are expanded.
+    @State private var expandedLibraries: Set<String> = []
     @AppStorage("exp.dl.viewMode") private var viewMode: DLViewMode = .swatches
 
     private var dl: DesignLanguage { document.model.designLanguage }
@@ -97,6 +99,7 @@ struct DesignLanguagePanel: View {
                     typeSection("Colors", dl.solids)
                     typeSection("Gradients", dl.gradients)
                     typeStylesSection
+                    libraryTokensSection
                     recentsSection
                 }
                 .padding(10)
@@ -200,6 +203,7 @@ struct DesignLanguagePanel: View {
         // real preview.
         Button("Import…") { transferMode = .importing; showingTransfer = true }
         Button("Export…") { transferMode = .exporting; showingTransfer = true }
+        Button("Import Library Tokens…") { _ = sendCanvasAction("importLibraryTokensAction:") }
         Divider()
         Button("Generate from Color...") { seed = generatorSeed(); showingGenerate = true }
         Button("New Category...") { categoryDraft = ""; assignAfterCreate = nil; creatingCategory = true }
@@ -250,6 +254,8 @@ struct DesignLanguagePanel: View {
 
     @ViewBuilder private func typeSection(_ title: String, _ items: [DesignAsset]) -> some View {
         let groups = clusters(for: items)
+        // Built once per section, not per row (see exp-swiftui-panel-perf).
+        let links = document.model.libraryTokenLinks
         if !groups.isEmpty {
             VStack(alignment: .leading, spacing: 8) {
                 sectionHeader(title, items.count)
@@ -263,11 +269,11 @@ struct DesignLanguagePanel: View {
                         switch viewMode {
                         case .swatches:
                             LazyVGrid(columns: grid, alignment: .leading, spacing: 8) {
-                                ForEach(cluster.items) { assetCell($0) }
+                                ForEach(cluster.items) { assetCell($0, link: links[$0.id]) }
                             }
                         case .list:
                             VStack(spacing: 4) {
-                                ForEach(cluster.items) { assetListRow($0) }
+                                ForEach(cluster.items) { assetListRow($0, link: links[$0.id]) }
                             }
                         }
                     }
@@ -505,24 +511,39 @@ struct DesignLanguagePanel: View {
 
     // MARK: Swatch cell + menus
 
-    private func assetCell(_ asset: DesignAsset) -> some View {
+    private func assetCell(_ asset: DesignAsset, link: LibraryTokenLink? = nil) -> some View {
         PaintSwatch(paint: asset.value)
             .frame(height: 30)
+            .overlay(alignment: .bottomTrailing) { darkModeCorner(link, size: 11) }
             .onTapGesture(count: 2) { apply(asset.value) }
             .contextMenu { assetMenu(asset) }
-            .help(assetHelp(asset))
+            .help(assetHelp(asset, link: link))
     }
 
-    private func assetListRow(_ asset: DesignAsset) -> some View {
+    /// A library token's dark-mode value as a small corner chip, so light and
+    /// dark read together. Decorative: the same value is in the help/detail text.
+    @ViewBuilder private func darkModeCorner(_ link: LibraryTokenLink?, size: CGFloat) -> some View {
+        if let hex = link?.darkHex, let dark = ColorMath.parseHex(hex) {
+            PaintSwatch(paint: .solid(dark))
+                .frame(width: size, height: size)
+                .overlay(RoundedRectangle(cornerRadius: 2).stroke(EXPColor.textTertiary.opacity(0.6), lineWidth: 0.5))
+                .clipShape(RoundedRectangle(cornerRadius: 2))
+                .padding(2)
+                .accessibilityHidden(true)
+        }
+    }
+
+    private func assetListRow(_ asset: DesignAsset, link: LibraryTokenLink? = nil) -> some View {
         HStack(spacing: 8) {
             PaintSwatch(paint: asset.value)
                 .frame(width: 30, height: 20)
+                .overlay(alignment: .bottomTrailing) { darkModeCorner(link, size: 9) }
             VStack(alignment: .leading, spacing: 1) {
                 Text(asset.name.isEmpty ? "Unnamed" : asset.name)
                     .font(.system(size: EXPType.small, weight: .medium))
                     .foregroundStyle(EXPColor.textPrimary)
                     .lineLimit(1)
-                Text(assetListDetail(asset))
+                Text(assetListDetail(asset, link: link))
                     .font(.system(size: EXPType.micro))
                     .foregroundStyle(EXPColor.textTertiary)
                     .lineLimit(1)
@@ -539,7 +560,7 @@ struct DesignLanguagePanel: View {
         .contentShape(RoundedRectangle(cornerRadius: EXPMetric.radiusRow))
         .onTapGesture(count: 2) { apply(asset.value) }
         .contextMenu { assetMenu(asset) }
-        .help(assetHelp(asset))
+        .help(assetHelp(asset, link: link))
     }
 
     private func recentListRow(_ paint: Paint) -> some View {
@@ -566,8 +587,16 @@ struct DesignLanguagePanel: View {
         .help("Double-click to apply")
     }
 
-    private func assetListDetail(_ asset: DesignAsset) -> String {
+    private func assetListDetail(_ asset: DesignAsset, link: LibraryTokenLink? = nil) -> String {
         let value = paintListValue(asset.value)
+        if let link {
+            // The library category is already the cluster label; lead with the
+            // name a developer writes.
+            var parts = [link.token, value]
+            if let dark = link.darkHex { parts.append("dark \(dark.uppercased())") }
+            if !link.writable { parts.append("alias") }
+            return parts.joined(separator: " · ")
+        }
         let category = dl.categoryLabel(for: asset)
         return category.isEmpty ? value : "\(category) · \(value)"
     }
@@ -576,12 +605,106 @@ struct DesignLanguagePanel: View {
         paint.isGradient ? "Gradient" : ColorMath.string(paint.representativeColor, .hex)
     }
 
-    private func assetHelp(_ asset: DesignAsset) -> String {
+    private func assetHelp(_ asset: DesignAsset, link: LibraryTokenLink? = nil) -> String {
         let name = asset.name.isEmpty ? "Unnamed" : asset.name
         let value = asset.value.isGradient ? "gradient" : ColorMath.string(asset.representativeColor, .hex)
         let cat = dl.categoryLabel(for: asset)
         let catPart = cat.isEmpty ? "" : " · \(cat)"
-        return "\(name) — \(value)\(catPart) · double-click to apply"
+        var library = ""
+        if let link {
+            library = " · library token \(link.token) from \(link.library)"
+            if let dark = link.darkHex { library += " · dark mode \(dark.uppercased())" }
+            if !link.writable { library += " · alias: edit the token it points to" }
+        }
+        return "\(name) — \(value)\(catPart)\(library) · double-click to apply"
+    }
+
+    // MARK: Library tokens (FEAT-082)
+
+    /// Non-color tokens a linked library declares (spacing, type, shadows,
+    /// expressions). Shown with their exact source names and values; colors
+    /// already appear above as swatches. Read-only in this slice.
+    @ViewBuilder private var libraryTokensSection: some View {
+        let model = document.model
+        let snapshots = model.librarySnapshots
+        if !snapshots.isEmpty {
+            let bound = Set(model.codeBridges.filter { $0.connector == LibraryTokenSnapshot.connector }
+                .flatMap { $0.bindings.map(\.externalID) })
+            ForEach(snapshots, id: \.libraryID) { snap in
+                let others = snap.tokens.filter { !bound.contains($0.id) }
+                if !others.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        sectionHeader("\(snap.displayName) tokens", others.count)
+                        DisclosureGroup(isExpanded: libraryExpansion(snap.libraryID)) {
+                            VStack(spacing: 3) {
+                                ForEach(others) { libraryTokenRow($0) }
+                            }
+                            .padding(.top, 4)
+                        } label: {
+                            Text("Spacing, type and other values")
+                                .font(.system(size: EXPType.micro))
+                                .foregroundStyle(EXPColor.textTertiary)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func libraryExpansion(_ id: String) -> Binding<Bool> {
+        Binding(get: { expandedLibraries.contains(id) },
+                set: { if $0 { expandedLibraries.insert(id) } else { expandedLibraries.remove(id) } })
+    }
+
+    private func libraryTokenRow(_ token: LibraryToken) -> some View {
+        let raw = token.baseValue?.raw ?? ""
+        let kind = Self.tokenKindLabel(token)
+        return HStack(alignment: .firstTextBaseline, spacing: 6) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(token.name)
+                    .font(.system(size: EXPType.mini, design: .monospaced))
+                    .foregroundStyle(EXPColor.textPrimary)
+                    .lineLimit(1).truncationMode(.middle)
+                Text(raw)
+                    .font(.system(size: EXPType.micro, design: .monospaced))
+                    .foregroundStyle(EXPColor.textTertiary)
+                    .lineLimit(1).truncationMode(.tail)
+            }
+            Spacer(minLength: 4)
+            Text(kind)
+                .font(.system(size: EXPType.micro))
+                .foregroundStyle(EXPColor.textSecondary)
+            if !token.editable {
+                Image(systemName: "lock")
+                    .font(.system(size: 9))
+                    .foregroundStyle(EXPColor.textTertiary)
+                    .accessibilityHidden(true)
+            }
+        }
+        .padding(.horizontal, 6).padding(.vertical, 3)
+        .background(RoundedRectangle(cornerRadius: EXPMetric.radiusRow).fill(EXPColor.rowHover.opacity(0.28)))
+        .help(token.note ?? (token.editable ? "\(token.name) — \(kind)" : "\(token.name) — \(kind), read-only in EXP; value preserved exactly"))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(token.name), \(kind), \(raw)\(token.editable ? "" : ", read-only")")
+        .contextMenu {
+            Button("Copy Token Name") { copy(token.name) }
+            Button("Copy Value") { copy(raw) }
+        }
+    }
+
+    private static func tokenKindLabel(_ token: LibraryToken) -> String {
+        if token.isAlias { return "alias" }
+        switch token.type {
+        case .color: return "color"
+        case .dimension: return "size"
+        case .duration: return "duration"
+        case .fontFamily: return "font"
+        case .fontWeight: return "weight"
+        case .number: return "number"
+        case .shadow: return "shadow"
+        case .expression: return "expression"
+        case .unknown: return "other"
+        }
     }
 
     @ViewBuilder private func assetMenu(_ asset: DesignAsset) -> some View {

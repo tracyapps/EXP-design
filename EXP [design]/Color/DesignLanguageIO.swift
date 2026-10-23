@@ -173,7 +173,9 @@ enum DesignLanguageIO {
     static func cssAssetBindings(_ dl: DesignLanguage) -> [CSSAssetBinding] {
         var used = Set<String>()
         return dl.assets.map { asset in
-            let base = slug(asset.name, fallback: asset.representativeColor)
+            // FEAT-082: a library token keeps the exact variable name its code
+            // uses (`token:--color-accent`), so exported CSS matches the source.
+            let base = libraryVariableName(asset) ?? slug(asset.name, fallback: asset.representativeColor)
             var name = base
             var suffix = 2
             while used.contains(name) {
@@ -184,6 +186,17 @@ enum DesignLanguageIO {
             return CSSAssetBinding(assetID: asset.id, variableName: name,
                                    paint: asset.value)
         }
+    }
+
+    /// The source CSS variable name recorded on a library-token asset, without
+    /// its leading `--`. Only plain identifier characters are accepted, so a
+    /// tag can never inject CSS.
+    static func libraryVariableName(_ asset: DesignAsset) -> String? {
+        guard let tag = asset.tags.first(where: { $0.hasPrefix("token:--") }) else { return nil }
+        let name = String(tag.dropFirst("token:--".count))
+        guard !name.isEmpty, name.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") })
+        else { return nil }
+        return name
     }
 
     static func firstAssetBinding(matching paint: Paint,

@@ -1,0 +1,35 @@
+.acf-block-hero {
+  padding-block: var(--space-section);
+  background: var(--hero-bg, var(--color-surface));
+}
+
+.acf-block-hero__inner {
+  width: var(--layout-content);
+  margin-inline: auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(16rem, 0.9fr);
+  gap: var(--space-lg);
+  align-items: center;
+}
+
+.acf-block-hero__eyebrow {
+  color: var(--color-accent-strong);
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.acf-block-hero__title {
+  max-width: 14ch;
+  font-size: clamp(2.25rem, 6vw, 4.75rem);
+}
+
+.acf-block-hero__media img {
+  width: 100%;
+  border-radius: var(--radius-md);
+}
+
+@media (max-width: 48rem) {
+  .acf-block-hero__inner {
+    grid-template-columns: 1fr;
+  }
+}

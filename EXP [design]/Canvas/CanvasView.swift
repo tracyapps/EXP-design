@@ -11141,6 +11141,61 @@ final class CanvasNSView: NSView {
         }
     }
 
+    /// File ▸ Import Library Tokens… (FEAT-082) — reads a code library's design
+    /// tokens (DTCG files, :root CSS custom properties, or theme.json) into the
+    /// Design Language with their real names, aliases and light/dark modes.
+    /// Nothing in the library is executed or changed. Re-running it refreshes by
+    /// token ID and keeps the designer's own edits.
+    @objc func importLibraryTokensAction(_ sender: Any?) {
+        guard let document else { return }
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.folder]
+        panel.allowsMultipleSelection = false
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.prompt = "Read Tokens"
+        panel.message = "Choose a component library or theme folder. EXP reads its design tokens; nothing in the folder is changed or run."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        let scanned: (snapshot: LibraryTokenSnapshot, sourceFiles: [String: Data])
+        do {
+            scanned = try LibraryTokenScanner().scanWithSources(root: url)
+        } catch {
+            let alert = NSAlert()
+            alert.alertStyle = .warning
+            alert.messageText = "No Library Tokens Imported"
+            alert.informativeText = error.localizedDescription
+            alert.runModal()
+            return
+        }
+        let snapshot = scanned.snapshot
+        let (preview, report) = LibraryTokenAdoption.adopt(snapshot, sourceFiles: scanned.sourceFiles,
+                                                           into: document.model)
+        let isRefresh = document.model.librarySnapshots.contains { $0.libraryID == snapshot.libraryID }
+        let sources = snapshot.sources.filter(\.selected)
+            .map { "\($0.path) (\(LibraryTokenScanner.label($0.kind)))" }
+
+        let alert = NSAlert()
+        alert.messageText = isRefresh ? "Refresh tokens from \(snapshot.displayName)?"
+                                      : "Import tokens from \(snapshot.displayName)?"
+        var info = ["Read from: " + sources.joined(separator: ", ") + ".", "", report.summary]
+        if !snapshot.warnings.isEmpty {
+            info.append("")
+            info.append(contentsOf: snapshot.warnings.prefix(4).map { "• " + $0 })
+            if snapshot.warnings.count > 4 { info.append("• …and \(snapshot.warnings.count - 4) more.") }
+        }
+        info.append("")
+        info.append("Nothing in the library folder is changed. This can be undone.")
+        alert.informativeText = info.joined(separator: "\n")
+        alert.addButton(withTitle: isRefresh ? "Refresh" : "Import")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        document.setModel(preview, undoManager: undoManager,
+                          actionName: isRefresh ? "Refresh Library Tokens" : "Import Library Tokens")
+        needsDisplay = true
+    }
+
     /// File ▸ Import Storybook Build… — discovers a local static build through
     /// Storybook's index.json and renders isolated iframe stories. No source build,
     /// package manager, or framework command runs inside EXP.
@@ -14399,6 +14454,7 @@ extension CanvasNSView: NSMenuItemValidation {
         case #selector(placeImageAction(_:)), #selector(importPDFAction(_:)),
              #selector(importXDAction(_:)), #selector(importRenderedHTMLAction(_:)),
              #selector(importCodePenPackageAction(_:)), #selector(importStorybookPackageAction(_:)),
+             #selector(importLibraryTokensAction(_:)),
              #selector(importFigmaAction(_:)),
              #selector(runGeometryAuditAction(_:)), #selector(saveDiagnosticReportAction(_:)),
              #selector(exportHandoffPackage(_:)), #selector(exportSemanticHTMLAction(_:)),
