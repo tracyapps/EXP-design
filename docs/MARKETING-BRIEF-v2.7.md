@@ -79,8 +79,8 @@ should add a benefit people can explain and want; it should not hold their files
 hostage. A candidate to test is reusable batch handoff/export workflows. That is
 a proposal, not an available feature.
 
-Research cards will compare $89 once with a year of updates and continued use of
-eligible versions against $8/month or $79/year. These are test prices, not public
+Research cards will compare \$89 once with a year of updates and continued use of
+eligible versions against \$8/month or $79/year. These are test prices, not public
 commitments. A recurring offer needs a recurring benefit. Education and hardship
 access should fit the final model without making people disclose personal stories.
 
