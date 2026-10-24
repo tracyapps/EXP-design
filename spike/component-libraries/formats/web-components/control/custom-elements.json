@@ -1,0 +1,520 @@
+{
+  "schemaVersion": "1.0.0",
+  "readme": "",
+  "modules": [
+    {
+      "kind": "javascript-module",
+      "path": "src/index.js",
+      "declarations": [],
+      "exports": []
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/shared.js",
+      "declarations": [
+        {
+          "kind": "function",
+          "name": "styleLink",
+          "parameters": [
+            {
+              "name": "file"
+            }
+          ]
+        },
+        {
+          "kind": "function",
+          "name": "uid",
+          "parameters": [
+            {
+              "name": "prefix"
+            }
+          ]
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "styleLink",
+          "declaration": {
+            "name": "styleLink",
+            "module": "src/shared.js"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "uid",
+          "declaration": {
+            "name": "uid",
+            "module": "src/shared.js"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/wc-accordion.js",
+      "declarations": [
+        {
+          "kind": "class",
+          "description": "One accordion section. Use inside wc-accordion.\nFollows the WAI-ARIA APG accordion pattern: a button inside a heading with\naria-expanded/aria-controls, and a region panel labelled by that button.",
+          "name": "WcAccordionItem",
+          "cssParts": [
+            {
+              "description": "The header button.",
+              "name": "trigger"
+            },
+            {
+              "description": "The content region.",
+              "name": "panel"
+            }
+          ],
+          "slots": [
+            {
+              "description": "Panel content.",
+              "name": ""
+            }
+          ],
+          "members": [
+            {
+              "kind": "field",
+              "name": "open"
+            },
+            {
+              "kind": "method",
+              "name": "render"
+            },
+            {
+              "kind": "field",
+              "name": "className",
+              "type": {
+                "text": "string"
+              },
+              "default": "'exp-accordion__item'"
+            },
+            {
+              "kind": "field",
+              "name": "innerHTML",
+              "default": "` <div class=\"exp-accordion__heading\" role=\"heading\" aria-level=\"3\"> <button type=\"button\" class=\"exp-accordion__trigger\" part=\"trigger\" id=\"${id}-trigger\" aria-controls=\"${id}-panel\" aria-expanded=\"false\"> <span class=\"label\"></span><span class=\"exp-accordion__icon\" aria-hidden=\"true\"></span> </button> </div> <div class=\"exp-accordion__panel\" part=\"panel\" id=\"${id}-panel\" role=\"region\" aria-labelledby=\"${id}-trigger\" hidden><slot></slot></div>`"
+            },
+            {
+              "kind": "field",
+              "name": "textContent",
+              "type": {
+                "text": "string"
+              },
+              "default": "':host { display: block; }'"
+            },
+            {
+              "kind": "field",
+              "name": "heading"
+            },
+            {
+              "kind": "field",
+              "name": "trigger"
+            },
+            {
+              "kind": "field",
+              "name": "panel"
+            }
+          ],
+          "events": [
+            {
+              "description": "When the user opens or closes the section. detail: { open }",
+              "name": "wc-toggle"
+            }
+          ],
+          "attributes": [
+            {
+              "name": "heading",
+              "type": {
+                "text": "string"
+              },
+              "description": "The section title."
+            },
+            {
+              "name": "open",
+              "type": {
+                "text": "boolean"
+              },
+              "description": "Whether the panel is shown."
+            },
+            {
+              "name": "heading-level",
+              "type": {
+                "text": "number"
+              },
+              "description": "Set by the parent wc-accordion. Default 3."
+            }
+          ],
+          "superclass": {
+            "name": "HTMLElement"
+          },
+          "tagName": "wc-accordion-item",
+          "customElement": true,
+          "summary": "Accordion section (child of wc-accordion)."
+        },
+        {
+          "kind": "class",
+          "description": "A set of collapsible sections made of wc-accordion-item children.",
+          "name": "WcAccordion",
+          "cssProperties": [
+            {
+              "description": "Space between sections.",
+              "name": "--exp-accordion-gap"
+            }
+          ],
+          "slots": [
+            {
+              "description": "wc-accordion-item elements.",
+              "name": ""
+            }
+          ],
+          "members": [
+            {
+              "kind": "field",
+              "name": "items",
+              "readonly": true
+            },
+            {
+              "kind": "method",
+              "name": "syncLevels"
+            },
+            {
+              "kind": "field",
+              "name": "className",
+              "type": {
+                "text": "string"
+              },
+              "default": "'exp-accordion'"
+            },
+            {
+              "kind": "field",
+              "name": "textContent",
+              "type": {
+                "text": "string"
+              },
+              "default": "':host { display: block; }'"
+            }
+          ],
+          "attributes": [
+            {
+              "name": "heading-level",
+              "type": {
+                "text": "number"
+              },
+              "description": "Heading level passed to every item. Default 3."
+            },
+            {
+              "type": {
+                "text": "boolean"
+              },
+              "description": "Allow more than one open section.",
+              "name": "allow-multiple"
+            }
+          ],
+          "superclass": {
+            "name": "HTMLElement"
+          },
+          "tagName": "wc-accordion",
+          "customElement": true,
+          "summary": "Accordion container."
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "WcAccordionItem",
+          "declaration": {
+            "name": "WcAccordionItem",
+            "module": "src/wc-accordion.js"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "WcAccordion",
+          "declaration": {
+            "name": "WcAccordion",
+            "module": "src/wc-accordion.js"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "wc-accordion-item",
+          "declaration": {
+            "name": "WcAccordionItem",
+            "module": "src/wc-accordion.js"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "wc-accordion",
+          "declaration": {
+            "name": "WcAccordion",
+            "module": "src/wc-accordion.js"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/wc-button.js",
+      "declarations": [
+        {
+          "kind": "class",
+          "description": "A button. The label is the default slot.",
+          "name": "WcButton",
+          "cssProperties": [
+            {
+              "description": "Corner radius.",
+              "name": "--exp-button-radius"
+            },
+            {
+              "description": "Horizontal padding.",
+              "name": "--exp-button-padding-inline"
+            }
+          ],
+          "cssParts": [
+            {
+              "description": "The native <button>.",
+              "name": "control"
+            }
+          ],
+          "slots": [
+            {
+              "description": "The button's label.",
+              "name": ""
+            }
+          ],
+          "members": [
+            {
+              "kind": "field",
+              "name": "appearance"
+            },
+            {
+              "kind": "field",
+              "name": "size"
+            },
+            {
+              "kind": "field",
+              "name": "disabled"
+            },
+            {
+              "kind": "method",
+              "name": "render"
+            },
+            {
+              "kind": "field",
+              "name": "textContent",
+              "type": {
+                "text": "string"
+              },
+              "default": "':host { display: inline-block; } :host([hidden]) { display: none; }'"
+            },
+            {
+              "kind": "field",
+              "name": "control"
+            },
+            {
+              "kind": "field",
+              "name": "type",
+              "type": {
+                "text": "string"
+              },
+              "default": "'button'"
+            },
+            {
+              "kind": "field",
+              "name": "part",
+              "type": {
+                "text": "string"
+              },
+              "default": "'control'"
+            }
+          ],
+          "events": [
+            {
+              "description": "When the button is activated (not while disabled).",
+              "name": "wc-press"
+            }
+          ],
+          "attributes": [
+            {
+              "name": "appearance",
+              "type": {
+                "text": "'primary' | 'secondary' | 'ghost'"
+              },
+              "description": "Visual emphasis."
+            },
+            {
+              "name": "size",
+              "type": {
+                "text": "'s' | 'm' | 'l'"
+              },
+              "description": "Size."
+            },
+            {
+              "name": "disabled",
+              "type": {
+                "text": "boolean"
+              },
+              "description": "Disables the button."
+            }
+          ],
+          "superclass": {
+            "name": "HTMLElement"
+          },
+          "tagName": "wc-button",
+          "customElement": true,
+          "summary": "Simple action button."
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "WcButton",
+          "declaration": {
+            "name": "WcButton",
+            "module": "src/wc-button.js"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "wc-button",
+          "declaration": {
+            "name": "WcButton",
+            "module": "src/wc-button.js"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/wc-card.js",
+      "declarations": [
+        {
+          "kind": "class",
+          "description": "A card that composes wc-button children in its actions row.",
+          "name": "WcCard",
+          "cssProperties": [
+            {
+              "description": "Inner padding.",
+              "name": "--exp-card-padding"
+            },
+            {
+              "description": "Corner radius.",
+              "name": "--exp-card-radius"
+            }
+          ],
+          "cssParts": [
+            {
+              "description": "The card container.",
+              "name": "base"
+            }
+          ],
+          "slots": [
+            {
+              "description": "Short label above the title.",
+              "name": "eyebrow"
+            },
+            {
+              "description": "The card title.",
+              "name": "heading"
+            },
+            {
+              "description": "Body text.",
+              "name": ""
+            },
+            {
+              "description": "wc-button elements.",
+              "name": "actions"
+            }
+          ],
+          "members": [
+            {
+              "kind": "field",
+              "name": "tone"
+            },
+            {
+              "kind": "field",
+              "name": "headingLevel",
+              "readonly": true
+            },
+            {
+              "kind": "method",
+              "name": "render"
+            },
+            {
+              "kind": "method",
+              "name": "syncEmpty"
+            },
+            {
+              "kind": "field",
+              "name": "textContent",
+              "type": {
+                "text": "string"
+              },
+              "default": "':host { display: block; }'"
+            },
+            {
+              "kind": "field",
+              "name": "base"
+            },
+            {
+              "kind": "field",
+              "name": "part",
+              "type": {
+                "text": "string"
+              },
+              "default": "'base'"
+            },
+            {
+              "kind": "field",
+              "name": "innerHTML",
+              "default": "` <p class=\"exp-card__eyebrow\"><slot name=\"eyebrow\"></slot></p> <div class=\"exp-card__title\" role=\"heading\"><slot name=\"heading\"></slot></div> <p class=\"exp-card__body\"><slot></slot></p> <div class=\"exp-card__actions\"><slot name=\"actions\"></slot></div>`"
+            }
+          ],
+          "attributes": [
+            {
+              "name": "tone",
+              "type": {
+                "text": "'raised' | 'plain'"
+              },
+              "description": "Elevated or outlined."
+            },
+            {
+              "name": "heading-level",
+              "type": {
+                "text": "number"
+              },
+              "description": "Heading level for the title (2–6). Default 3."
+            }
+          ],
+          "superclass": {
+            "name": "HTMLElement"
+          },
+          "tagName": "wc-card",
+          "customElement": true,
+          "summary": "Composite card with actions."
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "WcCard",
+          "declaration": {
+            "name": "WcCard",
+            "module": "src/wc-card.js"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "wc-card",
+          "declaration": {
+            "name": "WcCard",
+            "module": "src/wc-card.js"
+          }
+        }
+      ]
+    }
+  ]
+}

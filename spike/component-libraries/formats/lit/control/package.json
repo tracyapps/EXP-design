@@ -1,0 +1,23 @@
+{
+  "name": "@exp-fixtures/lit",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Lit 3 web components in TypeScript, bundled to one browser-ready ES module, with a Custom Elements Manifest.",
+  "type": "module",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "customElements": "custom-elements.json",
+  "files": ["dist", "src", "styles", "custom-elements.json"],
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --format=esm --target=es2022 --minify --outfile=dist/index.js && cem analyze --litelement --globs 'src/**/*.ts'",
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "lit": "3.3.3"
+  },
+  "devDependencies": {
+    "@custom-elements-manifest/analyzer": "0.11.0",
+    "esbuild": "0.25.10",
+    "typescript": "5.9.3"
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "name": "@exp-fixtures/react",
+  "version": "1.0.0",
+  "private": true,
+  "description": "React 19 components in TypeScript (TSX) with CSF3 stories. dist/index.js is the library build (React as a peer dependency); dist/preview.js bundles React for the comparison page.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "src/index.ts",
+  "style": "styles/tokens.css",
+  "files": ["dist", "src", "styles", "stories"],
+  "peerDependencies": { "react": ">=18", "react-dom": ">=18" },
+  "scripts": {
+    "build": "npm run build:lib && npm run build:preview",
+    "build:lib": "esbuild src/index.ts --bundle --format=esm --target=es2022 --jsx=automatic --external:react --external:react-dom --external:react/jsx-runtime --outfile=dist/index.js",
+    "build:preview": "esbuild src/preview.tsx --bundle --format=esm --target=es2022 --jsx=automatic --minify --define:process.env.NODE_ENV=\\\"production\\\" --outfile=dist/preview.js",
+    "typecheck": "tsc -p ."
+  },
+  "devDependencies": {
+    "@storybook/react": "10.6.3",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "esbuild": "0.25.10",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "typescript": "5.9.3"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "name": "@exp-fixtures/angular",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Angular 22 standalone components with signal inputs, built with the Angular CLI application builder. dist/main.js exposes a fixture mount() for the comparison page.",
+  "type": "module",
+  "style": "styles/tokens.css",
+  "files": ["dist", "src", "styles"],
+  "scripts": {
+    "build": "ng build"
+  },
+  "dependencies": {
+    "@angular/common": "22.2.3",
+    "@angular/compiler": "22.2.3",
+    "@angular/core": "22.2.3",
+    "@angular/platform-browser": "22.2.3",
+    "rxjs": "7.8.2",
+    "tslib": "2.8.1"
+  },
+  "devDependencies": {
+    "@angular/build": "22.2.4",
+    "@angular/cli": "22.2.4",
+    "@angular/compiler-cli": "22.2.3",
+    "typescript": "6.0.3"
+  }
+}

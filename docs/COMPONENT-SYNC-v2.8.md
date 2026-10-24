@@ -252,6 +252,13 @@ a second, disconnected component system.
 - Roles, from least to most: **viewer** (read only) → **contributor** (read + submit a
   change) → **reviewer** (approve) → **maintainer** (merge, roll back) → **admin** (people
   and permissions).
+- **Owner direction, Oct 24: an all-in-one component library + governance site.**
+  The fixture comparison page (`spike/component-libraries/compare.html`: two
+  versions running live side by side, source and line diff underneath) is the
+  seed of the Pro version-compare view. Expand it into a site with a **public
+  view** (published components, live previews, usage docs) and **permissioned
+  views** by role (submit a change, review/approve, merge, roll back), showing any
+  two versions of a component the same way.
 - Depends on: Pro offer gate (RELEASE-CHECKLIST-v2.7 → "Pro offer gate"), native
   accounts (FEAT-080) and a hosted or git-provider backend decision. v2.8 designs the
   changeset format so it can later become a commit/PR payload unchanged.
@@ -282,6 +289,19 @@ a second, disconnected component system.
 Live component execution; arbitrary PHP/JS rewriting; structural template edits; event
 handler editing; multi-user anything; hosted sync; any Pro feature; automatic writes to a
 git branch.
+
+## Round-trip fixture library (built Oct 24)
+
+`spike/component-libraries/`: Button (simple), Card (composite, with Button
+children) and Accordion (complex, parent + item children) written seven ways:
+HTML + CSS, vanilla Web Components, Lit, React, Vue, Svelte and Angular. Each has a
+`working/` copy for EXP and a never-edited `control/`. `npm run serve` opens the
+comparison page; `npm run verify | reset | rebuild` work from the command line.
+Every format and copy renders in Chromium in light and dark, with the accordion's
+APG roles/relationships and Enter toggling checked automatically (84 renders, no
+failures). The FEAT-082 token check reads 27 tokens / 13 colors from a fixture;
+the manifest reader reads 4 elements from the Web Components and Lit manifests.
+Screen readers not tested. Details: `spike/component-libraries/README.md`.
 
 ## Verification fixtures (shared with Start)
 

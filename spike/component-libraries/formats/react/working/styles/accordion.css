@@ -1,0 +1,56 @@
+/* Accordion: complex component made of AccordionItem children.
+   WAI-ARIA APG accordion pattern: each header is a <button> inside a heading,
+   with aria-expanded and aria-controls; panels are role=region labelled by
+   their button (fixtures stay under the APG's ~6-panel region guidance).
+   https://www.w3.org/WAI/ARIA/apg/patterns/accordion/
+   Documented custom properties: --exp-accordion-gap */
+.exp-accordion {
+  --exp-accordion-gap: var(--exp-space-xs);
+  display: flex;
+  flex-direction: column;
+  gap: var(--exp-accordion-gap);
+  max-inline-size: 32rem;
+  font-family: var(--exp-font-body);
+  color: var(--exp-color-text);
+}
+.exp-accordion__item {
+  border: 1px solid var(--exp-color-border);
+  border-radius: var(--exp-radius-m);
+  background: var(--exp-color-surface);
+}
+.exp-accordion__heading { margin: 0; font-size: var(--exp-font-size-m); }
+.exp-accordion__trigger {
+  display: flex;
+  inline-size: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--exp-space-m);
+  padding: var(--exp-space-m);
+  border: 0;
+  border-radius: var(--exp-radius-m);
+  background: transparent;
+  color: inherit;
+  font: var(--exp-font-weight-strong) var(--exp-font-size-m) / 1.3 var(--exp-font-body);
+  text-align: start;
+  cursor: pointer;
+}
+.exp-accordion__trigger:focus-visible {
+  outline: 2px solid var(--exp-color-focus);
+  outline-offset: -2px;
+}
+.exp-accordion__icon {
+  flex: none;
+  inline-size: 0.6rem;
+  block-size: 0.6rem;
+  border-inline-end: 2px solid currentColor;
+  border-block-end: 2px solid currentColor;
+  transform: rotate(45deg);
+  transition: transform var(--exp-duration-quick);
+}
+.exp-accordion__trigger[aria-expanded="true"] .exp-accordion__icon { transform: rotate(-135deg); }
+.exp-accordion__panel {
+  padding: 0 var(--exp-space-m) var(--exp-space-m);
+  color: var(--exp-color-muted);
+  line-height: 1.5;
+}
+.exp-accordion__panel[hidden] { display: none; }

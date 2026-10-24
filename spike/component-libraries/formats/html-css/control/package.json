@@ -1,0 +1,8 @@
+{
+  "name": "@exp-fixtures/html-css",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Static HTML + CSS pattern library: markup snippets, BEM classes, plain stylesheets and one progressive-enhancement script.",
+  "style": "styles/tokens.css",
+  "files": ["components", "styles", "scripts"]
+}

@@ -1,0 +1,48 @@
+/* Button: simple component. Variants: appearance (primary|secondary|ghost),
+   size (s|m|l), disabled. Documented custom properties:
+   --exp-button-radius, --exp-button-padding-inline */
+.exp-button {
+  --exp-button-radius: var(--exp-radius-m);
+  --exp-button-padding-inline: var(--exp-space-m);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--exp-space-s);
+  min-block-size: 2.5rem;
+  padding-block: var(--exp-space-s);
+  padding-inline: var(--exp-button-padding-inline);
+  border: 1px solid transparent;
+  border-radius: var(--exp-button-radius);
+  font: var(--exp-font-weight-strong) var(--exp-font-size-m) / 1.2 var(--exp-font-body);
+  cursor: pointer;
+  transition: background-color var(--exp-duration-quick), border-color var(--exp-duration-quick);
+}
+.exp-button:focus-visible {
+  outline: 2px solid var(--exp-color-focus);
+  outline-offset: 2px;
+}
+.exp-button--primary {
+  background: var(--exp-color-accent);
+  color: var(--exp-color-on-accent);
+}
+.exp-button--secondary {
+  background: var(--exp-color-surface);
+  color: var(--exp-color-text);
+  border-color: var(--exp-color-border);
+}
+.exp-button--ghost {
+  background: transparent;
+  color: var(--exp-color-accent);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+.exp-button--s { min-block-size: 2rem; font-size: var(--exp-font-size-s); --exp-button-padding-inline: var(--exp-space-s); }
+.exp-button--l { min-block-size: 3rem; font-size: var(--exp-font-size-l); --exp-button-padding-inline: var(--exp-space-l); }
+.exp-button:disabled,
+.exp-button[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+@media (forced-colors: active) {
+  .exp-button { border-color: ButtonText; }
+}

@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Component Round Trip</title>
+  <link rel="stylesheet" href="compare.css">
+</head>
+<body>
+  <a class="skip" href="#copies">Skip to the comparison</a>
+  <header class="page-header">
+    <div>
+      <h1>Component round trip</h1>
+      <p class="lede">The same components in seven library formats. The <strong>working copy</strong> goes through EXP and back. The <strong>control</strong> is never edited. If both columns match, nothing was lost.</p>
+    </div>
+    <form class="controls" id="controls">
+      <div class="field">
+        <label for="format">Format</label>
+        <select id="format" name="format"></select>
+      </div>
+      <div class="field">
+        <label for="component">Component</label>
+        <select id="component" name="component"></select>
+      </div>
+      <div class="field">
+        <label for="theme">Theme</label>
+        <select id="theme" name="theme">
+          <option value="system">System</option>
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+        </select>
+      </div>
+      <div class="field field--inline">
+        <input type="checkbox" id="watch" name="watch">
+        <label for="watch">Refresh when files change</label>
+      </div>
+      <button type="button" id="refresh" class="button">Refresh</button>
+    </form>
+  </header>
+
+  <main>
+    <section class="summary" aria-labelledby="summary-title">
+      <h2 id="summary-title" class="visually-hidden">Current format</h2>
+      <div id="format-info" class="format-info"></div>
+      <div id="status" class="status" role="status" aria-live="polite"></div>
+    </section>
+
+    <div class="copies" id="copies" tabindex="-1">
+      <section class="copy" aria-labelledby="working-title">
+        <header class="copy__header">
+          <h2 id="working-title">Working copy</h2>
+          <p>Import into EXP, edit, send changes back here.</p>
+        </header>
+        <div class="frame-wrap"><iframe id="frame-working" title="Working copy preview"></iframe></div>
+        <h3 class="source-title">Source</h3>
+        <div class="files" id="files-working"></div>
+      </section>
+      <section class="copy" aria-labelledby="control-title">
+        <header class="copy__header">
+          <h2 id="control-title">Control</h2>
+          <p>Never edited. The reference.</p>
+        </header>
+        <div class="frame-wrap"><iframe id="frame-control" title="Control preview"></iframe></div>
+        <h3 class="source-title">Source</h3>
+        <div class="files" id="files-control"></div>
+      </section>
+    </div>
+
+    <p class="legend" id="legend">
+      <span class="legend__item"><span class="mark mark--add" aria-hidden="true">+</span> Only in the working copy (added or changed)</span>
+      <span class="legend__item"><span class="mark mark--del" aria-hidden="true">−</span> Only in the control (missing or changed in the working copy)</span>
+    </p>
+
+    <section class="overview" aria-labelledby="overview-title">
+      <h2 id="overview-title">Every format</h2>
+      <p>Compares every file in each working copy with its control, not only the files shown above.</p>
+      <div class="table-wrap">
+        <table>
+          <caption class="visually-hidden">Working copy versus control, per format</caption>
+          <thead>
+            <tr><th scope="col">Format</th><th scope="col">Result</th><th scope="col">Changed</th><th scope="col">Added</th><th scope="col">Removed</th><th scope="col">Build</th></tr>
+          </thead>
+          <tbody id="overview"></tbody>
+        </table>
+      </div>
+      <p id="control-integrity" class="integrity"></p>
+    </section>
+  </main>
+
+  <footer class="page-footer">
+    <p>Run <code>npm run serve</code> in this folder to use this page. <code>npm run verify</code> checks the same thing from the command line; <code>npm run reset -- --all</code> restores every working copy from its control.</p>
+  </footer>
+  <script type="module" src="compare.js"></script>
+</body>
+</html>

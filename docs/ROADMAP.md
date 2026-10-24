@@ -3574,6 +3574,19 @@ font import → Phase 9, shadows → Phase 10._
 
 ## Progress Log
 
+- **2026-10-24 — Round-trip fixture component libraries [test tooling].** Owner
+  asked for a small library in standard formats with a working copy and a control
+  per format, plus a page showing both live with code underneath.
+  `spike/component-libraries/`: Button/Card/Accordion in HTML+CSS, Web Components,
+  Lit, React 19, Vue 3.5, Svelte 5 and Angular 22 (real sources, real builds, CEM
+  for the two custom-element formats), shared tokens/styles, comparison page with
+  line diffs and an every-file overview, and `serve/verify/reset/rebuild` scripts.
+  Chromium checks pass for all 84 format × component × copy × theme renders;
+  phone width has no horizontal scroll. Owner idea logged under FEAT-086: grow this
+  into the Pro component library + governance site (public and role views). Token
+  scanner warning text clarified for media-scoped variables. Owner's Mac has Node
+  24.13; rebuilding the Angular fixture needs 24.15+.
+
 - **2026-10-23 — FEAT-083 groundwork: Custom Elements Manifest reader [native, read-only].**
   `Model/ComponentManifestReader.swift` + `scripts/verify_component_manifest.sh`;
   passes synthetic cases and Web Awesome Pro 3.14.0's manifest (90 elements).

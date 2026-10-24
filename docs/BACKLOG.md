@@ -3497,6 +3497,9 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Detail: Changeset history with messages, branches, PRs, review/approve/merge,
   merge-conflict resolution, rollback, audit. Roles: viewer, contributor, reviewer,
   maintainer, admin. v2.8 changeset format must carry over unchanged.
+- Owner direction 2026-10-24: grow the fixture comparison page (live side-by-side
+  versions + source diff) into an all-in-one component library + governance site
+  with a public view and role-based views.
 
 ### FEAT-087 — Storybook args/argTypes component adapter
 - Type: feature

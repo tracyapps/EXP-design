@@ -178,7 +178,7 @@ struct LibraryTokenScanner {
             let result = LibraryCSSVariableParser.parse(text, sourcePath: path)
             guard !result.tokens.isEmpty else { continue }
             if result.skippedScopedDeclarations > 0 {
-                warnings.append("\(path): \(result.skippedScopedDeclarations) custom properties are scoped to components, not :root — left for component import.")
+                warnings.append("\(path): \(result.skippedScopedDeclarations) custom properties are declared under a component selector or a media condition other than light/dark (e.g. reduced motion, widths). Kept for component import; not adopted as tokens.")
             }
             contents[path] = data
             let src = LibraryTokenSource(path: path, kind: .cssCustomProperties, sha256: Self.sha256(data),

@@ -1,0 +1,17 @@
+{
+  "name": "@exp-fixtures/web-components",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Vanilla custom elements (no framework, no build). Shadow DOM, CSS parts, documented custom properties and a Custom Elements Manifest.",
+  "type": "module",
+  "main": "src/index.js",
+  "module": "src/index.js",
+  "customElements": "custom-elements.json",
+  "files": ["src", "styles", "custom-elements.json"],
+  "scripts": {
+    "analyze": "cem analyze --globs 'src/**/*.js'"
+  },
+  "devDependencies": {
+    "@custom-elements-manifest/analyzer": "0.11.0"
+  }
+}

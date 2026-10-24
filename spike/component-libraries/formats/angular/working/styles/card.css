@@ -1,0 +1,41 @@
+/* Card: composite component. Contains Button child components in its
+   actions row. Variants: tone (raised|plain). Documented custom properties:
+   --exp-card-padding, --exp-card-radius */
+.exp-card {
+  --exp-card-padding: var(--exp-space-l);
+  --exp-card-radius: var(--exp-radius-m);
+  display: flex;
+  flex-direction: column;
+  gap: var(--exp-space-s);
+  max-inline-size: 22rem;
+  padding: var(--exp-card-padding);
+  border-radius: var(--exp-card-radius);
+  background: var(--exp-color-surface);
+  color: var(--exp-color-text);
+  font-family: var(--exp-font-body);
+}
+.exp-card--raised { box-shadow: var(--exp-shadow-raised); }
+.exp-card--plain { border: 1px solid var(--exp-color-border); }
+.exp-card__eyebrow {
+  margin: 0;
+  color: var(--exp-color-muted);
+  font-size: var(--exp-font-size-s);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.exp-card__title {
+  margin: 0;
+  font-size: var(--exp-font-size-l);
+  font-weight: var(--exp-font-weight-strong);
+}
+.exp-card__body {
+  margin: 0;
+  color: var(--exp-color-muted);
+  line-height: 1.5;
+}
+.exp-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--exp-space-s);
+  margin-block-start: var(--exp-space-s);
+}

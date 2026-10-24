@@ -1,0 +1,68 @@
+/*
+ * Fixture design tokens (FEAT-082 / FEAT-084 test data).
+ * Root-scoped CSS custom properties with light/dark modes, the shape EXP's
+ * library token scanner reads. Aliases use var(); --exp-color-border is a
+ * color-mix() expression on purpose (EXP must preserve it, never flatten it).
+ */
+:root {
+  color-scheme: light dark;
+
+  /* primitives */
+  --exp-blue-600: #1f5fbf;
+  --exp-blue-300: #8ab4ff;
+  --exp-ink-900: #1a1f2b;
+  --exp-ink-600: #4a5263;
+  --exp-paper-0: #ffffff;
+  --exp-paper-50: #f5f6f8;
+
+  /* semantic roles */
+  --exp-color-accent: var(--exp-blue-600);
+  --exp-color-on-accent: #ffffff;
+  --exp-color-bg: var(--exp-paper-50);
+  --exp-color-surface: var(--exp-paper-0);
+  --exp-color-text: var(--exp-ink-900);
+  --exp-color-muted: var(--exp-ink-600);
+  --exp-color-focus: #b4441b;
+  --exp-color-border: color-mix(in srgb, var(--exp-color-text) 18%, transparent);
+
+  /* space, shape, type, motion */
+  --exp-space-xs: 0.25rem;
+  --exp-space-s: 0.5rem;
+  --exp-space-m: 1rem;
+  --exp-space-l: 1.5rem;
+  --exp-radius-s: 0.25rem;
+  --exp-radius-m: 0.5rem;
+  --exp-font-body: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --exp-font-size-s: 0.875rem;
+  --exp-font-size-m: 1rem;
+  --exp-font-size-l: 1.125rem;
+  --exp-font-weight-strong: 600;
+  --exp-shadow-raised: 0 0.25rem 1rem rgb(26 31 43 / 0.12);
+  --exp-duration-quick: 150ms;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --exp-color-accent: var(--exp-blue-300);
+    --exp-color-on-accent: #0b1a33;
+    --exp-color-bg: #12151c;
+    --exp-color-surface: #1b202a;
+    --exp-color-text: #eef1f6;
+    --exp-color-muted: #b4bccb;
+    --exp-color-focus: #ffb38a;
+  }
+}
+
+:root[data-theme="dark"] {
+  --exp-color-accent: var(--exp-blue-300);
+  --exp-color-on-accent: #0b1a33;
+  --exp-color-bg: #12151c;
+  --exp-color-surface: #1b202a;
+  --exp-color-text: #eef1f6;
+  --exp-color-muted: #b4bccb;
+  --exp-color-focus: #ffb38a;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --exp-duration-quick: 0ms; }
+}

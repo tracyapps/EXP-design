@@ -1,0 +1,599 @@
+{
+  "schemaVersion": "1.0.0",
+  "readme": "",
+  "modules": [
+    {
+      "kind": "javascript-module",
+      "path": "src/index.ts",
+      "declarations": [],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "*",
+          "declaration": {
+            "name": "*",
+            "module": "src/lit-button.js"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "*",
+          "declaration": {
+            "name": "*",
+            "module": "src/lit-card.js"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "*",
+          "declaration": {
+            "name": "*",
+            "module": "src/lit-accordion.js"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/lit-accordion.ts",
+      "declarations": [
+        {
+          "kind": "class",
+          "description": "One accordion section. Use inside lit-accordion. WAI-ARIA APG accordion\npattern: a button inside a heading with aria-expanded/aria-controls, and a\nregion panel labelled by that button.",
+          "name": "LitAccordionItem",
+          "cssParts": [
+            {
+              "description": "The header button.",
+              "name": "trigger"
+            },
+            {
+              "description": "The content region.",
+              "name": "panel"
+            }
+          ],
+          "slots": [
+            {
+              "description": "Panel content.",
+              "name": ""
+            }
+          ],
+          "members": [
+            {
+              "kind": "field",
+              "name": "heading",
+              "privacy": "public",
+              "type": {
+                "text": "string"
+              },
+              "default": "''",
+              "description": "The section title.",
+              "attribute": "heading"
+            },
+            {
+              "kind": "field",
+              "name": "open",
+              "privacy": "public",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "description": "Whether the panel is shown.",
+              "attribute": "open",
+              "reflects": true
+            },
+            {
+              "kind": "field",
+              "name": "headingLevel",
+              "privacy": "public",
+              "type": {
+                "text": "number"
+              },
+              "default": "3",
+              "description": "Set by the parent lit-accordion.",
+              "attribute": "heading-level"
+            },
+            {
+              "kind": "field",
+              "name": "uidBase",
+              "privacy": "private",
+              "readonly": true
+            },
+            {
+              "kind": "method",
+              "name": "toggle",
+              "privacy": "private"
+            }
+          ],
+          "events": [
+            {
+              "name": "lit-toggle",
+              "type": {
+                "text": "CustomEvent"
+              },
+              "description": "When the user opens or closes the section. detail: { open }"
+            }
+          ],
+          "attributes": [
+            {
+              "name": "heading",
+              "type": {
+                "text": "string"
+              },
+              "default": "''",
+              "description": "The section title.",
+              "fieldName": "heading"
+            },
+            {
+              "name": "open",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "description": "Whether the panel is shown.",
+              "fieldName": "open"
+            },
+            {
+              "name": "heading-level",
+              "type": {
+                "text": "number"
+              },
+              "default": "3",
+              "description": "Set by the parent lit-accordion.",
+              "fieldName": "headingLevel"
+            }
+          ],
+          "superclass": {
+            "name": "LitElement",
+            "package": "lit"
+          },
+          "summary": "Accordion section (child of lit-accordion).",
+          "tagName": "lit-accordion-item",
+          "customElement": true
+        },
+        {
+          "kind": "class",
+          "description": "A set of collapsible sections made of lit-accordion-item children.",
+          "name": "LitAccordion",
+          "cssProperties": [
+            {
+              "description": "Space between sections.",
+              "name": "--exp-accordion-gap"
+            }
+          ],
+          "slots": [
+            {
+              "description": "lit-accordion-item elements.",
+              "name": ""
+            }
+          ],
+          "members": [
+            {
+              "kind": "field",
+              "name": "allowMultiple",
+              "privacy": "public",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "description": "Allow more than one open section.",
+              "attribute": "allow-multiple"
+            },
+            {
+              "kind": "field",
+              "name": "headingLevel",
+              "privacy": "public",
+              "type": {
+                "text": "number"
+              },
+              "default": "3",
+              "description": "Heading level passed to every item.",
+              "attribute": "heading-level"
+            },
+            {
+              "kind": "field",
+              "name": "items",
+              "privacy": "private",
+              "readonly": true
+            },
+            {
+              "kind": "method",
+              "name": "syncLevels",
+              "privacy": "private"
+            }
+          ],
+          "attributes": [
+            {
+              "name": "allow-multiple",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "description": "Allow more than one open section.",
+              "fieldName": "allowMultiple"
+            },
+            {
+              "name": "heading-level",
+              "type": {
+                "text": "number"
+              },
+              "default": "3",
+              "description": "Heading level passed to every item.",
+              "fieldName": "headingLevel"
+            }
+          ],
+          "superclass": {
+            "name": "LitElement",
+            "package": "lit"
+          },
+          "summary": "Accordion container.",
+          "tagName": "lit-accordion",
+          "customElement": true
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "LitAccordionItem",
+          "declaration": {
+            "name": "LitAccordionItem",
+            "module": "src/lit-accordion.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "LitAccordion",
+          "declaration": {
+            "name": "LitAccordion",
+            "module": "src/lit-accordion.ts"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "lit-accordion-item",
+          "declaration": {
+            "name": "LitAccordionItem",
+            "module": "src/lit-accordion.ts"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "lit-accordion",
+          "declaration": {
+            "name": "LitAccordion",
+            "module": "src/lit-accordion.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/lit-button.ts",
+      "declarations": [
+        {
+          "kind": "class",
+          "description": "A button. The label is the default slot.",
+          "name": "LitButton",
+          "cssProperties": [
+            {
+              "description": "Corner radius.",
+              "name": "--exp-button-radius"
+            },
+            {
+              "description": "Horizontal padding.",
+              "name": "--exp-button-padding-inline"
+            }
+          ],
+          "cssParts": [
+            {
+              "description": "The native <button>.",
+              "name": "control"
+            }
+          ],
+          "slots": [
+            {
+              "description": "The button's label.",
+              "name": ""
+            }
+          ],
+          "members": [
+            {
+              "kind": "field",
+              "name": "shadowRootOptions",
+              "type": {
+                "text": "object"
+              },
+              "static": true,
+              "default": "{ ...LitElement.shadowRootOptions, delegatesFocus: true }"
+            },
+            {
+              "kind": "field",
+              "name": "appearance",
+              "privacy": "public",
+              "type": {
+                "text": "'primary' | 'secondary' | 'ghost'"
+              },
+              "default": "'primary'",
+              "description": "Visual emphasis.",
+              "attribute": "appearance",
+              "reflects": true
+            },
+            {
+              "kind": "field",
+              "name": "size",
+              "privacy": "public",
+              "type": {
+                "text": "'s' | 'm' | 'l'"
+              },
+              "default": "'m'",
+              "description": "Size.",
+              "attribute": "size",
+              "reflects": true
+            },
+            {
+              "kind": "field",
+              "name": "disabled",
+              "privacy": "public",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "description": "Disables the button.",
+              "attribute": "disabled",
+              "reflects": true
+            },
+            {
+              "kind": "method",
+              "name": "press",
+              "privacy": "private"
+            }
+          ],
+          "events": [
+            {
+              "name": "lit-press",
+              "type": {
+                "text": "CustomEvent"
+              },
+              "description": "When the button is activated (not while disabled)."
+            }
+          ],
+          "attributes": [
+            {
+              "name": "appearance",
+              "type": {
+                "text": "'primary' | 'secondary' | 'ghost'"
+              },
+              "default": "'primary'",
+              "description": "Visual emphasis.",
+              "fieldName": "appearance"
+            },
+            {
+              "name": "size",
+              "type": {
+                "text": "'s' | 'm' | 'l'"
+              },
+              "default": "'m'",
+              "description": "Size.",
+              "fieldName": "size"
+            },
+            {
+              "name": "disabled",
+              "type": {
+                "text": "boolean"
+              },
+              "default": "false",
+              "description": "Disables the button.",
+              "fieldName": "disabled"
+            }
+          ],
+          "superclass": {
+            "name": "LitElement",
+            "package": "lit"
+          },
+          "summary": "Simple action button.",
+          "tagName": "lit-button",
+          "customElement": true
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "LitButton",
+          "declaration": {
+            "name": "LitButton",
+            "module": "src/lit-button.ts"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "lit-button",
+          "declaration": {
+            "name": "LitButton",
+            "module": "src/lit-button.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/lit-card.ts",
+      "declarations": [
+        {
+          "kind": "class",
+          "description": "A card that composes lit-button children in its actions row.",
+          "name": "LitCard",
+          "cssProperties": [
+            {
+              "description": "Inner padding.",
+              "name": "--exp-card-padding"
+            },
+            {
+              "description": "Corner radius.",
+              "name": "--exp-card-radius"
+            }
+          ],
+          "cssParts": [
+            {
+              "description": "The card container.",
+              "name": "base"
+            }
+          ],
+          "slots": [
+            {
+              "description": "Short label above the title.",
+              "name": "eyebrow"
+            },
+            {
+              "description": "The card title.",
+              "name": "heading"
+            },
+            {
+              "description": "Body text.",
+              "name": ""
+            },
+            {
+              "description": "lit-button elements.",
+              "name": "actions"
+            }
+          ],
+          "members": [
+            {
+              "kind": "field",
+              "name": "tone",
+              "privacy": "public",
+              "type": {
+                "text": "'raised' | 'plain'"
+              },
+              "default": "'raised'",
+              "description": "Elevated or outlined.",
+              "attribute": "tone",
+              "reflects": true
+            },
+            {
+              "kind": "field",
+              "name": "headingLevel",
+              "privacy": "public",
+              "type": {
+                "text": "number"
+              },
+              "default": "3",
+              "description": "Heading level for the title (2–6).",
+              "attribute": "heading-level"
+            },
+            {
+              "kind": "method",
+              "name": "sync",
+              "privacy": "private",
+              "parameters": [
+                {
+                  "name": "event",
+                  "type": {
+                    "text": "Event"
+                  }
+                }
+              ]
+            },
+            {
+              "kind": "field",
+              "name": "empty",
+              "privacy": "public"
+            }
+          ],
+          "attributes": [
+            {
+              "name": "tone",
+              "type": {
+                "text": "'raised' | 'plain'"
+              },
+              "default": "'raised'",
+              "description": "Elevated or outlined.",
+              "fieldName": "tone"
+            },
+            {
+              "name": "heading-level",
+              "type": {
+                "text": "number"
+              },
+              "default": "3",
+              "description": "Heading level for the title (2–6).",
+              "fieldName": "headingLevel"
+            }
+          ],
+          "superclass": {
+            "name": "LitElement",
+            "package": "lit"
+          },
+          "summary": "Composite card with actions.",
+          "tagName": "lit-card",
+          "customElement": true
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "LitCard",
+          "declaration": {
+            "name": "LitCard",
+            "module": "src/lit-card.ts"
+          }
+        },
+        {
+          "kind": "custom-element-definition",
+          "name": "lit-card",
+          "declaration": {
+            "name": "LitCard",
+            "module": "src/lit-card.ts"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "javascript-module",
+      "path": "src/styles.ts",
+      "declarations": [
+        {
+          "kind": "function",
+          "name": "stylesheet",
+          "parameters": [
+            {
+              "name": "file",
+              "type": {
+                "text": "string"
+              }
+            }
+          ],
+          "description": "Components link their stylesheet inside the shadow root so the CSS stays a\nplain, editable file in styles/. After bundling, import.meta.url is\ndist/index.js, so ../styles/ still resolves next to it."
+        },
+        {
+          "kind": "function",
+          "name": "uid",
+          "parameters": [
+            {
+              "name": "prefix",
+              "type": {
+                "text": "string"
+              }
+            }
+          ]
+        }
+      ],
+      "exports": [
+        {
+          "kind": "js",
+          "name": "stylesheet",
+          "declaration": {
+            "name": "stylesheet",
+            "module": "src/styles.ts"
+          }
+        },
+        {
+          "kind": "js",
+          "name": "uid",
+          "declaration": {
+            "name": "uid",
+            "module": "src/styles.ts"
+          }
+        }
+      ]
+    }
+  ]
+}

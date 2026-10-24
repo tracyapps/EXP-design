@@ -1,0 +1,34 @@
+<!-- Accordion — complex: .exp-accordion__item children. APG accordion pattern.
+     Panels are visible without JavaScript; scripts/accordion.js enhances. -->
+<div class="exp-accordion" data-exp-accordion data-allow-multiple>
+  <div class="exp-accordion__item">
+    <h3 class="exp-accordion__heading">
+      <button type="button" class="exp-accordion__trigger" id="faq-1-trigger" aria-expanded="true" aria-controls="faq-1-panel">
+        <span>What's included?</span><span class="exp-accordion__icon" aria-hidden="true"></span>
+      </button>
+    </h3>
+    <div class="exp-accordion__panel" id="faq-1-panel" role="region" aria-labelledby="faq-1-trigger">
+      <p>Site visit, planting plan and a plant list you can take to any nursery.</p>
+    </div>
+  </div>
+  <div class="exp-accordion__item">
+    <h3 class="exp-accordion__heading">
+      <button type="button" class="exp-accordion__trigger" id="faq-2-trigger" aria-expanded="true" aria-controls="faq-2-panel">
+        <span>How long does it take?</span><span class="exp-accordion__icon" aria-hidden="true"></span>
+      </button>
+    </h3>
+    <div class="exp-accordion__panel" id="faq-2-panel" role="region" aria-labelledby="faq-2-trigger" data-start-closed>
+      <p>Most plans are ready two weeks after the visit.</p>
+    </div>
+  </div>
+  <div class="exp-accordion__item">
+    <h3 class="exp-accordion__heading">
+      <button type="button" class="exp-accordion__trigger" id="faq-3-trigger" aria-expanded="true" aria-controls="faq-3-panel">
+        <span>Can I change my plan later?</span><span class="exp-accordion__icon" aria-hidden="true"></span>
+      </button>
+    </h3>
+    <div class="exp-accordion__panel" id="faq-3-panel" role="region" aria-labelledby="faq-3-trigger" data-start-closed>
+      <p>Yes. Revisions within 30 days are free.</p>
+    </div>
+  </div>
+</div>

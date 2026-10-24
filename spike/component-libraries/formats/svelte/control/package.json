@@ -1,0 +1,23 @@
+{
+  "name": "@exp-fixtures/svelte",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Svelte 5 components (runes, TypeScript) with Svelte CSF stories. dist/index.js keeps svelte as a peer dependency; dist/preview.js bundles it for the comparison page.",
+  "type": "module",
+  "main": "dist/index.js",
+  "svelte": "src/index.ts",
+  "style": "styles/tokens.css",
+  "files": ["dist", "src", "styles", "stories"],
+  "peerDependencies": { "svelte": "^5.20.0" },
+  "scripts": {
+    "build": "vite build && vite build --mode preview",
+    "typecheck": "svelte-check --tsconfig ./tsconfig.json"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "7.3.1",
+    "svelte": "5.57.2",
+    "svelte-check": "4.7.7",
+    "typescript": "5.9.3",
+    "vite": "8.3.5"
+  }
+}

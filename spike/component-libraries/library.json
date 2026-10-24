@@ -1,0 +1,364 @@
+{
+  "formatVersion": 1,
+  "title": "EXP component library fixtures",
+  "description": "The same three components, written the way seven kinds of component library ship them. Each format has a control copy (never edited) and a working copy (round-tripped through EXP). The comparison page renders both, side by side, with their source underneath.",
+  "copies": [
+    {
+      "id": "working",
+      "title": "Working copy",
+      "detail": "Import into EXP, edit, send changes back here."
+    },
+    {
+      "id": "control",
+      "title": "Control",
+      "detail": "Never edited. The reference to compare against."
+    }
+  ],
+  "components": [
+    {
+      "id": "button",
+      "title": "Button",
+      "complexity": "Simple",
+      "detail": "One element. Variants: appearance (primary, secondary, ghost), size (s, m, l), disabled.",
+      "demos": [
+        {
+          "caption": "appearance=primary, size=m",
+          "props": {
+            "label": "Book a visit",
+            "appearance": "primary",
+            "size": "m"
+          }
+        },
+        {
+          "caption": "appearance=secondary, size=s",
+          "props": {
+            "label": "Compare plans",
+            "appearance": "secondary",
+            "size": "s"
+          }
+        },
+        {
+          "caption": "appearance=ghost, size=l",
+          "props": {
+            "label": "Learn more",
+            "appearance": "ghost",
+            "size": "l"
+          }
+        },
+        {
+          "caption": "disabled",
+          "props": {
+            "label": "Sold out",
+            "appearance": "primary",
+            "size": "m",
+            "disabled": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "card",
+      "title": "Card",
+      "complexity": "Composite",
+      "detail": "Contains Button child components in its actions row. Variant: tone (raised, plain).",
+      "demos": [
+        {
+          "caption": "tone=raised, two child buttons",
+          "props": {
+            "eyebrow": "Service",
+            "title": "Garden design",
+            "body": "A planting plan drawn for your light, soil and budget.",
+            "tone": "raised",
+            "actions": [
+              {
+                "label": "Book a visit",
+                "appearance": "primary"
+              },
+              {
+                "label": "Details",
+                "appearance": "ghost"
+              }
+            ]
+          }
+        },
+        {
+          "caption": "tone=plain, one small child button",
+          "props": {
+            "title": "Seasonal care",
+            "body": "Four visits a year to prune, feed and refresh.",
+            "tone": "plain",
+            "actions": [
+              {
+                "label": "Add to plan",
+                "appearance": "secondary",
+                "size": "s"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "accordion",
+      "title": "Accordion",
+      "complexity": "Complex",
+      "detail": "Parent + AccordionItem children with open state. WAI-ARIA APG accordion pattern (heading > button with aria-expanded/aria-controls, region panel).",
+      "demos": [
+        {
+          "caption": "allowMultiple, headingLevel=3, first section open",
+          "props": {
+            "allowMultiple": true,
+            "headingLevel": 3,
+            "items": [
+              {
+                "title": "What's included?",
+                "content": "Site visit, planting plan and a plant list you can take to any nursery.",
+                "open": true
+              },
+              {
+                "title": "How long does it take?",
+                "content": "Most plans are ready two weeks after the visit."
+              },
+              {
+                "title": "Can I change my plan later?",
+                "content": "Yes. Revisions within 30 days are free."
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "formats": [
+    {
+      "id": "html-css",
+      "title": "HTML + CSS",
+      "summary": "Static pattern library: markup snippets, BEM classes, plain stylesheets, one enhancement script.",
+      "mode": "snippet",
+      "build": "none",
+      "expImport": "Rendered HTML/CSS import (File ▸ Import HTML/CSS…) on components/*.html; tokens from styles/tokens.css.",
+      "styles": [
+        "styles/tokens.css",
+        "styles/button.css",
+        "styles/card.css",
+        "styles/accordion.css"
+      ],
+      "script": "scripts/accordion.js",
+      "files": {
+        "button": [
+          "components/button.html",
+          "styles/button.css",
+          "styles/tokens.css"
+        ],
+        "card": [
+          "components/card.html",
+          "styles/card.css",
+          "styles/tokens.css"
+        ],
+        "accordion": [
+          "components/accordion.html",
+          "styles/accordion.css",
+          "scripts/accordion.js",
+          "styles/tokens.css"
+        ]
+      }
+    },
+    {
+      "id": "web-components",
+      "title": "Web Components",
+      "summary": "Vanilla custom elements, no framework, no build. Shadow DOM, CSS parts, documented custom properties, Custom Elements Manifest.",
+      "mode": "elements",
+      "prefix": "wc",
+      "build": "none",
+      "entry": "src/index.js",
+      "expImport": "FEAT-083 target: custom-elements.json. Tokens from styles/tokens.css.",
+      "styles": [
+        "styles/tokens.css"
+      ],
+      "files": {
+        "button": [
+          "src/wc-button.js",
+          "styles/button.css",
+          "styles/tokens.css"
+        ],
+        "card": [
+          "src/wc-card.js",
+          "styles/card.css",
+          "styles/tokens.css"
+        ],
+        "accordion": [
+          "src/wc-accordion.js",
+          "styles/accordion.css",
+          "styles/tokens.css"
+        ]
+      }
+    },
+    {
+      "id": "lit",
+      "title": "Lit",
+      "summary": "Lit 3 elements in TypeScript, bundled with esbuild, Custom Elements Manifest from the analyzer's Lit plugin.",
+      "mode": "elements",
+      "prefix": "lit",
+      "build": "npm run build",
+      "entry": "dist/index.js",
+      "expImport": "FEAT-083 target: custom-elements.json. Tokens from styles/tokens.css.",
+      "styles": [
+        "styles/tokens.css"
+      ],
+      "files": {
+        "button": [
+          "src/lit-button.ts",
+          "styles/button.css",
+          "styles/tokens.css"
+        ],
+        "card": [
+          "src/lit-card.ts",
+          "styles/card.css",
+          "styles/tokens.css"
+        ],
+        "accordion": [
+          "src/lit-accordion.ts",
+          "styles/accordion.css",
+          "styles/tokens.css"
+        ]
+      }
+    },
+    {
+      "id": "react",
+      "title": "React",
+      "summary": "React 19 function components in TSX with CSF3 stories. esbuild library build + a preview bundle.",
+      "mode": "mount",
+      "build": "npm run build",
+      "entry": "dist/preview.js",
+      "expImport": "Today: tokens only. Components need FEAT-087 (Storybook argTypes) or TypeScript prop types.",
+      "styles": [
+        "styles/tokens.css",
+        "styles/button.css",
+        "styles/card.css",
+        "styles/accordion.css"
+      ],
+      "files": {
+        "button": [
+          "src/Button.tsx",
+          "styles/button.css",
+          "stories/Button.stories.tsx",
+          "styles/tokens.css"
+        ],
+        "card": [
+          "src/Card.tsx",
+          "styles/card.css",
+          "stories/Card.stories.tsx",
+          "styles/tokens.css"
+        ],
+        "accordion": [
+          "src/Accordion.tsx",
+          "src/AccordionItem.tsx",
+          "styles/accordion.css",
+          "stories/Accordion.stories.tsx",
+          "styles/tokens.css"
+        ]
+      }
+    },
+    {
+      "id": "vue",
+      "title": "Vue",
+      "summary": "Vue 3.5 single-file components with <script setup lang=\"ts\">, built with Vite.",
+      "mode": "mount",
+      "build": "npm run build",
+      "entry": "dist/preview.js",
+      "expImport": "Today: tokens only. Components need FEAT-087 or SFC prop types.",
+      "styles": [
+        "styles/tokens.css",
+        "styles/button.css",
+        "styles/card.css",
+        "styles/accordion.css"
+      ],
+      "files": {
+        "button": [
+          "src/ExpButton.vue",
+          "styles/button.css",
+          "stories/ExpButton.stories.ts",
+          "styles/tokens.css"
+        ],
+        "card": [
+          "src/ExpCard.vue",
+          "styles/card.css",
+          "styles/tokens.css"
+        ],
+        "accordion": [
+          "src/ExpAccordion.vue",
+          "src/ExpAccordionItem.vue",
+          "styles/accordion.css",
+          "styles/tokens.css"
+        ]
+      }
+    },
+    {
+      "id": "svelte",
+      "title": "Svelte",
+      "summary": "Svelte 5 components with runes and TypeScript, built with Vite.",
+      "mode": "mount",
+      "build": "npm run build",
+      "entry": "dist/preview.js",
+      "expImport": "Today: tokens only. Components need FEAT-087 or Svelte prop types.",
+      "styles": [
+        "styles/tokens.css",
+        "styles/button.css",
+        "styles/card.css",
+        "styles/accordion.css"
+      ],
+      "files": {
+        "button": [
+          "src/Button.svelte",
+          "styles/button.css",
+          "stories/Button.stories.svelte",
+          "styles/tokens.css"
+        ],
+        "card": [
+          "src/Card.svelte",
+          "styles/card.css",
+          "styles/tokens.css"
+        ],
+        "accordion": [
+          "src/Accordion.svelte",
+          "src/AccordionItem.svelte",
+          "styles/accordion.css",
+          "styles/tokens.css"
+        ]
+      }
+    },
+    {
+      "id": "angular",
+      "title": "Angular",
+      "summary": "Angular 22 standalone components with signal inputs, built with the Angular CLI application builder.",
+      "mode": "mount-global",
+      "build": "npm run build",
+      "entry": "dist/main.js",
+      "expImport": "Today: tokens only. Components need FEAT-087 or Angular input metadata.",
+      "styles": [
+        "styles/tokens.css",
+        "styles/button.css",
+        "styles/card.css",
+        "styles/accordion.css"
+      ],
+      "files": {
+        "button": [
+          "src/lib/button.component.ts",
+          "styles/button.css",
+          "styles/tokens.css"
+        ],
+        "card": [
+          "src/lib/card.component.ts",
+          "styles/card.css",
+          "styles/tokens.css"
+        ],
+        "accordion": [
+          "src/lib/accordion.component.ts",
+          "src/lib/accordion-item.component.ts",
+          "styles/accordion.css",
+          "styles/tokens.css"
+        ]
+      }
+    }
+  ]
+}

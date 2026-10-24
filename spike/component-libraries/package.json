@@ -1,0 +1,15 @@
+{
+  "name": "exp-component-library-fixtures",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Round-trip fixtures for EXP [design] component and token sync (FEAT-082…087).",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "serve": "node scripts/serve.mjs",
+    "verify": "node scripts/verify.mjs",
+    "reset": "node scripts/reset.mjs",
+    "rebuild": "node scripts/rebuild.mjs",
+    "snapshot-control": "node scripts/snapshot-control.mjs"
+  }
+}

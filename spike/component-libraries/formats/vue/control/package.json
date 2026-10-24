@@ -1,0 +1,23 @@
+{
+  "name": "@exp-fixtures/vue",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Vue 3 single-file components (<script setup lang=\"ts\">) with CSF3 stories. dist/index.js keeps Vue as a peer dependency; dist/preview.js bundles Vue for the comparison page.",
+  "type": "module",
+  "main": "dist/index.js",
+  "style": "styles/tokens.css",
+  "files": ["dist", "src", "styles", "stories"],
+  "peerDependencies": { "vue": "^3.5.0" },
+  "scripts": {
+    "build": "vite build && vite build --mode preview",
+    "typecheck": "vue-tsc -p ."
+  },
+  "devDependencies": {
+    "@storybook/vue3": "10.6.3",
+    "@vitejs/plugin-vue": "6.0.10",
+    "typescript": "5.9.3",
+    "vite": "8.3.5",
+    "vue": "3.5.44",
+    "vue-tsc": "3.3.13"
+  }
+}
