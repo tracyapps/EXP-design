@@ -294,6 +294,32 @@ private enum RenderedHTMLWebKitCheck {
             return text.plainString.contains("Not rendered")
         }, "display:none preparation shells should stay outside the rendered snapshot")
 
+        let componentFixture = root.appendingPathComponent("spike/release-review/import/index.html")
+        let components = try await RenderedHTMLWebKitCapture().readLocalFile(from: componentFixture, viewports: [viewports[1]])
+        let componentNodes = components.payload.pages[0].nodes.flatMap { flatten($0) }
+        let strings = componentNodes.compactMap { item -> String? in
+            if case .text(let text) = item.node.content { return text.plainString }
+            return nil
+        }
+        for (text, count) in [("Assigned label", 1), ("Assigned body", 1), ("Fallback label", 1),
+                              ("Fallback body", 1), ("Fallback detail", 2), ("Nested leaf", 2)] {
+            require(strings.filter { $0 == text }.count == count,
+                    "composed shadow/slot text '\(text)' should appear \(count) time(s); got \(strings)")
+        }
+        require(!strings.contains { $0.contains("ghost") }, "unassigned light DOM and hidden shadow content must not leak into import")
+        let buttons = componentNodes.filter { $0.node.name == "button#toggle" }
+        require(buttons.count == 2 && buttons.allSatisfy { $0.node.semantics?.role == .button
+            && $0.node.semantics?.ariaAttributes["aria-expanded"] == "true"
+            && $0.node.semantics?.ariaAttributes["aria-controls"] == "content" },
+                "native button semantics and raw scoped ARIA receipts should survive")
+        require(Set(componentNodes.map { $0.node.id }).count == componentNodes.count,
+                "identical data-exp-id values in independent shadow roots must not duplicate native IDs")
+        let scopedButtons = components.codeBridges[0].bindings.filter { $0.metadata["sourceElementID"] == "toggle" }
+        require(scopedButtons.count == 2 && Set(scopedButtons.compactMap { $0.metadata["sourceTreeScope"] }).count == 2,
+                "repeated shadow IDs should retain separate tree-scope provenance")
+        require(components.report.detailedText.contains("Closed shadow roots"),
+                "capture must disclose unavailable closed-root/ElementInternals evidence")
+
         let cancelled = InteropCancellationToken()
         cancelled.cancel()
         do {

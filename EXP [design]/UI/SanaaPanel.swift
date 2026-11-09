@@ -13,7 +13,7 @@ import SwiftUI
 struct SanaaPanel: View {
     @State private var activity = SanaaActivityController.shared
     @AppStorage(SanaaPreferences.enabled) private var sanaaEnabled = false
-    @Environment(\.openSettings) private var openSettings
+    @Environment(\.openWindow) private var openWindow
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isAtBottom = true
     @State private var hasNewUpdate = false
@@ -72,7 +72,7 @@ struct SanaaPanel: View {
             }
             Button {
                 UserDefaults.standard.set("sanaa", forKey: AppPreferences.requestedSettingsPane)
-                openSettings()
+                openWindow(id: SettingsWindow.sceneID)
             } label: {
                 Image(systemName: "gearshape")
             }
@@ -162,7 +162,7 @@ struct SanaaPanel: View {
                 .fixedSize(horizontal: false, vertical: true)
             Button("Set up Sanaa…") {
                 UserDefaults.standard.set("sanaa", forKey: AppPreferences.requestedSettingsPane)
-                openSettings()
+                openWindow(id: SettingsWindow.sceneID)
             }
             .buttonStyle(.borderless)
             .accessibilityHint("Opens the guided local-assistant connection walkthrough")

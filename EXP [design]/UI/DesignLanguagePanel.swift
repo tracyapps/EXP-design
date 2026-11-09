@@ -22,8 +22,9 @@ struct DesignLanguagePanel: View {
     @ObservedObject var document: ExpDocument
     @Environment(AppState.self) private var app
     @Environment(\.undoManager) private var undoManager
-    @Environment(\.openSettings) private var openSettings
+    @Environment(\.openWindow) private var openWindow
 
+    @State private var editingColor: DesignAsset?
     @State private var renaming: DesignAsset?
     @State private var renameDraft = ""
     @State private var renamingStyle: TypeStyle?
@@ -88,6 +89,9 @@ struct DesignLanguagePanel: View {
             DesignLanguageTransferSheet(document: document, mode: transferMode)
         }
         .sheet(isPresented: $showingGenerate) { generateSheet }
+        .sheet(item: $editingColor) { asset in
+            DLSavedColorEditor(document: document, asset: asset, undoManager: undoManager)
+        }
     }
 
     @ViewBuilder private var content: some View {
@@ -184,7 +188,7 @@ struct DesignLanguagePanel: View {
                 }
                 Button {
                     UserDefaults.standard.set("designLanguage", forKey: AppPreferences.requestedSettingsPane)
-                    openSettings()
+                    openWindow(id: SettingsWindow.sceneID)
                 } label: {
                     Label("Settings", systemImage: "gearshape")
                 }
@@ -602,12 +606,12 @@ struct DesignLanguagePanel: View {
     }
 
     private func paintListValue(_ paint: Paint) -> String {
-        paint.isGradient ? "Gradient" : ColorMath.string(paint.representativeColor, .hex)
+        (paint.isGradient || paint.isMesh) ? "Gradient" : ColorMath.string(paint.representativeColor, .hex)
     }
 
     private func assetHelp(_ asset: DesignAsset, link: LibraryTokenLink? = nil) -> String {
         let name = asset.name.isEmpty ? "Unnamed" : asset.name
-        let value = asset.value.isGradient ? "gradient" : ColorMath.string(asset.representativeColor, .hex)
+        let value = (asset.value.isGradient || asset.value.isMesh) ? "gradient" : ColorMath.string(asset.representativeColor, .hex)
         let cat = dl.categoryLabel(for: asset)
         let catPart = cat.isEmpty ? "" : " · \(cat)"
         var library = ""
@@ -710,6 +714,9 @@ struct DesignLanguagePanel: View {
     @ViewBuilder private func assetMenu(_ asset: DesignAsset) -> some View {
         Button("Apply to Selection") { apply(asset.value) }
             .disabled(app.selectedNodeIDs.isEmpty)
+        let canEdit = document.model.libraryTokenLink(forAsset: asset.id)?.writable != false
+        Button(asset.value.savedPaintEditLabel) { editingColor = asset }.disabled(!canEdit)
+        if !canEdit { Text("Read-only library color") }
         Divider()
         Menu("Category") {
             Button("Other") { commit("Set Category") { $0.setCategory(asset.id, to: nil) } }
@@ -746,6 +753,8 @@ struct DesignLanguagePanel: View {
         Menu("Copy As") {
             if paint.isGradient, let g = paint.gradientValue {
                 Button("CSS gradient") { copy(DesignLanguageIO.cssGradient(g)) }
+            } else if paint.isMesh {
+                Button("CSS gradient") { copy(DesignLanguageIO.css(for: paint)) }
             } else {
                 let c = paint.representativeColor
                 Button("HEX") { copy(ColorMath.string(c, .hex)) }

@@ -51,6 +51,20 @@ final class EditorAccessibilityTests: XCTestCase {
             model["nodes"] = [["id": UUID().uuidString, "name": "Pattern host", "frame": [[30, 30], [80, 60]],
                                "content": ["rectangle": ["_0": [:]]]]]
         }
+        if name.contains("testSavedPaintSettings") {
+            let black: [String: Any] = ["r": 0.0, "g": 0.0, "b": 0.0, "a": 1.0]
+            let white: [String: Any] = ["r": 1.0, "g": 1.0, "b": 1.0, "a": 1.0]
+            let stops: [[String: Any]] = [
+                ["id": UUID().uuidString, "color": black, "position": 0.0],
+                ["id": UUID().uuidString, "color": white, "position": 1.0]]
+            model["designLanguage"] = ["assets": [
+                ["id": UUID().uuidString, "name": "Solid", "value": black],
+                ["id": UUID().uuidString, "name": "Linear", "value":
+                    ["kind": "gradient", "gradient": ["kind": "linear", "stops": stops, "angle": 90]]],
+                ["id": "3F474792-1111-4444-AAAA-377377377377", "name": "Mesh", "value":
+                    ["kind": "mesh", "mesh": ["version": 1, "base": black, "points": [
+                        ["id": UUID().uuidString, "position": [0.5, 0.5], "radius": 0.8, "color": white, "opacity": 1.0]]]]]]]
+        }
         try JSONSerialization.data(withJSONObject: model).write(to: fixture)
         app = XCUIApplication(url: URL(fileURLWithPath: path))
         app.launchArguments = ["-ApplePersistenceIgnoreState", "YES", "-NSQuitAlwaysKeepsWindows", "NO",
@@ -342,6 +356,49 @@ final class EditorAccessibilityTests: XCTestCase {
         editor.buttons["Fit to Artwork"].firstMatch.click()
         XCTAssertEqual(String(describing: editor.textFields["Component bounds width"].firstMatch.value ?? ""), "80")
         app.typeKey("s", modifierFlags: .command)
+    }
+
+    func testSavedPaintSettingsResizeEditAndClip() {
+        app.typeKey(",", modifierFlags: .command)
+        let language = app.staticTexts["Design Language"].firstMatch
+        XCTAssertTrue(language.waitForExistence(timeout: 8))
+        language.click()
+        let settings = app.windows.containing(.staticText, identifier: "Colors & Gradients (3)").firstMatch
+        XCTAssertTrue(settings.waitForExistence(timeout: 8))
+        let initial = settings.frame
+        let corner = settings.coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 1))
+            .withOffset(CGVector(dx: -2, dy: -2))
+        corner.press(forDuration: 0.3, thenDragTo: corner.withOffset(CGVector(dx: 100, dy: 80)))
+        XCTAssertGreaterThan(settings.frame.width, initial.width + 40, "Settings must resize horizontally")
+        XCTAssertGreaterThan(settings.frame.height, initial.height + 30, "Settings must resize vertically")
+
+        for paint in ["Linear", "Mesh", "Solid"] {
+            let edit = settings.buttons["Edit \(paint)"].firstMatch
+            XCTAssertTrue(edit.waitForExistence(timeout: 5), "Saved \(paint) must have an edit action")
+            edit.click()
+            if paint == "Linear" {
+                XCTAssertTrue(app.textFields["Gradient stop position, percent"].firstMatch.waitForExistence(timeout: 5))
+            } else if paint == "Mesh" {
+                XCTAssertTrue(app.staticTexts["Color points"].firstMatch.waitForExistence(timeout: 5))
+            }
+            let cancel = app.buttons["Cancel"].firstMatch
+            XCTAssertTrue(cancel.waitForExistence(timeout: 5))
+            cancel.click()
+        }
+
+        let meshID = "3F474792-1111-4444-AAAA-377377377377"
+        let category = settings.descendants(matching: .any).matching(identifier: "dl.category.\(meshID)").firstMatch
+        let value = settings.descendants(matching: .any).matching(identifier: "dl.value.\(meshID)").firstMatch
+        XCTAssertTrue(category.exists && value.exists)
+        let before = category.screenshot().pngRepresentation
+        value.doubleClick()
+        app.typeKey("a", modifierFlags: .command)
+        XCTAssertTrue(before == category.screenshot().pngRepresentation, "Selecting long CSS must not draw over Category")
+        XCTAssertTrue(settings.buttons["Copy value for Mesh"].firstMatch.isHittable)
+        let screenshot = XCTAttachment(screenshot: settings.screenshot())
+        screenshot.name = "Resizable Settings with selected long Mesh value"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
     }
 
     func testSettingsCanOpenWithDetachedPanels() {

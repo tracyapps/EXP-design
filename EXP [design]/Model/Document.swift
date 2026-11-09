@@ -5315,8 +5315,8 @@ struct DesignLanguage: Codable, Equatable, Sendable {
 
     // MARK: Grouped / filtered views
 
-    var solids:    [DesignAsset] { assets.filter { !$0.value.isGradient } }
-    var gradients: [DesignAsset] { assets.filter {  $0.value.isGradient } }
+    var solids:    [DesignAsset] { assets.filter { !$0.value.isGradient && !$0.value.isMesh } }
+    var gradients: [DesignAsset] { assets.filter { $0.value.isGradient || $0.value.isMesh } }
 
     func asset(_ id: UUID) -> DesignAsset? { assets.first { $0.id == id } }
     func category(_ id: UUID?) -> DLCategory? {

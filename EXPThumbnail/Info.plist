@@ -9,6 +9,7 @@
 			<key>QLSupportedContentTypes</key>
 			<array>
 				<string>tapps.exp-design.designfile</string>
+				<string>tapps.exp-design.package</string>
 			</array>
 			<key>QLThumbnailMinimumDimension</key>
 			<integer>0</integer>

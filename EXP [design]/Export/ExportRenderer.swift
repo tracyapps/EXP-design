@@ -273,7 +273,7 @@ struct ExportRenderer {
         case .path(let ps):
             let d = svgPathData(ps, origin: f.origin)
             let fills = ps.isMultiContour || ps.closed
-            let ink = ExportRenderView.nsPath(ps,origin: f.origin).bounds
+            let ink = ExportRenderView.nsPath(ps,origin: f.origin).safeBounds
             let fillBounds = ps.fill.gradientValue?.kind == .radial ? ink : f
             let strokeBounds = ps.stroke.gradientValue?.kind == .radial ? ink : f
             let fill = fills ? paintFillAttr(ps.fill, &defs, rect: fillBounds) : " fill=\"none\""
@@ -1568,7 +1568,7 @@ final class ExportRenderView: NSView {
                 ctx.addPath(path.cgPath); ctx.strokePath(); ctx.restoreGState()
             } else {
                 exportStroke(path, width: max(0.1, ls.strokeWidth), alignment: .center,
-                             paint: ls.stroke, bounds: path.bounds, in: ctx,
+                             paint: ls.stroke, bounds: path.safeBounds, in: ctx,
                              cap: ls.strokeCap.cgLineCap, pattern: ls.strokePattern)
             }
             let markerColor = PaintRender.nsColor(ls.stroke.representativeColor)
@@ -1579,13 +1579,13 @@ final class ExportRenderView: NSView {
         case .path(let ps):
             let path = Self.nsPath(ps, origin: rect.origin)
             if ps.isMultiContour || (ps.closed && ps.points.count >= 2) {
-                PaintRender.fill(ps.fill, path: path, bounds: ps.fill.isMesh ? rect : path.bounds, in: ctx,
+                PaintRender.fill(ps.fill, path: path, bounds: ps.fill.isMesh ? rect : path.safeBounds, in: ctx,
                                  pdfSafeAlpha: true, patterns: patterns,
                                  patternSpace: patternSpace)
             }
             exportStroke(path, width: ps.strokeWidth,
                          alignment: ps.effectiveStrokeAlignment, paint: ps.stroke,
-                         bounds: ps.stroke.gradientValue?.kind == .radial ? path.bounds : rect, in: ctx, join: ps.strokeJoin.cgLineJoin,
+                         bounds: ps.stroke.gradientValue?.kind == .radial ? path.safeBounds : rect, in: ctx, join: ps.strokeJoin.cgLineJoin,
                          cap: ps.strokeCap.cgLineCap, miterLimit: ps.strokeMiterLimit,
                          pattern: ps.strokePattern)
             if ps.strokeWidth > 0, let tangents = ps.endpointTangents {
@@ -1898,4 +1898,13 @@ final class NotesRenderView: NSView {
                              .foregroundColor: NSColor.black,
                              .paragraphStyle: para])
     }
+}
+
+extension NSBezierPath {
+    /// `bounds` that cannot throw. AppKit raises NSGenericException ("no bounds for
+    /// empty path") from `-bounds` on a path with no elements — a path layer whose
+    /// points were all deleted, or one mid-construction. Raised inside a SwiftUI
+    /// body (the Inspector's pattern/gradient bounds) that exception terminates
+    /// the app (crash report 2026-10-29 04:37). An empty path has no ink: `.zero`.
+    var safeBounds: CGRect { isEmpty ? .zero : bounds }
 }

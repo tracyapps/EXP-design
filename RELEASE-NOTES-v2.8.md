@@ -1,14 +1,55 @@
 # EXP [design] v2.8
 
-Development draft — not a published release. Baseline: 2.8 / build 19.
+Version 2.8 · build 19 · macOS 26.2 or later
 
-Opened October 20, 2026 after the owner confirmed the live v2.6→v2.7 Sparkle
-update. Native scope selected October 22: component & token sync (planned, not yet
-built; see docs/COMPONENT-SYNC-v2.8.md). The owner separately selected
-FEAT-077 account-first website/member engagement; its local source and hosted
-rollout gates are documented in docs/launch/ACCOUNT-FIRST-GROWTH-v2.8.md.
-Public v2.7/build 18, its source tag, ZIP and updater item remain unchanged.
+## More reliable editing
 
-See docs/ROADMAP.md for the next owner-selected slice. Optional native account
-connection and other account/community/template/sharing ideas remain candidates,
-with their own scope and verification; no sync or paid entitlement is implied.
+- Fixed crashes when switching shadow color swatches while a color-code field
+  has focus, opening font or component-state pickers, and returning to a floating
+  panel after using a paint editor.
+- Fixed a crash when selecting or exporting an empty path.
+- Gradient and Mesh editors stay open while you adjust their canvas handles and
+  close when you change tools, selection or editing context.
+- The eyedropper now colors visible, unlocked children inside ordinary folders,
+  including nested folders, with one Undo step.
+
+## Your Design Language, editable
+
+- Import library tokens with their source names, aliases and light/dark values.
+  Unsupported expressions remain preserved and read-only. Importing again keeps
+  your local edits, and CSS export retains the source variable names.
+- Edit saved colors and gradients from Design Language or Document Settings.
+  Linear, radial and Mesh paints share the full paint editor, with Reset, Cancel
+  and a single Undo step when you save.
+- Settings resizes normally. Sort saved paints by name, value or category, choose
+  a color-value format, and copy complete values without long CSS covering nearby
+  controls. Mesh paints appear under Gradients.
+
+## More faithful imports
+
+- HTML/CSS import preserves multiple supported outer and inset shadows as
+  editable effects in the correct paint order.
+- Static web-component capture includes visible open shadow roots and assigned
+  or fallback slot content, including nested components, without duplicated text.
+  Import reports identify the capture limits.
+
+## An optional package for image-heavy documents
+
+Use File → Save a Package Copy… to create a self-contained `.designpkg` with
+reusable image assets. Existing `.design` and legacy `.exp` files keep their JSON
+format; saving never converts them automatically. Open the package copy to edit
+it. File → Save a Legacy JSON Copy… makes a self-contained `.design` for older EXP
+versions, including v2.7. Older versions cannot open `.designpkg` directly.
+
+Package reads check model and asset integrity, and Quick Look can preview either
+format. Reusing unchanged asset wrappers avoids rebuilding their base64 payloads;
+this release makes no measured physical-disk-write or autosave-speed promise.
+
+## Known limits
+
+Web-component imports are editable static representations. Closed shadow roots,
+live behavior and complete accessibility relationship reconstruction are not
+inferred. Nonzero inset-shadow spread retains the existing SVG/semantic export
+limitation described in export reports. Component-contract import, code changeset
+export and full library-revision refresh remain future work. Native account or
+settings/file sync is not included.

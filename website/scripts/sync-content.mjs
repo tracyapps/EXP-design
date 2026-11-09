@@ -307,6 +307,26 @@ const testerLatestReleaseCopy = [
 
 function buildTesterFeatures(phases, release) {
   const [major = 0, minor = 0] = (release?.version ?? "0.0").split(".").map(Number);
+  const v28Features = major > 2 || (major === 2 && minor >= 8) ? [
+    {
+      phase: "v2.8 — Stability and Design Language",
+      title: "Reliable pickers and editable saved paints",
+      status: "done",
+      body: "Crash fixes keep paint, shadow and font editing dependable. Edit saved colors, linear, radial and Mesh gradients in a resizable Settings window, with Reset, Cancel and Undo.",
+    },
+    {
+      phase: "v2.8 — Import fidelity",
+      title: "Keep source tokens and layered shadows",
+      status: "done",
+      body: "Import named library tokens with aliases and light/dark values, retain local edits, and preserve editable CSS shadow stacks and visible open-shadow-root content. Component captures remain static.",
+    },
+    {
+      phase: "v2.8 — Optional document packages",
+      title: "A self-contained package for image assets",
+      status: "done",
+      body: "Save a separate .designpkg copy with reusable image assets and Quick Look previews. Existing JSON documents keep their format; export a legacy .design copy for older EXP versions.",
+    },
+  ] : [];
   const v27Features = major > 2 || (major === 2 && minor >= 7) ? [
     {
       phase: "v2.7 — Color editing",
@@ -343,7 +363,7 @@ function buildTesterFeatures(phases, release) {
     })
     .filter(Boolean);
 
-  return [...phaseFeatures, ...v27Features, ...testerLatestReleaseCopy];
+  return [...phaseFeatures, ...v28Features, ...v27Features, ...testerLatestReleaseCopy];
 }
 
 function buildTesterKnownIssues(backlog, limit = 4) {

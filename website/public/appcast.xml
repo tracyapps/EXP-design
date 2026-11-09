@@ -8,6 +8,15 @@
     <channel>
         <title>EXP [design]</title>
         <item>
+            <title>2.8</title>
+            <pubDate>Mon, 09 Nov 2026 10:58:46 -0600</pubDate>
+            <sparkle:version>19</sparkle:version>
+            <sparkle:shortVersionString>2.8</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>26.2</sparkle:minimumSystemVersion>
+            <sparkle:releaseNotesLink>https://expdesign.app/EXP-design-v2.8.html</sparkle:releaseNotesLink>
+            <enclosure url="https://github.com/tracyapps/EXP-design/releases/download/v2.8/EXP-design-v2.8.zip" length="12180201" type="application/octet-stream" sparkle:edSignature="wKvypghVHbth35fliuiGrdrIDxgo1Y09CH9bL8bvhbXAaAtQ1O/V/97a9SlA30G8x2POHAJDAKhwEdR7i0fGCA=="/>
+        </item>
+        <item>
             <title>2.7</title>
             <pubDate>Tue, 20 Oct 2026 18:16:23 -0500</pubDate>
             <sparkle:version>18</sparkle:version>

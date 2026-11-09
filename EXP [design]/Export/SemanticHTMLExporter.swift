@@ -913,7 +913,7 @@ private struct HTMLWriter {
         let height = max(0.0001, size.height)
         let fills = path.isMultiContour || path.closed
         let frame = CGRect(x: 0,y: 0,width: width,height: height)
-        let ink = ExportRenderView.nsPath(path,origin: .zero).bounds
+        let ink = ExportRenderView.nsPath(path,origin: .zero).safeBounds
         let fill: String
         let fillOpacity: String
         var definitions = ""

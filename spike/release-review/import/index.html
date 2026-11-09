@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EXP v2.8 import review</title>
+<style>
+  :root { color-scheme: light dark; font: 16px/1.5 system-ui; }
+  body { margin: 32px; max-width: 900px; }
+  .comparison { display: flex; gap: 32px; flex-wrap: wrap; }
+  .shadow { width: 220px; min-height: 100px; margin: 28px 0; padding: 20px; background: #fafafa; color: #182028; border-radius: 16px; }
+  .outer { box-shadow: rgba(220, 20, 50, .6) 8px 8px 0 0, rgba(20, 70, 230, .5) 16px 16px 0 4px; }
+  .mixed { box-shadow: inset rgba(220, 20, 50, .6) 8px 8px 0 0, inset rgba(20, 70, 230, .5) 16px 16px 0 0, rgba(10, 20, 30, .3) 0 12px 18px -4px; }
+</style>
+<h1>Import fidelity review</h1>
+<p>Compare this browser view with File → Import HTML/CSS in EXP. These are static import tests; component behavior stays in code.</p>
+<div class="comparison">
+  <div class="shadow outer">Two outer shadows. Red is above blue.</div>
+  <div class="shadow mixed">Two inset shadows plus an outer shadow. Red is above blue.</div>
+</div>
+<h2>Shadow DOM and slots</h2>
+<exp-review-card><span slot="label">Assigned label</span>Assigned body<span slot="missing">Unassigned ghost</span></exp-review-card>
+<exp-review-card></exp-review-card>
+<script>
+  customElements.define('exp-review-leaf', class extends HTMLElement {
+    constructor() {
+      super();
+      this.attachShadow({mode: 'open'}).innerHTML = '<style>:host {display:block;padding:8px;color:#182028;background:#dceef0}</style><span>Nested leaf</span>';
+    }
+  });
+  customElements.define('exp-review-card', class extends HTMLElement {
+    constructor() {
+      super();
+      this.attachShadow({mode: 'open'}).innerHTML = `
+        <style>
+          :host { display:block; width:300px; margin:24px 0; color:#182028; }
+          section { padding:20px; border:1px solid #667078; border-radius:12px; background:#f4f6f8; }
+          button { font:inherit; padding:8px; color:#182028; background:#e2e8ff; border:1px solid #667078; }
+          #content { padding-top:12px; }
+          slot { display:contents; }
+          .detail { display:block; padding-top:8px; }
+        </style>
+        <section>
+          <button id="toggle" data-exp-id="1DA83AAF-BB2F-4B2A-A3A5-62B370DD6939" aria-expanded="true" aria-controls="content"><slot name="label">Fallback label</slot></button>
+          <div id="content"><slot>Fallback body</slot><slot name="detail"><span class="detail">Fallback detail</span></slot><exp-review-leaf></exp-review-leaf><span style="display:none">Hidden shadow ghost</span></div>
+        </section>`;
+      const button = this.shadowRoot.querySelector('button');
+      button.addEventListener('click', () => {
+        const expanded = button.getAttribute('aria-expanded') !== 'true';
+        button.setAttribute('aria-expanded', String(expanded));
+        this.shadowRoot.getElementById('content').hidden = !expanded;
+      });
+    }
+  });
+</script>
+</html>

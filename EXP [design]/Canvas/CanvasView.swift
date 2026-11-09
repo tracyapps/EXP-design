@@ -3565,7 +3565,7 @@ final class CanvasNSView: NSView {
     /// through its own rotation and flip and every ancestor transform.
     private func gradientControlRect(_ n: Node) -> CGRect {
         if editableGradientFill(of: n)?.kind == .radial,case .path(let path) = n.content {
-            return ExportRenderView.nsPath(path,origin: .zero).bounds
+            return ExportRenderView.nsPath(path,origin: .zero).safeBounds
         }
         return CGRect(origin: .zero,size: n.frame.size)
     }
@@ -3819,7 +3819,13 @@ final class CanvasNSView: NSView {
         popover.contentViewController?.view.window?.hidesOnDeactivate = true
         popover.contentViewController?.view.window?.orderFront(nil)
         gradientStopPopover = popover
-        PaintPopoverActivity.shared.open(popover,close: { [weak popover] in popover?.close() })
+        PaintPopoverActivity.shared.open(popover, anchor: nil,
+                                         surface: { [weak popover] in popover?.contentViewController?.view.window },
+                                         close: { [weak popover] in
+            PaintPopoverActivity.releaseFocus(popoverWindow: popover?.contentViewController?.view.window,
+                                              anchorWindow: nil)
+            popover?.close()
+        })
     }
 
     @objc func editGradientStopAction(_ sender: Any?) {
@@ -7125,17 +7131,17 @@ final class CanvasNSView: NSView {
                                                      scope: scope, pageID: activePageID,
                                                      stateID: app.activeComponentStateID)
                     cached = patternRasterCache.draw(nodeID: node.id, revision: revision, ref: ref,
-                                                     path: bez, bounds: bez.bounds, patterns: patterns,
+                                                     path: bez, bounds: bez.safeBounds, patterns: patterns,
                                                      space: patternSpace, in: ctx)
                 } else { cached = false }
                 if !cached {
-                    PaintRender.fill(ps.fill, path: bez, bounds: ps.fill.isMesh ? rect : bez.bounds, in: ctx, patterns: patterns,
+                    PaintRender.fill(ps.fill, path: bez, bounds: ps.fill.isMesh ? rect : bez.safeBounds, in: ctx, patterns: patterns,
                                      patternSpace: patternSpace)
                 }
             }
             canvasStroke(bez, width: ps.strokeWidth * app.zoom,
                          alignment: ps.effectiveStrokeAlignment, paint: ps.stroke,
-                         bounds: ps.stroke.isMesh ? rect : bez.bounds, in: ctx, join: ps.strokeJoin.cgLineJoin,
+                         bounds: ps.stroke.isMesh ? rect : bez.safeBounds, in: ctx, join: ps.strokeJoin.cgLineJoin,
                          cap: ps.strokeCap.cgLineCap, miterLimit: ps.strokeMiterLimit,
                          pattern: ps.strokePattern)
             if ps.strokeWidth > 0, let tangents = ps.endpointTangents {
@@ -11141,6 +11147,50 @@ final class CanvasNSView: NSView {
         }
     }
 
+    @objc func savePackageCopyAction(_ sender: Any?) { saveDocumentCopy(asPackage: true) }
+    @objc func saveLegacyCopyAction(_ sender: Any?) { saveDocumentCopy(asPackage: false) }
+
+    /// Always a separate destination: opting into package storage must not
+    /// silently replace the document currently open, or convert it on autosave.
+    private func saveDocumentCopy(asPackage: Bool) {
+        guard let document else { return }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [asPackage ? .expPackage : .expDocument]
+        let source = window?.representedURL
+        let name = source?.deletingPathExtension().lastPathComponent ?? "Untitled"
+        panel.nameFieldStringValue = "\(name) copy.\(asPackage ? "designpkg" : "design")"
+        panel.message = asPackage
+            ? "Saves a separate document with reusable image assets. Your current file stays unchanged. Open the copy to continue editing it."
+            : "Saves a self-contained JSON copy for older EXP versions. Your current file stays unchanged."
+        panel.prompt = "Save Copy"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard url.standardizedFileURL.resolvingSymlinksInPath() != source?.standardizedFileURL.resolvingSymlinksInPath() else {
+            let alert = NSAlert()
+            alert.messageText = "Choose a different name for the copy"
+            alert.informativeText = "Use Save to update your current document. A copy needs a separate destination."
+            alert.runModal()
+            return
+        }
+        let snapshot = document.model
+        Task { @MainActor in
+            do {
+                try await Task.detached(priority: .userInitiated) {
+                    let access = url.startAccessingSecurityScopedResource()
+                    defer { if access { url.stopAccessingSecurityScopedResource() } }
+                    let wrapper = asPackage
+                        ? try NativeDocumentStorage.package(snapshot)
+                        : FileWrapper(regularFileWithContents: try NativeDocumentStorage.legacyData(snapshot))
+                    try wrapper.write(to: url, options: .atomic, originalContentsURL: nil)
+                }.value
+                NSWorkspace.shared.activateFileViewerSelecting([url])
+            } catch {
+                let alert = NSAlert(error: error)
+                alert.messageText = "The document copy couldn't be saved"
+                alert.runModal()
+            }
+        }
+    }
+
     /// File ▸ Import Library Tokens… (FEAT-082) — reads a code library's design
     /// tokens (DTCG files, :root CSS custom properties, or theme.json) into the
     /// Design Language with their real names, aliases and light/dark modes.
@@ -13179,25 +13229,53 @@ final class CanvasNSView: NSView {
             guard let self, let ns = picked?.usingColorSpace(.sRGB) else { return }   // nil = cancelled
             let rgba = RGBAColor(r: Double(ns.redComponent), g: Double(ns.greenComponent),
                                  b: Double(ns.blueComponent), a: Double(ns.alphaComponent))
-            let paint = Paint.solid(rgba)
             var nodes = self.currentNodes
-            for id in ids {
-                _ = Self.mutateNested(id, in: &nodes) { node in
-                    switch node.content {
-                    case .rectangle(var s): s.fill = paint; node.content = .rectangle(s)
-                    case .ellipse(var s):   s.fill = paint; node.content = .ellipse(s)
-                    case .polygon(var s):   s.fill = paint; node.content = .polygon(s)
-                    case .path(var s):      s.fill = paint; node.content = .path(s)
-                    case .line(var s):      s.stroke = .solid(rgba); node.content = .line(s)
-                    case .text(var t):      t.applyToAllRuns { $0.color = rgba }; node.content = .text(t)
-                    case .group:            if node.autoPadding != nil { node.autoPadding?.fill = paint }
-                    default: break
-                    }
-                }
-            }
+            guard Self.eyedropFill(rgba, into: ids, in: &nodes) else { return }
             self.commitNodes(nodes, actionName: "Eyedropper Fill")
             self.needsDisplay = true
         }
+    }
+
+    /// Apply a sampled colour to the selection in ONE tree pass.
+    ///
+    /// A plain folder (group without auto-padding) has no fill of its own, so the
+    /// colour carries down into its artwork — however deeply nested — exactly the
+    /// way Paste Appearance does (`Node.pasteAppearance`). Before this, selecting a
+    /// folder and pressing `i` silently did nothing (owner, 2026-10-29). An
+    /// auto-padding group takes the colour as its frame background and does NOT
+    /// carry it into its children. Locked and hidden branches are left alone, and
+    /// selecting a folder plus one of its children paints that child once.
+    private static func eyedropFill(_ rgba: RGBAColor, into selected: Set<UUID>,
+                                    in nodes: inout [Node]) -> Bool {
+        let paint = Paint.solid(rgba)
+        func visit(_ nodes: inout [Node], inherited: Bool) -> Bool {
+            var changed = false
+            for i in nodes.indices {
+                guard !nodes[i].isLocked, nodes[i].isVisible else { continue }
+                let picked = inherited || selected.contains(nodes[i].id)
+                if picked {
+                    switch nodes[i].content {
+                    case .rectangle(var s): s.fill = paint; nodes[i].content = .rectangle(s); changed = true
+                    case .ellipse(var s):   s.fill = paint; nodes[i].content = .ellipse(s); changed = true
+                    case .polygon(var s):   s.fill = paint; nodes[i].content = .polygon(s); changed = true
+                    case .path(var s):      s.fill = paint; nodes[i].content = .path(s); changed = true
+                    case .line(var s):      s.stroke = .solid(rgba); nodes[i].content = .line(s); changed = true
+                    case .text(var t):      t.applyToAllRuns { $0.color = rgba }; nodes[i].content = .text(t); changed = true
+                    case .group:
+                        if nodes[i].autoPadding != nil { nodes[i].autoPadding?.fill = paint; changed = true }
+                    default: break
+                    }
+                }
+                if case .group(var kids) = nodes[i].content {
+                    let carry = picked && nodes[i].autoPadding == nil
+                    if visit(&kids, inherited: carry) {
+                        nodes[i].content = .group(children: kids); changed = true
+                    }
+                }
+            }
+            return changed
+        }
+        return visit(&nodes, inherited: false)
     }
 
     // MARK: Components
@@ -13776,7 +13854,7 @@ final class CanvasNSView: NSView {
         let offset = ancestorGroups(of: id).reduce(CGPoint.zero) { CGPoint(x: $0.x+$1.frame.minX,y: $0.y+$1.frame.minY) }
         let frame = selected.frame.offsetBy(dx: offset.x,dy: offset.y)
         let bounds: CGRect
-        if case .path(let path) = selected.content { bounds = ExportRenderView.nsPath(path,origin: frame.origin).bounds }
+        if case .path(let path) = selected.content { bounds = ExportRenderView.nsPath(path,origin: frame.origin).safeBounds }
         else { bounds = frame }
         guard let next = ref.anchored(anchor,source: source,reference: bounds.size,origin: bounds.origin),next != ref else { return }
         var nodes = currentNodes
@@ -14455,6 +14533,7 @@ extension CanvasNSView: NSMenuItemValidation {
              #selector(importXDAction(_:)), #selector(importRenderedHTMLAction(_:)),
              #selector(importCodePenPackageAction(_:)), #selector(importStorybookPackageAction(_:)),
              #selector(importLibraryTokensAction(_:)),
+             #selector(savePackageCopyAction(_:)), #selector(saveLegacyCopyAction(_:)),
              #selector(importFigmaAction(_:)),
              #selector(runGeometryAuditAction(_:)), #selector(saveDiagnosticReportAction(_:)),
              #selector(exportHandoffPackage(_:)), #selector(exportSemanticHTMLAction(_:)),

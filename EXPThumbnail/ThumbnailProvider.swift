@@ -21,8 +21,8 @@ class ThumbnailProvider: QLThumbnailProvider {
     override func provideThumbnail(for request: QLFileThumbnailRequest,
                                    _ handler: @escaping (QLThumbnailReply?, Error?) -> Void) {
         // Decode the document and pick the first artboard to preview.
-        guard let data = try? Data(contentsOf: request.fileURL),
-              let doc = try? JSONDecoder().decode(Document.self, from: data),
+        guard let file = try? FileWrapper(url: request.fileURL),
+              let doc = try? NativeDocumentStorage.read(file),
               let artboard = doc.artboards.first,
               artboard.frame.width > 0, artboard.frame.height > 0 else {
             handler(nil, nil)

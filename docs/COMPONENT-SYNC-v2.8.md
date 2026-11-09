@@ -2,7 +2,12 @@
 
 Owner-selected native v2.8 scope, October 22, 2026; file/format/preview decisions
 October 23. Backlog: FEAT-082 → FEAT-087.
-Planning document only. Nothing here is implemented, and no EXP or Start source was changed.
+**November 9 release disposition:** FEAT-082 token import and the saved-color/
+gradient editing follow-ups are built and owner-accepted. The owner requests
+shipping that tested slice with the crash fixes now. FEAT-083 has a read-only CEM
+reader; document-mutating component contracts, FEAT-084 changesets, FEAT-085 full
+revision refresh and FEAT-087 remain future work. The original broader plan below
+is retained as a plan, not a claim about shipped capabilities.
 
 Companion docs: Start's
 `starttheme/app/public/wp-content/themes/start-2/docs/planning/EXP-INTEGRATION.md`

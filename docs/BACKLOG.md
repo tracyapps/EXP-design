@@ -34,6 +34,36 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 
 ## 🐞 Bugs
 
+### BUG-083 — Rendered HTML import drops all but the first CSS shadow
+- Type: bug
+- Priority: P1 — selected for v2.8 fidelity hardening November 4, 2026
+- Area: import · export · fidelity
+- Status: done — owner accepts the full import-fidelity/visual/export checklist November 9; 10 shadow regressions retained
+- Repro/Detail: Import a painted box with two comma-separated box shadows.
+  `RenderedHTMLImporter.shadowEffects` reports reduction and creates only the
+  first shadow, although Node already supports an effects array. The four-shadow
+  mixed outer/inset fixture loses three effects before save/reopen.
+- Contract: [CSS Backgrounds §6.1](https://www.w3.org/TR/css-backgrounds-3/#shadow-layers)
+  lists shadows front-to-back. EXP's renderer paints array order back-to-front
+  within each shadow kind. Preserve every supported shadow's offsets, blur,
+  spread, color and alpha, reversing order appropriately. No schema bump needed.
+- Evidence: `bash scripts/verify_rendered_html_shadows.sh`: all 10 checks pass.
+  Before the fix, three passed and seven failed on first-only import. Existing
+  rendered-importer and production WebKit checks also pass. Unsupported shadow
+  values are reported rather than guessed into a dark shadow.
+- Component capture: same release now walks open shadow roots and rendered slot
+  assignments/fallback once; WebKit checks nested roots, repeated authored IDs,
+  assigned/fallback text and native button semantics. Closed roots/ElementInternals
+  and cross-root ARIA reconstruction remain explicitly unassessed. Standards
+  checked: [DOM slots](https://dom.spec.whatwg.org/#find-flattened-slottables),
+  [WAI-ARIA 1.2 ID references](https://www.w3.org/TR/wai-aria-1.2/#document-handling_author-errors),
+  [ARIA in HTML](https://www.w3.org/TR/html-aria/). Role-policy mapping is unchanged;
+  raw ARIA values remain source receipts with separate tree-scope provenance.
+- Acceptance: regression suite green; browser/native comparisons establish
+  outer/inset paint order and transparency; save/reopen retains all effects;
+  PNG/SVG/Handoff checks report known approximations accurately, including
+  BUG-055's inset-spread limitation. See `IMPORT-FIDELITY-v2.8.md`.
+
 ### BUG-082 — Feedback rollout incomplete and owner community handle rejected
 - Type: bug
 - Priority: P1 — owner report October 20, 2026
@@ -3449,7 +3479,7 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: feature
 - Priority: owner-selected v2.8 native slice 1, October 22, 2026
 - Area: design language · import/export · model
-- Status: built 2026-10-23; awaiting owner verification (`COMPONENT-SYNC-v2.8.md`)
+- Status: done — built October 23; owner accepts all token and saved-color/gradient editing checks November 9 (`TESTING-v2.8-RELEASE.md`)
 - Detail: Import DTCG tokens with stable ID/path, type, alias, light/dark modes and
   origin revision; show and export source token names; bind layers by token ID.
   Unsupported tokens preserved and marked read-only, never flattened. Free.
@@ -3460,7 +3490,7 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: feature
 - Priority: owner-selected v2.8 native slice 2
 - Area: components · import · model · inspector
-- Status: planned; starts after FEAT-082 owner verification
+- Status: planned follow-up after the v2.8 stability release; FEAT-082 accepted November 9
 - Detail: Custom Elements Manifest elements become `ComponentSource`s with a
   contract (typed props, variants, slots, parts, CSS custom properties; events
   read-only). EXP auto-detects sources and renders previews itself from the
@@ -7725,6 +7755,38 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 ---
 
 ## ⚡ Performance
+
+### PERF-013 — Whole-document saves repeatedly encode unchanged image payloads
+- Type: perf
+- Priority: P1 — early v2.8 storage work selected November 4, 2026
+- Area: model · document I/O · compatibility
+- Status: partial — opt-in package/native checklist owner-accepted November 9; physical-write/CPU measurement and catastrophic recovery qualification remain follow-ups, with no measured performance claim
+- Repro/Detail: `ExpDocument.fileWrapper` encodes the entire Document as
+  pretty-printed JSON on every save. ImageContent.data and preserved bridge
+  resources are inline base64. Current stress document: 414,957,885 bytes;
+  48 data fields carry 346,244,424 base64 bytes (83.4%), 325,531,020 unique.
+  Historical system disk-write diagnostics are a lead, not attribution proof.
+- Direction: prototype a self-contained package with a versioned storage codec,
+  content-addressed assets and reuse of unchanged wrappers. Preserve standalone
+  Document JSON interchange. Do not silently convert existing files on autosave.
+  Storage layout/UTI and migration behavior must be proven before integration.
+- Built: `.designpkg`/`tapps.exp-design.package`, storage envelope 1; separate
+  package and legacy-copy File commands; existing JSON/default saves remain
+  unchanged in format. Data references and SHA-256 assets keep the in-memory and
+  standalone model at schema 6. Unchanged binary FileWrappers are reused. Package
+  limits: model 128 MB, asset 512 MB, total assets 1 GB, 4,096 assets; unsafe,
+  missing/damaged data and unknown required features/version are rejected.
+- Evidence: `verify_native_document_storage.sh` passes codec/disk/move/corruption
+  and actual immutable-v2.7 legacy-consumer checks. No physical-write reduction,
+  native autosave/versions or interruption-recovery claim yet. Owner checklist:
+  `TESTING-v2.8-RELEASE.md` section E.
+- Acceptance: compatibility/recovery matrix in `IMPORT-FIDELITY-v2.8.md`, including
+  legacy reads/writes/export, original-preserving upgrade, thumbnails, undo/Revert,
+  interrupted/denied writes, corruption boundaries and moved/shared documents.
+  Measure encoding time, memory and actual write volume on real image-heavy files;
+  establish asset reuse without loss of fidelity. A size-only test is insufficient.
+- Sources: [Apple FileDocument](https://developer.apple.com/documentation/swiftui/filedocument),
+  [package save guidance](https://developer.apple.com/documentation/swiftui/filedocument/filewrapper(configuration:)).
 
 ### PERF-001 — Large / complex document performance (standing epic)
 - Type: perf

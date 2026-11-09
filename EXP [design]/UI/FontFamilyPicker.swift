@@ -55,6 +55,7 @@ struct FontFamilyPicker: View {
     let onPickSystem: () -> Void
 
     @State private var open = false
+    @State private var window: NSWindow?
     @State private var recentFamilies: [String] = []
     @State private var usedFamilies: Set<String> = []
     @State private var searchText = ""
@@ -190,7 +191,13 @@ struct FontFamilyPicker: View {
     }
 
     var body: some View {
-        Button { open.toggle() } label: {
+        Button {
+            // The typeface dropdown often opens straight out of a focused
+            // font-size field; end editing first so the popover's window
+            // ordering has no field editor to resign (expEndTextEditing).
+            expEndTextEditing(anchor: window)
+            open.toggle()
+        } label: {
             HStack {
                 Text(label).lineLimit(1).truncationMode(.middle)
                 Spacer(minLength: 4)
@@ -205,6 +212,11 @@ struct FontFamilyPicker: View {
         .accessibilityLabel("Typeface")
         .accessibilityValue(label)
         .accessibilityHint("Opens a searchable font list with optional filters.")
+        .background(EXPWindowReader { w in
+            // Guarded: the reader fires on every update; an unguarded @State
+            // write would never let the view quiesce (idle invalidation loop).
+            if window != w { window = w }
+        })
         .popover(isPresented: $open, arrowEdge: .bottom) {
             pickerPopover
                 .expTransientWindowLevel()

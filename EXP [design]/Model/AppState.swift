@@ -544,7 +544,10 @@ final class AppState {
     // MARK: Active tool (session state — not saved)
 
     /// What a click-drag on the canvas does. Defaults to Select.
-    var tool: Tool = .select
+    var tool: Tool = .select {
+        // A different tool means the paint editor's job is over (owner, 2026-10-29).
+        didSet { if tool != oldValue { PaintPopoverActivity.shared.editingContextChanged() } }
+    }
     var knifeSettings = KnifeSettings()
     var knifeLinePreview: KnifeLinePreview?
 
@@ -715,7 +718,12 @@ final class AppState {
 
     /// Which shapes (nodes) are selected. A set, so we support marquee +
     /// shift-click multi-selection. Empty = nothing selected.
-    var selectedNodeIDs: Set<UUID> = []
+    var selectedNodeIDs: Set<UUID> = [] {
+        // Selecting something else — or nothing — closes the paint editor. Editing a
+        // gradient stop or mesh point does NOT change this set, so the editor stays
+        // open for on-canvas handle work.
+        didSet { if selectedNodeIDs != oldValue { PaintPopoverActivity.shared.editingContextChanged() } }
+    }
 
     /// FEAT-050 — a document-window-owned prompt-starter sheet request. Like
     /// selection and panel placement, this is temporary UI state and never enters

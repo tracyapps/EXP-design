@@ -6,6 +6,7 @@ struct MeshPaintControls: View {
     @Binding var selection: UUID?
     var supportsOpacity = true
     var gesture: (Bool) -> Void = { _ in }
+    var showsDesignLanguageLink = true
     private func value(_ id: UUID, _ key: WritableKeyPath<MeshPoint,Double>, range: ClosedRange<Double>) -> Binding<Double> {
         Binding(get: { mesh.points.first { $0.id == id }?[keyPath: key] ?? range.lowerBound },set: { value in
             guard value.isFinite, let i = mesh.points.firstIndex(where: { $0.id == id }) else { return }
@@ -52,7 +53,7 @@ struct MeshPaintControls: View {
     var body: some View {
         VStack(alignment: .leading,spacing: 8) {
             PaintSwatch(paint: .mesh(mesh)).frame(height: 70)
-            ColorWell(label: "Base",color: $mesh.base,supportsOpacity: supportsOpacity,onEditingChanged: gesture)
+            ColorWell(label: "Base",color: $mesh.base,supportsOpacity: supportsOpacity,onEditingChanged: gesture,showsDesignLanguageLink: showsDesignLanguageLink)
             HStack {
                 Text("Color points").font(.caption)
                 Spacer()
@@ -81,7 +82,7 @@ struct MeshPaintControls: View {
             if let id = selection, let i = mesh.points.firstIndex(where: { $0.id == id }) {
                 ColorWell(label: "Point",color: Binding(get: { mesh.points.first { $0.id == id }?.color ?? .white },set: { c in
                     if let index = mesh.points.firstIndex(where: { $0.id == id }) { mesh.points[index].color = c }
-                }),onEditingChanged: gesture)
+                }),onEditingChanged: gesture,showsDesignLanguageLink: showsDesignLanguageLink)
                 field("X",coordinate(id,x: true),suffix: "%")
                 field("Y",coordinate(id,x: false),suffix: "%")
                 field("Radius X",radius(id,y: false),suffix: "%")

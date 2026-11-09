@@ -447,9 +447,10 @@ private struct EXPFieldTipModifier: ViewModifier {
     }
 }
 
-/// Reports the NSWindow hosting this SwiftUI hierarchy (needed to convert the
-/// anchor's rect into screen coordinates and to parent the tip window).
-private struct EXPWindowReader: NSViewRepresentable {
+/// Reports the NSWindow hosting this SwiftUI hierarchy. Used to convert the
+/// anchor's rect into screen coordinates and to parent the tip window; also to
+/// capture the window a popover will present over (see expEndTextEditing).
+struct EXPWindowReader: NSViewRepresentable {
     let onWindow: (NSWindow?) -> Void
     func makeNSView(context: Context) -> NSView {
         let v = NSView(frame: .zero)
@@ -458,6 +459,29 @@ private struct EXPWindowReader: NSViewRepresentable {
     }
     func updateNSView(_ v: NSView, context: Context) {
         DispatchQueue.main.async { [weak v] in onWindow(v?.window) }
+    }
+}
+
+/// Ends text editing in `anchor`'s window — and in the key window, which may be
+/// a still-open popover hosting a focused code field — before a popover is
+/// presented from a click.
+///
+/// CRASH FIX (2026-11-03 17:54, shadow colour wells): SwiftUI presents
+/// `.popover` content as a child window inside its layout pass. If a text
+/// field EDITOR is first responder at that moment, AppKit's popover ordering
+/// (`_setUpFirstResponder` → `_makeParentWindowHaveFirstResponder:`) resigns it
+/// through `-_newFirstResponderAfterResigning` and raises
+/// NSInternalInconsistencyException, quitting the app. Hopping between shadow
+/// swatches with a HEX code field focused hit it. Calling this from the click
+/// that presents the popover — synchronously, where resigning is always legal —
+/// leaves ordering nothing illegal to resign. Only field editors (NSTextView)
+/// are resigned; buttons and sliders keep their focus, so keyboard-only users
+/// lose nothing. Apply at every control that toggles a `.popover` open.
+@MainActor
+func expEndTextEditing(anchor: NSWindow?) {
+    for window in Set([anchor, NSApp.keyWindow].compactMap({ $0 }))
+    where window.firstResponder is NSTextView {
+        window.makeFirstResponder(nil)
     }
 }
 

@@ -18,7 +18,7 @@ import AppKit
 /// version would drop on save. Offer an exact copy of the original first.
 @MainActor
 private func newerVersionWarning(_ notice: NewerVersionNotice, fileURL: URL?,
-                                 original: Data?) {
+                                 original: FileWrapper?) {
     let alert = NSAlert()
     alert.alertStyle = .warning
     let source = notice.writerVersion.map { "EXP \($0)" } ?? "a newer version of EXP"
@@ -31,7 +31,7 @@ private func newerVersionWarning(_ notice: NewerVersionNotice, fileURL: URL?,
     guard alert.runModal() == .alertFirstButtonReturn, let original else { return }
 
     let panel = NSSavePanel()
-    panel.allowedContentTypes = [.expDocument]
+    panel.allowedContentTypes = [original.isDirectory ? .expPackage : .expDocument]
     let base = fileURL?.deletingPathExtension().lastPathComponent ?? "Untitled"
     panel.nameFieldStringValue = "\(base) (original).\(fileURL?.pathExtension.isEmpty == false ? fileURL!.pathExtension : "design")"
     panel.directoryURL = fileURL?.deletingLastPathComponent()
@@ -39,7 +39,7 @@ private func newerVersionWarning(_ notice: NewerVersionNotice, fileURL: URL?,
     panel.prompt = "Keep Copy"
     guard panel.runModal() == .OK, let url = panel.url else { return }
     do {
-        try original.write(to: url, options: [.atomic])
+        try original.write(to: url, options: .atomic, originalContentsURL: nil)
     } catch {
         let failure = NSAlert(error: error)
         failure.messageText = "The copy couldn't be saved"
@@ -450,7 +450,7 @@ struct MainWindow: View {
     private func presentNewerVersionWarning() {
         guard let notice = document.newerVersionNotice else { return }
         document.newerVersionNotice = nil   // once per opened window
-        newerVersionWarning(notice, fileURL: fileURL, original: document.originalFileData)
+        newerVersionWarning(notice, fileURL: fileURL, original: document.originalFileWrapper)
     }
 
     private func activate() {
@@ -2328,7 +2328,7 @@ struct RightPanel: View {
             CGPoint(x: $0.x+$1.frame.minX,y: $0.y+$1.frame.minY)
         }
         let frame = node.frame.offsetBy(dx: offset.x,dy: offset.y)
-        if case .path(let path) = node.content { return ExportRenderView.nsPath(path,origin: frame.origin).bounds }
+        if case .path(let path) = node.content { return ExportRenderView.nsPath(path,origin: frame.origin).safeBounds }
         return frame
     }
 
@@ -5536,7 +5536,7 @@ extension RightPanel {
                     .font(.callout)
                 if ps.closed {
                     PaintWell(label: "Fill", paint: pathFillBinding,
-                              gradientSize: ps.fill.gradientValue?.kind == .radial ? ExportRenderView.nsPath(ps,origin: .zero).bounds.size : selectedNode?.frame.size,patternBounds: selectedPatternBounds,
+                              gradientSize: ps.fill.gradientValue?.kind == .radial ? ExportRenderView.nsPath(ps,origin: .zero).safeBounds.size : selectedNode?.frame.size,patternBounds: selectedPatternBounds,
                               selectedGradientStopID: gradientStopSelection)
                 }
                 Divider()

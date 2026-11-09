@@ -253,9 +253,14 @@ struct PaintEditor: View {
     var gradientSize: CGSize? = nil
     var patternBounds: CGRect? = nil
     var selectedGradientStopID: Binding<UUID?>? = nil
+    var showsDesignLanguageLink = true
+    var editsDraft = false
 
     @State private var localSelectedStopID: UUID?
-    @Environment(\.paintEditSession) private var paintSession
+    @Environment(\.paintEditSession) private var inheritedPaintSession
+    private var paintSession: PaintEditSession {
+        editsDraft ? PaintEditSession() : inheritedPaintSession
+    }
     @Environment(\.patternLibrary) private var patternLibrary
 
     /// FEAT-065b. True once Pattern is chosen but no tile has been picked yet.
@@ -301,11 +306,11 @@ struct PaintEditor: View {
 
             switch mode {
             case .solid:
-                ColorPopover(color: solidBinding, supportsOpacity: supportsOpacity)
+                ColorPopover(color: solidBinding, supportsOpacity: supportsOpacity, showsDesignLanguageLink: showsDesignLanguageLink)
             case .linear, .radial:
                 gradientEditor
             case .mesh:
-                MeshPaintControls(mesh: Binding(get: { paint.meshValue ?? MeshFill(base: .white) },set: { next in guard next != paint.meshValue,(try? next.validate()) != nil else { return }; paintSession.update { paint = .mesh(next) } }),selection: activeSelectedStopID,supportsOpacity: supportsOpacity,gesture: paintSession.gesture)
+                MeshPaintControls(mesh: Binding(get: { paint.meshValue ?? MeshFill(base: .white) },set: { next in guard next != paint.meshValue,(try? next.validate()) != nil else { return }; paintSession.update { paint = .mesh(next) } }),selection: activeSelectedStopID,supportsOpacity: supportsOpacity,gesture: paintSession.gesture,showsDesignLanguageLink: showsDesignLanguageLink)
             case .pattern:
                 patternEditor
             }
@@ -334,7 +339,7 @@ struct PaintEditor: View {
         if let id = activeSelectedStopID.wrappedValue,
            let idx = gradientBinding.wrappedValue.stops.firstIndex(where: { $0.id == id }) {
             HStack(spacing: 8) {
-                ColorWell(label: "Stop", color: stopColorBinding(idx), supportsOpacity: supportsOpacity)
+                ColorWell(label: "Stop", color: stopColorBinding(idx), supportsOpacity: supportsOpacity, showsDesignLanguageLink: showsDesignLanguageLink)
                 Button {
                     deleteStop(id)
                 } label: { Image(systemName: "trash") }
@@ -792,9 +797,13 @@ private extension Array {
 }
 
 
-/// An explicitly dismissed paint editor remains usable while the canvas or a
-/// floating inspector becomes key. SwiftUI's transient popover closes on that
-/// first click. Keep the original SwiftUI environment (library, Undo and type).
+/// A paint editor that stays open while the canvas becomes key, so gradient
+/// stops, angles and mesh points can be dragged ON THE CANVAS with the editor
+/// still showing. SwiftUI's transient popover closes on that first click.
+///
+/// It is not "stay open forever", though — `PaintPopoverActivity` closes it on a
+/// tool change, a selection change, or a click anywhere that is not the editor,
+/// its own swatch, or the canvas (BUG, owner 2026-10-29: "it feels broken").
 private struct PersistentPaintPopover<Content: View>: NSViewRepresentable {
     @Binding var isPresented: Bool
     @ViewBuilder var content: () -> Content
@@ -803,13 +812,31 @@ private struct PersistentPaintPopover<Content: View>: NSViewRepresentable {
     func updateNSView(_ view: NSView,context: Context) {
         context.coordinator.presented = $isPresented
         if isPresented {
-            let root = AnyView(content().environment(\.self,context.environment))
+            // CRASH FIX (2026-10-29, 3 reports: swift_abortRetainUnowned in
+            // KeyViewProxy.nextResponder on a click in a tray window).
+            //
+            // This used to be `.environment(\.self, context.environment)` — the
+            // anchor's WHOLE environment. That includes SwiftUI's private focus
+            // plumbing, which belongs to the TRAY's hosting view. Focusable
+            // controls inside the popover (EXPSegmented sets focus on click) then
+            // registered as the tray window's first responder while living in the
+            // popover's hosting view. Close the popover, that hosting view is
+            // freed, the tray still points at its focus proxy, and the next click
+            // in the tray aborts. Pass ONLY the values the editor reads.
+            let env = context.environment
+            let root = AnyView(content()
+                .environment(\.patternLibrary, env.patternLibrary)
+                .environment(\.paintEditSession, env.paintEditSession)
+                .environment(\.dynamicTypeSize, env.dynamicTypeSize)
+                .environment(\.controlSize, env.controlSize)
+                .environment(\.colorScheme, env.colorScheme))
             context.coordinator.show(root,anchor: view)
         } else { context.coordinator.close() }
     }
     static func dismantleNSView(_ nsView: NSView,coordinator: Coordinator) { coordinator.close() }
     final class Coordinator: NSObject,NSPopoverDelegate {
         private var popover: NSPopover?
+        private weak var anchorWindow: NSWindow?
         var presented: Binding<Bool>?
         func show(_ root: AnyView,anchor: NSView) {
             if let host = popover?.contentViewController as? NSHostingController<AnyView> {
@@ -817,11 +844,19 @@ private struct PersistentPaintPopover<Content: View>: NSViewRepresentable {
                 return
             }
             guard anchor.window != nil else { return }
+            // Same NSPopover ordering path that crashed via SwiftUI's popover
+            // bridge (2026-11-03): presenting while a field editor is first
+            // responder anywhere in the chain resigns it illegally. End text
+            // editing first — see expEndTextEditing.
+            expEndTextEditing(anchor: anchor.window)
             let popup = NSPopover(); popup.behavior = .applicationDefined; popup.delegate = self
             let host = NSHostingController(rootView: root); host.sizingOptions = [.preferredContentSize]
             popup.contentViewController = host
             popover = popup
-            PaintPopoverActivity.shared.open(self,close: { [weak self] in self?.close() })
+            anchorWindow = anchor.window
+            PaintPopoverActivity.shared.open(self, anchor: anchor,
+                                             surface: { [weak popup] in popup?.contentViewController?.view.window },
+                                             close: { [weak self] in self?.close() })
             popup.show(relativeTo: anchor.bounds,of: anchor,preferredEdge: .minX)
             host.view.window?.level = .floating
             host.view.window?.hidesOnDeactivate = true
@@ -833,7 +868,14 @@ private struct PersistentPaintPopover<Content: View>: NSViewRepresentable {
             let popup = popover; popover = nil
             if presented?.wrappedValue == true { presented?.wrappedValue = false }
             PaintPopoverActivity.shared.closed(self)
+            PaintPopoverActivity.releaseFocus(popoverWindow: popup?.contentViewController?.view.window,
+                                              anchorWindow: anchorWindow)
             popup?.close()
+        }
+        func popoverWillClose(_ notification: Notification) {
+            // Any other close path — release focus while the hosting view is alive.
+            PaintPopoverActivity.releaseFocus(popoverWindow: popover?.contentViewController?.view.window,
+                                              anchorWindow: anchorWindow)
         }
         func popoverDidClose(_ notification: Notification) {
             popover = nil; PaintPopoverActivity.shared.closed(self)
@@ -842,10 +884,25 @@ private struct PersistentPaintPopover<Content: View>: NSViewRepresentable {
     }
 }
 
+/// The ONE paint editor that may be open (panel paint popover or the canvas
+/// gradient-stop popover), and the rules for when it closes.
+///
+/// It stays open for the things it exists for: working INSIDE it, dragging
+/// gradient/mesh handles on the canvas, clicking its own swatch (the swatch's
+/// toggle decides). It closes when the editing context is gone: a different
+/// tool, a different selection (which also covers clicking empty canvas or
+/// another element), a click anywhere else in the interface, app deactivation,
+/// or another window/sheet taking over.
 @MainActor final class PaintPopoverActivity: NSObject {
     static let shared = PaintPopoverActivity()
     private weak var active: AnyObject?
     private var closeActive: (() -> Void)?
+    /// The control that opened the editor. A click on it is left to its toggle.
+    private weak var anchor: NSView?
+    /// The editor's own window, so clicks inside it (and anything it presents) keep it.
+    private var surface: (() -> NSWindow?)?
+    private var clickMonitor: Any?
+
     private override init() {
         super.init()
         NotificationCenter.default.addObserver(self,selector: #selector(dismiss),
@@ -853,18 +910,92 @@ private struct PersistentPaintPopover<Content: View>: NSViewRepresentable {
     }
     @objc func dismiss() {
         let close = closeActive
-        active = nil; closeActive = nil
+        reset()
         close?()
     }
     var isVisible: Bool {
         if let popover = active as? NSPopover { return popover.isShown }
         return active != nil
     }
-    func open(_ coordinator: AnyObject,close: @escaping () -> Void) {
+    func open(_ coordinator: AnyObject, anchor: NSView? = nil,
+              surface: (() -> NSWindow?)? = nil, close: @escaping () -> Void) {
         if active !== coordinator { closeActive?() }
         active = coordinator; closeActive = close
+        self.anchor = anchor; self.surface = surface
+        installClickMonitor()
     }
     func closed(_ coordinator: AnyObject) {
-        if active === coordinator { active = nil; closeActive = nil }
+        if active === coordinator { reset() }
+    }
+    /// The active tool or the node selection changed (AppState calls this). The
+    /// thing the editor was editing is no longer the thing in front of the user.
+    func editingContextChanged() {
+        guard active != nil else { return }
+        dismiss()
+    }
+
+    private func reset() {
+        active = nil; closeActive = nil; anchor = nil; surface = nil
+        if let clickMonitor { NSEvent.removeMonitor(clickMonitor) }
+        clickMonitor = nil
+    }
+
+    private func installClickMonitor() {
+        guard clickMonitor == nil else { return }
+        clickMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
+            self?.handleClick(event)
+            return event
+        }
+    }
+
+    private func handleClick(_ event: NSEvent) {
+        guard active != nil else { return }
+        // The canvas stop popover can be closed by its own Done button without
+        // telling us; treat a hidden editor as closed.
+        guard isVisible else { reset(); return }
+        guard let window = event.window else { return }
+        // Inside the editor, or a sub-window it presented (menus, nested popovers).
+        if let editor = surface?(), Self.window(window, isWithin: editor) { return }
+        // Pop-up menus and field tips sit at menu level; they are transient chrome.
+        if window.level.rawValue >= NSWindow.Level.popUpMenu.rawValue { return }
+        // The swatch that opened it — its button toggles the editor itself.
+        if let anchor, anchor.window === window,
+           anchor.convert(anchor.bounds, to: nil).contains(event.locationInWindow) { return }
+        // The canvas: gradient stops, angle and mesh handles are edited there. A
+        // canvas click that changes the selection or tool closes the editor via
+        // `editingContextChanged()`, so clicking empty canvas still closes it.
+        var view = window.contentView?.hitTest(event.locationInWindow)
+        while let v = view {
+            if v is CanvasNSView { return }
+            view = v.superview
+        }
+        dismiss()
+    }
+
+    private static func window(_ window: NSWindow, isWithin editor: NSWindow) -> Bool {
+        var w: NSWindow? = window
+        while let current = w {
+            if current === editor { return true }
+            w = current.parent
+        }
+        return false
+    }
+
+    /// Hand first-responder status back BEFORE a popover's hosting view is freed.
+    ///
+    /// SwiftUI focus proxies hold their hosting view `unowned`. If a window's first
+    /// responder is still one of those proxies when the hosting view goes away, the
+    /// NEXT first-responder change in that window aborts the app (the 2026-10-28
+    /// crashes). Clearing it here, while everything is still alive, is always safe.
+    /// The anchor window is only touched when its first responder is a SwiftUI
+    /// proxy (not a real NSView such as a text field the user is typing in).
+    static func releaseFocus(popoverWindow: NSWindow?, anchorWindow: NSWindow?) {
+        if let w = popoverWindow, let fr = w.firstResponder, fr !== w {
+            w.makeFirstResponder(nil)
+        }
+        if let w = anchorWindow, let fr = w.firstResponder, fr !== w, !(fr is NSView) {
+            w.makeFirstResponder(nil)
+        }
     }
 }

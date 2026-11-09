@@ -737,6 +737,7 @@ struct ComponentStatesBar: View {
     @State private var manageMode = false
     @State private var showingCustomName = false
     @State private var customName = ""
+    @State private var window: NSWindow?
 
     private var source: ComponentSource? { document.model.source(for: sourceID) }
     private var states: [ComponentState] { source?.states ?? [] }
@@ -900,13 +901,25 @@ struct ComponentStatesBar: View {
                 Button(name) { addState(named: name) }
             }
             Divider()
-            Button("Custom…") { customName = ""; showingCustomName = true }
+            Button("Custom…") {
+                // This popover opens from the source editor, where a code
+                // field may still be focused; end editing first so the
+                // popover's window ordering has no field editor to resign
+                // (expEndTextEditing).
+                expEndTextEditing(anchor: window)
+                customName = ""; showingCustomName = true
+            }
         } label: {
             Image(systemName: "plus")
         }
         .fixedSize()
-        .help("Add a state")
+        .help("Add state")
         .accessibilityLabel("Add state")
+        .background(EXPWindowReader { w in
+            // Guarded: the reader fires on every update; an unguarded @State
+            // write would never let the view quiesce (idle invalidation loop).
+            if window != w { window = w }
+        })
         .popover(isPresented: $showingCustomName, arrowEdge: .bottom) {
             HStack(spacing: 8) {
                 TextField("State name", text: $customName)

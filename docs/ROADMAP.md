@@ -1286,7 +1286,7 @@ promote them into release gates.
 
 ---
 
-## v2.8 — development OPEN (2.8 / build 19)
+## v2.8 — release preparation (2.8 / build 19)
 
 Opened October 20, 2026 after owner-confirmed v2.6→v2.7 Sparkle update/relaunch.
 Public v2.7/build 18, its source tag, signed app/ZIP and updater item remain
@@ -1309,6 +1309,36 @@ continues to come from the 2.7 appcast.
 - [ ] FEAT-080: optional native account connection, basic account info and news.
       Future candidates have no selected implementation slice or promised release.
 
+### v2.8 release hardening — owner-selected 2026-11-04
+
+Owner confirms the October 29 crash/paint-editor/eyedropper fixes are verified;
+the November 3 picker fix was already verified. Include the identified import
+fidelity improvements in this release and address necessary file-format upgrades
+early, with compatibility and regression checks, before broader meetup/networking
+promotion over the next one to three releases. Work queue and migration matrix:
+`IMPORT-FIDELITY-v2.8.md`. Later November 4 the owner explicitly authorizes
+implementation now while the combined owner testing starts tomorrow. Proceed
+with these hardening slices without treating FEAT-082 or tonight's changes as
+owner-accepted. **November 9: owner reports the complete checklist and latest
+saved-color/gradient editing pass.** Ship this accepted stability/token/fidelity/
+package slice now, including the crash fixes. FEAT-083–085/087 remain unfinished
+follow-ups, not claims in this release; website/hosted work retains its own gates.
+Release ledger: `RELEASE-CHECKLIST-v2.8.md`.
+
+- [x] Owner acceptance of existing crash, paint-editor and eyedropper repairs.
+- [x] FEAT-082 owner check, including saved color/gradient editing — November 9.
+- [x] BUG-083: multiple CSS shadows, paint order, save/reopen and visual/export
+      checks — owner-accepted November 9; mapper regressions retained.
+- [x] Open-shadow-root/slot capture fidelity with production WebKit fixtures
+      and owner visual/export acceptance November 9.
+- [ ] PERF-013: asset-storage migration with old-format reads/writes, explicit
+      upgrade, legacy export, thumbnail and save/recovery regression coverage.
+      Opt-in .designpkg built; codec/v2.7 compatibility checks pass; native
+      Finder/save/Undo/reopen checklist owner-accepted November 9. Recovery fault
+      evidence and physical-write measurement remain distinct; no speed claim.
+- [ ] Profile pattern-cache misses/admission in real navigation before tuning.
+      Follow-up only: no threshold change or performance claim in this release.
+
 ### v2.8 native scope — component & token sync (owner-selected 2026-10-22)
 
 Code is the source of truth; a web-component library syncs into EXP as real
@@ -1320,12 +1350,12 @@ detection. Pro (later): history, branches/PRs, review/merge tools, roles, rollba
 Sequencing rule applies: owner-verify each slice before the next mutating one.
 
 - [x] Owner selects scope, free/Pro line and generic contract; plan written.
-- [ ] FEAT-082 — library tokens in the Design Language (IDs, aliases, modes).
-      Built 2026-10-23; 17-check script + app/thumbnail builds pass. **Awaiting
-      owner verification** (steps in `COMPONENT-SYNC-v2.8.md`). FEAT-083 waits.
+- [x] FEAT-082 — library tokens in the Design Language (IDs, aliases, modes).
+      Built October 23; owner accepts the complete token checklist and saved
+      color/gradient edits November 9. Full component sync is not yet shipped.
 - [ ] FEAT-083 — CEM components import as EXP components with a contract.
       Read-only manifest reader + check built 2026-10-23; document-mutating part
-      waits for FEAT-082 owner verification.
+      remains a later slice after this accepted stability release.
 - [ ] FEAT-084 — changeset export against the import baseline (Start applies).
 - [ ] FEAT-085 — refresh from a newer library revision.
 - [ ] FEAT-086 — Pro collaboration layer: planned only, not v2.8.
@@ -3574,6 +3604,199 @@ font import → Phase 9, shadows → Phase 10._
 
 ## Progress Log
 
+- **2026-11-09 — Owner accepts v2.8 checklist; stability release authorized [internal].**
+  Owner reports every latest checklist check passes, explicitly including package/
+  token import fidelity, multiple shadows, gradients and saved Design Language
+  color/gradient editing. Recorded acceptance in TESTING-v2.8-RELEASE.md and
+  closed FEAT-082/BUG-083 hands-on gates. Preserve the previously documented
+  Full Keyboard Access environment limitation and distinguish owner reports from
+  automated receipts. Owner asks to release the crash fixes now: shipping scope
+  is the accepted stability/token/fidelity/opt-in-package slice; unfinished
+  FEAT-083–085/087 and unrelated hosted/commercial work remain open follow-ups.
+  Replaced obsolete draft release notes and opened RELEASE-CHECKLIST-v2.8.md.
+  Fresh verification, recovery checks, immutable source/artifact, signing,
+  notarization and publication evidence is recorded there before closure.
+  Fresh release sweep: 14/14 PASS. Ten additional AppKit/production-codec fault
+  checks pass interruption at partial/complete staging, genuine full-disk Save/
+  Autosave, retry and denied writes without changing owner documents. Universal
+  archive, Developer ID export, Apple notarization/stapling, clean ZIP extraction,
+  notices/fonts and independent Sparkle signature pass; all 145 build inputs
+  remain frozen and all five prior updater items are preserved. Final ZIP is
+  12,180,201 bytes, SHA-256 211d0dab4b72a1f6ceddffee237f337b6d3aaf96102c932e6ae95b7e747b310b.
+  Publication and the owner’s actual v2.7→v2.8 updater result remain separate.
+
+- **2026-11-06 — Settings resizing, saved gradients and value clipping repaired [native].**
+  Owner screenshots show the November 5 resize change still failed in use.
+  Replaced the special SwiftUI Settings scene with a regular singleton Window,
+  preserving Command-comma and routing Design Language, Sanaa and Handoff
+  Settings buttons through the same scene. Native UI automation drags the window
+  larger horizontally and vertically and passes the existing detached-panel
+  Settings routing/ordering test. Shared saved-paint editing now drafts a full
+  Paint through the production PaintEditor, exposing solid, linear, radial and
+  Mesh controls. Reset/Cancel discard the full draft and Save commits once.
+  Draft gestures are isolated from the canvas paint-undo session. Nested stop,
+  Mesh base and point pickers hide the separate Save-to-library action in this
+  draft context. Mesh assets are grouped with Gradients, with gradient copy/help
+  behavior, and selectable CSS values are clipped inside the value cell.
+  Native test opens solid/linear/Mesh editors, selects long Mesh CSS and compares
+  Category screenshots before/after selection byte-for-byte. The screenshot
+  was visually inspected. Both native tests pass, as does the Mesh codec,
+  WebKit/native/PDF/SVG/metadata regression suite with explicit grouping checks.
+  Final Debug app/thumbnail build passes. Receipts and screenshots live under
+  output/a11y/design-language-20261106/native/ (results.xcresult, routing.xcresult).
+  TESTING-v2.8-RELEASE.md is updated for the owner rerun.
+
+
+- **2026-11-05 — Saved Design Language color editing and bulk Settings [native].**
+  Owner testing exposed the missing saved-color edit action. Settings swatches
+  open a prefilled draft picker from the swatch or its context menu. The Design
+  Language panel adds Edit Color to its context menu and retains double-click
+  to apply. Reset/Cancel discard draft changes. Save edits the same asset ID
+  in one undo step, preserving token provenance and refresh conflict detection.
+  Imported alias swatches stay read-only. Settings is resizable, with a wider
+  Design Language detail and sortable Name, Value and Category columns. The
+  Value format menu and per-row copy control support HEX, RGB/A, HSL, LCH and
+  OKLCH. Gradients show CSS. Alpha formatting follows
+  [CSS Color 4](https://www.w3.org/TR/css-color-4/#color-syntax).
+  Debug app/thumbnail build and all 18 library token checks pass. A focused
+  formatter probe round-trips a translucent sample in all five formats.
+  FEAT-082 manual checks are updated in TESTING-v2.8-RELEASE.md. Follow up
+  with one row per token and columns for named modes when mode overrides,
+  alias behavior and changeset export can be verified together.
+
+- **2026-11-04 — Import fidelity, opt-in package storage and owner test kit built [native].**
+  Owner explicitly says proceed now while testing starts tomorrow; hardening
+  implementation no longer waits on FEAT-082's owner gate for this session.
+  FEAT-082 and tonight's changes remain unaccepted until reviewed. BUG-083 now
+  imports every supported CSS shadow in correct back-to-front native order,
+  retaining inset/spread/color/alpha; all 10 regressions pass (previously 7 failed).
+  Open shadow roots and composed slot assignments/fallback now capture once,
+  including text-only slots, nested roots and zero-box geometry. Production
+  WebKit checks repeated scoped IDs/UUIDs, native buttons and raw ARIA receipts;
+  no cross-root relationship inference, closed-root access or live behavior claim.
+  Introduced opt-in `.designpkg` (`tapps.exp-design.package`, envelope 1), with
+  checksummed model JSON and deduplicated SHA-256 binary assets. Document remains
+  schema 6; ordinary `.design`/`.exp` and Handoff/clipboard/agent JSON stay
+  self-contained. Shared codec added to app and thumbnail target; File commands
+  save separate package or legacy-JSON copies off the main actor and reject the
+  current source destination. Standard package saves reuse unchanged asset
+  FileWrappers; missing/unsafe/corrupt assets, length/hash mismatches and newer
+  required storage formats/features are refused, including optional bridge data
+  that legacy model decoding would otherwise silently drop. Original-newer-file
+  copies preserve FileWrapper contents/tree rather than re-encoding the model.
+  `scripts/check_release_review.sh` passes all 13 steps: shadow/importer/WebKit,
+  storage including disk/move/failure/corruption and immutable-v2.7 consumer,
+  tokens, manifest, semantic package, effects, SVG token, source bounds, combined
+  app/thumbnail Debug build, whitespace and backlog IDs. Receipts:
+  `output/release-review-checks/run-WyRnWX/`. Build retains actor-isolation warnings
+  under the project's Swift 5 language setting, including the existing Document
+  Codable boundary used by storage; strict Swift 6 conformance is unverified.
+  Final storage review also permits bounded regular Finder `.DS_Store` metadata
+  without confusing it with assets, and distinguishes string-valued connector
+  metadata from typed storage references. Storage/v2.7 checks and app/thumbnail
+  build rerun green after those changes; follow-up receipts are `storage-final.log`
+  and `app-and-thumbnail-final.log` in the same run folder. Built Info.plist
+  confirms 2.8/19, new package UTI and unchanged legacy JSON UTI.
+  Fixture generator produces a valid native review document and package, three
+  visually inspected artboard previews, HTML/shadow/slot reference, 27-token
+  library and newer-file warning copy in `output/release-review/`. Owner checklist
+  `TESTING-v2.8-RELEASE.md` covers earlier accepted repairs as regression checks
+  and pending tokens/import/package/accessibility checks. Native Finder/autosave,
+  versions/interrupted-save/low-disk recovery, visual exports, physical disk-write
+  improvement and owner acceptance remain open. Pattern-cache profiling and the
+  full FEAT-083 component-contract/084 changeset/085 refresh flow remain queued.
+  No release packaging, signing/notarization, publication or version bump done.
+- **2026-11-04 — Owner accepts earlier fixes; release fidelity/storage scope selected [planning/tests].**
+  Owner confirms the October 29 crash/paint-editor/eyedropper fixes are verified
+  and selects the identified import-fidelity improvements for this release.
+  Necessary file-format upgrades should happen early, with compatibility checks
+  and regression tests, ahead of meetup/networking promotion in the next one to
+  three releases. FEAT-082 is explicitly NOT yet owner-verified; keep it pending.
+  Added `IMPORT-FIDELITY-v2.8.md` with the sequential work queue and a storage
+  migration matrix: legacy read/write, explicit separate-copy upgrade, legacy
+  export, shared thumbnail decoding, unchanged interchange, asset reuse, undo,
+  version/recovery, failed writes and corruption boundaries. No shipping format
+  chosen/changed or new production import implementation started across the gate.
+  Prepared `verify_rendered_html_shadows.sh` / `RenderedHTMLShadowCheck.swift`:
+  three baseline checks pass; seven regression checks fail on existing first-only
+  shadow import, including paint order, inset/transparent stacks, report counts
+  and four-shadow save/reopen. CSS order verified against CSS Backgrounds §6.1;
+  see BUG-083. Original rendered-importer suite still passes. Read-only size
+  inventory of the current stress file: 414,957,885 bytes, schema 6, 48 embedded
+  data fields containing 346,244,424 base64 bytes (83.4%); 325,531,020 unique
+  base64 bytes, three repeated copies. This supports prioritizing asset reuse,
+  not just deduplication; it is not a measured autosave write-volume result.
+  Production source untouched this session; existing owner work preserved.
+- **2026-11-04 — Native bug-release triage and fresh verification [review].**
+  Reviewed the existing uncommitted crash/paint-editor/eyedropper repairs; no
+  production source changed in this session. App Debug build succeeds. Fresh
+  `verify_library_token_sync.sh` passes 18 checks; component-manifest synthetic
+  check (16 assertions), rendered-HTML importer, canvas-path geometry and
+  node-tree checks pass. Seven component-library working copies still match
+  their intact controls (file/hash evidence, not an EXP round-trip proof).
+  Temporary two-shadow probe against the production rendered importer confirms
+  that two CSS shadows become one (`RenderedHTMLImporter.shadowEffects` takes
+  only the first). Bounded fidelity candidate: preserve the stack, verify CSS
+  paint order, inset/spread/alpha, save/reopen and exports. Capture also walks
+  ordinary `childNodes` only: open shadow-root / slot composition is a necessary
+  investigation for Web Components/Lit in FEAT-083, not newly implemented here.
+  Pattern-raster pixel checks pass on the current 396 MB stress document. One
+  optimized bitmap run (20 passes) measures direct→cached: warm 8.6→8.9 ms,
+  pan 5.9→8.0 ms, zoom 11.4→54.9 ms, cold revision 6.2→55.3 ms. This differs from
+  the historical fixture (8,070 vs 60,099 estimated tiles); investigate cache
+  admission/miss cost if real navigation stalls recur. These are CPU bitmap
+  timings, not full-app latency or proof of a user-visible regression. Initial
+  benchmark invocation omitted its required document and trapped in the test
+  harness; the correctly supplied run passes. Logs: `/tmp/exp-release-triage-build.log`
+  and `/tmp/exp-release-triage-pattern.log`. Whole-file JSON save encoding remains
+  confirmed; disk-write attribution/asset-storage changes need separate measured
+  work. Release recommendation: finish owner acceptance of October 29 repairs
+  and FEAT-082 first; November 3 picker fix is already owner-verified. Preserve
+  the sequential document-mutation gate. No packaging, publication or release
+  identity change performed.
+- **2026-11-03 — popover/field-editor crash fix; disk-write lead logged [bugs].**
+  Owner crash 17:54 (v2.8 debug build; no .ips because Xcode's debugger was attached —
+  AppKit logged the full exception to the unified log instead): uncaught
+  `NSInternalInconsistencyException`, "NSWindow: -_newFirstResponderAfterResigning is
+  not a valid message outside of a responder's implementation of -resignFirstResponder."
+  Stack: SwiftUI popover bridge → `NSPopover showRelativeToRect` → `addChildWindow` →
+  `_setUpFirstResponder` → `_makeParentWindowHaveFirstResponder:` resigns a focused
+  text-field editor. Trigger: hopping between the six shadow `ColorWell` swatches with
+  a HEX code field focused (count not causal — needs a field editor focused when the
+  next popover orders in). Fix: `expEndTextEditing(anchor:)` (GlassSurface.swift, now
+  internal `EXPWindowReader`) ends field editing synchronously in the presenting click;
+  applied at every popover-presenting control: `ColorWell`, `FontFamilyPicker` (opens
+  straight out of focused font-size fields — same latent crash), `ComponentStatesBar`'s
+  Custom… popover, and `PersistentPaintPopover.show` (same NSPopover API). Only
+  NSTextView responders resign, so keyboard focus on buttons/sliders survives.
+  Window-capture @State writes are guarded (`if window != w`) — unguarded, the reader's
+  every-update callback would ping-pong an idle invalidation loop. Also read the Oct
+  28–29 resource diagnostics: one CPU event (58% avg/2.5 min, pre-fix popover session)
+  and 34.45 GB of file-backed writes over 3.3 h — mechanism identified but NOT fixed:
+  raster images are embedded base64 in the document (Document.swift imageNode), so every
+  NSDocument autosave rewrites the whole file including image bytes. A document-format
+  change (external image sidecars/file wrappers) is the fix; logged as a future
+  optimization candidate, not done unprompted. Debug build clean. **Owner-verified
+  2026-11-04** — built and exercised the repro (shadow picker with the code field
+  focused, then the next shadow's swatch); popovers swap without crashing. Closed.
+- **2026-10-29 — v2.7 crash fixes, paint-editor scope, eyedropper into folders [bugs].**
+  Four crash reports (Oct 28–29). (1) Three identical aborts: `swift_abortRetainUnowned`
+  in `KeyViewProxy.nextResponder` on a click in a tray window. Cause: v2.7's
+  `PersistentPaintPopover` copied the anchor's WHOLE environment (`.environment(\.self,…)`),
+  including SwiftUI's private focus plumbing, so focusable controls in the popover
+  (EXPSegmented focuses on click) became the TRAY's first responder while living in the
+  popover's hosting view; closing the popover freed that view and the next tray click
+  aborted. Now passes only patternLibrary/paintEditSession/dynamicTypeSize/controlSize/
+  colorScheme, and `PaintPopoverActivity.releaseFocus` clears first responders before
+  teardown. (2) One NSGenericException: `NSBezierPath.bounds` on an empty path inside
+  `RightPanel.selectedPatternBounds` (symbolicated with atos). Added
+  `NSBezierPath.safeBounds` (ExportRenderer.swift, shared) and used it at every
+  `nsPath(…).bounds` site. Paint editor scope: closes on tool change, node-selection
+  change (AppState didSet), or a click outside the editor / its swatch / the canvas;
+  canvas clicks keep it so gradient + mesh handles still edit live. Eyedropper `i` now
+  carries into plain folders at any depth (same rules as Paste Appearance). Both
+  schemes build clean. **Owner-verified 2026-11-04** — owner confirms the earlier
+  crash and bug fixes, including paint-editor/eyedropper behavior, are verified.
 - **2026-10-24 — Round-trip fixture component libraries [test tooling].** Owner
   asked for a small library in standard formats with a working copy and a control
   per format, plus a page showing both live with code underneath.

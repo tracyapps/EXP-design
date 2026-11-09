@@ -117,6 +117,12 @@ private final class Page: NSObject, WKNavigationDelegate {
 @main private enum MeshFillCheck {
     @MainActor static func main() async {
         DispatchQueue.global().asyncAfter(deadline: .now() + 90) { fail("mesh fixture timed out") }
+        var library = DesignLanguage()
+        let solidID = library.save(.solid(.black), name: "Solid")
+        let linearID = library.save(.gradient(GradientFill()), name: "Linear")
+        let meshID = library.save(.mesh(.seeded(base: .white)), name: "Mesh")
+        require(library.solids.map(\.id) == [solidID], "Colors contains only the solid from a solid/linear/Mesh library")
+        require(Set(library.gradients.map(\.id)) == Set([linearID, meshID]), "Gradients includes both linear and Mesh paints")
         do { try await checks() } catch { fail("mesh: \(error)") }
     }
     @MainActor static func checkEllipses(_ page: Page) async throws {

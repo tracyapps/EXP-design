@@ -13,7 +13,7 @@ import AppKit
 struct HandoffPanel: View {
     @ObservedObject var document: ExpDocument
     @Environment(AppState.self) private var app
-    @Environment(\.openSettings) private var openSettings
+    @Environment(\.openWindow) private var openWindow
     @State private var bridge = AgentBridgeController.shared
     // Read through @AppStorage rather than SanaaPreferences directly so the access
     // capsule updates the moment the designer changes a switch in Settings.
@@ -82,7 +82,7 @@ struct HandoffPanel: View {
                         .handoffDetail()
                     panelAction("Manage Agent Connections…", icon: "gearshape") {
                         UserDefaults.standard.set("sanaa", forKey: AppPreferences.requestedSettingsPane)
-                        openSettings()
+                        openWindow(id: SettingsWindow.sceneID)
                     }
                     .accessibilityHint("Opens Sanaa and agent connection settings")
                 }

@@ -96,6 +96,7 @@
 				Export/ExportRenderer.swift,
 				Model/AutoLayoutEngine.swift,
 				Model/Document.swift,
+				Model/NativeDocumentStorage.swift,
 				Model/Paint.swift,
 				UI/Typography.swift,
 			);

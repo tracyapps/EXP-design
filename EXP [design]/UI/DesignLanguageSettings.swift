@@ -20,6 +20,7 @@ struct DesignLanguageSettingsPane: View {
     var body: some View {
         if let doc = PanelHub.shared.activeDocument {
             DesignLanguageEditor(document: doc, undoManager: PanelHub.shared.activeUndo)
+                .id(ObjectIdentifier(doc))
         } else {
             VStack(alignment: .leading, spacing: 24) {
                 SettingsGroup("Design Language",
@@ -49,18 +50,42 @@ private struct DesignLanguageEditor: View {
     @State private var showingPaste = false
     @State private var mergeMode: DesignLanguage.MergeMode = .keepBoth
     @State private var draggingCategory: UUID?
+    @State private var editingColor: DesignAsset?
+    @State private var sortColumn: PaintColumn = .category
+    @State private var ascending = true
+    @AppStorage("exp.dl.settingsColorFormat") private var colorFormat: ColorFormat = .hex
+
+    private enum PaintColumn: String {
+        case name = "Name"
+        case value = "Value"
+        case category = "Category"
+    }
 
     private var dl: DesignLanguage { document.model.designLanguage }
 
-    /// Entries ordered by category (in the categories' own order), uncategorized
-    /// last, then by name — a stable reading order for bulk edits.
-    private var orderedAssets: [DesignAsset] {
+    private func valueString(_ asset: DesignAsset) -> String {
+        if case .solid(let color) = asset.value { return ColorMath.string(color, colorFormat) }
+        return DesignLanguageIO.css(for: asset.value)
+    }
+
+    private var orderedAssets: [(asset: DesignAsset, value: String)] {
         let rank = Dictionary(uniqueKeysWithValues: dl.categories.enumerated().map { ($1.id, $0) })
-        return dl.assets.sorted { a, b in
-            let ra = a.categoryID.flatMap { rank[$0] } ?? Int.max
-            let rb = b.categoryID.flatMap { rank[$0] } ?? Int.max
-            if ra != rb { return ra < rb }
-            return a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
+        return dl.assets.map { (asset: $0, value: valueString($0)) }.sorted { a, b in
+            let order: ComparisonResult
+            switch sortColumn {
+            case .name:
+                order = a.asset.name.localizedStandardCompare(b.asset.name)
+            case .value:
+                order = a.value.localizedStandardCompare(b.value)
+            case .category:
+                let ra = a.asset.categoryID.flatMap { rank[$0] } ?? Int.max
+                let rb = b.asset.categoryID.flatMap { rank[$0] } ?? Int.max
+                order = ra == rb ? .orderedSame : (ra < rb ? .orderedAscending : .orderedDescending)
+            }
+            if order == .orderedSame {
+                return a.asset.name.localizedStandardCompare(b.asset.name) == .orderedAscending
+            }
+            return order == (ascending ? .orderedAscending : .orderedDescending)
         }
     }
 
@@ -80,13 +105,16 @@ private struct DesignLanguageEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
-            importExportGroup
+            entriesGroup
             addGroup
             categoriesGroup
-            entriesGroup
+            importExportGroup
             typeStylesGroup
         }
         .sheet(isPresented: $showingPaste) { pasteSheet }
+        .sheet(item: $editingColor) { asset in
+            DLSavedColorEditor(document: document, asset: asset, undoManager: undoManager)
+        }
     }
 
     // MARK: Import / export
@@ -164,17 +192,62 @@ private struct DesignLanguageEditor: View {
             if dl.assets.isEmpty {
                 Text("Nothing saved yet.").foregroundStyle(.secondary)
             } else {
-                ForEach(orderedAssets) { asset in
-                    DLEntryRow(
-                        asset: asset,
-                        categories: dl.categories,
-                        onRename: { name in commit("Rename Swatch") { $0.rename(asset.id, to: name) } },
-                        onSetCategory: { cid in commit("Set Category") { $0.setCategory(asset.id, to: cid) } },
-                        onDelete: { commit("Delete Swatch") { $0.remove(asset.id) } })
-                    Divider().opacity(0.4)
+                let links = document.model.libraryTokenLinks
+                HStack(spacing: 8) {
+                    Color.clear.frame(width: 34, height: 1).accessibilityHidden(true)
+                    sortButton(.name).frame(minWidth: 76, maxWidth: .infinity, alignment: .leading)
+                    HStack(spacing: 4) {
+                        sortButton(.value)
+                        Picker("Color format", selection: $colorFormat) {
+                            ForEach(ColorFormat.allCases) { format in
+                                Text(format == .rgba ? "RGB/A" : format.rawValue).tag(format)
+                            }
+                        }
+                        .labelsHidden()
+                        .accessibilityLabel("Color value format")
+                    }
+                    .frame(minWidth: 145, maxWidth: .infinity, alignment: .leading)
+                    sortButton(.category).frame(width: 96, alignment: .leading)
+                    Color.clear.frame(width: 24, height: 1).accessibilityHidden(true)
+                }
+                Divider()
+                LazyVStack(spacing: 6) {
+                    ForEach(orderedAssets, id: \.asset.id) { entry in
+                        let asset = entry.asset
+                        DLEntryRow(
+                            asset: asset,
+                            categories: dl.categories,
+                            value: entry.value,
+                            isReadOnly: links[asset.id]?.writable == false,
+                            onEdit: { editingColor = asset },
+                            onCopy: { copy(entry.value) },
+                            onRename: { name in commit("Rename Swatch") { $0.rename(asset.id, to: name) } },
+                            onSetCategory: { cid in commit("Set Category") { $0.setCategory(asset.id, to: cid) } },
+                            onDelete: { commit("Delete Swatch") { $0.remove(asset.id) } })
+                        Divider().opacity(0.4)
+                    }
                 }
             }
         }
+    }
+
+    private func sortButton(_ column: PaintColumn) -> some View {
+        Button {
+            if sortColumn == column { ascending.toggle() }
+            else { sortColumn = column; ascending = true }
+        } label: {
+            HStack(spacing: 3) {
+                Text(column.rawValue)
+                if sortColumn == column {
+                    Image(systemName: ascending ? "chevron.up" : "chevron.down")
+                        .accessibilityHidden(true)
+                }
+            }
+            .font(.caption.weight(.semibold))
+        }
+        .buttonStyle(.borderless)
+        .accessibilityLabel("Sort by \(column.rawValue)")
+        .accessibilityValue(sortColumn == column ? (ascending ? "Ascending" : "Descending") : "")
     }
 
     private var typeStylesGroup: some View {
@@ -488,6 +561,10 @@ private struct CategoryDrop: DropDelegate {
 private struct DLEntryRow: View {
     let asset: DesignAsset
     let categories: [DLCategory]
+    let value: String
+    let isReadOnly: Bool
+    let onEdit: () -> Void
+    let onCopy: () -> Void
     let onRename: (String) -> Void
     let onSetCategory: (UUID?) -> Void
     let onDelete: () -> Void
@@ -499,15 +576,58 @@ private struct DLEntryRow: View {
         categories.first { $0.id == asset.categoryID }?.name ?? "Other"
     }
 
+    private var canEdit: Bool {
+        !isReadOnly
+    }
+
+    private var swatch: some View {
+        PaintSwatch(paint: asset.value).frame(width: 30, height: 20)
+    }
+
     var body: some View {
-        HStack(spacing: 10) {
-            PaintSwatch(paint: asset.value).frame(width: 30, height: 20)
+        HStack(spacing: 8) {
+            Group {
+                if canEdit {
+                    Button(action: onEdit) { swatch }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Edit \(asset.name.isEmpty ? "saved color" : asset.name)")
+                        .help(asset.value.savedPaintEditLabel)
+                } else {
+                    swatch
+                        .overlay(alignment: .bottomTrailing) {
+                            if isReadOnly { Image(systemName: "lock.fill").font(.caption2) }
+                        }
+                        .accessibilityLabel(isReadOnly ? "Read-only library color" : "Gradient preview")
+                        .help(isReadOnly ? "Edit the source token this alias points to" : "Gradient preview")
+                }
+            }
+            .frame(width: 34)
+            .contextMenu {
+                if canEdit { Button(asset.value.savedPaintEditLabel, action: onEdit) }
+                Button("Copy Value", action: onCopy)
+            }
             TextField("Name", text: $name)
-                .textFieldStyle(.roundedBorder).frame(maxWidth: 220)
+                .textFieldStyle(.roundedBorder).frame(minWidth: 76, maxWidth: .infinity)
                 .focused($focused)
                 .onSubmit(commit)
                 .onChange(of: focused) { _, f in if !f { commit() } }
-            Spacer(minLength: 8)
+            HStack(spacing: 4) {
+                Text(value)
+                    .font(.system(.caption, design: .monospaced))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+                    .accessibilityIdentifier("dl.value.\(asset.id.uuidString)")
+                    .help(value)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .clipped()
+                Button(action: onCopy) { Image(systemName: "doc.on.doc") }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel("Copy value for \(asset.name.isEmpty ? "unnamed swatch" : asset.name)")
+                    .help("Copy Value")
+            }
+            .frame(minWidth: 145, maxWidth: .infinity, alignment: .leading)
+            .clipped()
             Menu {
                 Button("Other") { onSetCategory(nil) }
                 if !categories.isEmpty { Divider() }
@@ -520,11 +640,16 @@ private struct DLEntryRow: View {
                     }
                 }
             } label: {
-                Text(categoryLabel).frame(minWidth: 84)
+                Text(categoryLabel).lineLimit(1)
             }
-            .fixedSize()
+            .frame(width: 96)
+            .accessibilityLabel("Category")
+            .accessibilityValue(categoryLabel)
+            .accessibilityIdentifier("dl.category.\(asset.id.uuidString)")
             Button(role: .destructive) { onDelete() } label: { Image(systemName: "trash") }
                 .buttonStyle(.borderless)
+                .frame(width: 24)
+                .accessibilityLabel("Delete swatch")
         }
         .onAppear { name = asset.name }
         .onChange(of: asset.name) { _, n in if !focused { name = n } }

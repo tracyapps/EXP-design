@@ -187,14 +187,14 @@ enum ColorMath {
                          : "rgb(\(i255(r)), \(i255(g)), \(i255(b)))"
         case .hsl:
             let (h, s, l) = rgbToHSL(r, g, b)
-            let base = "hsl(\(Int(h.rounded())), \(Int((s * 100).rounded()))%, \(Int((l * 100).rounded()))%"
-            return a < 1 ? base + " / \(d2(a)))" : base + ")"
+            let channels = "\(Int(h.rounded())), \(Int((s * 100).rounded()))%, \(Int((l * 100).rounded()))%"
+            return a < 1 ? "hsla(\(channels), \(d3(a)))" : "hsl(\(channels))"
         case .lch:
             let (l, c, h) = rgbToLCH(r, g, b)
-            return "lch(\(d1(l)) \(d1(c)) \(Int(h.rounded())))"
+            return "lch(\(d1(l)) \(d1(c)) \(Int(h.rounded()))\(a < 1 ? " / " + d3(a) : ""))"
         case .oklch:
             let (l, c, h) = rgbToOKLCH(r, g, b)
-            return "oklch(\(d3(l)) \(d3(c)) \(Int(h.rounded())))"
+            return "oklch(\(d3(l)) \(d3(c)) \(Int(h.rounded()))\(a < 1 ? " / " + d3(a) : ""))"
         }
     }
 

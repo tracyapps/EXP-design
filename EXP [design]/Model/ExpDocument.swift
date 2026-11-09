@@ -7,8 +7,8 @@
 //  deliberately: it's a *class*, so the AppKit canvas can hold one reference and
 //  edit it in place — which is exactly the reference-based spirit of the model.
 //
-//  The file format IS just `Document` encoded to pretty-printed JSON, so it
-//  opens instantly and stays human-readable / diff-able. Extension: ".exp".
+//  Legacy .design/.exp files use self-contained JSON. Opt-in .designpkg files
+//  use NativeDocumentStorage to keep unchanged binary assets out of model saves.
 //
 //  Saving relies on the UndoManager: macOS marks a ReferenceFileDocument as
 //  "edited" (and therefore needing a save) when you register an undo action.
@@ -28,8 +28,11 @@ extension UTType {
     // NOTE: a FRESH identifier (not the old "…document") on purpose — LaunchServices
     // had the old id cached against ".exp" and wouldn't re-point it at ".design".
     // A never-seen id registers clean with ".design".
-    static let expDocument = UTType(exportedAs: "tapps.exp-design.designfile",
+    nonisolated static let expDocument = UTType(exportedAs: "tapps.exp-design.designfile",
                                     conformingTo: .json)
+
+    /// Opt-in native package. Legacy .design/.exp files remain regular JSON.
+    nonisolated static let expPackage = UTType(exportedAs: "tapps.exp-design.package", conformingTo: .package)
 
     /// The system type bound to the legacy ".exp" extension, if any — added to
     /// `readableContentTypes` so the Open panel still lets you open files saved
@@ -47,10 +50,10 @@ final class ExpDocument: ReferenceFileDocument {
 
     /// Set when the opened file came from a newer EXP (see `Document
     /// .newerVersionNotice`). The window shows a one-time "keep a copy" warning;
-    /// `originalFileData` is the untouched file so that copy is exact, not a
-    /// re-save by this older version. Session only; never written.
+    /// `originalFileWrapper` retains the original JSON bytes or package tree;
+    /// keeping a copy does not re-encode it with this version. Session only.
     var newerVersionNotice: NewerVersionNotice?
-    private(set) var originalFileData: Data?
+    private(set) var originalFileWrapper: FileWrapper?
 
     /// The live design data. @Published so SwiftUI + the canvas redraw on change.
     /// `didSet` bumps `resolveGeneration` on EVERY mutation — whether the model is
@@ -73,9 +76,9 @@ final class ExpDocument: ReferenceFileDocument {
     static var readableContentTypes: [UTType] {
         // .pdf is READ-only here: opening a PDF builds a fresh design (each page →
         // an artboard) that then saves as our own .design type.
-        [.expDocument, .pdf] + [UTType.legacyExp].compactMap { $0 }
+        [.expDocument, .expPackage, .pdf] + [UTType.legacyExp].compactMap { $0 }
     }
-    static var writableContentTypes: [UTType] { [.expDocument] }
+    static var writableContentTypes: [UTType] { [.expDocument, .expPackage] }
 
     // MARK: New / Open
 
@@ -84,12 +87,10 @@ final class ExpDocument: ReferenceFileDocument {
     }
 
     init(configuration: ReadConfiguration) throws {
-        guard let data = configuration.file.regularFileContents else {
-            throw CocoaError(.fileReadCorruptFile)
-        }
+        let data = configuration.file.isRegularFile ? configuration.file.regularFileContents : nil
         // Opening a PDF: import each page as an artboard of editable layers instead
         // of decoding our JSON. Untitled, so the first save writes a .design file.
-        if configuration.contentType.conforms(to: .pdf) || data.prefix(5).elementsEqual("%PDF-".utf8) {
+        if let data, configuration.contentType.conforms(to: .pdf) || data.prefix(5).elementsEqual("%PDF-".utf8) {
             guard let pages = PDFImporter.importPages(from: data), !pages.isEmpty else {
                 throw CocoaError(.fileReadCorruptFile)
             }
@@ -101,11 +102,11 @@ final class ExpDocument: ReferenceFileDocument {
             usageOrigin = .pdf
             return
         }
-        var decoded = try JSONDecoder().decode(Document.self, from: data)
+        var decoded = try NativeDocumentStorage.read(configuration.file)
         let runningBuild = (Bundle.main.infoDictionary?["CFBundleVersion"] as? String).flatMap(Int.init)
         if let notice = decoded.newerVersionNotice(runningBuild: runningBuild) {
             newerVersionNotice = notice
-            originalFileData = data
+            originalFileWrapper = configuration.file
         }
         Self.stripBackgroundBlurEffects(&decoded)
         Self.sanitizePDFImages(&decoded)
@@ -182,10 +183,10 @@ final class ExpDocument: ReferenceFileDocument {
     }
 
     nonisolated func fileWrapper(snapshot: Document, configuration: WriteConfiguration) throws -> FileWrapper {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(snapshot)
-        return FileWrapper(regularFileWithContents: data)
+        if configuration.contentType == .expPackage {
+            return try NativeDocumentStorage.package(snapshot, existing: configuration.existingFile)
+        }
+        return FileWrapper(regularFileWithContents: try NativeDocumentStorage.legacyData(snapshot))
     }
 
     // MARK: Undo-aware editing

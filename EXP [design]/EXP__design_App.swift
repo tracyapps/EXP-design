@@ -108,6 +108,10 @@ struct EXP__design_App: App {
 
         }
         .commands {
+            CommandGroup(replacing: .appSettings) {
+                EXPSettingsCommand()
+            }
+
             // WINDOW ▸ appended after the system window list (which shows the
             // document window). Panels section reveals/focuses floating panels
             // (multi-window); dock section toggles the side panels (single-window).
@@ -116,13 +120,13 @@ struct EXP__design_App: App {
             }
         }
 
-        // App-wide Settings (⌘,). The standard SwiftUI `Settings` scene also adds
-        // the "Settings…" item to the app menu for us — one canonical entry point,
-        // app-chrome rather than a canvas action. Built as a full window (sidebar
-        // + detail) so it scales as more user options arrive (see SettingsWindow).
-        Settings {
+        Window("Settings", id: SettingsWindow.sceneID) {
             SettingsWindow()
         }
+        .defaultSize(width: 1000, height: 700)
+        .windowResizability(.contentMinSize)
+        .defaultLaunchBehavior(.suppressed)
+        .restorationBehavior(.disabled)
 
         // A single-purpose learning surface rather than a general browser. The
         // guide owns its search/history UI; EXP supplies only a resizable native
@@ -141,6 +145,15 @@ struct EXP__design_App: App {
         sendCanvasAction(selectorName)
     }
 
+}
+
+private struct EXPSettingsCommand: View {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Button("Settings…") { openWindow(id: SettingsWindow.sceneID) }
+            .keyboardShortcut(",", modifiers: .command)
+    }
 }
 
 private struct ARIARolesGuideCommand: View {
@@ -208,6 +221,11 @@ private struct FileCommandItems: View {
         Button("Import Figma File…") { sendEditorAction("importFigmaAction:") }
             .disabled(menu == nil)
         Button("Show Last Import Report…") { sendEditorAction("showLastImportReportAction:") }
+            .disabled(menu == nil)
+        Divider()
+        Button("Save a Package Copy…") { sendEditorAction("savePackageCopyAction:") }
+            .disabled(menu == nil)
+        Button("Save a Legacy JSON Copy…") { sendEditorAction("saveLegacyCopyAction:") }
             .disabled(menu == nil)
         Divider()
         Button("Export Selected Artboard(s)…") { sendEditorAction("exportSelectedArtboard:") }

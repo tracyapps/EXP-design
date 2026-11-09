@@ -17,6 +17,18 @@
 	<array>
 		<dict>
 			<key>CFBundleTypeName</key>
+			<string>EXP Design Package</string>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>LSHandlerRank</key>
+			<string>Owner</string>
+			<key>LSTypeIsPackage</key>
+			<true/>
+			<key>LSItemContentTypes</key>
+			<array><string>tapps.exp-design.package</string></array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
 			<string>EXP Design Document</string>
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
@@ -33,6 +45,19 @@
 	<string>public.app-category.graphics-design</string>
 	<key>UTExportedTypeDeclarations</key>
 	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>tapps.exp-design.package</string>
+			<key>UTTypeDescription</key>
+			<string>EXP Design Package</string>
+			<key>UTTypeConformsTo</key>
+			<array><string>com.apple.package</string></array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array><string>designpkg</string></array>
+			</dict>
+		</dict>
 		<dict>
 			<key>UTTypeIdentifier</key>
 			<string>tapps.exp-design.designfile</string>

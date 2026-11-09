@@ -15,6 +15,7 @@ struct EXPSettingsWindowPositioner: NSViewRepresentable {
             if let observer { NotificationCenter.default.removeObserver(observer) }
             observer = nil
             guard let window else { return }
+            window.styleMask.insert(.resizable)
             window.identifier = NSUserInterfaceItemIdentifier("exp.settings")
             observer = NotificationCenter.default.addObserver(forName: NSWindow.didBecomeKeyNotification,
                 object: window, queue: .main) { [weak self] _ in

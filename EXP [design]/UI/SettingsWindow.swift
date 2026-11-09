@@ -140,6 +140,7 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
 // MARK: - Window
 
 struct SettingsWindow: View {
+    static let sceneID = "exp-settings"
     // Optional because `List(selection:)` single-selection binds an optional;
     // nil is treated as General so the detail pane is never blank.
     @State private var pane: SettingsPane? = .general
@@ -221,7 +222,7 @@ struct SettingsWindow: View {
                     .padding(.horizontal, 24)
                     .padding(.top, 14)
                     .padding(.bottom, 24)
-                    .frame(maxWidth: 560, alignment: .leading)
+                    .frame(maxWidth: pane == .designLanguage ? .infinity : 560, alignment: .leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }

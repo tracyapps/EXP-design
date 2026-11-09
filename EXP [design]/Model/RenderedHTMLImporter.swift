@@ -49,7 +49,10 @@ nonisolated struct RenderedHTMLElement: Codable, Equatable, Sendable {
     var backgroundAsset: RenderedHTMLAsset? = nil
 
     var dataEXPID: UUID? {
-        attributes["data-exp-id"].flatMap(UUID.init(uuidString:))
+        // Reused component templates can contain the same authored UUID in
+        // independent shadow roots. Keep it in provenance, not as a global node ID.
+        guard attributes["data-exp-tree-scope"] == nil else { return nil }
+        return attributes["data-exp-id"].flatMap(UUID.init(uuidString:))
     }
 
     var displayName: String {
@@ -377,7 +380,17 @@ nonisolated enum RenderedHTMLExtractionScript {
         }
         return null;
       };
-      const directText = el => Array.from(el.childNodes || [])
+      // Follow rendered composition, not both the host's light DOM and its
+      // shadow tree. Slot assignments/fallback are consumed once in place.
+      // https://dom.spec.whatwg.org/#find-flattened-slottables
+      const renderedChildren = el => {
+        if (el.shadowRoot) return Array.from(el.shadowRoot.childNodes);
+        if (el instanceof HTMLSlotElement && el.getRootNode() instanceof ShadowRoot) {
+          return el.assignedNodes({flatten: true});
+        }
+        return Array.from(el.childNodes || []);
+      };
+      const directText = el => renderedChildren(el)
         .map((node, domIndex) => ({node, domIndex}))
         .filter(item => item.node.nodeType === Node.TEXT_NODE && /\S/.test(item.node.nodeValue || ""))
         .map(item => {
@@ -394,7 +407,8 @@ nonisolated enum RenderedHTMLExtractionScript {
         const bounds = sourceBounds || el.getBoundingClientRect();
         let left = bounds.left, top = bounds.top;
         let right = bounds.right, bottom = bounds.bottom;
-        for (let ancestor = el.parentElement; ancestor; ancestor = ancestor.parentElement) {
+        for (let ancestor = el.assignedSlot || el.parentElement || el.getRootNode().host;
+             ancestor; ancestor = ancestor.assignedSlot || ancestor.parentElement || ancestor.getRootNode().host) {
           const cs = getComputedStyle(ancestor);
           const clipX = clipsAxis(cs.overflowX);
           const clipY = clipsAxis(cs.overflowY);
@@ -548,11 +562,19 @@ nonisolated enum RenderedHTMLExtractionScript {
             : [],
           children: [], domIndex: null, renderedAsset: maskAsset};
       };
+      const treeScopes = new WeakMap();
+      let sawCustomElement = false;
+      let sawShadowRoot = false;
       const walk = (el, path, domIndex = null) => {
         nodeCount += 1;
         const children = [];
         let elementIndex = 0;
-        Array.from(el.childNodes || []).forEach((child, childNodeIndex) => {
+        if (el.tagName.includes("-")) sawCustomElement = true;
+        if (el.shadowRoot) {
+          treeScopes.set(el.shadowRoot, `shadow:${path}`);
+          sawShadowRoot = true;
+        }
+        renderedChildren(el).forEach((child, childNodeIndex) => {
           if (child.nodeType !== Node.ELEMENT_NODE) return;
           const childStyle = getComputedStyle(child);
           // The rendered-import boundary does not map display:none/hidden
@@ -573,6 +595,7 @@ nonisolated enum RenderedHTMLExtractionScript {
           if (Number.isFinite(z) && z < 0) children.unshift(snapshot);
           else children.push(snapshot);
         });
+        const textFragments = directText(el);
         const ownBounds = el.getBoundingClientRect();
         let elementRect = rect(ownBounds);
         // `display: contents` and framework portal mounts can have no box of
@@ -583,11 +606,14 @@ nonisolated enum RenderedHTMLExtractionScript {
           const visibleChildren = children.filter(child =>
             child.style.display !== "none" && child.style.visibility !== "hidden"
             && child.rect[1][0] > 0 && child.rect[1][1] > 0);
-          if (visibleChildren.length) {
-            const left = Math.min(...visibleChildren.map(child => child.rect[0][0]));
-            const top = Math.min(...visibleChildren.map(child => child.rect[0][1]));
-            const right = Math.max(...visibleChildren.map(child => child.rect[0][0] + child.rect[1][0]));
-            const bottom = Math.max(...visibleChildren.map(child => child.rect[0][1] + child.rect[1][1]));
+          // Slots/display:contents can have only assigned text and no box.
+          const renderedRects = visibleChildren.map(child => child.rect)
+            .concat(textFragments.flatMap(fragment => fragment.rects));
+          if (renderedRects.length) {
+            const left = Math.min(...renderedRects.map(r => r[0][0]));
+            const top = Math.min(...renderedRects.map(r => r[0][1]));
+            const right = Math.max(...renderedRects.map(r => r[0][0] + r[1][0]));
+            const bottom = Math.max(...renderedRects.map(r => r[0][1] + r[1][1]));
             elementRect = rect({x: left, y: top, width: right - left, height: bottom - top});
           }
         }
@@ -598,6 +624,8 @@ nonisolated enum RenderedHTMLExtractionScript {
         const elementMaskAsset = dataSVGMaskAsset(
           elementStyle, ownBounds.width, ownBounds.height);
         const elementAttributes = attributes(el);
+        const scope = treeScopes.get(el.getRootNode());
+        if (scope) elementAttributes["data-exp-tree-scope"] = scope;
         if (elementMaskImage !== "none") {
           elementAttributes["data-exp-mask-image"] = elementMaskAsset
             ? "editable-data-svg" : "unsupported";
@@ -607,7 +635,7 @@ nonisolated enum RenderedHTMLExtractionScript {
         }
         return {
           tagName: el.tagName.toLowerCase(), path, rect: elementRect,
-          style: style(el), attributes: elementAttributes, textFragments: directText(el),
+          style: style(el), attributes: elementAttributes, textFragments,
           children, domIndex, renderedAsset: renderedAsset(el)
         };
       };
@@ -641,6 +669,8 @@ nonisolated enum RenderedHTMLExtractionScript {
           ? Math.max(maximum, bounds.bottom) : maximum;
       }, 0) : 0;
       const rootSnapshot = walk(body, "0");
+      if (sawShadowRoot) notes.push("Open shadow roots and assigned/fallback slot content were captured as static editable layers. Shadow-scoped IDs and aria-* attributes remain source receipts; cross-root accessibility relationships were not inferred.");
+      if (sawCustomElement) notes.push("Custom elements were captured through their publicly accessible DOM. Closed shadow roots and ElementInternals accessibility data cannot be inspected by this capture.");
       // A shrink-wrapped body can contain a viewport-sized ordinary descendant
       // (Storybook's preview root is one real example). scrollHeight is not a
       // trustworthy rendered bound, but every visible captured rectangle is.
@@ -1257,6 +1287,7 @@ struct RenderedHTMLImporter {
                                   sourcePath: String,
                                   bindings: inout [CodeBridgeBinding]) -> Node {
         let authoredID = element.attributes["data-exp-id"]
+        let treeScope = element.attributes["data-exp-tree-scope"]
         var observed = ["geometry", "visibility", "opacity", "blend-mode"]
         switch node.content {
         case .text:
@@ -1273,6 +1304,8 @@ struct RenderedHTMLImporter {
             "tagName": element.tagName.lowercased(),
             "domPath": element.path
         ]
+        if let treeScope { metadata["sourceTreeScope"] = treeScope }
+        if let sourceID = element.attributes["id"] { metadata["sourceElementID"] = sourceID }
         if let semantics = node.semantics {
             if let role = semantics.role?.rawValue { metadata["expAriaRole"] = role }
             if let authored = semantics.authoredRole { metadata["authoredRole"] = authored }
@@ -1283,8 +1316,8 @@ struct RenderedHTMLImporter {
         bindings.append(CodeBridgeBinding(
             expNodeID: node.id,
             expArtboardID: artboardID,
-            externalID: authoredID ?? element.path,
-            externalKind: authoredID == nil ? "dom-path" : "data-exp-id",
+            externalID: authoredID.map { id in treeScope.map { "\($0):\(id)" } ?? id } ?? element.path,
+            externalKind: authoredID == nil ? "dom-path" : (treeScope == nil ? "data-exp-id" : "shadow-data-exp-id"),
             sourcePath: sourcePath,
             confidence: authoredID == nil ? 0.75 : 1,
             ownership: "source",
@@ -2148,26 +2181,33 @@ struct RenderedHTMLImporter {
     private func shadowEffects(_ raw: String, location: String,
                                report: inout InteropImportReport) -> [Effect] {
         guard raw != "none", !raw.isEmpty else { return [] }
-        let shadows = splitTopLevel(raw)
-        if shadows.count > 1 {
-            report.add(.warning, .approximate, category: "Shadow",
-                       message: "Multiple CSS shadows were reduced to the first editable shadow.",
-                       location: location)
+        // CSS lists front-to-back; canvas/raster/SVG paint back-to-front within
+        // each shadow kind. Reversing the list preserves both outer and inset
+        // stacking without changing the existing document effects contract.
+        // https://www.w3.org/TR/css-backgrounds-3/#shadow-layers
+        return splitTopLevel(raw).reversed().compactMap { shadow in
+            let tokens = shadow.split(whereSeparator: \Character.isWhitespace)
+            let kind: Effect.Kind = tokens.contains("inset") ? .innerShadow : .dropShadow
+            let scrubbed = shadow
+                .replacingOccurrences(of: #"rgba?\([^)]*\)"#, with: "", options: .regularExpression)
+                .replacingOccurrences(of: "inset", with: "")
+            let values = scrubbed.split(whereSeparator: \Character.isWhitespace).compactMap {
+                cssLength(String($0))
+            }
+            guard values.count >= 2, values.count <= 4,
+                  values.allSatisfy({ $0.isFinite }),
+                  values.count < 3 || values[2] >= 0,
+                  let color = cssColor(shadow) else {
+                report.add(.warning, .unsupported, category: "Shadow",
+                           message: "A CSS shadow uses values EXP cannot represent; other supported shadows were retained.",
+                           location: location)
+                return nil
+            }
+            report.mapped("Shadow")
+            return Effect(kind: kind, color: color, dx: values[0], dy: values[1],
+                          blur: values.count > 2 ? values[2] : 0,
+                          spread: values.count > 3 ? values[3] : 0)
         }
-        let first = shadows[0]
-        let kind: Effect.Kind = first.contains("inset") ? .innerShadow : .dropShadow
-        let color = cssColor(first) ?? RGBAColor(r: 0, g: 0, b: 0, a: 0.33)
-        let scrubbed = first
-            .replacingOccurrences(of: #"rgba?\([^)]*\)"#, with: "", options: .regularExpression)
-            .replacingOccurrences(of: "inset", with: "")
-        let values = scrubbed.split(whereSeparator: \Character.isWhitespace).compactMap {
-            cssLength(String($0))
-        }
-        guard values.count >= 2 else { return [] }
-        report.mapped("Shadow")
-        return [Effect(kind: kind, color: color, dx: values[0], dy: values[1],
-                       blur: values.count > 2 ? values[2] : 0,
-                       spread: values.count > 3 ? values[3] : 0)]
     }
 
     private func textRole(_ rawTag: String) -> TextContentRole {

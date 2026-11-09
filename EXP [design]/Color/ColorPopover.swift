@@ -66,14 +66,22 @@ struct ColorWell: View {
     @Binding var color: RGBAColor
     var supportsOpacity: Bool = true
     var onEditingChanged: ((Bool) -> Void)? = nil
+    var showsDesignLanguageLink = true
 
     @State private var showing = false
+    @State private var window: NSWindow?
 
     var body: some View {
         HStack(spacing: 8) {
             Text(label).font(.callout)
             Spacer(minLength: 8)
-            Button { showing.toggle() } label: {
+            Button {
+                // End editing (this window's field, or the previous popover's
+                // code field while it is still key) BEFORE the popover orders
+                // in — see expEndTextEditing for the crash this prevents.
+                expEndTextEditing(anchor: window)
+                showing.toggle()
+            } label: {
                 SwatchView(color: color)
                     .frame(width: 40, height: 18)
             }
@@ -81,12 +89,17 @@ struct ColorWell: View {
             .help("Edit \(label.lowercased())")
             .accessibilityLabel(Text(label.isEmpty ? "Edit color" : "Edit \(label) color"))
             .popover(isPresented: $showing, arrowEdge: .leading) {
-                ColorPopover(color: $color, supportsOpacity: supportsOpacity)
+                ColorPopover(color: $color, supportsOpacity: supportsOpacity, showsDesignLanguageLink: showsDesignLanguageLink)
                     .frame(width: 244)
                     .padding(12)
                     .expPaintWindowLevel()
             }
         }
+        .background(EXPWindowReader { w in
+            // Guarded: the reader fires on every update; an unguarded @State
+            // write would never let the view quiesce (idle invalidation loop).
+            if window != w { window = w }
+        })
         .onChange(of: showing) { _, open in onEditingChanged?(open) }
         .onDisappear { if showing { onEditingChanged?(false) } }
     }
@@ -115,6 +128,7 @@ enum PickerModel: String, CaseIterable, Identifiable {
 struct ColorPopover: View {
     @Binding var color: RGBAColor
     var supportsOpacity: Bool
+    var showsDesignLanguageLink = true
 
     // Authoring model + its per-model channel state. Each set is (re)loaded from
     // `color` on appear and on model switch, so no two representations drift.
@@ -187,7 +201,7 @@ struct ColorPopover: View {
                     .buttonStyle(.borderless)
                     .help("Eyedropper")
                 Spacer(minLength: 6)
-                designLanguageLink
+                if showsDesignLanguageLink { designLanguageLink }
             }
         }
         .onAppear { loadFromColor(); installKeyMonitor(); refreshDLMatch() }
