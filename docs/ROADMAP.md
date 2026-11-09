@@ -1286,12 +1286,14 @@ promote them into release gates.
 
 ---
 
-## v2.8 — release preparation (2.8 / build 19)
+## v2.8 — published; installed update proof pending (2.8 / build 19)
 
 Opened October 20, 2026 after owner-confirmed v2.6→v2.7 Sparkle update/relaunch.
 Public v2.7/build 18, its source tag, signed app/ZIP and updater item remain
-immutable. App/thumbnail/runtime configurations use 2.8/19; website public version
-continues to come from the 2.7 appcast.
+immutable. App/thumbnail/runtime configurations use 2.8/19. November 9: v2.8 is
+published; live feed/notes/site and the notarized ZIP are verified. The owner’s
+actual v2.7→v2.8 Sparkle update/relaunch remains the final closure gate; keep the
+current version until it is recorded. `RELEASE-CHECKLIST-v2.8.md` is authoritative.
 
 - [x] Open the next development identity and preserve published v2.7 artifacts.
 - [x] Owner selects FEAT-077: account-first website, private feedback/features,
@@ -3623,7 +3625,12 @@ font import → Phase 9, shadows → Phase 10._
   notices/fonts and independent Sparkle signature pass; all 145 build inputs
   remain frozen and all five prior updater items are preserved. Final ZIP is
   12,180,201 bytes, SHA-256 211d0dab4b72a1f6ceddffee237f337b6d3aaf96102c932e6ae95b7e747b310b.
-  Publication and the owner’s actual v2.7→v2.8 updater result remain separate.
+  **Published November 9:** source/tag v2.8 = 17c38ba; both CLI and public HTTP
+  release downloads match the immutable ZIP. Production deployment
+  dpl_82B6soHSDk9uYEMK2ediCgbumfAu is READY; live feed/HTML notes match approved
+  bytes and the website advertises 2.8. Owner’s actual v2.7→v2.8 updater
+  result remains the only native release closure gate. Keep 2.8/19 until then;
+  do not silently mark the release complete or start another mutating slice.
 
 - **2026-11-06 — Settings resizing, saved gradients and value clipping repaired [native].**
   Owner screenshots show the November 5 resize change still failed in use.

@@ -1,4 +1,9 @@
-# EXP [design] v2.8 / build 19 — release ledger
+# EXP [design] v2.8 / build 19 — published; installed update proof pending
+
+**Published November 9, 2026.** Notarized release ZIP, GitHub source tag,
+production Sparkle feed, HTML notes and website version are verified live.
+Only the owner’s actual v2.7→v2.8 update/install/relaunch gate below remains open;
+keep development at 2.8/19 until that result is recorded.
 
 Opened November 9, 2026. The owner accepts the complete latest native test
 checklist and saved Design Language color/gradient editing, and requests release
@@ -38,7 +43,10 @@ with the crash fixes. Public v2.7 and older artifacts remain immutable.
   SwiftUI package workflow is covered by the owner’s accepted section E.
   [Apple’s safe-writing contract](https://developer.apple.com/documentation/appkit/nsdocument/writesafely(to:oftype:for:))
   informed the probe. No unresolved failure remains in these bounded checks.
-- [ ] Frozen source commit and packaged build-input hashes match.
+- [x] Frozen source commit `17c38baa3fcb2a757cfe033ff91d87122dcb6577` and tag
+  `v2.8` match all 145 packaged build-input SHA-256 records. The tag remains
+  anchored to this exact source; later documentation receipts may follow on main.
+  Durable `source-commit.txt` and `source-build-inputs.json`.
 - [x] Final release metadata/website build and whitespace/backlog checks pass.
   `website-final-build.log`: public version 2.8, 52 modules built; gated feature
   summaries advertise only accepted capabilities after the feed advances.
@@ -77,11 +85,18 @@ legacy JSON remains the default. Pattern-cache tuning is unchanged and deferred.
   semantically unchanged. Receipts: `sparkle-independent-signature.txt` and
   `publication-metadata.json`. Isolated feed staging avoids the stale local
   sparkle-releases folder, which lacked v2.7.
-- [ ] Source commit/tag and GitHub release point to the packaged source;
-  independently downloaded release ZIP matches the immutable artifact.
-- [ ] Production feed and release notes match verified local bytes; website
-  advertises 2.8 only after the download is available. Existing account service
-  configuration is unchanged.
+- [x] Source commit/tag and public GitHub release point to the packaged source.
+  [v2.8 release](https://github.com/tracyapps/EXP-design/releases/tag/v2.8).
+  Both authenticated CLI and unauthenticated public HTTP downloads match the
+  immutable ZIP bytes/length/SHA-256. `github-release.json` and
+  `published-download-verification.txt` retain receipts. Main fast-forwards to
+  the source commit after the asset is available, triggering production deployment.
+- [x] Production deployment `dpl_82B6soHSDk9uYEMK2ediCgbumfAu` is READY from
+  release commit `17c38ba`, with expdesign.app assigned. Public feed and HTML
+  notes match local approved bytes; the live site JS advertises **2.8** (feed build 19).
+  `production-deployment.json` and `public-site-verification.json` retain proof.
+  Download was available and hash-verified before the feed/main push. Existing
+  hosted account service code/configuration and feature enablement are unchanged.
 - [ ] Owner completes actual v2.7 → v2.8 Sparkle update/install/relaunch and
   confirms About 2.8/19, preferences/recent documents, document editing/save and
   normal account-free use. This gate requires the owner’s installed-app result.

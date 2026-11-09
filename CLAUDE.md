@@ -133,11 +133,13 @@ Owner confirms the live v2.6→v2.7 Sparkle update on their Mac. Installed app
 reads 2.7/18 and passes production release checks; live feed/notes match the
 verified package and website advertises 2.7. Receipts:
 `docs/RELEASE-CHECKLIST-v2.7.md` and `../releases/v2.7/receipts/closure/`.
-**v2.8/build 19 release preparation is authorized (November 9).** Owner accepts
+**v2.8/build 19 is published (November 9); installed update proof is pending.** Owner accepts
 all of `docs/TESTING-v2.8-RELEASE.md`, including package/token import fidelity,
 multiple shadows and saved color/gradient editing. For distribution status and
 remaining installed-app proof, read `docs/RELEASE-CHECKLIST-v2.8.md` before
-packaging, publishing or changing the development version. The shipping slice is
+packaging, publishing or changing the development version. Public ZIP/feed/notes/
+website are verified; keep 2.8/19 until the owner confirms the real v2.7→v2.8
+Sparkle update/relaunch. The shipping slice is
 stability/crash fixes, FEAT-082, import fidelity and opt-in `.designpkg` storage;
 FEAT-083–085/087 remain later work. App, thumbnail and runtimes remain 2.8/19.
 Immutable v2.7 and older releases remain unchanged. Owner selected FEAT-077's
