@@ -95,7 +95,7 @@ struct DesignLanguagePanel: View {
     }
 
     @ViewBuilder private var content: some View {
-        if dl.assets.isEmpty && dl.typeStyles.isEmpty && dl.recents.isEmpty {
+        if dl.assets.isEmpty && dl.typeStyles.isEmpty && dl.recents.isEmpty && dl.tokens.isEmpty {
             emptyState
         } else {
             ScrollView {
@@ -103,6 +103,7 @@ struct DesignLanguagePanel: View {
                     typeSection("Colors", dl.solids)
                     typeSection("Gradients", dl.gradients)
                     typeStylesSection
+                    DLSpacingSection(document: document)
                     libraryTokensSection
                     recentsSection
                 }
@@ -223,11 +224,26 @@ struct DesignLanguagePanel: View {
                     Image(systemName: "swatchpalette")
                         .font(.system(size: 26)).foregroundStyle(EXPColor.textTertiary)
                         .accessibilityHidden(true)
-                    Text("No saved colors yet").font(.expLabel).foregroundStyle(EXPColor.textSecondary)
-                    Text("Select a shape and press Add to save its fill. Colors you apply from here also collect under Recents.")
+                    Text("Nothing saved yet").font(.expLabel).foregroundStyle(EXPColor.textSecondary)
+                    Text("Add a color, a type style or a spacing token. Colors you apply from here also collect under Recents.")
                         .font(.system(size: EXPType.mini)).foregroundStyle(EXPColor.textTertiary)
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
+                    Menu {
+                        Button("Color…") { addNewColor() }
+                        Button("Type Style from Selected Text…") { saveTypeStyleFromSelection() }
+                            .disabled(selectedTextContent == nil)
+                        Button("Spacing Token…") { _ = sendCanvasAction("newSpacingTokenAction:") }
+                        Divider()
+                        Button("Everything in the Selection") { saveFromSelection() }
+                            .disabled(addableSelectionFills.isEmpty && addableSelectionTypeStyles.isEmpty)
+                    } label: {
+                        Label("Add New", systemImage: "plus")
+                    }
+                    .menuStyle(.button)
+                    .fixedSize()
+                    .help("Add a color, a type style or a spacing token")
+                    .accessibilityLabel("Add new")
                 }
                 .frame(maxWidth: .infinity)
                 .padding(16)
@@ -957,6 +973,16 @@ struct DesignLanguagePanel: View {
             for fill in fills { dl.save(fill, provenance: "selection") }
             for style in styles { dl.saveTypeStyle(style) }
         }
+    }
+
+    /// Add a neutral color and open it in the saved-color editor straight away.
+    /// The color is saved first (one undo step) so the editor has something real
+    /// to edit; cancelling the editor leaves the neutral swatch, and Undo removes it.
+    private func addNewColor() {
+        let asset = DesignAsset(name: "", value: .solid(RGBAColor(r: 0.55, g: 0.55, b: 0.6, a: 1)),
+                                provenance: "panel")
+        commit("New Color") { $0.add(asset) }
+        editingColor = asset
     }
 
     private func duplicate(_ asset: DesignAsset) {

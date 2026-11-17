@@ -344,6 +344,8 @@ private struct ObjectCommandItems: View {
             Button(menu?.autoPaddingTitle ?? "Add Auto Padding") { sendEditorAction("toggleAutoPaddingAction:") }
                 .keyboardShortcut("p", modifiers: [.command, .option])
                 .disabled(menu?.canAutoPadding != true)
+            Button("New Spacing Token…") { sendEditorAction("newSpacingTokenAction:") }
+                .disabled(menu == nil)
             Divider()
             Button("Move Item Forward") { sendEditorAction("nudgeItemForwardAction:") }
                 .keyboardShortcut("]", modifiers: [.command, .option])

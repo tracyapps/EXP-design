@@ -2581,7 +2581,125 @@ struct RightPanel: View {
     }
     private var alGapBinding: Binding<Double> {
         Binding(get: { Double(selectedAutoLayout?.gap ?? 0) },
-                set: { v in mutateAL("Layout Gap") { $0.gap = Swift.max(0, CGFloat(v)) } })
+                set: { v in commitSpacingNumber(v, key: TokenBindingKey.gap, action: "Layout Gap") })
+    }
+
+    // MARK: Spacing tokens on gap / padding / margin (FEAT-089b)
+    // Interaction contract: docs/DESIGN-LANGUAGE-v2.9.md (select → link, token
+    // edit → update, different number → detach that field only).
+
+    /// Where the selected layer resolves tokens: its artboard's modes and size,
+    /// or the document's modes when it isn't on an artboard (wall, source editor).
+    private var spacingTokenContext: DLResolveContext {
+        let model = document.model
+        let language = model.designLanguage
+        var boardID = selectedNode?.artboardID
+        if boardID == nil, let id = app.singleSelectedNodeID {
+            boardID = indexedNodes.ancestorGroups(of: id).compactMap(\.artboardID).first
+        }
+        if let boardID {
+            for page in model.pages {
+                if let board = page.artboards.first(where: { $0.id == boardID }) {
+                    return DLResolveContext(modeIDs: language.activeModeIDs(overrides: board.modeOverrides),
+                                            viewport: board.frame.size)
+                }
+            }
+        }
+        return DLResolveContext(modeIDs: language.activeModeIDs)
+    }
+
+    /// The spacing tokens offered to the selected layer, built ONCE per render
+    /// of a control group and shared by its fields. Empty when the document has
+    /// no spacing tokens, which keeps every field exactly as it was.
+    private func spacingTokenChoices() -> [EXPTokenChoice] {
+        let language = document.model.designLanguage
+        let tokens = language.tokens(role: .spacing)
+        guard !tokens.isEmpty else { return [] }
+        let context = spacingTokenContext
+        return tokens.map { token in
+            let resolved = language.resolvedNumber(token.id, context: context)
+            var text = token.value.aliasTarget != nil ? "alias" : token.value.authoredText
+            if text.isEmpty { text = "preserved value" }
+            if let resolved {
+                let number = resolved == resolved.rounded()
+                    ? String(Int(resolved)) : String(format: "%.2f", Double(resolved))
+                if text != number && text != number + "px" { text += " · " + number }
+            }
+            return EXPTokenChoice(id: token.id, name: token.name, group: token.group,
+                                  valueText: text, resolved: resolved)
+        }
+    }
+
+    private func spacingLinkState(_ key: String) -> (state: EXPTokenLinkState, id: UUID?) {
+        guard let id = selectedNode?.boundTokenID(key) else { return (.unlinked, nil) }
+        guard let token = document.model.designLanguage.token(id) else { return (.missing, id) }
+        return (.linked(token.name.isEmpty ? "Unnamed" : token.name), id)
+    }
+
+    /// The token button for one field, or nil when there is nothing to offer
+    /// (no spacing tokens and the field isn't linked).
+    private func spacingTokenButton(_ key: String, fieldName: String,
+                                    choices: [EXPTokenChoice]) -> EXPTokenButton? {
+        let link = spacingLinkState(key)
+        guard !choices.isEmpty || link.state != .unlinked else { return nil }
+        return EXPTokenButton(fieldName: fieldName, state: link.state, linkedID: link.id,
+                              choices: choices,
+                              currentValue: Double(selectedNode?.numericValue(forBindingKey: key) ?? 0),
+                              onSelect: { tokenID in setSpacingToken(key, to: tokenID, choices: choices) })
+    }
+
+    /// Link a field to a token (writing the token's resolved number), or clear
+    /// the link (keeping the number). One undo step either way.
+    private func setSpacingToken(_ key: String, to tokenID: UUID?, choices: [EXPTokenChoice]) {
+        guard let id = app.singleSelectedNodeID else { return }
+        let value = tokenID.flatMap { wanted in choices.first { $0.id == wanted }?.resolved }
+        if tokenID != nil, value == nil { return }      // can't be measured here
+        mutateScopedNode(id, action: tokenID == nil ? "Unlink Spacing Token" : "Link Spacing Token") { node in
+            node.setTokenBinding(key, to: tokenID)
+            if let value { node.setNumericValue(value, forBindingKey: key) }
+        }
+    }
+
+    /// A number committed in a gap/padding/margin field. Committing a DIFFERENT
+    /// number detaches that one field from its token; committing the same value
+    /// (including the rounded figure the field displays for a fractional token)
+    /// changes nothing and keeps the link.
+    private func commitSpacingNumber(_ v: Double, key: String, action: String) {
+        guard let id = app.singleSelectedNodeID, let node = selectedNode,
+              let current = node.numericValue(forBindingKey: key) else { return }
+        let new = Swift.max(0, CGFloat(v))
+        let linked = node.boundTokenID(key) != nil
+        if linked, new == current.rounded(), abs(new - current) < 0.5 { return }
+        guard abs(new - current) > 0.0001 else { return }
+        mutateScopedNode(id, action: action) { node in
+            node.setNumericValue(new, forBindingKey: key)
+            if linked { node.setTokenBinding(key, to: nil) }
+        }
+    }
+
+    /// Chips naming the tokens a group of fields is linked to. Fields sharing a
+    /// token collapse into one chip ("T, B · space / sm").
+    @ViewBuilder
+    private func spacingChips(_ fields: [(key: String, short: String)]) -> some View {
+        let language = document.model.designLanguage
+        let linked: [(short: String, id: UUID)] = fields.compactMap { field in
+            selectedNode?.boundTokenID(field.key).map { (short: field.short, id: $0) }
+        }
+        if !linked.isEmpty {
+            let ids = linked.map(\.id).reduce(into: [UUID]()) { if !$0.contains($1) { $0.append($1) } }
+            FlowLayout(spacing: 4, lineSpacing: 4) {
+                ForEach(ids, id: \.self) { tokenID in
+                    let sides = linked.filter { $0.id == tokenID }.map(\.short)
+                    let prefix = (fields.count > 1 && sides.count < fields.count)
+                        ? sides.joined(separator: ", ") + " · " : ""
+                    if let token = language.token(tokenID) {
+                        EXPTokenChip(text: prefix + (token.name.isEmpty ? "Unnamed" : token.name))
+                    } else {
+                        EXPTokenChip(text: prefix + "Missing token", missing: true)
+                    }
+                }
+            }
+        }
     }
     private var alCrossBinding: Binding<AutoLayout.Align> {
         Binding(get: { selectedAutoLayout?.cross ?? .center },
@@ -2612,6 +2730,9 @@ struct RightPanel: View {
                     HStack(spacing: 6) { autoLayoutSpacingMode; autoLayoutGap }
                     VStack(alignment: .leading, spacing: 6) { autoLayoutSpacingMode; autoLayoutGap }
                 }
+                if al.distribution == .packed {
+                    spacingChips([(key: TokenBindingKey.gap, short: "Gap")])
+                }
 
                 HStack(spacing: 6) {
                     Text("Align").foregroundStyle(EXPColor.textSecondary)
@@ -2638,11 +2759,22 @@ struct RightPanel: View {
 
     @ViewBuilder private var autoLayoutGap: some View {
         if selectedAutoLayout?.distribution == .packed {
-            TextField("Auto layout gap", value: alGapBinding, format: .number.precision(.fractionLength(0)))
-                .labelsHidden().textFieldStyle(.exp)
-                .multilineTextAlignment(.trailing).monospacedDigit()
-                .frame(width: 52 * EXPType.scale).numericStepping(alGapBinding, min: 0)
-                .accessibilityLabel("Gap between items")
+            let token = spacingTokenButton(TokenBindingKey.gap, fieldName: "Gap",
+                                           choices: spacingTokenChoices())
+            HStack(spacing: 1) {
+                TextField("Auto layout gap", value: alGapBinding, format: .number.precision(.fractionLength(0)))
+                    .labelsHidden().textFieldStyle(.exp)
+                    .multilineTextAlignment(.trailing).monospacedDigit()
+                    .frame(width: 52 * EXPType.scale).numericStepping(alGapBinding, min: 0)
+                    .accessibilityLabel({
+                        switch token?.state {
+                        case .linked(let name)?: return "Gap between items, linked to \(name)"
+                        case .missing?: return "Gap between items, linked to a missing token"
+                        default: return "Gap between items"
+                        }
+                    }())
+                if let token { token }
+            }
         }
     }
 
@@ -2670,9 +2802,9 @@ struct RightPanel: View {
                 }
             })
     }
-    private func apPadBinding(_ kp: WritableKeyPath<AutoPadding, CGFloat>) -> Binding<Double> {
+    private func apPadBinding(_ kp: WritableKeyPath<AutoPadding, CGFloat>, key: String) -> Binding<Double> {
         Binding(get: { Double(selectedAutoPadding?[keyPath: kp] ?? 0) },
-                set: { v in mutateAP("Padding") { $0[keyPath: kp] = Swift.max(0, CGFloat(v)) } })
+                set: { v in commitSpacingNumber(v, key: key, action: "Padding") })
     }
     private var apFillBinding: Binding<Paint> {
         Binding(get: { selectedAutoPadding?.fill ?? .clear },
@@ -2714,9 +2846,11 @@ struct RightPanel: View {
                 Text("Padding").font(.expLabel).foregroundStyle(EXPColor.textSecondary)
                     .help("Space between the content and background")
                 apInsets(margin: false)
+                spacingChips(Self.spacingEdgeFields(margin: false))
                 Text("Margin").font(.expLabel).foregroundStyle(EXPColor.textSecondary)
                     .help("Space outside the background")
                 apInsets(margin: true)
+                spacingChips(Self.spacingEdgeFields(margin: true))
                 PaintWell(label: "Fill", paint: apFillBinding,
                           gradientSize: selectedNode?.frame.size,patternBounds: selectedPatternBounds,
                           selectedGradientStopID: gradientStopSelection)
@@ -2758,28 +2892,48 @@ struct RightPanel: View {
         .padding(.bottom, 8)
     }
 
+    private static func spacingEdgeFields(margin: Bool) -> [(key: String, short: String)] {
+        let keys = margin ? TokenBindingKey.margin : TokenBindingKey.padding
+        return zip(keys, ["T", "R", "B", "L"]).map { (key: $0, short: $1) }
+    }
+
     @ViewBuilder
     private func apInsets(margin: Bool) -> some View {
+        let choices = spacingTokenChoices()
         ViewThatFits(in: .horizontal) {
-            HStack(spacing: 2) { apInsetPair(first: true, margin: margin); apInsetPair(first: false, margin: margin) }
-            VStack(spacing: 4) { apInsetPair(first: true, margin: margin); apInsetPair(first: false, margin: margin) }
+            HStack(spacing: 2) {
+                apInsetPair(first: true, margin: margin, choices: choices)
+                apInsetPair(first: false, margin: margin, choices: choices)
+            }
+            VStack(spacing: 4) {
+                apInsetPair(first: true, margin: margin, choices: choices)
+                apInsetPair(first: false, margin: margin, choices: choices)
+            }
         }
     }
 
-    private func apInsetPair(first: Bool, margin: Bool) -> some View {
-        HStack(spacing: 2) {
+    private func apInsetPair(first: Bool, margin: Bool, choices: [EXPTokenChoice]) -> some View {
+        let kind = margin ? "margin" : "padding"
+        return HStack(spacing: 2) {
             if first {
-                EXPEdgeField(name: margin ? "Top margin" : "Top padding", edge: .top,
-                             value: apPadBinding(margin ? \.marginTop : \.paddingTop))
-                EXPEdgeField(name: margin ? "Right margin" : "Right padding", edge: .right,
-                             value: apPadBinding(margin ? \.marginRight : \.paddingRight))
+                apEdgeField("Top \(kind)", .top, margin ? \.marginTop : \.paddingTop,
+                            margin ? TokenBindingKey.marginTop : TokenBindingKey.paddingTop, choices)
+                apEdgeField("Right \(kind)", .right, margin ? \.marginRight : \.paddingRight,
+                            margin ? TokenBindingKey.marginRight : TokenBindingKey.paddingRight, choices)
             } else {
-                EXPEdgeField(name: margin ? "Bottom margin" : "Bottom padding", edge: .bottom,
-                             value: apPadBinding(margin ? \.marginBottom : \.paddingBottom))
-                EXPEdgeField(name: margin ? "Left margin" : "Left padding", edge: .left,
-                             value: apPadBinding(margin ? \.marginLeft : \.paddingLeft))
+                apEdgeField("Bottom \(kind)", .bottom, margin ? \.marginBottom : \.paddingBottom,
+                            margin ? TokenBindingKey.marginBottom : TokenBindingKey.paddingBottom, choices)
+                apEdgeField("Left \(kind)", .left, margin ? \.marginLeft : \.paddingLeft,
+                            margin ? TokenBindingKey.marginLeft : TokenBindingKey.paddingLeft, choices)
             }
         }
+    }
+
+    private func apEdgeField(_ name: String, _ edge: EXPFieldEdge,
+                             _ kp: WritableKeyPath<AutoPadding, CGFloat>, _ key: String,
+                             _ choices: [EXPTokenChoice]) -> EXPEdgeField {
+        EXPEdgeField(name: name, edge: edge, value: apPadBinding(kp, key: key),
+                     token: spacingTokenButton(key, fieldName: name, choices: choices))
     }
 
     /// Opacity shown as 0–100% in the Inspector, stored as 0–1 on the model.

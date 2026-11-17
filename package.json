@@ -9,7 +9,10 @@
     "jobs:accounts": "node scripts/run_account_jobs.mjs",
     "preview:accounts": "bash scripts/verify_accounts.sh --preview",
     "test:a11y": "node scripts/a11y/run.mjs",
-    "test:usage": "bash scripts/verify_usage_metrics.sh"
+    "test:usage": "bash scripts/verify_usage_metrics.sh",
+    "test:teams": "bash scripts/verify_team_research.sh",
+    "preview:teams": "bash scripts/verify_team_research.sh --preview",
+    "test:teams:contracts": "node --test tests/teams-contract.test.mjs tests/teams-render.test.mjs"
   },
   "dependencies": {
     "better-auth": "1.7.10",

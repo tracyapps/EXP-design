@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import siteContent from "./generated/siteContent.json";
 import InterestPage from "./InterestPage.jsx";
+import TeamsPage from "./TeamsPage.jsx";
 import MemberCallout from "./MemberCallout.jsx";
 import ShareTools from "./ShareTools.jsx";
 import { registrationHref } from "./engagement-links.js";
@@ -38,6 +39,7 @@ const learnLinks = [
   { label: "tutorials", href: "/learn" },
   { label: "ARIA roles guide", href: "/aria-roles/" },
   { label: "free EXP accounts", href: "/accounts" },
+  { label: "EXP for teams · research", href: "/teams" },
 ];
 
 const navItems = [
@@ -1408,7 +1410,7 @@ export default function App() {
   // rendered the target section. Re-run the scroll after mount, once the
   // section exists. (Same-page hash clicks scroll natively and skip this.)
   useEffect(() => {
-    if (path.startsWith("/account") || path.startsWith("/people") || ["/confirm-interest", "/withdraw-interest", "/delete-interest"].includes(path)) return undefined;
+    if (path.startsWith("/teams/") || path.startsWith("/account") || path.startsWith("/people") || ["/confirm-interest", "/withdraw-interest", "/delete-interest"].includes(path)) return undefined;
     const hash = window.location.hash;
     if (!hash) return undefined;
     let raf = requestAnimationFrame(() => {
@@ -1442,6 +1444,11 @@ export default function App() {
       <main className="account-main"><PeoplePage handle={handle} /></main>
       <Footer />
     </div>;
+  }
+
+  if (["/teams", "/teams/confirm", "/teams/manage"].includes(path)) {
+    return <><Header progress={progress} actionLabel="get the free app" actionHref="/download" brandHref="/" />
+      <main><TeamsPage mode={path === "/teams" ? "survey" : path === "/teams/confirm" ? "confirm" : "manage"}/></main><Footer/></>;
   }
 
   if (["/pro", "/confirm-interest", "/withdraw-interest", "/delete-interest"].includes(path)) {

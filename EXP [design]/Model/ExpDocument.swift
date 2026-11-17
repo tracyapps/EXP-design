@@ -202,7 +202,15 @@ final class ExpDocument: ReferenceFileDocument {
     @MainActor func setModel(_ newModel: Document, undoManager: UndoManager?, actionName: String,
                   usage: UsageMutation = .edit) {
         let oldModel = model
-        model = newModel
+        var next = newModel
+        // Keep Design Language links true at every committed state (FEAT-089b):
+        // an artboard resize or a mode switch re-resolves linked fields, and a
+        // number changed without going through the Inspector detaches its link.
+        // Undo/redo restore exact snapshots, so they are left alone.
+        if undoManager?.isUndoing != true, undoManager?.isRedoing != true {
+            next.reconcileTokenBindings(after: oldModel)
+        }
+        model = next
         undoManager?.registerUndo(withTarget: self) { document in
             document.setModel(oldModel, undoManager: undoManager, actionName: actionName, usage: .none)
         }
@@ -222,6 +230,10 @@ final class ExpDocument: ReferenceFileDocument {
     /// Register undo back to `baseline`, assuming `model` already holds the new
     /// state (used by drag, which updates `model` live for smooth feedback).
     @MainActor func registerUndo(restoring baseline: Document, undoManager: UndoManager?, actionName: String) {
+        // A live gesture just ended (e.g. an artboard was dragged to a new size):
+        // settle linked fields once, as part of the same undo step.
+        var settled = model
+        if settled.reconcileTokenBindings(after: baseline) { model = settled }
         undoManager?.registerUndo(withTarget: self) { document in
             document.setModel(baseline, undoManager: undoManager, actionName: actionName, usage: .none)
         }

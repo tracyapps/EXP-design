@@ -110,6 +110,7 @@ private struct DesignLanguageEditor: View {
             categoriesGroup
             importExportGroup
             typeStylesGroup
+            DLSpacingSettingsGroup(document: document, undoManager: undoManager)
         }
         .sheet(isPresented: $showingPaste) { pasteSheet }
         .sheet(item: $editingColor) { asset in

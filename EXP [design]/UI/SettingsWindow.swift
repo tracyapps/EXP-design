@@ -94,7 +94,7 @@ extension AppPreferences {
 private enum SettingsScope { case app, document }
 
 private enum SettingsPane: String, CaseIterable, Identifiable {
-    case general, accessibility, privacy, canvas, sanaa, designTokens, about   // app-wide
+    case general, accessibility, privacy, canvas, sanaa, about   // app-wide
     case designLanguage                          // document-specific
     var id: String { rawValue }
 
@@ -105,7 +105,6 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
         case .privacy:        return "Privacy"
         case .canvas:         return "Canvas"
         case .sanaa:          return "Sanaa"
-        case .designTokens:   return "Design Tokens"
         case .about:          return "About"
         case .designLanguage: return "Design Language"
         }
@@ -119,7 +118,6 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
         case .privacy:        return "hand.raised"
         case .canvas:         return "squareshape.dashed.squareshape"
         case .sanaa:          return "hand.draw"
-        case .designTokens:   return "textformat"
         case .about:          return "info.circle"
         case .designLanguage: return "swatchpalette"
         }
@@ -197,9 +195,12 @@ struct SettingsWindow: View {
         case .general:      GeneralSettingsPane()
         case .accessibility: AccessibilitySettingsPane()
         case .privacy:      UsagePrivacySettingsPane()
-        case .canvas:       CanvasSettingsPane()
+        case .canvas:
+            VStack(alignment: .leading, spacing: 24) {
+                CanvasSettingsPane()
+                TextBoxTrimSettingsGroup()
+            }
         case .sanaa:        SanaaSettingsPane()
-        case .designTokens: DesignTokensSettingsPane()
         case .about:        AboutSettingsPane()
         case .designLanguage: DesignLanguageSettingsPane()
         }
@@ -351,6 +352,8 @@ private struct GeneralSettingsPane: View {
                     .labelsHidden()
                 }
             }
+
+            AccentSettingsGroup()
 
             SettingsGroup("Workspace",
                           footnote: "\u{201C}Reset\u{201D} clears the saved panel arrangement. It takes effect the next time you open an editor window.") {
@@ -1031,12 +1034,10 @@ private struct SanaaSettingsPane: View {
     }
 }
 
-private struct DesignTokensSettingsPane: View {
-    @AppStorage(AppPreferences.textBoxTrim) private var textBoxTrim =
-        AppPreferences.defaultTextBoxTrim
+/// General ▸ Accent. (Until v2.9 this and text box trim shared an app pane called
+/// "Design Tokens", which read as the document's own tokens; that pane is gone.)
+private struct AccentSettingsGroup: View {
     @AppStorage(AppPreferences.accentOverride) private var accentOverride = ""
-
-    private var trimToOptical: Bool { textBoxTrim == "capBaseline" }
 
     /// On = follow the macOS accent (clears the override); off = pin a colour.
     private var followSystemBinding: Binding<Bool> {
@@ -1058,30 +1059,38 @@ private struct DesignTokensSettingsPane: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            SettingsGroup("Accent",
-                          footnote: "EXP follows your macOS accent by default. Override it to pin an app-specific accent \u{2014} it drives selection, the active tool, focus rings, and primary buttons. (Applies as windows redraw.)") {
-                Toggle("Follow system accent", isOn: followSystemBinding)
-                if !accentOverride.isEmpty {
-                    ColorPicker("App accent", selection: accentBinding, supportsOpacity: false)
-                    Button("Reset to system accent") { accentOverride = "" }
-                        .buttonStyle(.exp(.secondary))
-                }
+        SettingsGroup("Accent",
+                      footnote: "EXP follows your macOS accent by default. Override it to pin an app-specific accent \u{2014} it drives selection, the active tool, focus rings, and primary buttons. (Applies as windows redraw.)") {
+            Toggle("Follow system accent", isOn: followSystemBinding)
+            if !accentOverride.isEmpty {
+                ColorPicker("App accent", selection: accentBinding, supportsOpacity: false)
+                Button("Reset to system accent") { accentOverride = "" }
+                    .buttonStyle(.exp(.secondary))
             }
+        }
+    }
+}
 
-            SettingsGroup("Type \u{2014} text box trim",
-                          footnote: "Measures interface text from an optical box instead of the font\u{2019}s line box, so padding reads evenly across typefaces (CSS text-box-trim / Figma vertical trim). Sets the default for type tokens once they ship.") {
-                Picker("Trim type text to", selection: $textBoxTrim) {
-                    Text("Cap height \u{2192} baseline (recommended)").tag("capBaseline")
-                    Text("Ascender \u{2192} descender (full line box)").tag("ascentDescent")
-                }
-                .pickerStyle(.radioGroup)
+/// Canvas ▸ Text box trim.
+private struct TextBoxTrimSettingsGroup: View {
+    @AppStorage(AppPreferences.textBoxTrim) private var textBoxTrim =
+        AppPreferences.defaultTextBoxTrim
 
-                TextTrimSchematic(trimToOptical: trimToOptical)
-                    .frame(height: 104)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .accessibilityLabel("Diagram of the \(trimToOptical ? "cap height to baseline" : "ascender to descender") text box")
+    private var trimToOptical: Bool { textBoxTrim == "capBaseline" }
+
+    var body: some View {
+        SettingsGroup("Text box trim",
+                      footnote: "Measures text from an optical box instead of the font\u{2019}s line box, so padding reads evenly across typefaces (CSS text-box-trim / Figma vertical trim). Sets the default for type tokens once they ship.") {
+            Picker("Trim type text to", selection: $textBoxTrim) {
+                Text("Cap height \u{2192} baseline (recommended)").tag("capBaseline")
+                Text("Ascender \u{2192} descender (full line box)").tag("ascentDescent")
             }
+            .pickerStyle(.radioGroup)
+
+            TextTrimSchematic(trimToOptical: trimToOptical)
+                .frame(height: 104)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityLabel("Diagram of the \(trimToOptical ? "cap height to baseline" : "ascender to descender") text box")
         }
     }
 }

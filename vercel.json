@@ -5,6 +5,8 @@
   "outputDirectory": "website/dist",
   "functions": { "api/account-jobs.js": { "maxDuration": 180 } },
   "rewrites": [
+    { "source": "/teams", "destination": "/teams.html" },
+    { "source": "/teams/", "destination": "/teams.html" },
     { "source": "/share", "destination": "/share.html" },
     { "source": "/share/", "destination": "/share.html" },
     {
@@ -12,7 +14,7 @@
       "destination": "/support.html"
     },
     {
-      "source": "/((?!assets/|api/|share(?:\\.html|/|$)|support(?:\\.html|/|$)|aria-roles(?:/|$)).*)",
+      "source": "/((?!assets/|api/|teams\\.html|share(?:\\.html|/|$)|support(?:\\.html|/|$)|aria-roles(?:/|$)).*)",
       "destination": "/"
     }
   ],
@@ -20,9 +22,18 @@
     {
       "source": "/people/:path*",
       "headers": [
-        { "key": "Cache-Control", "value": "no-store" },
-        { "key": "Referrer-Policy", "value": "no-referrer" },
-        { "key": "X-Robots-Tag", "value": "noindex" }
+        {
+          "key": "Cache-Control",
+          "value": "no-store"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "no-referrer"
+        },
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex"
+        }
       ]
     },
     {
@@ -86,6 +97,23 @@
         {
           "key": "Referrer-Policy",
           "value": "no-referrer"
+        },
+        {
+          "key": "X-Robots-Tag",
+          "value": "noindex"
+        }
+      ]
+    },
+    {
+      "source": "/teams/:path*",
+      "headers": [
+        {
+          "key": "Referrer-Policy",
+          "value": "no-referrer"
+        },
+        {
+          "key": "Cache-Control",
+          "value": "no-store"
         },
         {
           "key": "X-Robots-Tag",

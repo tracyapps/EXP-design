@@ -1922,6 +1922,11 @@ struct Artboard: Identifiable, Codable, Sendable {
     /// Layout grids (columns / rows / baseline) drawn over this board.
     var layoutGrids: [LayoutGrid] = []
 
+    /// This board's Design Language mode choices (FEAT-088): mode-set id →
+    /// mode id, both as `uuidString`. nil = follow the document's modes. A set
+    /// with no entry also follows the document.
+    var modeOverrides: [String: UUID]? = nil
+
     init(id: UUID = UUID(), name: String, frame: CGRect, notes: String = "",
          background: Paint = .white, layoutGrids: [LayoutGrid] = []) {
         self.id = id
@@ -1933,7 +1938,9 @@ struct Artboard: Identifiable, Codable, Sendable {
     }
 
     // Custom decode so files saved before these fields existed still open.
-    enum CodingKeys: String, CodingKey { case id, name, frame, notes, background, layoutGrids }
+    enum CodingKeys: String, CodingKey {
+        case id, name, frame, notes, background, layoutGrids, modeOverrides
+    }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id)
@@ -1942,6 +1949,8 @@ struct Artboard: Identifiable, Codable, Sendable {
         notes = try c.decodeIfPresent(String.self, forKey: .notes) ?? ""
         background = try c.decodeIfPresent(Paint.self, forKey: .background) ?? .white
         layoutGrids = try c.decodeIfPresent([LayoutGrid].self, forKey: .layoutGrids) ?? []
+        let modes = (try? c.decodeIfPresent([String: UUID].self, forKey: .modeOverrides)) ?? nil
+        modeOverrides = (modes?.isEmpty ?? true) ? nil : modes
     }
 }
 
@@ -2063,6 +2072,12 @@ struct Node: Identifiable, Codable, Sendable {
     /// Ordinary EXP-authored nodes leave this nil; component semantics continue
     /// to live on `ComponentSource.a11y` and remain the user-facing contract.
     var semantics: NodeSemantics? = nil
+    /// Design Language token links (FEAT-090a): property path → token id, e.g.
+    /// `"autoLayout.gap"`. The linked field still holds its resolved number, so
+    /// nothing that draws or exports needs this. nil (never an empty dictionary)
+    /// when nothing is linked, which keeps the key out of files that don't use
+    /// tokens. Read and write through `boundTokenID` / `setTokenBinding`.
+    var tokenBindings: [String: UUID]? = nil
     var content: NodeContent
 
     init(id: UUID = UUID(), name: String, frame: CGRect, artboardID: UUID? = nil,
@@ -2101,6 +2116,7 @@ struct Node: Identifiable, Codable, Sendable {
         case id, name, frame, artboardID, isVisible, isLocked, rotation, opacity, effects, blendMode
         case autoLayout, autoPadding, isAbsoluteInAutoLayout, flipH, flipV, isMask, isMaskShape
         case relationships, anchoredRelationships, publicProps, semantics, content
+        case tokenBindings
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -2127,6 +2143,9 @@ struct Node: Identifiable, Codable, Sendable {
                                                          forKey: .anchoredRelationships)) ?? nil) ?? []
         publicProps = try c.decodeIfPresent(PublicOverrideProps.self, forKey: .publicProps) ?? PublicOverrideProps()
         semantics = try c.decodeIfPresent(NodeSemantics.self, forKey: .semantics)
+        // Tolerant: a damaged binding map must never stop the artwork opening.
+        let links = (try? c.decodeIfPresent([String: UUID].self, forKey: .tokenBindings)) ?? nil
+        tokenBindings = (links?.isEmpty ?? true) ? nil : links
         content = try c.decode(NodeContent.self, forKey: .content)
     }
 }
@@ -5267,28 +5286,60 @@ struct DesignLanguage: Codable, Equatable, Sendable {
     /// Recently used paints (most-recent first, capped).
     var recents: [Paint]
 
+    /// Named tokens that aren't colors, gradients or type styles (FEAT-090a,
+    /// v2.9): spacing first. See `DLToken` at the end of this file.
+    var tokens: [DLToken]
+
+    /// Mode axes ("Color scheme": Light, Dark). Empty until modes are used.
+    var modeSets: [DLModeSet]
+
+    /// Document-wide token settings (rem base).
+    var settings: DLSettings
+
     static let recentsLimit = 12
     /// Label for the uncategorized bucket once categories exist.
     static let otherLabel = "Other"
 
     init(categories: [DLCategory] = [], assets: [DesignAsset] = [],
-         typeStyles: [TypeStyle] = [], recents: [Paint] = []) {
+         typeStyles: [TypeStyle] = [], recents: [Paint] = [],
+         tokens: [DLToken] = [], modeSets: [DLModeSet] = [],
+         settings: DLSettings = DLSettings()) {
         self.categories = categories
         self.assets = assets
         self.typeStyles = typeStyles
         self.recents = recents
+        self.tokens = tokens
+        self.modeSets = modeSets
+        self.settings = settings
     }
 
     // Tolerant decode so older files (no design language, or the pre-category
     // status model) and future files both open cleanly.
-    enum CodingKeys: String, CodingKey { case categories, assets, typeStyles, recents }
+    enum CodingKeys: String, CodingKey {
+        case categories, assets, typeStyles, recents, tokens, modeSets, settings
+    }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         categories = try c.decodeIfPresent([DLCategory].self, forKey: .categories) ?? []
         assets     = try c.decodeIfPresent([DesignAsset].self, forKey: .assets) ?? []
         typeStyles = try c.decodeIfPresent([TypeStyle].self, forKey: .typeStyles) ?? []
         recents    = try c.decodeIfPresent([Paint].self, forKey: .recents) ?? []
+        tokens     = try c.decodeIfPresent([DLToken].self, forKey: .tokens) ?? []
+        modeSets   = try c.decodeIfPresent([DLModeSet].self, forKey: .modeSets) ?? []
+        settings   = try c.decodeIfPresent(DLSettings.self, forKey: .settings) ?? DLSettings()
         migrateLegacyStatusIfNeeded()
+    }
+    // Hand-written so the v2.9 additions are written ONLY when used: a document
+    // with no tokens or modes saves the same four keys it always has.
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(categories, forKey: .categories)
+        try c.encode(assets, forKey: .assets)
+        try c.encode(typeStyles, forKey: .typeStyles)
+        try c.encode(recents, forKey: .recents)
+        if !tokens.isEmpty { try c.encode(tokens, forKey: .tokens) }
+        if !modeSets.isEmpty { try c.encode(modeSets, forKey: .modeSets) }
+        if settings != DLSettings() { try c.encode(settings, forKey: .settings) }
     }
 
     /// One-time migration from the old status model (official/candidate/archived).
@@ -5310,7 +5361,10 @@ struct DesignLanguage: Codable, Equatable, Sendable {
         for i in assets.indices { assets[i].legacyStatus = nil }
     }
 
-    var isEmpty: Bool { assets.isEmpty && typeStyles.isEmpty && recents.isEmpty && categories.isEmpty }
+    var isEmpty: Bool {
+        assets.isEmpty && typeStyles.isEmpty && recents.isEmpty && categories.isEmpty
+            && tokens.isEmpty && modeSets.isEmpty
+    }
     var hasCategories: Bool { !categories.isEmpty }
 
     // MARK: Grouped / filtered views
@@ -5715,5 +5769,888 @@ struct TypeStyle: Codable, Equatable, Identifiable, Sendable {
     var fallbackLabel: String {
         let face = fontName.isEmpty ? "System" : fontName
         return "\(face) \(Int(fontSize.rounded()))"
+    }
+}
+
+// MARK: - Design Language tokens + bindings (FEAT-090a, v2.9)
+//
+// Plan: docs/DESIGN-LANGUAGE-PLAN.md §3–§4. Lives in Document.swift because the
+// model is shared with the EXPThumbnail target.
+//
+// The load-bearing rule (R1): a bound property KEEPS its resolved number in the
+// ordinary field (`AutoLayout.gap = 16`) and the link is recorded separately in
+// `Node.tokenBindings`. Rendering, reflow, thumbnails, export and older app
+// versions read the plain number and never need to know tokens exist. So a
+// missing or deleted token can't break artwork — the last value is already there.
+
+/// What a token's value IS (DTCG `$type` vocabulary, plus `string`/`boolean`).
+/// A string wrapper, not an enum, so a type this build doesn't know survives a
+/// load/save round trip instead of throwing.
+struct DLTokenType: RawRepresentable, Codable, Hashable, Sendable {
+    var rawValue: String
+    init(rawValue: String) { self.rawValue = rawValue }
+    init(from decoder: Decoder) throws {
+        rawValue = try decoder.singleValueContainer().decode(String.self)
+    }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        try c.encode(rawValue)
+    }
+
+    static let dimension = DLTokenType(rawValue: "dimension")
+    static let number = DLTokenType(rawValue: "number")
+    static let duration = DLTokenType(rawValue: "duration")
+    static let fontFamily = DLTokenType(rawValue: "fontFamily")
+    static let fontWeight = DLTokenType(rawValue: "fontWeight")
+    static let cubicBezier = DLTokenType(rawValue: "cubicBezier")
+    static let strokeStyle = DLTokenType(rawValue: "strokeStyle")
+    static let border = DLTokenType(rawValue: "border")
+    static let shadow = DLTokenType(rawValue: "shadow")
+    static let transition = DLTokenType(rawValue: "transition")
+    static let string = DLTokenType(rawValue: "string")
+    static let boolean = DLTokenType(rawValue: "boolean")
+}
+
+/// What a token is FOR. "Spacing" is a role of a dimension, the same way radius
+/// or border width is. Pickers filter by role. Same tolerant string wrapper.
+struct DLTokenRole: RawRepresentable, Codable, Hashable, Sendable {
+    var rawValue: String
+    init(rawValue: String) { self.rawValue = rawValue }
+    init(from decoder: Decoder) throws {
+        rawValue = try decoder.singleValueContainer().decode(String.self)
+    }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        try c.encode(rawValue)
+    }
+
+    static let generic = DLTokenRole(rawValue: "generic")
+    static let spacing = DLTokenRole(rawValue: "spacing")
+    static let sizing = DLTokenRole(rawValue: "sizing")
+    static let radius = DLTokenRole(rawValue: "radius")
+    static let borderWidth = DLTokenRole(rawValue: "borderWidth")
+    static let opacity = DLTokenRole(rawValue: "opacity")
+    static let zIndex = DLTokenRole(rawValue: "zIndex")
+    static let breakpoint = DLTokenRole(rawValue: "breakpoint")
+    static let fontSize = DLTokenRole(rawValue: "fontSize")
+    static let lineHeight = DLTokenRole(rawValue: "lineHeight")
+    static let letterSpacing = DLTokenRole(rawValue: "letterSpacing")
+    static let duration = DLTokenRole(rawValue: "duration")
+    static let easing = DLTokenRole(rawValue: "easing")
+    static let elevation = DLTokenRole(rawValue: "elevation")
+}
+
+/// A number with its unit exactly as authored (`16px`, `1rem`). The unit is kept
+/// as written; whether it can resolve to canvas points is decided at resolve time.
+struct DLDimension: Codable, Equatable, Sendable {
+    var value: Double
+    var unit: String
+
+    init(_ value: Double, unit: String = "px") { self.value = value; self.unit = unit }
+
+    enum CodingKeys: String, CodingKey { case value, unit }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        value = try c.decode(Double.self, forKey: .value)
+        unit = try c.decodeIfPresent(String.self, forKey: .unit) ?? "px"
+    }
+}
+
+/// Arbitrary JSON, used only to carry a token value this build can't interpret
+/// through a save without losing it.
+enum DLJSON: Codable, Equatable, Sendable {
+    case null
+    case bool(Bool)
+    case number(Double)
+    case string(String)
+    case array([DLJSON])
+    case object([String: DLJSON])
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.singleValueContainer()
+        if c.decodeNil() { self = .null }
+        else if let b = try? c.decode(Bool.self) { self = .bool(b) }
+        else if let n = try? c.decode(Double.self) { self = .number(n) }
+        else if let s = try? c.decode(String.self) { self = .string(s) }
+        else if let a = try? c.decode([DLJSON].self) { self = .array(a) }
+        else { self = .object(try c.decode([String: DLJSON].self)) }
+    }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        switch self {
+        case .null: try c.encodeNil()
+        case .bool(let b): try c.encode(b)
+        case .number(let n): try c.encode(n)
+        case .string(let s): try c.encode(s)
+        case .array(let a): try c.encode(a)
+        case .object(let o): try c.encode(o)
+        }
+    }
+}
+
+/// One value of a token: a literal, a link to another token, or source text EXP
+/// keeps verbatim but can't compute (`clamp(…)`, `50%`). On disk each is a
+/// one-key object — `{"dimension":{"value":16,"unit":"px"}}`, `{"number":4}`,
+/// `{"alias":"<uuid>"}`, `{"raw":"clamp(1rem, 2vw, 2rem)"}` — and anything else
+/// is carried through untouched as `.preserved`.
+enum DLTokenValue: Codable, Equatable, Sendable {
+    case dimension(DLDimension)
+    case number(Double)
+    case alias(UUID)
+    case raw(String)
+    case preserved(DLJSON)
+
+    private enum Keys: String, CodingKey { case dimension, number, alias, raw }
+
+    init(from decoder: Decoder) throws {
+        if let c = try? decoder.container(keyedBy: Keys.self) {
+            if let d = try? c.decode(DLDimension.self, forKey: .dimension) { self = .dimension(d); return }
+            if let n = try? c.decode(Double.self, forKey: .number) { self = .number(n); return }
+            if let a = try? c.decode(UUID.self, forKey: .alias) { self = .alias(a); return }
+            if let r = try? c.decode(String.self, forKey: .raw) { self = .raw(r); return }
+        }
+        self = .preserved(try DLJSON(from: decoder))
+    }
+    func encode(to encoder: Encoder) throws {
+        switch self {
+        case .dimension(let d):
+            var c = encoder.container(keyedBy: Keys.self); try c.encode(d, forKey: .dimension)
+        case .number(let n):
+            var c = encoder.container(keyedBy: Keys.self); try c.encode(n, forKey: .number)
+        case .alias(let id):
+            var c = encoder.container(keyedBy: Keys.self); try c.encode(id, forKey: .alias)
+        case .raw(let s):
+            var c = encoder.container(keyedBy: Keys.self); try c.encode(s, forKey: .raw)
+        case .preserved(let json):
+            try json.encode(to: encoder)
+        }
+    }
+
+    var aliasTarget: UUID? { if case .alias(let id) = self { return id }; return nil }
+}
+
+/// A named Design Language token that isn't a color/gradient (`DesignAsset`) or a
+/// type style (`TypeStyle`) — spacing first, every other type later.
+struct DLToken: Codable, Equatable, Identifiable, Sendable {
+    var id: UUID
+    var name: String
+    /// Slash-separated group path ("space/inset"); "" = top level.
+    var group: String
+    /// Shares the same cross-cutting categories as colors and type styles.
+    var categoryID: UUID?
+    var type: DLTokenType
+    var role: DLTokenRole
+    /// The base value, used in every mode that doesn't override it.
+    var value: DLTokenValue
+    /// Mode id (`UUID.uuidString`) → value. Sparse: a missing mode uses `value`.
+    var modeValues: [String: DLTokenValue]
+    var notes: String
+    /// nil = current. A string (possibly empty) = deprecated, with the reason.
+    var deprecated: String?
+    /// Identity in the library this came from (`css:--space-md`, `dtcg:space.md`).
+    var externalID: String?
+    var provenance: String
+
+    init(id: UUID = UUID(), name: String, group: String = "", categoryID: UUID? = nil,
+         type: DLTokenType = .dimension, role: DLTokenRole = .generic,
+         value: DLTokenValue, modeValues: [String: DLTokenValue] = [:],
+         notes: String = "", deprecated: String? = nil, externalID: String? = nil,
+         provenance: String = "") {
+        self.id = id; self.name = name; self.group = group; self.categoryID = categoryID
+        self.type = type; self.role = role; self.value = value; self.modeValues = modeValues
+        self.notes = notes; self.deprecated = deprecated; self.externalID = externalID
+        self.provenance = provenance
+    }
+
+    /// A spacing token in points — the v2.9 starting case.
+    static func spacing(_ name: String, _ points: Double, id: UUID = UUID()) -> DLToken {
+        DLToken(id: id, name: name, type: .dimension, role: .spacing,
+                value: .dimension(DLDimension(points, unit: "px")))
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, group, categoryID, type, role, value, modeValues
+        case notes, deprecated, externalID, provenance
+    }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
+        group = try c.decodeIfPresent(String.self, forKey: .group) ?? ""
+        categoryID = try c.decodeIfPresent(UUID.self, forKey: .categoryID)
+        type = try c.decodeIfPresent(DLTokenType.self, forKey: .type) ?? .dimension
+        role = try c.decodeIfPresent(DLTokenRole.self, forKey: .role) ?? .generic
+        value = try c.decode(DLTokenValue.self, forKey: .value)
+        modeValues = try c.decodeIfPresent([String: DLTokenValue].self, forKey: .modeValues) ?? [:]
+        notes = try c.decodeIfPresent(String.self, forKey: .notes) ?? ""
+        deprecated = try c.decodeIfPresent(String.self, forKey: .deprecated)
+        externalID = try c.decodeIfPresent(String.self, forKey: .externalID)
+        provenance = try c.decodeIfPresent(String.self, forKey: .provenance) ?? ""
+    }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(name, forKey: .name)
+        if !group.isEmpty { try c.encode(group, forKey: .group) }
+        try c.encodeIfPresent(categoryID, forKey: .categoryID)
+        try c.encode(type, forKey: .type)
+        try c.encode(role, forKey: .role)
+        try c.encode(value, forKey: .value)
+        if !modeValues.isEmpty { try c.encode(modeValues, forKey: .modeValues) }
+        if !notes.isEmpty { try c.encode(notes, forKey: .notes) }
+        try c.encodeIfPresent(deprecated, forKey: .deprecated)
+        try c.encodeIfPresent(externalID, forKey: .externalID)
+        if !provenance.isEmpty { try c.encode(provenance, forKey: .provenance) }
+    }
+
+    /// The value this token has in a mode: that mode's override, else the base.
+    func value(inMode modeID: UUID?) -> DLTokenValue {
+        guard let modeID, let override = modeValues[modeID.uuidString] else { return value }
+        return override
+    }
+
+    /// The value with several modes active (one per mode set): the first active
+    /// mode this token overrides wins, else the base.
+    func value(inModes modeIDs: [UUID]) -> DLTokenValue {
+        guard !modeValues.isEmpty else { return value }
+        for id in modeIDs { if let override = modeValues[id.uuidString] { return override } }
+        return value
+    }
+}
+
+/// One named mode ("Light", "Dark", "Compact").
+struct DLMode: Codable, Equatable, Identifiable, Sendable {
+    var id: UUID
+    var name: String
+    init(id: UUID = UUID(), name: String) { self.id = id; self.name = name }
+}
+
+/// One axis of variation and its modes ("Color scheme": Light, Dark). The
+/// Design Language holds an ARRAY of these so a second axis (density, brand)
+/// never needs a migration; v2.9's interface manages the first only.
+struct DLModeSet: Codable, Equatable, Identifiable, Sendable {
+    var id: UUID
+    var name: String
+    var modes: [DLMode]
+    /// The mode whose values are the tokens' base values. nil = the first mode.
+    var defaultModeID: UUID?
+    /// The mode the whole document is currently shown in. nil = the default
+    /// mode. An artboard can choose differently (`Artboard.modeOverrides`).
+    var activeModeID: UUID?
+
+    init(id: UUID = UUID(), name: String, modes: [DLMode] = [], defaultModeID: UUID? = nil,
+         activeModeID: UUID? = nil) {
+        self.id = id; self.name = name; self.modes = modes; self.defaultModeID = defaultModeID
+        self.activeModeID = activeModeID
+    }
+
+    /// The document-wide mode for this set, ignoring ids that no longer exist.
+    var resolvedActiveModeID: UUID? {
+        for candidate in [activeModeID, defaultModeID] {
+            if let candidate, modes.contains(where: { $0.id == candidate }) { return candidate }
+        }
+        return modes.first?.id
+    }
+
+    enum CodingKeys: String, CodingKey { case id, name, modes, defaultModeID, activeModeID }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(UUID.self, forKey: .id) ?? UUID()
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
+        modes = try c.decodeIfPresent([DLMode].self, forKey: .modes) ?? []
+        defaultModeID = try c.decodeIfPresent(UUID.self, forKey: .defaultModeID)
+        activeModeID = try c.decodeIfPresent(UUID.self, forKey: .activeModeID)
+    }
+}
+
+/// Where a token is being resolved: which modes are active, and the sizes that
+/// relative units measure against. Everything is optional; a unit whose
+/// reference is missing simply doesn't resolve.
+struct DLResolveContext: Equatable, Sendable {
+    /// Active mode ids, one per mode set, in mode-set order.
+    var modeIDs: [UUID] = []
+    /// What `vw`/`vh` measure: the artboard a layer sits on. nil on the wall and
+    /// inside component sources.
+    var viewport: CGSize? = nil
+    /// What `%` measures. nil until a binding surface defines it.
+    var percentBase: CGFloat? = nil
+    /// Points per `1em`. nil = the document rem base (EXP groups have no font
+    /// size of their own to inherit).
+    var emBase: Double? = nil
+
+    init(modeIDs: [UUID] = [], viewport: CGSize? = nil, percentBase: CGFloat? = nil,
+         emBase: Double? = nil) {
+        self.modeIDs = modeIDs; self.viewport = viewport
+        self.percentBase = percentBase; self.emBase = emBase
+    }
+}
+
+/// CSS length evaluation for token values: fixed units (`px`, `pt`, `in`, …),
+/// font-relative (`rem`, `em`), viewport-relative (`vw`, `vh`, `vmin`, `vmax`
+/// and their s/l/d variants), `%`, and the math functions `calc()`, `min()`,
+/// `max()` and `clamp()`. Anything else — `minmax()` (a grid track, not a
+/// length), `var()`, `ch`, `fit-content()` — returns nil so EXP never guesses.
+enum DLLength {
+    /// Points per one `unit`, or nil when the unit needs a reference the context
+    /// doesn't have (or isn't a unit EXP can measure).
+    static func pointsPerUnit(_ unit: String, context: DLResolveContext, remBase: Double) -> Double? {
+        switch unit.lowercased() {
+        case "px": return 1
+        case "rem": return remBase
+        case "em": return context.emBase ?? remBase
+        case "pt": return 96.0 / 72.0
+        case "pc": return 16
+        case "in": return 96
+        case "cm": return 96.0 / 2.54
+        case "mm": return 96.0 / 25.4
+        case "q": return 96.0 / 101.6
+        case "vw", "svw", "lvw", "dvw", "vi", "svi", "lvi", "dvi":
+            return context.viewport.map { Double($0.width) / 100 }
+        case "vh", "svh", "lvh", "dvh", "vb", "svb", "lvb", "dvb":
+            return context.viewport.map { Double($0.height) / 100 }
+        case "vmin", "svmin", "lvmin", "dvmin":
+            return context.viewport.map { Double(Swift.min($0.width, $0.height)) / 100 }
+        case "vmax", "svmax", "lvmax", "dvmax":
+            return context.viewport.map { Double(Swift.max($0.width, $0.height)) / 100 }
+        case "%": return context.percentBase.map { Double($0) / 100 }
+        default: return nil
+        }
+    }
+
+    /// Evaluate a CSS length or math expression to points. A bare number is
+    /// accepted as points. nil when any part can't be measured.
+    static func points(_ css: String, context: DLResolveContext, remBase: Double) -> CGFloat? {
+        var parser = Parser(text: Array(css.lowercased()), context: context, remBase: remBase)
+        guard let result = parser.sum() else { return nil }
+        parser.skipSpace()
+        guard parser.atEnd, result.value.isFinite else { return nil }
+        return CGFloat(result.value)
+    }
+
+    private struct Quantity { var value: Double; var isLength: Bool }
+
+    private struct Parser {
+        let text: [Character]
+        let context: DLResolveContext
+        let remBase: Double
+        var index = 0
+        var depth = 0
+
+        var atEnd: Bool { index >= text.count }
+        var peek: Character? { atEnd ? nil : text[index] }
+        mutating func skipSpace() { while let c = peek, c.isWhitespace { index += 1 } }
+
+        mutating func sum() -> Quantity? {
+            guard var left = product() else { return nil }
+            while true {
+                skipSpace()
+                guard let op = peek, op == "+" || op == "-" else { return left }
+                index += 1
+                // CSS only adds like to like: length ± length, number ± number.
+                guard let right = product(), right.isLength == left.isLength else { return nil }
+                left.value = op == "+" ? left.value + right.value : left.value - right.value
+            }
+        }
+
+        mutating func product() -> Quantity? {
+            guard var left = term() else { return nil }
+            while true {
+                skipSpace()
+                guard let op = peek, op == "*" || op == "/" else { return left }
+                index += 1
+                guard let right = term() else { return nil }
+                if op == "*" {
+                    guard !(left.isLength && right.isLength) else { return nil }
+                    left = Quantity(value: left.value * right.value,
+                                    isLength: left.isLength || right.isLength)
+                } else {
+                    guard !right.isLength, right.value != 0 else { return nil }
+                    left.value /= right.value
+                }
+            }
+        }
+
+        mutating func term() -> Quantity? {
+            skipSpace()
+            guard let c = peek else { return nil }
+            depth += 1
+            defer { depth -= 1 }
+            guard depth <= 32 else { return nil }
+            if c == "(" {
+                index += 1
+                guard let inner = sum() else { return nil }
+                skipSpace()
+                guard peek == ")" else { return nil }
+                index += 1
+                return inner
+            }
+            if c.isLetter { return function() }
+            return number()
+        }
+
+        mutating func function() -> Quantity? {
+            var name = ""
+            while let c = peek, c.isLetter || c == "-" { name.append(c); index += 1 }
+            guard peek == "(" else { return nil }
+            index += 1
+            var arguments: [Quantity] = []
+            while true {
+                guard let argument = sum() else { return nil }
+                arguments.append(argument)
+                skipSpace()
+                if peek == "," { index += 1; continue }
+                guard peek == ")" else { return nil }
+                index += 1
+                break
+            }
+            guard let first = arguments.first,
+                  arguments.allSatisfy({ $0.isLength == first.isLength }) else { return nil }
+            let values = arguments.map(\.value)
+            switch name {
+            case "calc":
+                return arguments.count == 1 ? first : nil
+            case "min":
+                return Quantity(value: values.min() ?? first.value, isLength: first.isLength)
+            case "max":
+                return Quantity(value: values.max() ?? first.value, isLength: first.isLength)
+            case "clamp":
+                guard values.count == 3 else { return nil }
+                return Quantity(value: Swift.max(values[0], Swift.min(values[1], values[2])),
+                                isLength: first.isLength)
+            default:
+                return nil
+            }
+        }
+
+        mutating func number() -> Quantity? {
+            var digits = ""
+            if let sign = peek, sign == "+" || sign == "-" { digits.append(sign); index += 1 }
+            while let c = peek, c.isNumber || c == "." { digits.append(c); index += 1 }
+            guard let value = Double(digits) else { return nil }
+            var unit = ""
+            while let c = peek, c.isLetter || c == "%" { unit.append(c); index += 1 }
+            if unit.isEmpty { return Quantity(value: value, isLength: false) }
+            guard let scale = DLLength.pointsPerUnit(unit, context: context, remBase: remBase) else { return nil }
+            return Quantity(value: value * scale, isLength: true)
+        }
+    }
+}
+
+/// Document-wide Design Language settings.
+struct DLSettings: Codable, Equatable, Sendable {
+    static let defaultRemBase: Double = 16
+    /// Points per `1rem` when a rem token is resolved for the canvas.
+    var remBase: Double = DLSettings.defaultRemBase
+
+    init(remBase: Double = DLSettings.defaultRemBase) {
+        self.remBase = (remBase.isFinite && remBase > 0) ? remBase : DLSettings.defaultRemBase
+    }
+
+    enum CodingKeys: String, CodingKey { case remBase }
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let decoded = try c.decodeIfPresent(Double.self, forKey: .remBase) ?? DLSettings.defaultRemBase
+        remBase = (decoded.isFinite && decoded > 0) ? decoded : DLSettings.defaultRemBase
+    }
+}
+
+/// The property paths a token can be bound to — the keys of `Node.tokenBindings`.
+/// Strings on disk so a key from a newer build is kept, not dropped.
+enum TokenBindingKey {
+    static let gap = "autoLayout.gap"
+    static let paddingTop = "autoPadding.paddingTop"
+    static let paddingRight = "autoPadding.paddingRight"
+    static let paddingBottom = "autoPadding.paddingBottom"
+    static let paddingLeft = "autoPadding.paddingLeft"
+    static let marginTop = "autoPadding.marginTop"
+    static let marginRight = "autoPadding.marginRight"
+    static let marginBottom = "autoPadding.marginBottom"
+    static let marginLeft = "autoPadding.marginLeft"
+
+    static let padding = [paddingTop, paddingRight, paddingBottom, paddingLeft]
+    static let margin = [marginTop, marginRight, marginBottom, marginLeft]
+    /// Every key v2.9 can resolve. All take a spacing-role number.
+    static let spacing = [gap] + padding + margin
+
+    static func autoPaddingKeyPath(_ key: String) -> WritableKeyPath<AutoPadding, CGFloat>? {
+        switch key {
+        case paddingTop: return \.paddingTop
+        case paddingRight: return \.paddingRight
+        case paddingBottom: return \.paddingBottom
+        case paddingLeft: return \.paddingLeft
+        case marginTop: return \.marginTop
+        case marginRight: return \.marginRight
+        case marginBottom: return \.marginBottom
+        case marginLeft: return \.marginLeft
+        default: return nil
+        }
+    }
+}
+
+extension Node {
+    /// The token a property is linked to, if any.
+    func boundTokenID(_ key: String) -> UUID? { tokenBindings?[key] }
+
+    /// Link (`id`) or unlink (`nil`) one property. Never touches the number.
+    mutating func setTokenBinding(_ key: String, to id: UUID?) {
+        var map = tokenBindings ?? [:]
+        map[key] = id
+        tokenBindings = map.isEmpty ? nil : map
+    }
+
+    /// The current number in the field a binding key names; nil when this node
+    /// doesn't have that field (no auto layout / no auto padding) or the key is
+    /// one this build can't resolve.
+    func numericValue(forBindingKey key: String) -> CGFloat? {
+        if key == TokenBindingKey.gap { return autoLayout?.gap }
+        guard let kp = TokenBindingKey.autoPaddingKeyPath(key) else { return nil }
+        return autoPadding?[keyPath: kp]
+    }
+
+    /// Write a resolved number into the field a binding key names. Returns true
+    /// only when the stored number actually changed. Spacing can't be negative,
+    /// matching the Inspector's own clamp.
+    @discardableResult
+    mutating func setNumericValue(_ raw: CGFloat, forBindingKey key: String) -> Bool {
+        guard raw.isFinite else { return false }
+        let v = Swift.max(0, raw)
+        if key == TokenBindingKey.gap {
+            guard var al = autoLayout, abs(al.gap - v) > 0.0001 else { return false }
+            al.gap = v
+            autoLayout = al
+            return true
+        }
+        guard let kp = TokenBindingKey.autoPaddingKeyPath(key), var ap = autoPadding,
+              abs(ap[keyPath: kp] - v) > 0.0001 else { return false }
+        ap[keyPath: kp] = v
+        autoPadding = ap
+        return true
+    }
+}
+
+extension DesignLanguage {
+    func token(_ id: UUID) -> DLToken? { tokens.first { $0.id == id } }
+    func tokens(role: DLTokenRole) -> [DLToken] { tokens.filter { $0.role == role } }
+
+    /// The first mode of the first mode set — whose values are the base values.
+    var baseModeID: UUID? {
+        guard let set = modeSets.first else { return nil }
+        return set.defaultModeID ?? set.modes.first?.id
+    }
+
+    /// The mode each mode set is showing document-wide, in mode-set order.
+    var activeModeIDs: [UUID] { modeSets.compactMap(\.resolvedActiveModeID) }
+
+    /// The active modes on one artboard: the document's, with that board's own
+    /// choices substituted where it has made one that still exists.
+    func activeModeIDs(overrides: [String: UUID]?) -> [UUID] {
+        guard let overrides, !overrides.isEmpty else { return activeModeIDs }
+        return modeSets.compactMap { set in
+            if let chosen = overrides[set.id.uuidString],
+               set.modes.contains(where: { $0.id == chosen }) { return chosen }
+            return set.resolvedActiveModeID
+        }
+    }
+
+    /// A token's literal value after following aliases. nil when the token (or
+    /// anything in its alias chain) is missing, or the chain loops.
+    func resolvedTokenValue(_ id: UUID, context: DLResolveContext) -> DLTokenValue? {
+        var seen: Set<UUID> = []
+        var current = id
+        while seen.insert(current).inserted {
+            guard let token = token(current) else { return nil }
+            let value = token.value(inModes: context.modeIDs)
+            guard let next = value.aliasTarget else { return value }
+            current = next
+        }
+        return nil
+    }
+    func resolvedTokenValue(_ id: UUID, modeID: UUID? = nil) -> DLTokenValue? {
+        resolvedTokenValue(id, context: DLResolveContext(modeIDs: modeID.map { [$0] } ?? []))
+    }
+
+    /// A token as canvas points. Fixed units resolve as written; `rem` uses
+    /// `settings.remBase`; `em`, viewport units and `%` use the context; and
+    /// `calc()`/`min()`/`max()`/`clamp()` are evaluated (see `DLLength`). nil
+    /// when the value can't be measured here — EXP does not guess.
+    func resolvedNumber(_ id: UUID, context: DLResolveContext) -> CGFloat? {
+        guard let value = resolvedTokenValue(id, context: context) else { return nil }
+        switch value {
+        case .number(let n):
+            return n.isFinite ? CGFloat(n) : nil
+        case .dimension(let d):
+            guard d.value.isFinite else { return nil }
+            if d.unit.isEmpty { return CGFloat(d.value) }
+            guard let scale = DLLength.pointsPerUnit(d.unit, context: context,
+                                                     remBase: settings.remBase) else { return nil }
+            return CGFloat(d.value * scale)
+        case .raw(let css):
+            return DLLength.points(css, context: context, remBase: settings.remBase)
+        case .alias, .preserved:
+            return nil
+        }
+    }
+    func resolvedNumber(_ id: UUID, modeID: UUID? = nil) -> CGFloat? {
+        resolvedNumber(id, context: DLResolveContext(modeIDs: modeID.map { [$0] } ?? []))
+    }
+
+    // MARK: Token mutations (same shape as the asset API)
+
+    @discardableResult
+    mutating func addToken(_ token: DLToken) -> UUID { tokens.append(token); return token.id }
+
+    mutating func renameToken(_ id: UUID, to name: String) {
+        guard let i = tokens.firstIndex(where: { $0.id == id }) else { return }
+        tokens[i].name = name
+    }
+
+    /// Set a token's base value (`modeID` nil) or its value in one mode. Passing
+    /// nil for `value` with a mode clears that mode's override.
+    mutating func setTokenValue(_ id: UUID, to value: DLTokenValue?, modeID: UUID? = nil) {
+        guard let i = tokens.firstIndex(where: { $0.id == id }) else { return }
+        if let modeID {
+            tokens[i].modeValues[modeID.uuidString] = value
+        } else if let value {
+            tokens[i].value = value
+        }
+    }
+
+    mutating func removeToken(_ id: UUID) { tokens.removeAll { $0.id == id } }
+}
+
+extension Document {
+    /// Re-resolve every token binding in the document and write any number that
+    /// changed, then reflow what moved. Pure and idempotent: a second call right
+    /// after the first changes nothing. Call it in the SAME model transaction as
+    /// a token edit, a mode switch or an artboard resize so the edit and its
+    /// reflow are one undo step.
+    ///
+    /// Each layer resolves in its own artboard's context: that board's modes
+    /// and, for viewport units, that board's size. Layers on the wall and inside
+    /// component sources use the document's modes and have no viewport.
+    ///
+    /// A binding whose token is missing or can't be measured is left alone —
+    /// the node keeps the last value it had.
+    @discardableResult
+    mutating func applyTokenBindings() -> Bool {
+        syncTokenBindings(before: nil)
+    }
+
+    /// The numbers bound fields held in an earlier state: node id → key →
+    /// (token, value). Lets a sync tell "the context changed" from "someone
+    /// edited this number".
+    typealias BoundFieldValues = [UUID: [String: (token: UUID, value: CGFloat)]]
+
+    /// Bring every linked field back in line after an edit that went from `old`
+    /// to this document — the commit-time companion to `applyTokenBindings()`.
+    ///
+    /// For each linked field that no longer equals its token:
+    ///   • the number is the SAME as in `old` → the context changed (artboard
+    ///     resized, layer moved to another board, mode switched): write the
+    ///     newly resolved value;
+    ///   • the number DIFFERS from `old` → this edit changed it on purpose
+    ///     (typed, scaled, set by an agent): keep the number and clear that one
+    ///     link, exactly as typing in the Inspector does.
+    /// Free when the document has no tokens.
+    @discardableResult
+    mutating func reconcileTokenBindings(after old: Document) -> Bool {
+        guard !designLanguage.tokens.isEmpty else { return false }
+        var before: BoundFieldValues = [:]
+        func record(_ nodes: [Node]) {
+            for node in nodes {
+                if let bindings = node.tokenBindings {
+                    var fields: [String: (token: UUID, value: CGFloat)] = [:]
+                    for (key, token) in bindings {
+                        if let value = node.numericValue(forBindingKey: key) {
+                            fields[key] = (token: token, value: value)
+                        }
+                    }
+                    before[node.id] = fields
+                }
+                if case .group(let children) = node.content { record(children) }
+            }
+        }
+        for page in old.pages { record(page.nodes) }
+        for source in old.sources { record(source.children) }
+        return syncTokenBindings(before: before)
+    }
+
+    private mutating func syncTokenBindings(before: BoundFieldValues?) -> Bool {
+        let language = designLanguage
+        func resolver(_ context: DLResolveContext) -> (UUID) -> CGFloat? {
+            var cache: [UUID: CGFloat?] = [:]
+            return { id in
+                if let hit = cache[id] { return hit }
+                let value = language.resolvedNumber(id, context: context)
+                cache.updateValue(value, forKey: id)
+                return value
+            }
+        }
+        let documentResolver = resolver(DLResolveContext(modeIDs: language.activeModeIDs))
+        var changed = false
+        // Sources first: page reflow measures instances from their sources.
+        for si in sources.indices {
+            var children = sources[si].children
+            var touched = false
+            for ci in children.indices where Self.applyTokenBindings(to: &children[ci], resolve: documentResolver, before: before) {
+                touched = true
+            }
+            guard touched else { continue }
+            let fitBounds = sourceUsesManagedBounds(sources[si])
+            let laid = reflowed(children)
+            sources[si].children = laid
+            if fitBounds, let bounds = managedRootBounds(in: laid) {
+                sources[si].origin = bounds.origin
+                sources[si].size = bounds.size
+            }
+            changed = true
+        }
+        for pi in pages.indices {
+            var boards: [UUID: (UUID) -> CGFloat?] = [:]
+            for board in pages[pi].artboards {
+                boards[board.id] = resolver(DLResolveContext(
+                    modeIDs: language.activeModeIDs(overrides: board.modeOverrides),
+                    viewport: board.frame.size))
+            }
+            var nodes = pages[pi].nodes
+            var touched = false
+            for ni in nodes.indices {
+                let resolve = nodes[ni].artboardID.flatMap { boards[$0] } ?? documentResolver
+                if Self.applyTokenBindings(to: &nodes[ni], resolve: resolve, before: before) { touched = true }
+            }
+            // A source that changed size can move page content even when no page
+            // node holds a binding of its own.
+            guard touched || changed else { continue }
+            pages[pi].nodes = reflowed(nodes)
+            if touched { changed = true }
+        }
+        return changed
+    }
+
+    private static func applyTokenBindings(to node: inout Node,
+                                           resolve: (UUID) -> CGFloat?,
+                                           before: BoundFieldValues?) -> Bool {
+        var changed = false
+        if let bindings = node.tokenBindings {
+            for (key, tokenID) in bindings {
+                guard let value = resolve(tokenID) else { continue }
+                if let earlier = before?[node.id]?[key], earlier.token == tokenID,
+                   let current = node.numericValue(forBindingKey: key),
+                   abs(current - Swift.max(0, value)) > 0.0001,
+                   abs(current - earlier.value) > 0.0001 {
+                    // This edit changed the number itself: keep it, drop the link.
+                    node.setTokenBinding(key, to: nil)
+                    changed = true
+                    continue
+                }
+                if node.setNumericValue(value, forBindingKey: key) { changed = true }
+            }
+        }
+        if case .group(var children) = node.content {
+            var inner = false
+            for ci in children.indices where applyTokenBindings(to: &children[ci], resolve: resolve, before: before) {
+                inner = true
+            }
+            if inner { node.content = .group(children: children); changed = true }
+        }
+        return changed
+    }
+
+    /// How many properties across the document are linked to a token.
+    func tokenUseCount(_ id: UUID) -> Int {
+        func count(_ nodes: [Node]) -> Int {
+            nodes.reduce(0) { total, node in
+                var n = total + (node.tokenBindings?.values.filter { $0 == id }.count ?? 0)
+                if case .group(let children) = node.content { n += count(children) }
+                return n
+            }
+        }
+        return pages.reduce(0) { $0 + count($1.nodes) } + sources.reduce(0) { $0 + count($1.children) }
+    }
+
+    /// Change a token's value and update everything linked to it. One call = one
+    /// model transaction for the caller to register as a single undo step.
+    @discardableResult
+    mutating func setTokenValue(_ id: UUID, to value: DLTokenValue?, modeID: UUID? = nil) -> Bool {
+        designLanguage.setTokenValue(id, to: value, modeID: modeID)
+        return applyTokenBindings()
+    }
+
+    /// Delete a token and unlink every property that used it. The numbers stay
+    /// exactly as they are. Returns how many links were removed.
+    @discardableResult
+    mutating func removeToken(_ id: UUID) -> Int {
+        func strip(_ nodes: inout [Node]) -> Int {
+            var removed = 0
+            for i in nodes.indices {
+                if let bindings = nodes[i].tokenBindings {
+                    let kept = bindings.filter { $0.value != id }
+                    removed += bindings.count - kept.count
+                    nodes[i].tokenBindings = kept.isEmpty ? nil : kept
+                }
+                if case .group(var children) = nodes[i].content {
+                    let inner = strip(&children)
+                    if inner > 0 { nodes[i].content = .group(children: children); removed += inner }
+                }
+            }
+            return removed
+        }
+        var removed = 0
+        for pi in pages.indices { removed += strip(&pages[pi].nodes) }
+        for si in sources.indices { removed += strip(&sources[si].children) }
+        designLanguage.removeToken(id)
+        return removed
+    }
+}
+
+extension DLTokenValue {
+    /// Turn what a person types into a token value. A bare number is points
+    /// (`16` → 16px); a number with a unit keeps the unit exactly (`1.5rem`,
+    /// `2em`, `4vw`); anything else non-empty is kept verbatim as CSS
+    /// (`clamp(1rem, 2vw, 2rem)`). nil only for empty input.
+    static func parsingLength(_ text: String) -> DLTokenValue? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let numberPart = trimmed.prefix { "+-.0123456789".contains($0) }
+        let unitPart = trimmed[numberPart.endIndex...]
+        if let value = Double(numberPart), value.isFinite,
+           unitPart.allSatisfy({ $0.isLetter || $0 == "%" }) {
+            return .dimension(DLDimension(value, unit: unitPart.isEmpty ? "px" : unitPart.lowercased()))
+        }
+        return .raw(trimmed)
+    }
+
+    /// The value as authored, for showing and editing: `16px`, `1.5rem`, the CSS
+    /// text of an expression. Empty for aliases and preserved values, which the
+    /// caller presents its own way.
+    var authoredText: String {
+        func plain(_ n: Double) -> String {
+            n == n.rounded() && abs(n) < 1e15 ? String(Int(n)) : String(n)
+        }
+        switch self {
+        case .dimension(let d): return plain(d.value) + d.unit
+        case .number(let n): return plain(n)
+        case .raw(let css): return css
+        case .alias, .preserved: return ""
+        }
+    }
+}
+
+extension Document {
+    /// Use counts for every token in ONE walk of the document — for panels that
+    /// list many tokens (never call `tokenUseCount` per row).
+    func tokenUseCounts() -> [UUID: Int] {
+        var counts: [UUID: Int] = [:]
+        func visit(_ nodes: [Node]) {
+            for node in nodes {
+                if let bindings = node.tokenBindings {
+                    for id in bindings.values { counts[id, default: 0] += 1 }
+                }
+                if case .group(let children) = node.content { visit(children) }
+            }
+        }
+        for page in pages { visit(page.nodes) }
+        for source in sources { visit(source.children) }
+        return counts
     }
 }

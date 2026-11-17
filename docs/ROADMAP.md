@@ -1286,14 +1286,78 @@ promote them into release gates.
 
 ---
 
-## v2.8 — published; installed update proof pending (2.8 / build 19)
+## v2.9 — development OPEN (2.9 / build 20)
+
+Opened November 9, 2026 after the owner confirms the installed v2.7→v2.8 update
+succeeded. Public v2.8/build 19, release tag, ZIP, notes and updater item remain
+immutable. The website continues to advertise the public 2.8 release.
+
+**Selected focus: Design Language — color modes, spacing tokens and practical
+bindings.** Interaction brief and implementation gates: `DESIGN-LANGUAGE-v2.9.md`.
+This setup records the next-release to-do; these capabilities are not built yet.
+
+- [x] Close native v2.8; record owner update acceptance and installed-app checks.
+- [x] Open 2.9/build 20 across app, thumbnail and runtime build configurations.
+- [x] Record the Design Language focus and the owner's spacing-token interaction.
+- [ ] FEAT-088 — named color modes, usable/editable mode values and predictable
+      linked-color application. Decide mode scope, aliases/fallback and exports.
+- [ ] FEAT-089 — named spacing tokens and live numeric bindings. First surfaces:
+      fixed automatic spacing/gap and existing element margin/padding controls.
+      Selecting a token displays its value and keeps a link; token edits update
+      every linked use. Committing a different number detaches that field and
+      returns its token selector to None/default; normal numeric entry remains.
+- [x] Survey token types, binding surfaces and other design-language systems;
+      write the agent-ready master plan — `DESIGN-LANGUAGE-PLAN.md` (November 16).
+- [x] Owner answers the plan's open questions (November 16; plan §1a): per-artboard
+      mode selector beside the notes icon over a document default; all seven
+      slices in v2.9; file AND hosted sharing plus "Export to…" (FEAT-097);
+      rigid and flexible units; universal vocabulary; color AND type links.
+- [x] Owner picks token field option A and the mode selector after the notes
+      icon (November 16), from `../mockups/design-language-v2.9/`.
+- [x] S1 · FEAT-090a and S2 · FEAT-089a — **owner-verified November 17**
+      ("ran through all the tests and everything looks good"): token/binding
+      model, and spacing tokens in the Design Language panel.
+- [x] S2 follow-ups from that review — owner-verified November 17:
+      empty-state **Add New** menu (color, type style, spacing token); Spacing
+      group in Settings ▸ Design Language; the app "Design Tokens" settings pane
+      removed (Accent → General, Text box trim → Canvas).
+- [x] S3 · FEAT-089b — token fields on gap/padding/margin. **Owner-verified
+      November 17** ("went through the list and everything is working").
+- [ ] S3 follow-up: commit-time reconcile so an artboard resize, a move to
+      another board or a mode switch re-resolves linked fields, and a number
+      changed outside the Inspector detaches its link. Built November 17;
+      awaiting owner check (resize an artboard holding a `clamp()` gap).
+- [ ] BUG-084 — script/swash fonts cut off in auto-sized text (logged to
+      revisit; owner will supply an example font. Not started).
+- [ ] FEAT-099 — resize behavior for a group's children (owner idea November
+      17). Sized in BACKLOG; owner to choose v2.9 small slice vs later.
+- [ ] FEAT-098 — make the text box trim preference take effect (owner-added to
+      v2.9 November 17; design pass first; do BUG-084 before it).
+- [ ] S4 · FEAT-088a — mode sets, per-mode color values, active mode.
+- [ ] S5 · FEAT-088b — color, gradient and type-style links by identity.
+- [ ] S6 · FEAT-091a — Design Language Guide: builder, template, live window.
+- [ ] S7 · FEAT-091b — Guide export (single HTML), copyable code, token files.
+- [ ] Implement and owner-verify each mutating slice sequentially, with reflow,
+      detach, Undo/Redo, JSON/package persistence, compatibility, export and AT checks.
+
+Later Design Language queue (planned, not v2.9 commitments): FEAT-090b full
+editable type coverage, FEAT-092 guide share link (hosted gate), FEAT-093
+bindings beyond spacing, FEAT-094 aliases/tiers/groups, FEAT-095 import adapters
+(DTCG resolver, Figma variables, Tokens Studio, Style Dictionary), FEAT-096
+standards-complete export.
+
+FEAT-083–085/087 component sync and hosted/commercial/performance follow-ups keep
+separate queues. They are not automatically added to this Design Language release.
+
+## v2.8 — native RELEASED AND COMPLETE (2.8 / build 19)
 
 Opened October 20, 2026 after owner-confirmed v2.6→v2.7 Sparkle update/relaunch.
 Public v2.7/build 18, its source tag, signed app/ZIP and updater item remain
-immutable. App/thumbnail/runtime configurations use 2.8/19. November 9: v2.8 is
-published; live feed/notes/site and the notarized ZIP are verified. The owner’s
-actual v2.7→v2.8 Sparkle update/relaunch remains the final closure gate; keep the
-current version until it is recorded. `RELEASE-CHECKLIST-v2.8.md` is authoritative.
+immutable. November 9: public feed/notes/site and notarized ZIP are verified;
+the owner confirms “everything updated successfully,” closing the actual
+v2.7→v2.8 update gate. Fresh read-only installed-app production checks pass 2.8/19.
+`RELEASE-CHECKLIST-v2.8.md` holds closure receipts. Development is now 2.9/20;
+unchecked broader plans below remain follow-ups rather than release blockers.
 
 - [x] Open the next development identity and preserve published v2.7 artifacts.
 - [x] Owner selects FEAT-077: account-first website, private feedback/features,
@@ -3606,6 +3670,181 @@ font import → Phase 9, shadows → Phase 10._
 
 ## Progress Log
 
+- **2026-11-17 — Team research survey, social metadata checks, and voice revision [internal].**
+  Owner authorized website/code changes. Implemented `/teams`, durable anonymous-to-contact
+  research flow (no email required; not claimed anonymous at infrastructure level),
+  separate confirmed follow-up permission, private stop/delete links, bounded inputs,
+  shared SQL budgets, migration/grants, retention operator script and review query.
+  Defaults off pending rollout. Existing thumbnail is a valid 1200×630 PNG; added
+  build checks and crawler-readable teams metadata. Reworked messaging into the
+  owner's case-study voice, leading with a return/update post. Existing v2.9 native
+  work untouched. Passed 14 contract/render checks, website production/social build,
+  15 release-signup checks. Real PG integration blocked by sandbox shared-memory
+  denial; Chromium blocked by macOS IPC denial; live hosting/inbox/social caches not
+  verified. No commit/push/deploy/mail/collection. Full handoff and remaining checks:
+  `docs/launch/TEAM-RESEARCH-2026-11.md`. Public v2.8 remains unchanged.
+
+
+- **2026-11-17 — Marketing message library and team discovery proposal [internal].**
+  Added `docs/launch/MESSAGING-AND-TEAM-DISCOVERY-2026-11.md`: channel-specific
+  drafts, a meetup pitch, bounded community experiment, and a short team-research
+  page/survey with optional technical and procurement follow-up. Recommends
+  reusing the existing Pro foundation and researching now before a separate
+  subsite; recommendations are not owner-approved implementation or pricing.
+  Claims use shipped v2.8, preserving in-progress v2.9 boundaries. Read existing
+  launch/privacy flow documentation and current primary external sources.
+  No outreach, posting, website changes, collection, deployment, or live form
+  validation performed. Existing unrelated working-tree changes preserved.
+
+
+- **2026-11-17 (night) — S3 owner-verified; commit-time reconcile built; FEAT-099 sized [internal].**
+  Owner ran the S3 list: everything works. Confirms the known gap (a `clamp()`
+  gap does not move when its artboard is resized, though the menu shows the new
+  figure). Asks what Space Between is for and why Align does nothing, and
+  proposes per-child resize behavior. Built the gap fix as
+  `Document.reconcileTokenBindings(after:)`, called from `ExpDocument.setModel`
+  and `registerUndo(restoring:)`: unchanged-but-stale linked numbers re-resolve
+  (context moved); numbers the edit itself changed detach. Undo/redo exempt.
+  `verify_design_tokens.sh` passes 23 checks; both schemes build;
+  `verify_library_token_sync` passes. NOT verified in the running app — this
+  hook now runs on every commit of a document that has tokens, so the owner's
+  check should include ordinary editing feel on a large file.
+  Answered from source: resizing a group scales every child, so Space Between
+  has no slack to distribute and Align only acts on items of unequal cross
+  size. Logged FEAT-099 with a small slice (per-child resize behavior, about
+  the size of S3) and a full constraints version (own release theme); owner to
+  choose. BUG-084 stays logged pending an example font. Not committed. S4 waits
+  for the reconcile check.
+
+- **2026-11-17 (later) — S2 follow-ups verified; S3 token fields built; trim + script-font items added [internal].**
+  Owner confirms the Add New menu, Settings spacing group and settings
+  reorganisation; asks to add the text-box-trim fix to v2.9 and notes script
+  fonts look cut off in auto-sized text boxes. Logged FEAT-098 (make the trim
+  preference take effect; design pass first) and BUG-084 (script/swash clipping;
+  cause NOT identified — `measuredSize` uses the typographic line box, not ink;
+  the clip location is an unchecked hypothesis; trim alone would not fix it).
+  Built S3 / FEAT-089b per option A: token button + chip on Gap and the eight
+  padding/margin fields, link/relink/clear, detach on a different committed
+  number, missing-token state, per-artboard resolution, New Token from value,
+  Manage Tokens. Debug builds of both schemes succeed; `verify_design_tokens.sh`
+  passes 22 checks. NOT verified: nobody has run the interface. Known gaps are
+  listed in DESIGN-LANGUAGE-PLAN → "S3 as built" (artboard resize / move / mode
+  switch don't re-resolve yet; no multi-selection; component-state capture and
+  `Node(…)` rebuild sites unaudited; no filter field in the menu). Not
+  committed. S4 waits for S3 acceptance.
+
+- **2026-11-17 — S1 + S2 owner-verified; review follow-ups built [internal].**
+  Owner ran the full S2 checklist: everything passes; mark verified. Requests:
+  (1) the panel's blank state should offer one Add New control for a color, a
+  type style or a spacing token; (2) Settings ▸ Design Language had no spacing;
+  (3) the app-level "Design Tokens" settings pane is misnamed — accent belongs
+  under General and text box trim needs a better home. Built: empty-state
+  **Add New** menu (Color…, Type Style from Selected Text…, Spacing Token…,
+  Everything in the Selection); `DLSpacingSettingsGroup` in the Settings editor
+  (inline name/value rows committing on Return or blur, add row, delete with a
+  linked-use confirmation); removed the `designTokens` settings pane — Accent
+  is now a General group and Text box trim a Canvas group. Debug builds
+  of both schemes succeed; `verify_design_tokens.sh` passes 22 checks.
+  Finding recorded, not changed: `exp.pref.textBoxTrim` is read ONLY by its own
+  settings diagram — no canvas, text or export code consults it — so the control
+  currently has no effect anywhere. Owner to decide keep/shelve/wire.
+  "Color…" saves a neutral swatch before opening the editor, so cancelling
+  leaves that swatch (Undo removes it). NOT verified by a person: the three
+  follow-ups. Not committed. Next after the owner's check: S3 token fields.
+
+- **2026-11-16 (late) — Token field A chosen; S2 spacing tokens in the panel built [internal].**
+  Owner picks token field option A and places the artboard mode selector AFTER
+  the notes icon (notes expand left); the rest of the mockup is accepted.
+  Built S2 / FEAT-089a: `Canvas/CanvasTokenActions.swift` (new/edit/delete
+  spacing token, one implementation on the canvas view), the panel's Spacing
+  section in `UI/DesignLanguageSpacing.swift`, Object ▸ Frame ▸ New Spacing
+  Token…, the empty-state button, and model helpers for typed values and
+  one-walk use counts. Debug builds of both schemes succeed;
+  `verify_design_tokens.sh` passes 22 checks; `verify_library_token_sync` passes.
+  NOT verified: nobody has looked at the running interface yet — layout, larger
+  text, VoiceOver and light/dark are the owner's checklist (plan → "S2 owner
+  verification"). Not built: Settings-editor parity, reordering. Tokens cannot
+  be linked until S3. Sequencing rule applies: S3 waits for S2 acceptance.
+  Not committed.
+
+- **2026-11-16 (later) — Owner decisions; flexible units and per-artboard resolution built [internal].**
+  Owner answers the plan's questions (recorded in DESIGN-LANGUAGE-PLAN §1a):
+  document mode plus a per-artboard selector beside the notes icon; spacing,
+  modes, links and guide all in v2.9, with the following release expected to
+  focus on two-way component governance; offer both file and hosted sharing and
+  explore "Export to…" destinations; tokens must allow rigid AND flexible units
+  (owner uses em, clamp, minmax); use the most universal vocabulary; fix
+  by-value links for colors AND typography together. Extended S1 in
+  `Model/Document.swift`: `DLLength` evaluates px/pt/in/cm/mm, rem, em,
+  viewport units, %, and calc/min/max/clamp (minmax, var, fr and unknowns are
+  refused, never guessed); `DLResolveContext`; `DLModeSet.activeModeID`;
+  `Artboard.modeOverrides`; `applyTokenBindings()` now resolves every layer in
+  its own artboard's modes and size. `verify_design_tokens.sh`: 20 checks pass
+  on the owner's Mac. Debug builds of `EXP [design]` and `EXPThumbnail`
+  succeed; `verify_library_token_sync` and `verify_svg_token_bridge` still pass.
+  Added plan §7a + BACKLOG FEAT-097 (Export to…): CodePen can reuse the shipped
+  prefill exporter; static hosts take the single file as is; vendor platform
+  integrations are listed as NOT verified. Mockups for the open token-field
+  decision, the panel's Spacing section and the artboard mode selector:
+  `../mockups/design-language-v2.9/token-field-options.html` (static HTML, small
+  and large design-language examples).
+  NOT done: still no UI and nothing calls the model; artboard resize / move /
+  mode-switch call sites are an S3/S4 duty; `%` has no reference yet;
+  viewport-relative tokens do not resolve inside component sources. Not
+  committed. Next: owner picks the token field, then S2.
+
+- **2026-11-16 — Design Language master plan; S1 token/binding model built [internal].**
+  Owner asks to start v2.9's design-language work: work out interfaces and how
+  spacing tokens integrate; add an auto-generated, live visual guide of all
+  tokens that exports to a reference page and a shareable link with copyable
+  code; research other design-language systems; plan simple→complex imports and
+  full two-way integration for Pro teams with every token type editable. Read
+  the token/model/inspector seams (finding: layers link to saved colors and type
+  styles by VALUE only, and non-color tokens are read-only library rows, so
+  modes and spacing both need an editable token model plus identity bindings).
+  Researched DTCG Format/Resolver 2025.10, Figma variables/modes/extended
+  collections and primitive→semantic→component tiering. Wrote
+  `DESIGN-LANGUAGE-PLAN.md`: architecture rules R1–R10 (materialized value +
+  binding), target model, binding surfaces, interface proposals, slices S1–S7,
+  the Guide (one HTML template for the live window and the export), import/export
+  ladder, six open owner questions and an explicit not-verified list. Added
+  BACKLOG FEAT-090–096; ROADMAP v2.9 now lists S1–S7.
+  **S1 / FEAT-090a built (model only, no UI, no behavior change):** `DLToken`,
+  `DLTokenType`/`DLTokenRole` (tolerant string wrappers), `DLTokenValue`,
+  `DLModeSet`, `DLSettings`, `Node.tokenBindings`, `TokenBindingKey`, the alias/
+  unit resolver and `Document.applyTokenBindings()` in `Model/Document.swift`.
+  `scripts/verify_design_tokens.sh` passes 18 checks on the owner's Mac
+  (unused documents write no new keys; old design language decodes; link,
+  update, detach, rename, delete, dangling link, alias chain/cycle, px/rem/
+  refused units, per-mode values, preserved unknown values, damaged and unknown
+  binding keys, idempotence, save/reopen). Debug builds of `EXP [design]` and
+  `EXPThumbnail` succeed via `../claude-build.sh`; `verify_library_token_sync`,
+  `verify_svg_token_bridge` and `verify_backlog_ids` still pass.
+  NOT done or verified: no UI; nothing calls the new API; instance-override
+  interaction with bindings and `Node(…)` rebuild sites are unaudited (plan
+  §4.3); no ARIA pattern for the Guide is verified; OPEN-1…6 await the owner.
+  Not committed. Next: owner answers §9, then S2 (spacing tokens in the panel).
+
+- **2026-11-09 — v2.8 update accepted; v2.9 Design Language development opened [internal].**
+  Owner confirms “perfect. everything updated successfully.” Closed native v2.8
+  and recorded fresh production checks of the installed app at 2.8/19 in
+  ../releases/v2.8/receipts/closure/installed-app-check.log. Public source tag,
+  artifact/feed/notes remain unchanged. Opened codex/v2.9-design-language and
+  2.9/build 20 for app/thumbnail/runtimes. Owner selects a Design Language focus:
+  FEAT-088 color modes and FEAT-089 named spacing tokens, first in fixed automatic
+  spacing/gap and margin/padding. Selecting a token displays its resolved value;
+  editing that token updates linked uses. Committing a different numeric value
+  severs only that property's link and resets the selector to None/default.
+  Numeric entry remains usable; exact selector UI and mode/fallback/unit choices
+  precede implementation. Recorded in DESIGN-LANGUAGE-v2.9.md, BACKLOG and draft
+  v2.9 notes. This session prepares the baseline and to-do only; no new feature
+  behavior or document model is implemented. Debug app/thumbnail build passes;
+  both built bundles read 2.9/20 and the installed public app remains 2.8/19.
+  Version/Sparkle setup, whitespace and backlog-ID checks pass. Immutable v2.8
+  tag/ZIP and checked-in public feed/notes are unchanged. Receipts:
+  output/release-review-checks/v2.9-setup/. Existing Swift 5/concurrency warnings
+  remain visible. No push/deployment or feature implementation in this setup.
+
 - **2026-11-09 — Owner accepts v2.8 checklist; stability release authorized [internal].**
   Owner reports every latest checklist check passes, explicitly including package/
   token import fidelity, multiple shadows, gradients and saved Design Language
@@ -3629,8 +3868,8 @@ font import → Phase 9, shadows → Phase 10._
   release downloads match the immutable ZIP. Production deployment
   dpl_82B6soHSDk9uYEMK2ediCgbumfAu is READY; live feed/HTML notes match approved
   bytes and the website advertises 2.8. Owner’s actual v2.7→v2.8 updater
-  result remains the only native release closure gate. Keep 2.8/19 until then;
-  do not silently mark the release complete or start another mutating slice.
+  result was pending at publication; the later November 9 owner confirmation
+  in the entry above closes it and authorizes the 2.9/20 development baseline.
 
 - **2026-11-06 — Settings resizing, saved gradients and value clipping repaired [native].**
   Owner screenshots show the November 5 resize change still failed in use.
