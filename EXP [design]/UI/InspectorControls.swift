@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// The position of the accent mark conveys the side without consuming a label
 /// column. The field still has a full name for VoiceOver, Voice Control and help.
@@ -14,8 +15,27 @@ struct EXPEdgeField: View {
     let name: String
     let edge: EXPFieldEdge
     @Binding var value: Double
+    /// The Design Language token control for this field (FEAT-089b). nil when
+    /// the document has no spacing tokens, so the field is exactly as before.
+    var token: EXPTokenButton? = nil
+
+    private var spokenName: String {
+        guard let token else { return name }
+        switch token.state {
+        case .unlinked: return name
+        case .linked(let tokenName): return "\(name), linked to \(tokenName)"
+        case .missing: return "\(name), linked to a missing token"
+        }
+    }
 
     var body: some View {
+        HStack(spacing: 1) {
+            field
+            if let token { token }
+        }
+    }
+
+    private var field: some View {
         TextField(name, value: $value, format: .number.precision(.fractionLength(0)))
             .labelsHidden().textFieldStyle(.exp)
             .multilineTextAlignment(.trailing).monospacedDigit()
@@ -32,7 +52,131 @@ struct EXPEdgeField: View {
             }
             .padding(3)
             .expFieldTip(name)
-            .accessibilityLabel(name)
+            .accessibilityLabel(spokenName)
+    }
+}
+
+// MARK: - Design Language token control (FEAT-089b)
+
+/// One token offered by a field's token menu.
+struct EXPTokenChoice: Identifiable {
+    let id: UUID
+    let name: String
+    let group: String
+    /// The value as authored, plus the resolved number when they differ.
+    let valueText: String
+    /// What the token measures for the selected layer; nil when it can't be
+    /// measured there (a viewport unit with no artboard, a grid track, …).
+    let resolved: CGFloat?
+}
+
+enum EXPTokenLinkState: Equatable {
+    case unlinked
+    case linked(String)
+    case missing
+}
+
+/// The small button at a number field's trailing edge: shows whether the field
+/// is linked to a token, and opens the menu that links, relinks or clears it.
+/// State is carried by the glyph's SHAPE and by words, never by color alone.
+struct EXPTokenButton: View {
+    let fieldName: String
+    let state: EXPTokenLinkState
+    let linkedID: UUID?
+    let choices: [EXPTokenChoice]
+    let currentValue: Double
+    let onSelect: (UUID?) -> Void
+    @Environment(\.openWindow) private var openWindow
+
+    private var symbol: String {
+        switch state {
+        case .unlinked: return "ellipsis"
+        case .linked: return "link"
+        case .missing: return "exclamationmark.triangle"
+        }
+    }
+    private var summary: String {
+        switch state {
+        case .unlinked: return "\(fieldName) token: none"
+        case .linked(let name): return "\(fieldName) token: \(name)"
+        case .missing: return "\(fieldName) token: missing. Choose another token or None."
+        }
+    }
+    private var groups: [(name: String, items: [EXPTokenChoice])] {
+        var order: [String] = []
+        var buckets: [String: [EXPTokenChoice]] = [:]
+        for choice in choices {
+            if buckets[choice.group] == nil { order.append(choice.group) }
+            buckets[choice.group, default: []].append(choice)
+        }
+        return order.map { (name: $0, items: buckets[$0] ?? []) }
+    }
+    private func title(_ choice: EXPTokenChoice) -> String {
+        let name = choice.name.isEmpty ? "Unnamed" : choice.name
+        return choice.resolved == nil
+            ? "\(name) — \(choice.valueText), can’t be measured here"
+            : "\(name) — \(choice.valueText)"
+    }
+
+    var body: some View {
+        Menu {
+            Button(state == .missing ? "Clear Missing Link" : "None") { onSelect(nil) }
+                .disabled(state == .unlinked)
+            ForEach(groups, id: \.name) { group in
+                Section(group.name) {
+                    ForEach(group.items) { choice in
+                        Button { onSelect(choice.id) } label: {
+                            if choice.id == linkedID { Label(title(choice), systemImage: "checkmark") }
+                            else { Text(title(choice)) }
+                        }
+                        .disabled(choice.resolved == nil)
+                    }
+                }
+            }
+            Divider()
+            Button("New Token from \(Int(currentValue.rounded()))…") {
+                let item = NSMenuItem()
+                item.representedObject = String(Int(currentValue.rounded()))
+                _ = sendCanvasAction("newSpacingTokenAction:", from: item)
+            }
+            Button("Manage Tokens…") {
+                UserDefaults.standard.set("designLanguage", forKey: AppPreferences.requestedSettingsPane)
+                openWindow(id: SettingsWindow.sceneID)
+            }
+        } label: {
+            Image(systemName: symbol)
+                .font(.system(size: 10, weight: .semibold))
+                .frame(width: 20, height: 24)
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .foregroundStyle(state == .unlinked ? EXPColor.textTertiary : EXPColor.accent)
+        .help(summary)
+        .accessibilityLabel(summary)
+    }
+}
+
+/// The token name shown beside or beneath linked fields.
+struct EXPTokenChip: View {
+    let text: String
+    var missing = false
+
+    var body: some View {
+        HStack(spacing: 3) {
+            Image(systemName: missing ? "exclamationmark.triangle" : "link")
+                .font(.system(size: 8, weight: .semibold))
+                .accessibilityHidden(true)
+            Text(text).lineLimit(1).truncationMode(.middle)
+        }
+        .font(.system(size: EXPType.micro))
+        .padding(.horizontal, 5).padding(.vertical, 2)
+        .foregroundStyle(missing ? EXPColor.textPrimary : EXPColor.accent)
+        .background(RoundedRectangle(cornerRadius: 4)
+            .strokeBorder(missing ? EXPColor.textTertiary : EXPColor.accent.opacity(0.6),
+                          style: StrokeStyle(lineWidth: 1, dash: missing ? [3, 2] : [])))
+        .help(text)
     }
 }
 

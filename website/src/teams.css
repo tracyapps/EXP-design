@@ -1,0 +1,24 @@
+.teams-page { grid-template-columns: minmax(0, .85fr) minmax(0, 1.15fr); }
+.teams-page h1 { font-size: clamp(38px, 4.6vw, 64px); }
+.teams-page .team-aside { border-left: 3px solid var(--accent); padding-left: 18px; font-size: 15px; }
+.team-panel, .team-field { min-width: 0; }
+.team-fields, .team-choices { min-width: 0; padding: 0; margin: 0; border: 0; }
+.team-fields { display: grid; gap: 24px; }
+.team-group-title { font-size: 18px; font-weight: 600; margin-bottom: 18px; }
+.team-field { display: grid; gap: 8px; }
+.team-field p { margin: 0; }
+.team-choices legend { font-size: 14px; line-height: 1.5; margin-bottom: 10px; }
+.team-choices label, .team-check { display: flex; align-items: start; gap: 10px; min-height: 36px; padding: 5px 0; }
+.teams-page input[type="checkbox"] { flex: 0 0 18px; width: 18px; height: 18px; margin: 2px 0 0; accent-color: var(--accent); }
+.teams-page textarea { width: 100%; min-width: 0; resize: vertical; min-height: 100px; padding: 12px; border: 1px solid var(--hairline); border-radius: 8px; background: var(--surface-field); color: var(--text-primary); font: inherit; line-height: 1.5; }
+.teams-page :is(textarea, summary, h2):focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; }
+.team-details { border-top: 1px solid var(--hairline); padding-top: 16px; }
+.team-details summary { cursor: pointer; padding: 8px 0; line-height: 1.5; }
+.team-details .team-field { margin-top: 18px; }
+.team-followup { padding: 24px 0 0; border-top: 1px solid var(--hairline); border-radius: 0; margin-top: 12px; }
+.team-privacy { margin-top: 28px; padding: 20px; border: 1px solid var(--hairline); border-radius: 12px; scroll-margin-top: 100px; }
+.team-privacy h2 { font-size: 18px; }
+.team-privacy p { font-size: 14px; }
+.team-actions { display: flex; gap: 12px; flex-wrap: wrap; }
+.teams-page a { overflow-wrap: anywhere; }
+@media (max-width: 760px) { .teams-page { grid-template-columns: minmax(0,1fr); } }

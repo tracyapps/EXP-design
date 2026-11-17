@@ -22,6 +22,8 @@ docs/*
 !docs/COMPONENT-SYNC-v2.8.md
 !docs/IMPORT-FIDELITY-v2.8.md
 !docs/TESTING-v2.8-RELEASE.md
+!docs/DESIGN-LANGUAGE-v2.9.md
+!docs/DESIGN-LANGUAGE-PLAN.md
 /output/release-review/
 /output/release-review-checks/
 !docs/SEMANTIC-HTML-CONTRACT.md
@@ -107,3 +109,7 @@ output/a11y/
 !docs/launch/ACCOUNT-FIRST-GROWTH-v2.8.md
 !docs/launch/CREATOR-OUTREACH-v2.8.md
 !docs/launch/SHARING-AND-PUBLIC-PHOTOS-v2.8.md
+
+# Team discovery implementation and the owner’s reusable message packet
+!docs/launch/MESSAGING-AND-TEAM-DISCOVERY-2026-11.md
+!docs/launch/TEAM-RESEARCH-2026-11.md

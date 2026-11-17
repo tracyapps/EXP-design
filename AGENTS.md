@@ -38,25 +38,24 @@ EXP [design]/
 ```
 
 ## Current status
-Public **v2.7/build 18** is released, notarized and complete (2026-10-20).
-Owner confirms the live v2.6→v2.7 Sparkle update on their Mac. Installed app
-reads 2.7/18 and passes production release checks; live feed/notes match the
-verified package and website advertises 2.7. Receipts:
-`docs/RELEASE-CHECKLIST-v2.7.md` and `../releases/v2.7/receipts/closure/`.
-**v2.8/build 19 is published (November 9); installed update proof is pending.** Owner accepts
-all of `docs/TESTING-v2.8-RELEASE.md`, including package/token import fidelity,
-multiple shadows and saved color/gradient editing. For distribution status and
-remaining installed-app proof, read `docs/RELEASE-CHECKLIST-v2.8.md` before
-packaging, publishing or changing the development version. Public ZIP/feed/notes/
-website are verified; keep 2.8/19 until the owner confirms the real v2.7→v2.8
-Sparkle update/relaunch. The shipping slice is
-stability/crash fixes, FEAT-082, import fidelity and opt-in `.designpkg` storage;
-FEAT-083–085/087 remain later work. App, thumbnail and runtimes remain 2.8/19.
-Immutable v2.7 and older releases remain unchanged. Owner selected FEAT-077's
-account-first website/member-engagement slice October 20; read
+Public **v2.8/build 19 is RELEASED AND COMPLETE (2026-11-09)**. Owner confirms
+“everything updated successfully” after the v2.7→v2.8 installed update. Fresh
+production checks of the installed app pass 2.8/19. Release/closure receipts:
+`docs/RELEASE-CHECKLIST-v2.8.md` and `../releases/v2.8/receipts/closure/`.
+**v2.9/build 20 development is OPEN**, branch `codex/v2.9-design-language`.
+Owner-selected focus: Design Language color modes (FEAT-088) and named spacing
+tokens (FEAT-089). Before implementing these, read `docs/DESIGN-LANGUAGE-v2.9.md`
+for the select/link/update/manual-detach interaction, scope and unresolved choices.
+The agent-ready master plan (token/binding model, slices S1–S7, the Design
+Language Guide, import/export ladder, open owner questions) is
+`docs/DESIGN-LANGUAGE-PLAN.md` — read its §0 and §3 before any slice.
+This is a prepared development baseline and to-do; v2.9 features are not built.
+Public v2.8 and older release tags/artifacts/feed items remain immutable.
+Owner selected FEAT-077's account-first website/member-engagement slice October 20; read
 `docs/launch/ACCOUNT-FIRST-GROWTH-v2.8.md` for its consent, data and rollout gates.
-Local implementation is not hosted enablement. The original component/token-sync plan (`docs/COMPONENT-SYNC-v2.8.md`) retains
-its unfinished component contracts, changesets and full refresh as follow-ups.
+Local implementation is not hosted enablement. The original component/token-sync
+plan (`docs/COMPONENT-SYNC-v2.8.md`) retains its unfinished component contracts,
+changesets and full refresh as follow-ups.
 Owner accepts extensive v2.7 accessibility testing with Full Keyboard Access
 unverified because macOS would not enable it. Retain observations; confirmed
 accessibility barriers receive high-priority hotfix treatment.
@@ -124,8 +123,9 @@ See ROADMAP.md for the authoritative checklist and newest Progress Log entry.
 `docs/RELEASE-CHECKLIST-v2.5.md`, including the v2.4→v2.5 Sparkle proof.
 **v2.6 is RELEASED AND COMPLETE (2026-10-02)**; live update proof and all release
 checks pass in `docs/RELEASE-CHECKLIST-v2.6.md`. **v2.7 is RELEASED AND COMPLETE
-(2026-10-20)**; receipts in `docs/RELEASE-CHECKLIST-v2.7.md`. **v2.8/build 19**
-is the development baseline. FEAT-077 website work is selected; native shipping scope is the accepted stability/token/fidelity/package slice.
+(2026-10-20)**; receipts in `docs/RELEASE-CHECKLIST-v2.7.md`. **v2.8/build 19 is RELEASED AND COMPLETE (2026-11-09)**; receipts in
+`docs/RELEASE-CHECKLIST-v2.8.md`. **v2.9/build 20** is the development baseline,
+focused on Design Language modes and spacing (`docs/DESIGN-LANGUAGE-v2.9.md`).
 Full component sync remains planned in `docs/COMPONENT-SYNC-v2.8.md`.
 Dropbox note: the
 folder is supposed to be excluded from sync (one machine only); a known

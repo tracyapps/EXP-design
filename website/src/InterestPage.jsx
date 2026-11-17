@@ -118,12 +118,13 @@ export default function InterestPage({ mode = 'request' }) {
     <section className="interest-page" aria-labelledby="interest-title">
       <div className="interest-intro">
         <p className="section-label">EXP Pro · proposed</p>
-        <h1 id="interest-title">Help shape what comes next.</h1>
-        <p className="interest-lead">A useful paid addition should earn its place in your workflow.</p>
-        <p>I'm exploring optional paid additions to EXP [design]. Before choosing the offer,
-          I'd like to hear from people who might use them.</p>
+        <h1 id="interest-title">so… what would make Pro worth it?</h1>
+        <p className="interest-lead">i have ideas. i’d rather hear what you actually need.</p>
+        <p>i’m figuring out what an optional paid version of EXP [design] should do.
+          before i disappear into building it, a reality check would be useful.</p>
         <p>The shipped editor and exports stay free. There's no payment here, and no
           promised price or release date.</p>
+        <p>working with a design team or component library? <a href="/teams">tell me how that works (or doesn’t).</a></p>
         <a className="interest-text-link" href="/download">just here for the free app? download it here.</a>
       </div>
       <form className="interest-form glass-thick glass-edge" onSubmit={submit} aria-labelledby="pro-form-title">

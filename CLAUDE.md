@@ -128,25 +128,24 @@ EXP [design]/
 ```
 
 ## Current status
-Public **v2.7/build 18** is released, notarized and complete (2026-10-20).
-Owner confirms the live v2.6→v2.7 Sparkle update on their Mac. Installed app
-reads 2.7/18 and passes production release checks; live feed/notes match the
-verified package and website advertises 2.7. Receipts:
-`docs/RELEASE-CHECKLIST-v2.7.md` and `../releases/v2.7/receipts/closure/`.
-**v2.8/build 19 is published (November 9); installed update proof is pending.** Owner accepts
-all of `docs/TESTING-v2.8-RELEASE.md`, including package/token import fidelity,
-multiple shadows and saved color/gradient editing. For distribution status and
-remaining installed-app proof, read `docs/RELEASE-CHECKLIST-v2.8.md` before
-packaging, publishing or changing the development version. Public ZIP/feed/notes/
-website are verified; keep 2.8/19 until the owner confirms the real v2.7→v2.8
-Sparkle update/relaunch. The shipping slice is
-stability/crash fixes, FEAT-082, import fidelity and opt-in `.designpkg` storage;
-FEAT-083–085/087 remain later work. App, thumbnail and runtimes remain 2.8/19.
-Immutable v2.7 and older releases remain unchanged. Owner selected FEAT-077's
-account-first website/member-engagement slice October 20; read
+Public **v2.8/build 19 is RELEASED AND COMPLETE (2026-11-09)**. Owner confirms
+“everything updated successfully” after the v2.7→v2.8 installed update. Fresh
+production checks of the installed app pass 2.8/19. Release/closure receipts:
+`docs/RELEASE-CHECKLIST-v2.8.md` and `../releases/v2.8/receipts/closure/`.
+**v2.9/build 20 development is OPEN**, branch `codex/v2.9-design-language`.
+Owner-selected focus: Design Language color modes (FEAT-088) and named spacing
+tokens (FEAT-089). Before implementing these, read `docs/DESIGN-LANGUAGE-v2.9.md`
+for the select/link/update/manual-detach interaction, scope and unresolved choices.
+The agent-ready master plan (token/binding model, slices S1–S7, the Design
+Language Guide, import/export ladder, open owner questions) is
+`docs/DESIGN-LANGUAGE-PLAN.md` — read its §0 and §3 before any slice.
+This is a prepared development baseline and to-do; v2.9 features are not built.
+Public v2.8 and older release tags/artifacts/feed items remain immutable.
+Owner selected FEAT-077's account-first website/member-engagement slice October 20; read
 `docs/launch/ACCOUNT-FIRST-GROWTH-v2.8.md` for its consent, data and rollout gates.
-Local implementation is not hosted enablement. The original component/token-sync plan (`docs/COMPONENT-SYNC-v2.8.md`) retains
-its unfinished component contracts, changesets and full refresh as follow-ups.
+Local implementation is not hosted enablement. The original component/token-sync
+plan (`docs/COMPONENT-SYNC-v2.8.md`) retains its unfinished component contracts,
+changesets and full refresh as follow-ups.
 Owner accepts extensive v2.7 accessibility testing with Full Keyboard Access
 unverified because macOS would not enable it. Retain observations; confirmed
 accessibility barriers receive high-priority hotfix treatment.
@@ -162,16 +161,16 @@ features await the offer gate.
 The native editor, Design Language, component states/behavior contract, semantic
 Handoff Package, agent bridge, nested components, canvas pages, XD/Figma import,
 rendered HTML/CSS import, CodePen handoff/import, static Storybook import, and the
-five-family compatibility matrix are shipped. Documents save as **`.design`**
-(legacy `.exp` opens for migration).
+five-family compatibility matrix are shipped. Documents default to **`.design`** JSON; optional `.designpkg` copies ship in
+v2.8 (legacy `.exp` opens for migration).
 
 Release receipts live in `docs/RELEASE-CHECKLIST-v2.5.md`,
 `docs/RELEASE-CHECKLIST-v2.6.md` and `docs/RELEASE-CHECKLIST-v2.7.md`.
 The older v2.3→v2.4 updater proof was superseded by owner decision;
 v2.5's live update proof is complete.
-Native development scope awaits owner selection; FEAT-057/059/060, SVG
-`clip-path` import and other backlog entries remain candidates, not commitments.
-Do not infer the next release plan from backlog order.
+Native v2.9 scope is Design Language modes/spacing, per
+`docs/DESIGN-LANGUAGE-v2.9.md`. FEAT-057/059/060, SVG `clip-path` import and other
+unselected backlog entries remain candidates, not commitments.
 
 **Backlog hygiene:** run `scripts/verify_backlog_ids.sh` before assigning a new id.
 Ids are referenced from ROADMAP, PERF-LOG and PERF-TODO as well as BACKLOG, so

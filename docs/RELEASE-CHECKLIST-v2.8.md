@@ -1,9 +1,12 @@
-# EXP [design] v2.8 / build 19 — published; installed update proof pending
+# EXP [design] v2.8 / build 19 — RELEASED AND COMPLETE
 
-**Published November 9, 2026.** Notarized release ZIP, GitHub source tag,
-production Sparkle feed, HTML notes and website version are verified live.
-Only the owner’s actual v2.7→v2.8 update/install/relaunch gate below remains open;
-keep development at 2.8/19 until that result is recorded.
+**Released and complete November 9, 2026.** The owner confirms: “perfect.
+everything updated successfully.” This closes the actual v2.7→v2.8 update gate.
+Fresh read-only production verification of `/Applications/design/EXP [design].app`
+passes as **2.8/build 19**, including strict signatures, universal app/helper,
+entitlements, notices, Gatekeeper and notarization staple. Receipt:
+`../releases/v2.8/receipts/closure/installed-app-check.log`. Public ZIP, source tag,
+Sparkle feed and notes remain immutable. Development opens at **2.9/build 20**.
 
 Opened November 9, 2026. The owner accepts the complete latest native test
 checklist and saved Design Language color/gradient editing, and requests release
@@ -97,10 +100,12 @@ legacy JSON remains the default. Pattern-cache tuning is unchanged and deferred.
   `production-deployment.json` and `public-site-verification.json` retain proof.
   Download was available and hash-verified before the feed/main push. Existing
   hosted account service code/configuration and feature enablement are unchanged.
-- [ ] Owner completes actual v2.7 → v2.8 Sparkle update/install/relaunch and
-  confirms About 2.8/19, preferences/recent documents, document editing/save and
-  normal account-free use. This gate requires the owner’s installed-app result.
+- [x] Owner confirms the actual v2.7 → v2.8 update succeeded November 9:
+  “perfect. everything updated successfully.” Fresh installed-app production
+  checks pass 2.8/19; closure receipt above. This is the owner's overall update
+  acceptance, not invented individual preference/document test receipts.
 
-Do not mark the native release complete until publication evidence and the
-owner’s real updater result are recorded. No previous installed app is replaced
-or closed by packaging alone.
+Native release closure is complete. The retained Full Keyboard Access limitation,
+PERF-013 performance/recovery follow-ups and unfinished component/hosted plans
+remain separate; they do not reopen the accepted release. The agent's closure
+check is read-only and does not replace or close the installed application.

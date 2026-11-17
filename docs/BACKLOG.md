@@ -3475,6 +3475,199 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   `launch/SHARING-AND-PUBLIC-PHOTOS-v2.8.md`. Gravatar deferred because automatic
   email-derived identifiers/third-party image requests need explicit member choice.
 
+### FEAT-099 — Resize behavior for a group's children (constraints)
+- Type: feature
+- Priority: owner idea November 17, 2026; release not yet chosen
+- Area: layout · resize · auto layout · import/export fidelity
+- Status: sized, not started
+- Owner's words: resize the group but "set the objects inside to not scale, or
+  scale it's current ratio.. or scale only along the x plane.. or the y plane".
+- Why it came up (verified in `AutoLayoutEngine.stack` and
+  `SelectionTransform.scaleInternal`): resizing a group ALWAYS scales every
+  child's frame by the same factors. So Space Between — which pins the first
+  and last item to the group's edges and shares the leftover space — never has
+  leftover space to share: the items grow with the group. And cross-axis Align
+  only does anything when items differ in height (row) or width (column).
+- Small slice (one owner-verified step): a per-child "When the group resizes"
+  setting — Scale (today), Keep size, Width only, Height only, Keep proportion.
+  One model field with tolerant decode, one function to change
+  (`scaleInternal`'s group case, 2 call sites), one Inspector control, command
+  coverage, and tests. With Keep size, Space Between and Align start doing
+  visible work. Estimate: comparable to S3.
+- Full version (its own release theme): pin edges (left/right/center/both),
+  Fill / Hug per axis inside auto layout, min/max sizes, Figma and XD constraint
+  import (FigmaImporter already reports "advanced sizing constraints may need
+  review"), and CSS export (flex-grow/shrink, align-self). Touches reflow,
+  importers and the semantic export contract.
+- Fidelity check before building either: every option must map to something
+  that survives export (CSS flex/grid sizing), or it is canvas-only behavior.
+
+### BUG-084 — Script/swash fonts look cut off in auto-sized text boxes
+- Type: bug
+- Priority: owner-added to v2.9, November 17, 2026
+- Area: text · measurement · rendering
+- Status: reported by owner; cause NOT yet identified
+- Report: "some of the more script-y fonts seem to appear cut off even when the
+  text box is auto sized."
+- Verified in source: `TextContent.measuredSize` (UI/Typography.swift) sizes an
+  auto box from the typographic line box (`NSAttributedString.size()`, width =
+  advance width + 2). It does not measure glyph INK.
+- HYPOTHESIS (not checked): script faces draw swashes outside their advance
+  width and above/below ascent/descent, so ink falls outside that box, and
+  something clips to the frame (canvas draw, thumbnail, or export). Before
+  fixing, find WHERE the clip happens and reproduce with a named font. The fix
+  is probably "don't clip text ink to the frame" or "report ink overflow
+  separately", not a bigger stored box (the measuredSize comment records why
+  padding the box was removed).
+- Relation to FEAT-098: trimming to cap height makes the box SMALLER, so wiring
+  trim will not fix this by itself and could expose it more. Do BUG-084 first.
+
+### FEAT-098 — Make the text box trim preference do something
+- Type: feature
+- Priority: owner-added to v2.9, November 17, 2026
+- Area: text · measurement · settings · export
+- Status: planned — needs a short design pass before code
+- Finding (November 17): `exp.pref.textBoxTrim` is read only by its own
+  Settings diagram; no canvas, text or export code consults it.
+- To decide first: what it trims (auto-sized text layer frames? auto-padding
+  measurement around text? both), whether it is an app default or a per-layer /
+  per-type-style property that round-trips (fidelity principle: an app-only
+  preference cannot survive export), and the CSS mapping (`text-box-trim` /
+  `text-box-edge`) with a fallback for engines without it.
+- Old documents must not reflow on open.
+
+### FEAT-097 — "Export to…" destinations for the Design Language
+- Type: feature
+- Priority: owner-requested November 16, 2026; follows the guide export (S7)
+- Area: design language · guide · export · integrations
+- Status: planned — destination research partly done; see the NOT researched
+  and NOT verified rows in the plan before promising any vendor integration
+- Detail: one Export to… menu fed by the guide HTML and the token files:
+  file/folder, CodePen (reuse `CodePenPrefillExporter`), a repo folder for
+  static hosts and pull requests, token pipelines, documentation platforms,
+  EXP-hosted link (FEAT-092). Every destination previews what leaves the
+  machine and sends only on an explicit action.
+- Plan: `DESIGN-LANGUAGE-PLAN.md` §7a.
+
+### FEAT-096 — Standards-complete Design Language export
+- Type: feature
+- Priority: planned after FEAT-090b; not a v2.9 commitment
+- Area: design language · export · DTCG · CSS · SCSS
+- Status: planned
+- Detail: DTCG 2025.10 with every token type and the color-object form, plus a
+  `resolver.json` when modes exist; CSS custom properties with mode selectors;
+  SCSS variables and maps. Each export reports what it could not express.
+- Plan: `DESIGN-LANGUAGE-PLAN.md` §8.
+
+### FEAT-095 — Design-language import adapters
+- Type: feature
+- Priority: planned; not a v2.9 commitment
+- Area: design language · import · DTCG resolver · Figma variables
+- Status: planned
+- Detail: DTCG multi-file + resolver (sets/modifiers → mode sets), Figma
+  variables via DTCG export with `com.figma` extensions, Tokens Studio JSON,
+  Style Dictionary sources. One review sheet, stable IDs, edits kept and
+  reported, unmapped data preserved, `$extensions` round-trip untouched.
+- Plan: `DESIGN-LANGUAGE-PLAN.md` §8.
+
+### FEAT-094 — Aliases, tiers and token structure
+- Type: feature
+- Priority: planned; not a v2.9 commitment
+- Area: design language · model · panel
+- Status: planned
+- Detail: create/edit aliases in EXP, nested groups, primitive/semantic/component
+  tier convention with advisory lint, role (scope) editing, deprecation with a
+  replacement pointer.
+- Plan: `DESIGN-LANGUAGE-PLAN.md` §6.
+
+### FEAT-093 — Token bindings beyond spacing
+- Type: feature
+- Priority: planned; follows FEAT-089 acceptance
+- Area: design language · inspector · model
+- Status: planned
+- Detail: corner radius, stroke width, opacity, size, effects (shadow tokens),
+  type-style links by identity; survey gradient stops, run color, artboard
+  background and layout grids before promising them.
+- Plan: `DESIGN-LANGUAGE-PLAN.md` §4.3.
+
+### FEAT-092 — Design Language Guide share link
+- Type: feature
+- Priority: planned; hosted work keeps its own consent/privacy gate
+- Area: design language · guide · hosted · privacy
+- Status: planned — no hosted design beyond the gate list
+- Detail: publish the exported guide to an unlisted EXP-hosted URL. Requires
+  explicit consent naming what is uploaded, revoke/delete, expiry, no viewer
+  analytics. "Live" means re-publish to the same URL.
+- Plan: `DESIGN-LANGUAGE-PLAN.md` §7; OPEN-4.
+
+### FEAT-091 — Design Language Guide (live, exportable, copyable code)
+- Type: feature
+- Priority: owner-requested November 16, 2026; recommended v2.9 slices S6–S7
+- Area: design language · guide · export · accessibility
+- Status: planned
+- Detail: auto-generated reference of every token. One HTML template fed by a
+  pure `GuideBuilder` JSON, shown live in a window and exported as a single
+  self-contained file. Per-token copy buttons (CSS, SCSS, DTCG reference, raw)
+  and whole-set downloads, using the same naming code as file exports.
+- Accessibility: requirements listed in the plan §7. NOT yet verified against
+  WAI-ARIA 1.2 / WCAG 2.1 AA; verify and record citations here before coding
+  (copy-confirmation status message, mode switcher, tables).
+- Plan: `DESIGN-LANGUAGE-PLAN.md` §7.
+
+### FEAT-090 — Unified editable token + binding model
+- Type: feature
+- Priority: foundation for FEAT-088/089/091; S1 of v2.9
+- Area: design language · model · bindings
+- Status: FEAT-090a (model, resolver, propagation; no UI) built November 16,
+  2026 — awaiting the Mac check script, both scheme builds and owner acceptance.
+  FEAT-090b (every remaining token type editable) planned.
+- Detail: `DLToken` (type + role, per-mode values, aliases, preserved raw),
+  `DLModeSet`, `Node.tokenBindings` keyed by property path. Bound fields keep
+  their resolved value (materialized), so rendering/export/older versions are
+  unchanged and a missing token never breaks artwork.
+- Acceptance (090a): `scripts/verify_design_tokens.sh` passes; app and
+  EXPThumbnail build; existing verify scripts pass; a v2.8 document re-saves
+  with no new keys when no tokens are used.
+- Plan: `DESIGN-LANGUAGE-PLAN.md` §3–§4, §6 "S1 detail".
+
+### FEAT-088 — Design Language color modes
+- Type: feature
+- Priority: owner-selected v2.9 focus, November 9, 2026
+- Area: design language · color · model · inspector · export
+- Status: planned — no v2.9 feature implementation yet
+- Detail: Turn preserved imported color modes into usable/editable named modes
+  in Design Language. Define selection scope, alias/fallback behavior, local edits,
+  linked-color updates and accurate exports before implementation. App appearance
+  continues to respect macOS settings independently of document color modes.
+- Acceptance: modes and edits survive JSON/package save/reopen and Undo/Redo;
+  linked use updates predictably, legacy artwork remains unchanged, exports
+  retain supported mode information and report limits; keyboard/VoiceOver usable.
+- Scope and decisions: `DESIGN-LANGUAGE-v2.9.md`. Light/dark are examples;
+  the exact initial mode vocabulary and scope remain to design.
+
+### FEAT-089 — Named spacing tokens with live layout bindings
+- Type: feature
+- Priority: owner-selected v2.9 focus, November 9, 2026
+- Area: design language · spacing · auto layout · margin/padding · model
+- Status: planned — owner's interaction captured; implementation not started
+- Detail: Create/edit named spacing values and add an optional named-token
+  selector beside existing numeric fields. First surfaces: fixed automatic
+  spacing/gap and supported element margin/padding controls. Selecting a token
+  shows its resolved number and links that property. A DL token change updates
+  every linked use and reflows layout. Committing a different number severs only
+  that property's link and returns the selector to None/default. Ordinary numeric
+  entry keeps its existing behavior; other surfaces follow after a bounded survey.
+- Acceptance: stable identity survives rename/save/reopen; token edits propagate
+  everywhere linked; manual edits detach locally; cancelled/unchanged drafts do
+  not detach. Clear-link retains the resolved number. Undo/Redo restores value,
+  relationship and layout coherently. Unsupported units/expressions and missing/
+  deleted tokens have explicit safe behavior. Verify per-side margin/padding,
+  nested/component/page uses, both document formats, legacy export and AT.
+- Example: Medium=16 links a gap and padding. Medium→20 updates both; typing 18
+  into the gap detaches it; Medium→24 then updates padding only, leaving gap=18.
+- Interaction brief: `DESIGN-LANGUAGE-v2.9.md`; dropdown is a proposed affordance,
+  with final presentation still to design.
+
 ### FEAT-082 — Library tokens in the Design Language
 - Type: feature
 - Priority: owner-selected v2.8 native slice 1, October 22, 2026
@@ -8353,6 +8546,15 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 ---
 
 ## Notes
+- **2026-11-17 — Team-research website accessibility / rollout follow-up:** new
+  `/teams` form uses native labels, fieldset/legend, details/summary and status
+  feedback. Sources checked: https://www.w3.org/WAI/tutorials/forms/labels/,
+  https://www.w3.org/WAI/tutorials/forms/grouping/,
+  https://www.w3.org/WAI/WCAG21/Understanding/status-messages.html,
+  https://www.w3.org/WAI/ARIA/apg/practices/read-me-first/.
+  Server-rendered structure checks pass; browser, keyboard and VoiceOver completion
+  remain unverified because the environment blocked Chromium startup. Hosted
+  collection stays off pending the checks in `launch/TEAM-RESEARCH-2026-11.md`.
 - **v2.1 release alignment audit (2026-07-28):** every bug and bounded feature
   closed during the nested-component, pages, XD/Figma import, and Handoff cycle
   is marked `done` with owner verification. The website's generated known-issues

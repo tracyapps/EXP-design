@@ -14533,6 +14533,7 @@ extension CanvasNSView: NSMenuItemValidation {
              #selector(importXDAction(_:)), #selector(importRenderedHTMLAction(_:)),
              #selector(importCodePenPackageAction(_:)), #selector(importStorybookPackageAction(_:)),
              #selector(importLibraryTokensAction(_:)),
+             #selector(newSpacingTokenAction(_:)),
              #selector(savePackageCopyAction(_:)), #selector(saveLegacyCopyAction(_:)),
              #selector(importFigmaAction(_:)),
              #selector(runGeometryAuditAction(_:)), #selector(saveDiagnosticReportAction(_:)),
