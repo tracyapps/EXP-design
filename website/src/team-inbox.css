@@ -1,0 +1,7 @@
+.team-inbox { display: grid; gap: 20px; }
+.team-response h3 { margin: 0; font-size: 1.25rem; }
+.team-response .team-response-meta { font-size: .875rem; }
+.team-response dl { display: grid; gap: 18px; margin-bottom: 0; }
+.team-response dt { font-weight: 650; }
+.team-response dd { margin: 5px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; }
+.team-response strong { overflow-wrap: anywhere; }

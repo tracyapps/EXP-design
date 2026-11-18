@@ -1,3 +1,4 @@
+import { notifyOwner, sendOwnerNotification } from './notifications.js';
 import { createHash } from 'node:crypto';
 import { sendJson, interestConfiguration } from '../interest/handlers.js';
 import { validToken } from '../interest/store.js';
@@ -13,7 +14,7 @@ async function sendContact(config, email, links) {
   });
   if (!response.ok || !(await response.json())?.id) throw new Error('mail unavailable');
 }
-export function createTeamHandler({env=process.env,storeFactory=configuredTeamStore,mailer=sendContact}={}) {
+export function createTeamHandler({env=process.env,storeFactory=configuredTeamStore,mailer=sendContact,ownerMailer=sendOwnerNotification}={}) {
   return async (request,response) => {
     const config = interestConfiguration(env,'withdraw'); // origin/DB only; independent of Pro enrollment
     const collecting = env.TEAM_RESEARCH_ENABLED === 'true' && env.TEAM_RESEARCH_POLICY === 'team-research-90d-v1';
@@ -47,6 +48,11 @@ export function createTeamHandler({env=process.env,storeFactory=configuredTeamSt
         if (!await store.budget('save',60,60)) {response.setHeader('retry-after','60');return sendJson(response,{error:'a lot of responses just arrived. please try again in a minute.'},429);}
         const saved=await store.save(token,answers);
         if (saved==='expired') return sendJson(response,{error:'this response has expired. reload to start a new one.'},410);
+        if(env.TEAM_RESEARCH_NOTIFY_OWNER==='true' && contactReady) {
+          try { await notifyOwner({store,config,send:ownerMailer,capability:token}); }
+          catch { console.warn('Owner research notification deferred'); }
+          // The saved response stays successful even if mail/queue work fails.
+        }
         return sendJson(response,{ok:true,state:saved},saved==='already_saved'?200:201);
       }
       if (operation==='contact') {

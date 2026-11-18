@@ -11,6 +11,7 @@ const socket=databaseURL && new URL(databaseURL).searchParams.get('host');
 if(!socket?.startsWith('/tmp/exp-team-test.') || process.env.NODE_ENV==='production')throw new Error('Use the isolated team preview runner');
 const origin='http://127.0.0.1:5191',pool=new pg.Pool({connectionString:databaseURL});
 await pool.query(await readFile(new URL('../../migrations/013_team_research.sql',import.meta.url),'utf8'));
+await pool.query(await readFile(new URL('../../migrations/014_team_research_inbox.sql',import.meta.url),'utf8'));
 const mailbox=[];
 const handler=createTeamHandler({env:{TEAM_RESEARCH_ENABLED:'true',TEAM_RESEARCH_POLICY:'team-research-90d-v1',EXP_INTEREST_DATABASE_URL:databaseURL,INTEREST_PUBLIC_ORIGIN:origin,RESEND_API_KEY:'local-only',SIGNUP_FROM_EMAIL:'test@example.test',NODE_ENV:'development'},storeFactory:()=>createTeamStore(pool),mailer:async(config,email,links)=>{mailbox.push({email,...links});await writeFile(`${socket}/mailbox.json`,JSON.stringify(mailbox),{mode:0o600});}});
 const vite=await createServer({root:fileURLToPath(new URL('..',import.meta.url)),server:{middlewareMode:true},appType:'spa'});

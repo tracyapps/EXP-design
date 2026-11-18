@@ -3,7 +3,8 @@
   "installCommand": "npm ci && npm --prefix website ci",
   "buildCommand": "cd website && npm run build",
   "outputDirectory": "website/dist",
-  "functions": { "api/account-jobs.js": { "maxDuration": 180 } },
+  "functions": { "api/account-jobs.js": { "maxDuration": 180 }, "api/team-research-jobs.js": { "maxDuration": 60 } },
+  "crons": [{ "path": "/api/team-research-jobs", "schedule": "0 12 * * *" }],
   "rewrites": [
     { "source": "/teams", "destination": "/teams.html" },
     { "source": "/teams/", "destination": "/teams.html" },

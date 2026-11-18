@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {build} from '../website/node_modules/esbuild/lib/main.js';
 import {createRequire} from 'node:module';
 import {fileURLToPath} from 'node:url';
-const result=await build({stdin:{contents:`import React from 'react'; import {renderToStaticMarkup} from 'react-dom/server'; import TeamsPage from './src/TeamsPage.jsx'; export function render(mode){return renderToStaticMarkup(<TeamsPage mode={mode}/>);}`,resolveDir:fileURLToPath(new URL('../website',import.meta.url)),loader:'jsx'},bundle:true,write:false,platform:'node',format:'cjs',loader:{'.css':'empty'}});
+const result=await build({stdin:{contents:`import React from 'react'; import {renderToStaticMarkup} from 'react-dom/server'; import TeamsPage from './src/TeamsPage.jsx'; import {ResearchResponse} from './src/TeamResearchInbox.jsx'; export function renderResponse(response){return renderToStaticMarkup(<ResearchResponse response={response}/>);} export function render(mode){return renderToStaticMarkup(<TeamsPage mode={mode}/>);}`,resolveDir:fileURLToPath(new URL('../website',import.meta.url)),loader:'jsx'},bundle:true,write:false,platform:'node',format:'cjs',loader:{'.css':'empty'}});
 const compiled={exports:{}};new Function('require','module','exports',result.outputFiles[0].text)(createRequire(import.meta.url),compiled,compiled.exports);
 globalThis.window={location:{origin:'https://example.test',hash:`#${'a'.repeat(43)}`,pathname:'/teams'}};
 test('survey renders native labels, optional questions and no email demand',()=>{
@@ -14,4 +14,9 @@ test('survey renders native labels, optional questions and no email demand',()=>
 test('confirmation view requires a deliberate button; management offers withdrawal and deletion',()=>{
  const confirm=compiled.exports.render('confirm');assert.match(confirm,/<button[^>]*>yes, you can follow up<\/button>/);assert.ok(!confirm.includes('<form'));
  const manage=compiled.exports.render('manage');assert.match(manage,/>stop follow-up<\/button>/);assert.match(manage,/>delete my response<\/button>/);
+});
+
+test('inbox answers are escaped text and pending contact does not display an address',()=>{
+ const html=compiled.exports.renderResponse({id:'7',createdAt:'2026-11-17T12:00:00Z',expiresAt:'2027-02-15T12:00:00Z',answers:{problem:'<script>alert(1)</script>'},contactState:'pending',followupEmail:null});
+ assert.ok(!html.includes('<script>'));assert.match(html,/&lt;script&gt;/);assert.match(html,/no contact permission/);assert.match(html,/<dl>/);
 });

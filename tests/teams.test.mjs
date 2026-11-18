@@ -20,7 +20,7 @@ async function call(body,{method='POST',origin='https://example.test',service=ha
 }
 const row=async()=> (await pool.query('SELECT * FROM exp_team_research')).rows[0];
 const save=async(key=token())=>{assert.equal((await call({operation:'save',token:key,answers})).status,201);return key;};
-before(async()=>{pool=new pg.Pool({connectionString,max:8});await pool.query(await readFile(new URL('../migrations/013_team_research.sql',import.meta.url),'utf8'));store=createTeamStore(pool);});
+before(async()=>{pool=new pg.Pool({connectionString,max:8});await pool.query(await readFile(new URL('../migrations/013_team_research.sql',import.meta.url),'utf8'));await pool.query(await readFile(new URL('../migrations/014_team_research_inbox.sql',import.meta.url),'utf8'));store=createTeamStore(pool);});
 after(async()=>pool.end());
 beforeEach(async()=>{await pool.query('TRUNCATE exp_team_research, exp_team_research_limit');mails=[];handler=createTeamHandler({env,storeFactory:()=>store,mailer:async(config,email,links)=>mails.push({email,...links})});});
 test('account-free response persists with no email, only a hashed capability',async()=>{
@@ -88,4 +88,36 @@ test('expired responses cannot be contacted, confirmed, or treated as a fresh su
 });
 test('shared storage budgets hold across concurrent workers',async()=>{
  const results=await Promise.all(Array.from({length:12},()=>store.budget('test',3,3600)));assert.equal(results.filter(Boolean).length,3);
+});
+
+test('owner list redacts unconfirmed emails and all capability fields; withdrawal/deletion are reflected',async()=>{
+  const key=await save();await call(contact(key));
+  let result=await store.listResponses();assert.equal(result.responses[0].followupEmail,null);assert.equal(result.responses[0].contactState,'pending');
+  assert.ok(!JSON.stringify(result).includes('capability_hash'));assert.ok(!JSON.stringify(result).includes('confirmation_hash'));
+  await call({operation:'confirm',token:new URL(mails[0].confirm).hash.slice(1)});
+  result=await store.listResponses();assert.equal(result.responses[0].followupEmail,'person@example.test');
+  await call({operation:'withdraw',token:key});result=await store.listResponses();assert.equal(result.responses[0].followupEmail,null);
+  await call({operation:'erase',token:key});assert.equal((await store.listResponses()).responses.length,0);
+});
+test('inbox pagination uses public ids, excludes expired records and does not repeat rows',async()=>{
+  for(let i=0;i<27;i++)await save();
+  const first=await store.listResponses();assert.equal(first.responses.length,25);assert.ok(first.nextBefore);
+  const last=await store.listResponses(first.nextBefore);assert.equal(last.responses.length,2);assert.equal(last.nextBefore,null);
+  assert.equal(new Set([...first.responses,...last.responses].map(r=>r.id)).size,27);
+  await pool.query("UPDATE exp_team_research SET expires_at=now()-interval '1 second'");assert.equal((await store.listResponses()).responses.length,0);
+});
+test('notification leases prevent concurrent claims, survive retries, and clear on deletion',async()=>{
+  const key=await save();const claims=await Promise.all(Array.from({length:8},()=>store.claimOwnerNotification(key)));
+  assert.equal(claims.filter(Boolean).length,1);const claim=claims.find(Boolean);
+  await store.finishOwnerNotification(claim.claim,false);assert.equal(await store.claimOwnerNotification(key),null);
+  await pool.query("UPDATE exp_team_research SET owner_notify_after=now()-interval '1 second'");
+  const retry=await store.claimOwnerNotification(key);assert.ok(retry);await store.finishOwnerNotification(claim.claim,true);
+  assert.equal((await row()).owner_notified_at,null); // stale worker cannot settle the newer lease
+  await store.finishOwnerNotification(retry.claim,true);assert.equal(await store.claimOwnerNotification(key),null);
+  await store.erase(key);assert.equal(await store.claimOwnerNotification(key),null);
+});
+test('cleanup removes expired answers, clears expired pending contact, and preserves confirmed current permission',async()=>{
+  await save();await pool.query("UPDATE exp_team_research SET expires_at=now()-interval '1 second'");
+  const key=await save();await call(contact(key));await pool.query("UPDATE exp_team_research SET confirmation_expires_at=now()-interval '1 second' WHERE email IS NOT NULL");
+  const result=await store.cleanup();assert.equal(result.deleted,1);assert.equal(result.cleared,1);assert.equal((await row()).email,null);
 });

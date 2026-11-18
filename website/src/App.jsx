@@ -1422,7 +1422,7 @@ export default function App() {
   }, []);
 
   if(path==='/accounts')return <div className="account-shell"><Header progress={progress} brandHref="/"/><main className="account-main"><AccountsIntro/></main><Footer/></div>;
-  if (["/account", "/account/profile", "/account/preferences", "/account/beta", "/account/pro", "/account/community", "/account/tickets", "/account/support", "/account/feedback", "/account/share"].includes(path)) {
+  if (["/account", "/account/team-research", "/account/profile", "/account/preferences", "/account/beta", "/account/pro", "/account/community", "/account/tickets", "/account/support", "/account/feedback", "/account/share"].includes(path)) {
     return <div className="account-shell">
       <Header progress={progress} actionLabel="get the free app" actionHref="/download" brandHref="/" />
       <main className="account-main"><AccountPage path={path} /></main>

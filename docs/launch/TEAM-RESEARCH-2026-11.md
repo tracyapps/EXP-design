@@ -5,6 +5,60 @@ team-interest survey; make survey/message-library copy sound more like their
 published case studies. Implemented locally. No commit, push, deployment, hosted
 migration, email send, or actual research collection performed.
 
+## Account inbox and activation (November 17 continuation)
+
+The owner approved the team page and tone. Added a private **team research**
+section at `/account/team-research`, linked from the account menu. Server-side
+Better Auth session checks restrict reads to the verified `tracyapps@gmail.com`
+account. No admin email env var is needed. Other members cannot read responses.
+The inbox shows 25 responses at a time, newest first, with refresh and older-page
+controls. Only confirmed follow-up addresses are returned. No management tokens,
+unconfirmed email addresses or confirmation tokens are exposed in this API.
+Refresh before contacting someone to check their current permission.
+
+### Setup before opening the form
+
+1. In the **interest database**, apply `migrations/013_team_research.sql` if not
+   already applied, then `migrations/014_team_research_inbox.sql`. Apply their
+   matching files in `migrations/grants/` for the existing `exp_interest_app` role.
+   Do not rerun already-applied migrations. No account-database migration is needed.
+2. Keep the existing server-side `EXP_INTEREST_DATABASE_URL`,
+   `INTEREST_PUBLIC_ORIGIN=https://expdesign.app`, `RESEND_API_KEY`, and
+   `SIGNUP_FROM_EMAIL`. The account service must already be configured, and
+   `ACCOUNT_PUBLIC_ORIGIN` must match the interest origin.
+3. Set these **server-side production** variables (never prefix them with `VITE_`):
+
+   ```dotenv
+   TEAM_RESEARCH_ENABLED=true
+   TEAM_RESEARCH_POLICY=team-research-90d-v1
+   TEAM_RESEARCH_NOTIFY_OWNER=true
+   CRON_SECRET=<random secret of at least 32 characters>
+   ```
+
+   Keep an existing suitable `CRON_SECRET`; do not rotate a shared secret just
+   for this feature. Policy acknowledgement means accepting the 90-day response
+   retention and daily cleanup described below.
+4. Deploy the website/API changes and verify the protected daily cron is active.
+   `vercel.json` schedules `/api/team-research-jobs` at 12:00 UTC daily. The job
+   clears expired records and pending contact details, and retries up to five
+   queued notification emails per run. It remains active with collection paused;
+   keep the policy, DB/origin and cron secret configured when pausing collection.
+5. Sign in as the verified owner and open **team research**. Verify a synthetic
+   submission, email notification, confirmed contact, withdrawal and deletion
+   before sharing the form publicly. Check the cron execution logs too.
+
+Each saved response attempts an owner notification when enabled. The email goes
+only to `tracyapps@gmail.com` and contains a sign-in link and response reference;
+answers/contact details remain in the private inbox. Delivery failure does not
+lose the saved response. Leases and provider idempotency reduce duplicate sends;
+this is not an exactly-once delivery guarantee. Five unsuccessful attempts stop
+retries and show a warning in the inbox. Existing unexpired responses are also
+eligible for a notification when enabled. Daily retries are deliberately bounded,
+so a backlog may take multiple runs. No automatic sales follow-up is sent.
+
+Implementation and settings instructions are local only: no production variables,
+hosted migrations, deployment, scheduled execution or real emails changed here.
+
 ## What changed
 
 - `/teams`: account-free survey with skippable role, size, pain, computers,
@@ -80,7 +134,8 @@ provider backups; page copy distinguishes those copies.
 
 `node scripts/team_research_retention.mjs` previews counts only.
 `node scripts/team_research_retention.mjs --apply` performs cleanup using
-`EXP_INTEREST_DATABASE_URL`. No scheduler was installed or enabled in this session.
+`EXP_INTEREST_DATABASE_URL`. The protected daily scheduler is now defined in `vercel.json`; it is not deployed
+or enabled in production in this session.
 
 `migrations/operator/team_research_review.sql` reads responses for the owner.
 Its output is private; do not publish or put it in source control. No public
@@ -90,7 +145,7 @@ response-list API, contact broadcast or automatic sales follow-up exists.
 
 Passed locally:
 
-- `npm run test:teams:contracts`: 14 checks, covering validation, consent and HTTP
+- `npm run test:teams:contracts`: 25 checks, covering validation, consent and HTTP
   boundaries, failed persistence/mail, status results, paused deletion, and
   server-rendered native labels/grouping/disclosures. Storage is injected in these
   contract tests; they do not prove PostgreSQL queries or browser interaction.
@@ -101,8 +156,9 @@ Passed locally:
 Blocked / not established:
 
 - `npm run test:teams`: isolated PostgreSQL initialization fails at `shmget`
-  with “Operation not permitted” in this sandbox. The 15 integration scenarios
-  are written in `tests/teams.test.mjs` but did not run. They cover persistence,
+  with “Operation not permitted” in this sandbox. The 19 integration scenarios
+  are written in `tests/teams.test.mjs` but did not run. The added real-session
+  account authorization integration test is likewise unverified. They cover persistence,
   concurrent retries/confirmation, permission, erasure, expiry and mail failure.
 - Chromium launch fails at macOS MachPortRendezvous bootstrap with “Permission
   denied.” No actual desktop/mobile screenshots, browser interaction, axe pass,
@@ -122,7 +178,7 @@ Blocked / not established:
    behavior inherited from the site, and VoiceOver. Original email links must be
    reopened after a management-page refresh.
 4. After local proof and approved hosted rollout: apply migration/grants with
-   the operator role. Verify the restricted runtime role can use only its tables.
+   the operator role, including migration 014 and its sequence grant. Verify the restricted runtime role can use only its tables.
 5. Retain existing server-only `EXP_INTEREST_DATABASE_URL`,
    `INTEREST_PUBLIC_ORIGIN`, `RESEND_API_KEY`, and `SIGNUP_FROM_EMAIL`. Set
    `TEAM_RESEARCH_POLICY=team-research-90d-v1` only with the stated retention,

@@ -7,6 +7,7 @@ import pg from 'pg';
 import { getMigrations } from 'better-auth/db/migration';
 import { createAccountService, accountConsentVersion } from '../server/accounts/service.js';
 import { accountConfiguration, accountInterestConfiguration, createAccountNodeHandler } from '../server/accounts/runtime.js';
+import { createTeamStore } from '../server/teams/store.js';
 import { createInterestStore } from '../server/interest/store.js';
 import { createPublicProfileHandler } from '../server/accounts/community.js';
 import sharp from 'sharp';
@@ -33,8 +34,8 @@ before(async () => {
   await pool.query(await readFile(new URL('../migrations/011_owner_community_handle.sql', import.meta.url), 'utf8'));
   await pool.query(await readFile(new URL('../migrations/012_community_photos.sql', import.meta.url), 'utf8'));
   await pool.query('CREATE DATABASE exp_interest');
-  for (const file of ['001_pro_interest.sql', '002_pro_interest_erasure.sql']) await interestPool.query(await readFile(new URL(`../migrations/${file}`, import.meta.url), 'utf8'));
-  service = createAccountService({ pool, origin, secret, betaEnabled: true, engagementEnabled: true, interestStore: interest, proLinkEnabled: true, communityEnabled: true, newsEnabled:true, ticketsEnabled:true, sendOTP: async mail => {
+  for (const file of ['001_pro_interest.sql', '002_pro_interest_erasure.sql', '013_team_research.sql', '014_team_research_inbox.sql']) await interestPool.query(await readFile(new URL(`../migrations/${file}`, import.meta.url), 'utf8'));
+  service = createAccountService({ pool, origin, secret, betaEnabled: true, engagementEnabled: true, interestStore: interest, teamResearchStore:createTeamStore(interestPool), proLinkEnabled: true, communityEnabled: true, newsEnabled:true, ticketsEnabled:true, sendOTP: async mail => {
   if (failMail) throw new Error('Mail transport failure with private data');
   mailbox.push(mail);
 } });
@@ -1189,4 +1190,23 @@ test('public photo uploads reject unsafe sources, identity forgery and missing m
     assert.equal((await call({action:'save-community',handle:draft.handle,displayName:'Text still works',bio:draft.bio,link:draft.link},cookie)).status,200);
   }finally{await pool.query('ALTER TABLE exp_member_community RENAME COLUMN fixture_unavailable_photo TO published_photo');}
   assert.equal((await call({action:'community'},cookie)).body.draft.photo,null);
+});
+
+test('team inbox requires verified owner session, not a supplied email or support status',async()=>{
+  const other=await register('research-other@example.test');
+  assert.equal((await call({action:'team-research-responses'})).status,401);
+  assert.equal((await call({action:'team-research-responses'},other)).status,403);
+  assert.equal((await call({action:'team-research-responses',email:'tracyapps@gmail.com'},other)).status,400);
+  const owner=await register('tracyapps@gmail.com');
+  assert.equal((await call(null,owner)).body.user.canReviewTeamResearch,true);
+  assert.equal((await call(null,other)).body.user.canReviewTeamResearch,false);
+  const store=createTeamStore(interestPool),key=randomBytes(32).toString('base64url');
+  await store.save(key,{problem:'a synthetic owner-inbox example'});
+  const inbox=await call({action:'team-research-responses'},owner);
+  assert.equal(inbox.status,200);assert.equal(inbox.headers.get('cache-control'),'no-store');
+  assert.ok(inbox.body.responses.some(r=>r.answers.problem==='a synthetic owner-inbox example'));
+  assert.ok(!JSON.stringify(inbox.body).includes('capability_hash'));
+  assert.equal((await call({action:'team-research-responses'},owner,{headers:{origin:'https://other.test'}})).status,403);
+  await call({action:'sign-out'},owner);
+  assert.equal((await call({action:'team-research-responses'},owner)).status,401);
 });

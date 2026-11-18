@@ -38,6 +38,7 @@ export default function AccountMenu() {
         <p className="account-menu-name">{user.name}</p>
         <a href="/account">Account overview</a><a href="/account/profile">Private profile</a><a href="/account/preferences">Preferences</a>
         <a href="/account/beta">Beta &amp; feedback</a><a href="/account/pro">Pro interest</a><a href="/account/community">Community profile</a>
+        {user.canReviewTeamResearch && <a href="/account/team-research">Team research</a>}
         <a href="/account/tickets">My tickets</a><a href="/account/feedback">Feedback & feature requests</a><a href="/account/share">Share EXP</a>
       </>:<>
         <p className="account-menu-name">Your free EXP account</p>

@@ -1,4 +1,5 @@
 import pg from 'pg';
+import { configuredTeamStore } from '../teams/store.js';
 import { isIP } from 'node:net';
 import { toNodeHandler } from 'better-auth/node';
 import { createAccountService } from './service.js';
@@ -75,6 +76,7 @@ export default async function accountEndpoint(request, response) {
     const interestConfig = accountInterestConfiguration(env, config.origin);
     const service = createAccountService({ pool, ...config, registrationEnabled: env.ACCOUNTS_ENABLED === 'true',
       interestStore: interestConfig ? configuredStore(interestConfig.databaseURL) : null,
+      teamResearchStore: interestConfig ? configuredTeamStore(interestConfig.databaseURL) : null,
       proLinkEnabled: env.ACCOUNT_PRO_LINK_ENABLED === 'true',
       communityEnabled: env.ACCOUNT_COMMUNITY_ENABLED === 'true',
       newsEnabled: env.ACCOUNT_NEWS_ENABLED === 'true', ticketsEnabled: env.ACCOUNT_TICKETS_ENABLED === 'true',

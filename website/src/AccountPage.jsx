@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import './account.css';
 import BetaPage from './BetaPage.jsx';
+import TeamResearchInbox from './TeamResearchInbox.jsx';
 import AccountProPage from './AccountProPage.jsx';
 import CommunityPage from './CommunityPage.jsx';
 import NewsPreferences from './NewsPreferences.jsx';
@@ -90,10 +91,10 @@ export default function AccountPage({ path }) {
     catch (error) { setCreditState('retry'); setMessage(`Your account is ready, but signup credit was not saved: ${error.message}`); }
     finally { setBusy(false); }
   }
-  const section = path === '/account/feedback' ? 'feedback' : path === '/account/share' ? 'share' : path === '/account/profile' ? 'profile' : path === '/account/preferences' ? 'preferences' : path === '/account/beta' ? 'beta' : path === '/account/pro' ? 'pro' : path === '/account/community' ? 'community' : path === '/account/tickets' ? 'tickets' : path === '/account/support' ? 'support' : 'home';
+  const section = path === '/account/team-research' ? 'team-research' : path === '/account/feedback' ? 'feedback' : path === '/account/share' ? 'share' : path === '/account/profile' ? 'profile' : path === '/account/preferences' ? 'preferences' : path === '/account/beta' ? 'beta' : path === '/account/pro' ? 'pro' : path === '/account/community' ? 'community' : path === '/account/tickets' ? 'tickets' : path === '/account/support' ? 'support' : 'home';
   return <section className={`account-page${user?.largeText ? ' account-large-text' : ''}`} aria-labelledby="account-title">
     <p className="section-label">EXP [design] · free account</p>
-    <h1 id="account-title" tabIndex={-1} ref={headingRef}>{user ? section === 'profile' ? 'Your private profile.' : section === 'preferences' ? 'Your preferences.' : section === 'feedback' ? 'Your feedback and feature ideas.' : section === 'share' ? 'Share EXP.' : section === 'beta' ? 'Help shape EXP.' : section === 'pro' ? 'Your Pro interest.' : section === 'community' ? 'Your community profile.' : section === 'tickets' ? 'Your private tickets.' : section === 'support' ? 'EXP support inbox.' : `Hello, ${user.name}.` : 'A place for you.'}</h1>
+    <h1 id="account-title" tabIndex={-1} ref={headingRef}>{user ? section === 'team-research' ? 'team research.' : section === 'profile' ? 'Your private profile.' : section === 'preferences' ? 'Your preferences.' : section === 'feedback' ? 'Your feedback and feature ideas.' : section === 'share' ? 'Share EXP.' : section === 'beta' ? 'Help shape EXP.' : section === 'pro' ? 'Your Pro interest.' : section === 'community' ? 'Your community profile.' : section === 'tickets' ? 'Your private tickets.' : section === 'support' ? 'EXP support inbox.' : `Hello, ${user.name}.` : 'A place for you.'}</h1>
     <p className="account-lead">{user ? 'Your account details stay private. You choose whether to publish a separate community profile.' : 'An optional account, separate from your design files. The editor and shipped exports stay free to use without signing in.'}</p>
     {!user && <p><a href="/accounts">What is a free EXP account?</a> A private profile, preferences and a place for feedback. Settings sync is a future idea, not available today.</p>}
     <p className="account-status" role="status">{message}</p>
@@ -145,14 +146,19 @@ export default function AccountPage({ path }) {
         <a href="/account/community" aria-current={section === 'community' ? 'page' : undefined}>Community profile</a>
         <a href="/news">News & updates</a>
         <a href="/account/tickets" aria-current={section === 'tickets' ? 'page' : undefined}>My tickets</a>
+        {user.canReviewTeamResearch && <a href="/account/team-research" aria-current={section === 'team-research' ? 'page' : undefined}>Team research</a>}
       </nav>
       {section === 'home' && <div className="account-card">
         <h2>Your account is ready.</h2>
+        {user.canReviewTeamResearch && <p><a href="/account/team-research">Read team-research responses</a></p>}
         <p><a href="/account/feedback">Send feedback or request a feature</a> · <a href="/account/share">Share EXP with your personal link</a></p>
         <p>Signed in as <strong>{user.email}</strong>. Edit your private profile or choose larger text for this account area.</p>
         <p><a href="/pro">Help shape EXP Pro</a> uses its own confirmation and permission. <a href="/support.html">Support the developer</a> is optional and account-free.</p>
         <p><a href="/account/beta">Choose beta participation</a>. <a href="/account/community">Prepare an optional community profile</a>. <a href="/news">Read news and updates</a> or <a href="/account/tickets">open a private support ticket</a>.</p>
       </div>}
+      {section === 'team-research' && (user.canReviewTeamResearch
+        ? <TeamResearchInbox key={user.id} request={accountRequest} onSignedOut={() => { receive(null); setMessage('Please sign in again.'); }} />
+        : <p>This inbox is only available to the EXP owner.</p>)}
       {['feedback','share'].includes(section) && <AccountEngagement key={user.id + section} view={section} user={user} request={accountRequest} onSignedOut={() => { receive(null); setMessage('Please sign in again.'); }} />}
       {section === 'profile' && <ProfilePhoto key={user.id} user={user} busy={busy} onSave={body=>act(body,body.action==='remove-avatar'?'Profile photo removed.':'Profile photo saved.')}/>}
       {section === 'profile' && <form className="account-card" onSubmit={e => { e.preventDefault(); act({ action: 'save-profile', ...profile }, 'Private profile saved.'); }}>

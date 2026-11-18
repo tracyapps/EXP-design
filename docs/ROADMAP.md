@@ -3670,6 +3670,19 @@ font import → Phase 9, shadows → Phase 10._
 
 ## Progress Log
 
+### 2026-11-17 — private team-research inbox and activation setup
+
+Owner approves the team page and tone; requests email notifications plus responses
+inside the EXP account associated with tracyapps@gmail.com. Implemented private
+paginated inbox with verified-owner server authorization, confirmed-contact-only
+projection, and account navigation. Added migration 014, notification leases/retries,
+generic owner email, and protected daily cleanup/notification cron. Setup steps and
+server env vars are in `launch/TEAM-RESEARCH-2026-11.md`. Local contracts/render
+checks (25) and website build/social checks pass. PostgreSQL integration remains
+blocked by sandbox shared-memory permissions; browser verification remains blocked.
+No deployment, hosted migration/settings, or actual email sends performed.
+
+
 - **2026-11-17 — Team research survey, social metadata checks, and voice revision [internal].**
   Owner authorized website/code changes. Implemented `/teams`, durable anonymous-to-contact
   research flow (no email required; not claimed anonymous at infrastructure level),
