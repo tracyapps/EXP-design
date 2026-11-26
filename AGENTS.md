@@ -42,14 +42,12 @@ Public **v2.8/build 19 is RELEASED AND COMPLETE (2026-11-09)**. Owner confirms
 “everything updated successfully” after the v2.7→v2.8 installed update. Fresh
 production checks of the installed app pass 2.8/19. Release/closure receipts:
 `docs/RELEASE-CHECKLIST-v2.8.md` and `../releases/v2.8/receipts/closure/`.
-**v2.9/build 20 development is OPEN**, branch `codex/v2.9-design-language`.
-Owner-selected focus: Design Language color modes (FEAT-088) and named spacing
-tokens (FEAT-089). Before implementing these, read `docs/DESIGN-LANGUAGE-v2.9.md`
-for the select/link/update/manual-detach interaction, scope and unresolved choices.
-The agent-ready master plan (token/binding model, slices S1–S7, the Design
-Language Guide, import/export ladder, open owner questions) is
-`docs/DESIGN-LANGUAGE-PLAN.md` — read its §0 and §3 before any slice.
-This is a prepared development baseline and to-do; v2.9 features are not built.
+**v2.9/build 20 is released (2026-11-25).** Color modes, linked tokens,
+the Design Language Guide, Code view, and Find in Document are documented in
+`RELEASE-NOTES-v2.9.md`. Publication evidence and the pending installed update
+check are in `docs/RELEASE-CHECKLIST-v2.9.md`. For follow-ups, including script
+font clipping and text box trim, see `docs/ROADMAP.md` and
+`docs/DESIGN-LANGUAGE-PLAN.md`.
 Public v2.8 and older release tags/artifacts/feed items remain immutable.
 Owner selected FEAT-077's account-first website/member-engagement slice October 20; read
 `docs/launch/ACCOUNT-FIRST-GROWTH-v2.8.md` for its consent, data and rollout gates.
@@ -124,8 +122,8 @@ See ROADMAP.md for the authoritative checklist and newest Progress Log entry.
 **v2.6 is RELEASED AND COMPLETE (2026-10-02)**; live update proof and all release
 checks pass in `docs/RELEASE-CHECKLIST-v2.6.md`. **v2.7 is RELEASED AND COMPLETE
 (2026-10-20)**; receipts in `docs/RELEASE-CHECKLIST-v2.7.md`. **v2.8/build 19 is RELEASED AND COMPLETE (2026-11-09)**; receipts in
-`docs/RELEASE-CHECKLIST-v2.8.md`. **v2.9/build 20** is the development baseline,
-focused on Design Language modes and spacing (`docs/DESIGN-LANGUAGE-v2.9.md`).
+`docs/RELEASE-CHECKLIST-v2.8.md`. **v2.9/build 20** release evidence is in
+`docs/RELEASE-CHECKLIST-v2.9.md`.
 Full component sync remains planned in `docs/COMPONENT-SYNC-v2.8.md`.
 Dropbox note: the
 folder is supposed to be excluded from sync (one machine only); a known

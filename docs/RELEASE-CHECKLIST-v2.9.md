@@ -19,8 +19,10 @@ Script-font clipping and text box trim move to a follow-up together.
   WebKit, storage, effect export, Mesh and SVG tests failed the same way on the
   v2.8 tag in the restricted session. Xcode stopped before compiling because
   SwiftPM could not write `ManifestLoading/sparkle.dia`.
-- [ ] Freeze the reviewed working source, including new Swift sources and
-  website assets. Record the commit used to build the archive.
+- [x] Freeze the reviewed source from the owner’s archive session, including
+  new Swift sources and website assets. The release source snapshot is
+  `9e1c443b24f35ca96fda547e26533f70c2d1edc5` on `release/v2.9`.
+  The owner archived from the working tree before this snapshot was committed.
 - [x] The owner archived and exported the validated app to
   `../releases/v2.9/EXP [design].app`. Xcode recorded Developer ID distribution as
   uploaded and ready. The archive and export share Mach-O UUIDs for the app,
@@ -28,7 +30,7 @@ Script-font clipping and text box trim move to a follow-up together.
   app and thumbnail report 2.9 / 20.
 - [x] The Developer ID export carries a stapled notarization ticket. The
   strict signature, entitlement, font payload, universal architecture and ZIP
-  extraction checks pass. The archive is **13,882,125 bytes**, SHA-256
+  extraction checks pass. The ZIP is **13,882,125 bytes**, SHA-256
   `db2cc3ee3fe48a5d2bfcca79060fd1ae55a1f1de2c296953274f928beea5620e`.
   The extracted notarization ticket matches the export byte for byte. This
   session couldn't independently rerun Gatekeeper or `stapler validate`; the
@@ -54,16 +56,15 @@ shasum -a 256 "$zip"
 
 ## Publication and installed update
 
-- [ ] Sign the verified ZIP with Sparkle. The packaged signer reports
-  `100001` when trying to access the Keychain in this session. Run
-  `sign_update -p <verified-zip>` from the owner’s Terminal and independently
-  verify the public signature against the app’s `SUPublicEDKey`.
-- [ ] Use a fresh `SPARKLE_RELEASES_DIR` and run
-  `scripts/generate_sparkle_appcast.sh 2.9 20 <verified-zip>` from the repo root.
-  Check the feed against its prior version, keeping all older items, and
-  verify the Ed25519 signature against the shipped Sparkle public key.
-- [ ] Publish the verified ZIP on GitHub at `v2.9`, using the archive’s source
-  commit for the tag. Verify the public download’s size and digest before
-  deploying the revised appcast and notes to expdesign.app.
+- [x] Upload the exact ZIP to the [GitHub release draft](https://github.com/tracyapps/EXP-design/releases/tag/untagged-34b8d1ecf485ce7b6bf0).
+  GitHub reports the same size and SHA-256. The draft targets the frozen
+  release source commit. A local copy is in `output/release-review/v2.9/`.
+- [x] The owner signed the ZIP in Terminal. The Ed25519 signature independently
+  verifies against the app’s `SUPublicEDKey`. The build 20 feed entry uses that
+  signature, the ZIP byte count, and the exported app’s version and minimum OS.
+  All six prior feed entries are preserved byte for byte.
+- [x] Published [v2.9 on GitHub](https://github.com/tracyapps/EXP-design/releases/tag/v2.9)
+  on November 25. The public tag points to the frozen source. The public ZIP
+  download matched the exact signed ZIP before the website deployment.
 - [ ] Verify the live feed and the Design Language section and News story.
   Confirm a previously installed v2.8 updates through **Check for Updates**.

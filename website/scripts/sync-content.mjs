@@ -397,7 +397,12 @@ function parseRelease(markdown) {
 function appcastDateToISO(pubDate) {
   if (!pubDate) return "";
   const parsed = new Date(pubDate);
-  return Number.isNaN(parsed.valueOf()) ? "" : parsed.toISOString().slice(0, 10);
+  if (Number.isNaN(parsed.valueOf())) return "";
+  const dateParts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Chicago", year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(parsed);
+  const date = Object.fromEntries(dateParts.map(({ type, value }) => [type, value]));
+  return `${date.year}-${date.month}-${date.day}`;
 }
 
 function parseReleaseFromAppcast(appcast) {

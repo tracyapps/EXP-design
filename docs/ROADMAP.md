@@ -1286,11 +1286,10 @@ promote them into release gates.
 
 ---
 
-## v2.9 — development OPEN (2.9 / build 20)
+## v2.9 — shipped (2026-11-25)
 
-Opened November 9, 2026 after the owner confirms the installed v2.7→v2.8 update
-succeeded. Public v2.8/build 19, release tag, ZIP, notes and updater item remain
-immutable. The website continues to advertise the public 2.8 release.
+Build 20 is public on GitHub with the signed Sparkle update and website highlight.
+The installed v2.8→v2.9 update check is tracked in `RELEASE-CHECKLIST-v2.9.md`.
 
 **Selected focus: Design Language — color modes, spacing tokens and practical
 bindings.** Interaction brief and implementation gates: `DESIGN-LANGUAGE-v2.9.md`.
@@ -1358,8 +1357,9 @@ The checklist tracks what is built and verified for the development release.
       and border width editing on November 25.
 - [x] FEAT-093 saved entry Edit parity — the owner approved the color,
       gradient and type style Edit sheets on November 25.
-- [ ] Finish signing, notarizing and verifying the universal v2.9 candidate,
-      then publish the ZIP and Sparkle feed. See `RELEASE-CHECKLIST-v2.9.md`.
+- [x] Sign, notarize and verify the universal v2.9 candidate and publish the ZIP.
+- [ ] Verify the live Sparkle feed, website highlight and installed update.
+      See `RELEASE-CHECKLIST-v2.9.md`.
 
 The owner moved script-font clipping (BUG-084) and text box trim (FEAT-098)
 to a follow-up on November 25. Investigate the intermittent clipping first,
@@ -3710,6 +3710,12 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-11-25 — v2.9 published on GitHub.**
+  The owner signed the ZIP, and the signature verified against the public key
+  bundled in the app. Tag `v2.9` points to the frozen release source. The public
+  download matched the verified ZIP byte for byte. This deploy adds build 20
+  to the Sparkle feed and activates the Design Language highlight.
 
 - **2026-11-25 — v2.9 owner export verified and packaged.**
   The owner exported the Developer ID app. Xcode confirmed the distribution
