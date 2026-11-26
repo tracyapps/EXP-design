@@ -298,6 +298,10 @@ struct DesignLanguageTransferSheet: View {
                 .font(.system(size: EXPType.mini))
                 .foregroundStyle(EXPColor.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
+            if let mode = dl.colorMode() {
+                Text("Exports the \(mode.name) palette. The EXP document keeps all color modes.")
+                    .font(.caption).foregroundStyle(EXPColor.textSecondary)
+            }
 
             // The preview IS the export — exactly what Copy/Save produce.
             ScrollView {

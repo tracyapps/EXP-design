@@ -68,8 +68,11 @@ struct ArtboardNotesOverlay: View {
 
     var body: some View {
         GeometryReader { geo in
+            let language = document.model.designLanguage
+            let modesEnabled = language.colorMode() != nil
+            let page = document.model.page(for: app.activeCanvasPageID)
             ZStack(alignment: .topLeading) {
-                ForEach(visibleArtboards) { artboard in
+                ForEach(visibleArtboards(modesEnabled: modesEnabled)) { artboard in
                     let anchor = labelAnchor(artboard)
 
                     NotesButton(hasNotes: !artboard.notes.isEmpty,
@@ -77,6 +80,15 @@ struct ArtboardNotesOverlay: View {
                         app.toggleNotes(artboard.id)   // the panel flushes on disappear
                     }
                     .offset(x: anchor.x - 22, y: anchor.y)
+
+                    if DLArtboardModeHeader.showsPicker(artboard, enabled: modesEnabled, zoom: app.zoom,
+                                                       selected: app.selectedArtboardIDs.contains(artboard.id)) {
+                        DLColorModePicker(language: language, artboard: artboard, page: page, inArtboardHeader: true) {
+                            $0.sendToCanvas()
+                        }
+                        .frame(width: DLArtboardModeHeader.width, alignment: .leading)
+                        .offset(x: anchor.x, y: anchor.y - 2)
+                    }
 
                     if app.openNotesArtboardIDs.contains(artboard.id) {
                         let origin = panelOrigin(artboard, anchor: anchor, viewport: geo.size)
@@ -104,7 +116,7 @@ struct ArtboardNotesOverlay: View {
     /// Artboards worth building an overlay for. Evaluated ONCE per body pass (not
     /// per row) — filtering a few hundred rects is trivial; building a few hundred
     /// SwiftUI buttons on every pan frame is not.
-    private var visibleArtboards: [Artboard] {
+    private func visibleArtboards(modesEnabled: Bool) -> [Artboard] {
         let all = document.model.page(for: app.activeCanvasPageID)?.artboards ?? []
         guard let visible = app.visibleDocumentRect else { return all }
 
@@ -118,6 +130,7 @@ struct ArtboardNotesOverlay: View {
             guard artboard.frame.intersects(probe) else { return false }
             if !artboard.notes.isEmpty { return true }
             if app.openNotesArtboardIDs.contains(artboard.id) { return true }
+            if modesEnabled && app.selectedArtboardIDs.contains(artboard.id) { return true }
             return artboard.frame.width * app.zoom >= Self.minOnScreenWidthForEmptyButton
         }
     }

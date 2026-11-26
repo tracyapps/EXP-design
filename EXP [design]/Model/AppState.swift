@@ -837,6 +837,7 @@ final class AppState {
     /// was dropping changes and racing the commit). `@ObservationIgnored` so setting
     /// it never invalidates any view. nil = no text box is being edited.
     @ObservationIgnored var applyTextStyle: ((TextStyleOp) -> Void)?
+    @ObservationIgnored var finishInlineTextEditing: (() -> Void)?
 
     /// Lifecycle-safe command bridge to the Layers view. A stored closure captured
     /// whichever dock/tray ScrollViewProxy appeared last; switching workspace mode,

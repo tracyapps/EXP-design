@@ -41,6 +41,30 @@ private enum CanvasPagesCheck {
         require(document.owningArtboard(of: left.frame, on: second.id)?.id == secondBoard.id,
                 "same-coordinate artboards leaked across page boundaries")
 
+        let source = ComponentSource(name: "Café Button", size: board.frame.size, children: [])
+        let instance = Node(name: "Continue", frame: left.frame,
+                            content: .instance(ComponentInstance(sourceID: source.id)))
+        let hidden = Node(name: "Hidden group", frame: left.frame, isVisible: false,
+                          content: .group(children: [Node(name: "Invisible copy", frame: left.frame,
+                              content: .instance(ComponentInstance(sourceID: source.id)))]))
+        let container = Node(name: "Signup", frame: left.frame, artboardID: board.id,
+                             content: .group(children: [instance, hidden]))
+        var searchDocument = document
+        searchDocument.pages[0].nodes.append(container)
+        searchDocument.pages[1].artboards[0].name = board.name
+        searchDocument.sources = [source]
+        let search = DocumentSearch(document: searchDocument)
+        let componentTargets = search.matches("CAFE button", kind: nil, pageID: nil, componentNameOnly: true)
+        require(Set(componentTargets.map(\.id)) == [.source(source.id), .instance(pageID: first.id, id: instance.id)],
+                "component name search missed a target or exposed an instance in a hidden group")
+        let nested = search.matches("flows signup continue", kind: .instance, pageID: first.id, componentNameOnly: false)
+        require(nested.map(\.id) == [.instance(pageID: first.id, id: instance.id)]
+                && nested.first?.location == "Flows › Board › Signup › Café Button",
+                "nested instance lost its artboard or group location")
+        let archiveBoards = search.matches("board", kind: .artboard, pageID: second.id, componentNameOnly: false)
+        require(archiveBoards.map(\.id) == [.artboard(pageID: second.id, id: secondBoard.id)],
+                "the page filter failed to distinguish identically named artboards")
+
         // Artboard membership has deliberate hysteresis: >50% to enter, any
         // positive overlap to remain, and zero overlap to leave.
         var threshold = Node(name: "Threshold",

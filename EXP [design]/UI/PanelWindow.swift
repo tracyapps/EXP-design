@@ -88,6 +88,10 @@ final class PanelWindowManager {
         applyGrouping()
     }
 
+    static func isTrayWindow(_ window: NSWindow) -> Bool {
+        window is TrayWindow
+    }
+
     /// A tray window may take KEY status (its text fields need it) but never
     /// MAIN — the document window stays `NSApp.mainWindow`, so canvas actions
     /// (`sendCanvasAction`) and menu validation keep routing to the focused

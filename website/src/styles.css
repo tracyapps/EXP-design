@@ -965,6 +965,87 @@ main {
   z-index: 2;
 }
 
+.design-language-section.dl-release {
+  grid-template-columns: minmax(0, 1fr);
+  gap: clamp(22px, 4vw, 45px);
+  padding: clamp(42px, 6vw, 88px) 0 clamp(54px, 8vw, 112px);
+}
+
+.dl-release-intro {
+  max-width: 740px;
+}
+
+.dl-release-intro .button {
+  margin-top: 12px;
+}
+
+.dl-release-modes,
+.dl-release-card {
+  min-width: 0;
+  padding: clamp(18px, 3vw, 38px);
+  border: 1px solid var(--hairline);
+  border-radius: 18px;
+  background: var(--surface-card);
+}
+
+.dl-release-modes {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2.2fr);
+  gap: clamp(14px, 3vw, 42px);
+  align-items: center;
+}
+
+.dl-release-copy h3 {
+  margin: 0 0 0.55em;
+  font-size: clamp(1.35rem, 2.4vw, 2rem);
+  line-height: 1.15;
+}
+
+.dl-release-copy p {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.dl-release-screenshot {
+  display: block;
+  border-radius: 10px;
+}
+
+.dl-release-screenshot img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.dl-release-features {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(14px, 2.5vw, 28px);
+}
+
+.dl-release-card {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+}
+
+.dl-release-guide img {
+  aspect-ratio: 1117 / 943;
+  object-fit: cover;
+  object-position: top;
+}
+
+.dl-release-json {
+  justify-self: start;
+}
+
+@media (max-width: 760px) {
+  .dl-release-modes,
+  .dl-release-features {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .import-handoff-section {
   display: grid;
   grid-template-columns: minmax(290px, 0.72fr) minmax(500px, 1.28fr);

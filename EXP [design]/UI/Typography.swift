@@ -10,6 +10,11 @@
 import AppKit
 import CoreText
 
+extension NSAttributedString.Key {
+    /// Carries mode inheritance through the inline editor's rich text buffer.
+    static let expModeForeground = Self("EXPModeForeground")
+}
+
 /// One glyph's outline from "convert text to shapes": its character (for the
 /// layer name), color, tight ink box in text-local space, and contours relative
 /// to that box.
@@ -168,7 +173,8 @@ extension TextContent {
 
     func attributedString(scale: CGFloat = 1, applyCase: Bool = true,
                           centerFixedLineHeightLeading: Bool = true,
-                          strokePass: StrokePass = .fill) -> NSAttributedString {
+                          strokePass: StrokePass = .fill,
+                          includeModeForeground: Bool = false) -> NSAttributedString {
         let para = paragraphStyle(scale: scale)
         let strings = applyCase ? displayStrings() : runs.map(\.string)
 
@@ -220,6 +226,7 @@ extension TextContent {
                 }
             }
             if run.underline { attrs[.underlineStyle] = NSUnderlineStyle.single.rawValue }
+            if includeModeForeground && run.usesModeForeground == true { attrs[.expModeForeground] = true }
             if tracking != 0 { attrs[.kern] = tracking * scale }
             out.append(NSAttributedString(string: strings[i], attributes: attrs))
         }
@@ -243,7 +250,8 @@ extension TextContent {
             let psName = isSystem ? "" : font.fontName
             let color = (attrs[.foregroundColor] as? NSColor).map { RGBAColor(ns: $0) } ?? .black
             let underline = ((attrs[.underlineStyle] as? Int) ?? 0) != 0
-            newRuns.append(TextRun(string: sub, fontName: psName, fontSize: size, color: color, underline: underline))
+            newRuns.append(TextRun(string: sub, fontName: psName, fontSize: size, color: color, underline: underline,
+                                   usesModeForeground: attrs[.expModeForeground] as? Bool))
         }
         self.init(runs: newRuns.isEmpty ? [TextRun(string: attributed.string)] : newRuns,
                   align: align, lineHeight: lineHeight, lineHeightUnit: lineHeightUnit,

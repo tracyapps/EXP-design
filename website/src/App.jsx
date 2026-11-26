@@ -8,6 +8,7 @@ import { registrationHref } from "./engagement-links.js";
 import AccountPage from "./AccountPage.jsx";
 import PeoplePage from "./PeoplePage.jsx";
 import NewsPage from "./NewsPage.jsx";
+import DesignLanguageRelease from "./DesignLanguageRelease.jsx";
 import AccountMenu from './AccountMenu.jsx';
 import AccountsIntro from './AccountsIntro.jsx';
 import {
@@ -20,6 +21,7 @@ import {
 const releaseUrl = "https://github.com/tracyapps/EXP-design/releases/latest";
 const releasesUrl = "https://github.com/tracyapps/EXP-design/releases";
 const issuesUrl = "https://github.com/tracyapps/EXP-design/issues/new";
+const hasDesignLanguageRelease = siteContent.release?.build >= 20;
 
 // One nav for every page. Feature callouts live on the homepage; the dropdown
 // jump-links to them with absolute /#anchor hrefs so they also work from
@@ -1433,7 +1435,7 @@ export default function App() {
   if (path === "/news") {
     return <div className="account-shell">
       <Header progress={progress} actionLabel="get the free app" actionHref="/download" brandHref="/" />
-      <main className="account-main"><NewsPage /></main><Footer />
+      <main className="account-main"><NewsPage hasDesignLanguageRelease={hasDesignLanguageRelease} /></main><Footer />
     </div>;
   }
 
@@ -1479,6 +1481,7 @@ export default function App() {
       <Header progress={progress} />
       <main>
         <Hero />
+        {hasDesignLanguageRelease && <DesignLanguageRelease />}
         <FeatureStory />
         <PaintCallout />
         <SanaaCallout />
@@ -1486,7 +1489,7 @@ export default function App() {
         <WorkspaceCallout />
         <AccessibilityCallout />
         <AccessibilityCoreCallout />
-        <DesignLanguageCallout />
+        {!hasDesignLanguageRelease && <DesignLanguageCallout />}
         <ImportHandoffCallout />
         <Roadmap />
         <MemberCallout />

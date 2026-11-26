@@ -121,6 +121,26 @@ private enum LibraryTokenSyncCheck {
             let accent = asset(named: "color-accent", in: adopted)!
             require(adopted.libraryTokenLink(forAsset: accent.id)?.writable == true, "accent writable")
         }
+        check("explicit mode adoption keeps aliases and local values across repeat adoption") {
+            var configured = adopted
+            require(configured.hasLibraryColorModes && configured.designLanguage.colorModeSet == nil,
+                    "import preserves source modes without enabling them")
+            require(configured.adoptLibraryColorModes(), "explicit adoption seeds the mode set")
+            let modes = configured.designLanguage.colorModeSet!.modes
+            let light = modes[0].id, dark = modes[1].id
+            let background = asset(named: "color-bg", in: configured)!
+            let paper = asset(named: "color-paper", in: configured)!
+            require(background.modeValues[light.uuidString] == .alias(paper.id), "Light alias keeps identity")
+            require(hexOf(background) == "#f8f6f1", "base keeps its imported paint")
+            require(LibraryTokenAdoption.hex(configured.designLanguage.paint(for: background, in: dark).representativeColor)
+                    == "#111820", "Dark literal resolves")
+            require(configured.designLanguage.nameColorMode("Evening", id: dark), "renaming keeps source identity")
+            let index = configured.designLanguage.assets.firstIndex { $0.id == background.id }!
+            configured.designLanguage.assets[index].modeValues[dark.uuidString] = .color(.white)
+            require(!configured.adoptLibraryColorModes(), "repeat adoption is a no-op")
+            require(configured.designLanguage.assets[index].modeValues[dark.uuidString] == .color(.white), "local value kept")
+            require(configured.librarySnapshots == adopted.librarySnapshots, "raw source snapshot is intact")
+        }
         check("CSS export keeps the library's exact variable names") {
             let css = DesignLanguageIO.exportCSS(adopted.designLanguage)
             require(css.contains("--color-accent: #1F7A70;") || css.contains("--color-accent: #1f7a70;"),

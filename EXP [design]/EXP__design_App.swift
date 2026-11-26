@@ -241,6 +241,10 @@ private struct FileCommandItems: View {
             sendEditorAction("exportCurrentArtboardToCodePen:")
         }
         .disabled(menu?.canExportSelectedArtboards != true)
+        Button("Export Design Language Guide…") { sendEditorAction("exportDesignLanguageGuideAction:") }
+            .disabled(menu == nil)
+        Button("Export Guide and Token Files…") { sendEditorAction("exportDesignLanguageFolderAction:") }
+            .disabled(menu == nil)
         Button("Export Design Tokens…") { sendEditorAction("exportDesignTokensAction:") }
             .disabled(menu == nil)
     }
@@ -250,6 +254,9 @@ private struct EditCommandItems: View {
     @FocusedValue(\.editorMenu) private var menu
 
     var body: some View {
+        Button("Find in Document…") { sendEditorAction("findInDocumentAction:") }
+            .keyboardShortcut("f", modifiers: .command)
+            .disabled(menu?.canFindInDocument != true)
         Button("Duplicate") { sendEditorAction("duplicateSelection:") }
             .keyboardShortcut("d", modifiers: .command)
             .disabled(menu?.canDuplicate != true)
@@ -313,6 +320,7 @@ private struct EditCommandItems: View {
 
 private struct ObjectCommandItems: View {
     @FocusedValue(\.editorMenu) private var menu
+    @Environment(\.openWindow) private var openWindow
     @AppStorage(SanaaPreferences.enabled) private var sanaaEnabled = false
 
     var body: some View {
@@ -344,7 +352,9 @@ private struct ObjectCommandItems: View {
             Button(menu?.autoPaddingTitle ?? "Add Auto Padding") { sendEditorAction("toggleAutoPaddingAction:") }
                 .keyboardShortcut("p", modifiers: [.command, .option])
                 .disabled(menu?.canAutoPadding != true)
-            Button("New Spacing Token…") { sendEditorAction("newSpacingTokenAction:") }
+            ForEach(DLDimensionKind.allCases) { kind in
+                Button("New \(kind.rawValue) Token…") { kind.newTokenAction() }
+            }
                 .disabled(menu == nil)
             Divider()
             Button("Move Item Forward") { sendEditorAction("nudgeItemForwardAction:") }
@@ -355,6 +365,54 @@ private struct ObjectCommandItems: View {
                 .disabled(menu?.canMoveAutoLayoutItem != true)
         }
         Divider()
+        Menu("Color Modes") {
+            if let menu {
+                if menu.canEnableColorModes {
+                    Button("Enable Color Modes") { DLColorModeEdit.enable.sendToCanvas() }
+                }
+                if menu.canAdoptLibraryColorModes {
+                    Button("Adopt Library Modes") { DLColorModeEdit.adoptLibrary.sendToCanvas() }
+                }
+                if let current = menu.documentColorMode {
+                    Menu("Document Mode") {
+                        ForEach(menu.colorModes) { mode in
+                            Button { DLColorModeEdit.document(mode.id).sendToCanvas() } label: {
+                                if mode.id == current.id { Label(mode.name, systemImage: "checkmark") }
+                                else { Text(mode.name) }
+                            }
+                        }
+                    }
+                    if !menu.selectedArtboardIDs.isEmpty {
+                        Menu("Selected Artboards") {
+                            Button("Use Mode Background") {
+                                DLColorModeEdit.artboardBackground(menu.selectedArtboardIDs).sendToCanvas()
+                            }
+                            Divider()
+                            Button("Use Page Mode (\(menu.pageColorMode?.name ?? current.name))") {
+                                DLColorModeEdit.artboards(nil, menu.selectedArtboardIDs).sendToCanvas()
+                            }
+                            ForEach(menu.colorModes) { mode in
+                                Button(mode.name) {
+                                    DLColorModeEdit.artboards(mode.id, menu.selectedArtboardIDs).sendToCanvas()
+                                }
+                            }
+                        }
+                    }
+                }
+                Button("Manage Color Modes…") {
+                    UserDefaults.standard.set(false, forKey: AppPreferences.showDesignLanguageCode)
+                    UserDefaults.standard.set("designLanguage", forKey: AppPreferences.requestedSettingsPane)
+                    openWindow(id: SettingsWindow.sceneID)
+                }
+            }
+        }
+        .disabled(menu == nil)
+        Button("Edit Design Language Code…") {
+            UserDefaults.standard.set(true, forKey: AppPreferences.showDesignLanguageCode)
+            UserDefaults.standard.set("designLanguage", forKey: AppPreferences.requestedSettingsPane)
+            openWindow(id: SettingsWindow.sceneID)
+        }
+        .disabled(menu == nil)
         Menu("Component") {
             Button("Create Component") { sendEditorAction("createComponentAction:") }
                 .keyboardShortcut("k", modifiers: .command)
@@ -502,6 +560,8 @@ private struct TypeCommandItems: View {
         Button("Save as Type Style…") { sendEditorAction("saveTypeStyleAction:") }
             .keyboardShortcut("o", modifiers: [.command, .shift])
             .disabled(menu?.canTypeActions != true)
+        Button("Use Mode Text Color") { sendEditorAction("useModeTextColorAction:") }
+            .disabled(menu?.canUseModeTextColor != true)
     }
 }
 

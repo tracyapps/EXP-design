@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'">
+<title>Design Language Guide</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --paper: #f7f7f1; --surface: #fff; --ink: #202318; --muted: #444b3c;
+    --line: #b0b6a9; --accent: #315600; --focus: #275db0;
+    font: 100% / 1.5 system-ui, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #1a1e19; --surface: #252b23; --ink: #f1f6e9; --muted: #c1cebb;
+      --line: #687663; --accent: #bee787; --focus: #92baff;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--ink); }
+  [hidden] { display: none !important; }
+  a, summary { color: var(--accent); }
+  :focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+  .skip { position: absolute; top: .5rem; left: .5rem; transform: translateY(-200%); }
+  .skip:focus { z-index: 3; transform: none; background: var(--surface); padding: .5rem .8rem; }
+  .content { max-width: 1180px; margin: auto; padding: clamp(.75rem, 4vw, 3rem); }
+  header { border-bottom: 1px solid var(--line); background: var(--surface); border-top: 5px solid var(--accent); }
+  .overline { margin: 0; color: var(--muted); }
+  h1 { margin: .25rem 0 .75rem; font-size: clamp(1.75rem, 6vw, 3.5rem); line-height: 1.1; overflow-wrap: anywhere; }
+  h2 { margin: 0; font-size: 1.25rem; }
+  h3 { margin: 0 0 .5rem; font-size: 1rem; }
+  p, ul { margin: .5rem 0; }
+  .filters, .downloads, nav ul { display: flex; flex-wrap: wrap; gap: .75rem; align-items: end; }
+  .filters { margin-top: 1.25rem; }
+  .field { display: grid; gap: .25rem; font-size: .9rem; min-width: 0; }
+  input, select, button {
+    min-height: 34px; max-width: 100%; font: inherit; border: 1px solid var(--line);
+    border-radius: .3rem; color: var(--ink); background: var(--surface); padding: .25rem .55rem;
+  }
+  button, summary { cursor: pointer; }
+  select { width: min(100%, 22rem); }
+  nav ul { list-style: none; padding: 0; }
+  .overview { margin-bottom: 1.25rem; }
+  details { background: var(--surface); border: 1px solid var(--line); border-radius: .4rem; margin: 1rem 0; }
+  summary { padding: .75rem 1rem; font-weight: 650; }
+  summary h2 { display: inline; }
+  .table-scroll { overflow: auto; max-height: min(65vh, 42rem); }
+  table { border-collapse: separate; border-spacing: 0; width: 100%; text-align: start; }
+  caption { text-align: start; padding: .65rem .75rem; color: var(--muted); }
+  .table-scroll thead th { position: sticky; top: 0; background: var(--surface); z-index: 1; }
+  th, td { vertical-align: top; text-align: start; padding: .6rem .75rem; border-bottom: 1px solid var(--line); }
+  .guide-table th, .guide-table td { min-width: 9rem; }
+  .guide-table tr:last-child td, .guide-table tr:last-child th { border-bottom: none; }
+  code, small, td, th, #libraries { overflow-wrap: anywhere; }
+  code { white-space: pre-wrap; font-size: .85em; }
+  small { display: block; color: var(--muted); }
+  .swatch { display: block; width: 4rem; height: 1.6rem; border: 1px solid var(--line); border-radius: .18rem; margin-bottom: .25rem; }
+  .specimen { margin: .4rem 0; color: var(--ink); max-height: 9rem; overflow: auto; }
+  #status {
+    position: fixed; z-index: 3; right: .75rem; bottom: .75rem; margin: 0;
+    max-width: min(28rem, calc(100% - 1.5rem)); overflow-wrap: anywhere;
+    pointer-events: none;
+  }
+  #status:not(:empty) {
+    border: 1px solid var(--line); border-radius: .4rem;
+    padding: .5rem .75rem; background: var(--surface);
+  }
+  .downloads { margin-top: .75rem; }
+  @media (max-width: 36em) {
+    .overview table { font-size: .85rem; }
+    th, td { padding: .45rem; }
+    .guide-table th, .guide-table td { min-width: 6.5rem; }
+  }
+  @media print {
+    @page { margin: 12mm; }
+    :root { --ink: #161616; --muted: #333; --paper: white; --surface: white; --accent: #293800; --line: #888; color-scheme: light; }
+    .filters, .downloads, .actions, nav, .skip, #status { display: none !important; }
+    .table-scroll { max-height: none; overflow: visible; }
+    .table-scroll thead th { position: static; }
+    .guide-table td, .guide-table th { min-width: 0; }
+    tr { break-inside: avoid; }
+    .swatch { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  }
+</style>
+<style id="specimen-css"></style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to tokens</a>
+<header>
+  <div class="content">
+    <p class="overline">Design Language Guide</p>
+    <h1 id="title">Design Language</h1>
+    <p id="count"></p>
+    <div class="filters">
+      <div class="field"><label for="search">Search tokens</label><input id="search" type="search"></div>
+      <div class="field"><label for="mode">Mode</label><select id="mode"></select></div>
+      <div class="field">
+        <label for="format">Copy format</label>
+        <select id="format">
+          <option value="css">CSS</option>
+          <option value="scss">SCSS</option>
+          <option value="dtcg">Design Tokens reference</option>
+          <option value="raw">Raw value</option>
+        </select>
+      </div>
+    </div>
+    <p id="status" role="status"></p>
+    <div id="downloads" class="downloads" role="group" aria-label="Token file downloads"></div>
+  </div>
+</header>
+<main id="main" tabindex="-1" class="content">
+  <section class="overview" aria-labelledby="overview-title">
+    <h2 id="overview-title">Overview</h2>
+    <p id="libraries"></p>
+    <div id="mode-summary"></div>
+  </section>
+  <nav aria-label="Token sections"><ul id="navigation"></ul></nav>
+  <div id="sections"></div>
+  <p id="empty" hidden>No tokens match your search.</p>
+  <noscript><p>Enable JavaScript to view this guide and download its token files.</p></noscript>
+</main>
+<script type="application/json" id="guide-data">__EXP_GUIDE_DATA__</script>
+<script>
+(() => {
+  'use strict';
+  const get = (id) => document.getElementById(id);
+  const order = ['Colors', 'Gradients', 'Typography', 'Spacing', 'Sizing', 'Radius', 'Borders', 'Shadows', 'Motion', 'Other Tokens', 'Preserved Values'];
+  const files = ['tokens.css', '_tokens.scss', 'tokens.json', 'tokens.resolver.json'];
+  const closedSections = new Set();
+  const openForPrint = [];
+  let guide, chosenMode = null;
+  let announceTimer, dismissTimer;
+
+  function node(tag, text, attrs = {}) {
+    const element = document.createElement(tag);
+    if (text != null) element.textContent = text;
+    for (const [name, value] of Object.entries(attrs)) element.setAttribute(name, value);
+    return element;
+  }
+  function announce(text) {
+    clearTimeout(announceTimer);
+    clearTimeout(dismissTimer);
+    get('status').textContent = '';
+    announceTimer = setTimeout(() => {
+      get('status').textContent = text;
+      dismissTimer = setTimeout(() => { get('status').textContent = ''; }, 3800);
+    }, 60);
+  }
+  function nativeMessage(message) {
+    const handler = window.webkit?.messageHandlers?.designLanguageGuide;
+    if (!document.body.hasAttribute('data-embedded') || !handler) return false;
+    handler.postMessage(message);
+    return true;
+  }
+  async function copy(text, name) {
+    if (nativeMessage({action: 'copy', text, name})) return;
+    try {
+      if (!navigator.clipboard) throw new Error();
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const focused = document.activeElement;
+      const area = node('textarea', text, {'aria-label': 'Text to copy'});
+      area.style.position = 'fixed';
+      area.style.left = '-9999px';
+      document.body.append(area);
+      area.value = text;
+      area.select();
+      let copied = false;
+      try { copied = document.execCommand('copy'); } catch {}
+      area.remove();
+      focused?.focus({preventScroll: true});
+      if (!copied) { announce('Copy unavailable. Select and copy the value from the table.'); return; }
+    }
+    announce('Copied ' + name + '.');
+  }
+  window.expGuideAnnounce = announce;
+
+  function download(filename) {
+    if (nativeMessage({action: 'download', filename})) return;
+    const types = {'tokens.css':'text/css', '_tokens.scss':'text/plain'};
+    const blob = new Blob([guide.files[filename]], {type: types[filename] || 'application/json'});
+    const url = URL.createObjectURL(blob);
+    const link = node('a', null, {href: url, download: filename});
+    document.body.append(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    announce('Download started for ' + filename + '.');
+  }
+  function displayValue(cell, value, inherited) {
+    if (value.swatch && CSS.supports('background', value.swatch)) {
+      const chip = node('span', null, {class: 'swatch', 'aria-hidden': 'true'});
+      chip.style.background = value.swatch;
+      cell.append(chip);
+    }
+    cell.append(node('code', value.text));
+    if (inherited) cell.append(node('small', 'Uses base'));
+    if (value.alias) cell.append(node('small', value.alias));
+    if (value.contrast) cell.append(node('small', value.contrast + ' on mode background'));
+  }
+  function displayModeOverview() {
+    const mount = get('mode-summary');
+    mount.replaceChildren();
+    if (!guide.modes.length) return;
+    const table = node('table');
+    table.append(node('caption', 'Document mode defaults'));
+    const header = table.createTHead().insertRow();
+    for (const label of ['Mode', 'Background', 'Text color', 'Contrast']) header.append(node('th', label, {scope: 'col'}));
+    const body = table.createTBody();
+    for (const mode of guide.modes.filter((mode) => mode.background)) {
+      const row = body.insertRow();
+      row.append(node('th', mode.name + (mode.active ? ' · Current' : ''), {scope: 'row'}));
+      for (const color of [mode.background, mode.foreground]) {
+        displayValue(row.insertCell(), {text: color, swatch: color}, false);
+      }
+      row.insertCell().textContent = mode.contrast;
+    }
+    if (body.rows.length) mount.append(table);
+  }
+  function renderDownloads() {
+    get('downloads').replaceChildren(...files.filter((name) => guide.files[name]).map((name) => {
+      const button = node('button', 'Download ' + name, {type: 'button', id: 'download-' + name});
+      button.onclick = () => download(name);
+      return button;
+    }));
+  }
+
+  function renderSections() {
+    const filter = get('search').value.trim().toLocaleLowerCase();
+    const selectedMode = get('mode').value;
+    const visibleModes = guide.modes.filter((mode) => selectedMode === 'all' || selectedMode === mode.id);
+    const format = get('format').value;
+    const rows = guide.rows.filter((row) => {
+      const text = [row.name, row.group, row.role, row.section, row.notes, row.deprecated, row.base.text,
+        row.css, row.scss, row.dtcg, ...Object.values(row.overrides).flatMap((value) => [value.text, value.alias])];
+      return text.join(' ').toLocaleLowerCase().includes(filter);
+    });
+    const sectionMount = get('sections');
+    for (const details of sectionMount.children) {
+      if (details.open) closedSections.delete(details.dataset.section);
+      else closedSections.add(details.dataset.section);
+    }
+    const oldScroll = new Map([...sectionMount.querySelectorAll('.table-scroll')].map((element) => [
+      element.id, [element.scrollLeft, element.scrollTop]
+    ]));
+    const oldFocus = document.activeElement?.id;
+    const oldPageScroll = window.scrollY;
+    const newSections = document.createDocumentFragment();
+    const newLinks = document.createDocumentFragment();
+
+    order.forEach((section, index) => {
+      const group = rows.filter((row) => row.section === section);
+      if (!group.length) return;
+      const id = 'section-' + index;
+      const details = node('details', null, {id, 'data-section': section});
+      details.open = !closedSections.has(section);
+      const summary = node('summary');
+      summary.append(node('h2', section + ' (' + group.length + ')', {id: id + '-title'}));
+      details.append(summary);
+      const scroller = node('div', null, {class: 'table-scroll', tabindex: '0', role: 'region', 'aria-labelledby': id + '-title', id: id + '-table'});
+      const table = node('table', null, {class: 'guide-table'});
+      table.append(node('caption', section + ' by group and mode'));
+      const head = table.createTHead().insertRow();
+      head.append(node('th', 'Name', {scope: 'col'}), node('th', 'Base', {scope: 'col'}));
+      for (const mode of visibleModes) {
+        const th = node('th', mode.name, {scope: 'col'});
+        if (new Set(visibleModes.map((item) => item.axis)).size > 1) th.append(node('small', mode.axis));
+        head.append(th);
+      }
+      head.append(node('th', 'Details', {scope: 'col'}), node('th', 'Copy', {scope: 'col', class: 'actions'}));
+      const body = table.createTBody();
+      group.forEach((item) => {
+        const row = body.insertRow();
+        const name = node('th', item.name, {scope: 'row'});
+        if (item.group) name.append(node('small', item.group));
+        row.append(name);
+        const base = row.insertCell();
+        if (item.specimenClass) {
+          base.append(node('p', 'Aa Bb Cc 0123', {class: item.specimenClass + ' specimen', 'aria-hidden': 'true'}));
+        }
+        displayValue(base, item.base, false);
+        for (const mode of visibleModes) displayValue(row.insertCell(), item.overrides[mode.id] || item.base, !item.overrides[mode.id]);
+        const metadata = row.insertCell();
+        if (item.role) metadata.append(node('small', item.role));
+        if (item.uses != null) metadata.append(node('small', item.uses + (item.uses === 1 ? ' link' : ' links')));
+        if (item.deprecated != null) metadata.append(node('small', 'Deprecated' + (item.deprecated ? ' · ' + item.deprecated : '')));
+        if (item.notes) metadata.append(node('small', item.notes));
+        const action = row.insertCell();
+        action.className = 'actions';
+        const rawMode = selectedMode === 'all' ? guide.modes.find((mode) => mode.active)?.id : selectedMode;
+        const value = format === 'raw' ? (item.overrides[rawMode] || item.base).text : item[format];
+        if (value) {
+          const button = node('button', 'Copy', {type: 'button', id: id + '-copy-' + encodeURIComponent(item.id),
+            'aria-label': 'Copy ' + item.name + ' as ' + get('format').selectedOptions[0].text});
+          button.onclick = () => copy(value, item.name);
+          action.append(button);
+        } else {
+          action.textContent = 'Unavailable';
+        }
+      });
+      scroller.append(table);
+      details.append(scroller);
+      newSections.append(details);
+      const link = node('a', section, {href: '#' + id});
+      link.addEventListener('click', () => { details.open = true; });
+      const li = node('li');
+      li.append(link);
+      newLinks.append(li);
+    });
+    sectionMount.replaceChildren(newSections);
+    get('navigation').replaceChildren(newLinks);
+    get('empty').hidden = rows.length !== 0;
+    get('empty').textContent = guide.rows.length ? 'No tokens match your search.' : 'This document has no saved tokens.';
+    for (const [id, [x, y]] of oldScroll) get(id)?.scrollTo(x, y);
+    if (oldFocus && document.activeElement === document.body) get(oldFocus)?.focus({preventScroll: true});
+    window.scrollTo(0, oldPageScroll);
+  }
+  function update(payload) {
+    const focusedID = document.activeElement?.id;
+    guide = payload;
+    get('title').textContent = guide.title;
+    document.title = guide.title + ' · Design Language Guide';
+    get('count').textContent = guide.rows.length + (guide.rows.length === 1 ? ' saved entry' : ' saved entries');
+    get('libraries').textContent = guide.libraries.length
+      ? 'Source libraries · ' + guide.libraries.map((library) => library.name + (library.revision ? ' (' + library.revision + ')' : '')).join(', ')
+      : '';
+    get('specimen-css').textContent = guide.specimenCSS;
+    const mode = get('mode');
+    mode.replaceChildren(node('option', guide.modes.length ? 'Compare all modes' : 'Base', {value: 'all'}));
+    for (const entry of guide.modes) {
+      mode.append(node('option', entry.name + ' · ' + entry.axis + (entry.active ? ' (current)' : ''), {value: entry.id}));
+    }
+    mode.value = [...mode.options].some((option) => option.value === chosenMode) ? chosenMode : 'all';
+    mode.disabled = !guide.modes.length;
+    renderDownloads();
+    displayModeOverview();
+    renderSections();
+    if (focusedID && document.activeElement === document.body) get(focusedID)?.focus({preventScroll: true});
+  }
+  get('search').addEventListener('input', renderSections);
+  get('mode').addEventListener('change', (event) => { chosenMode = event.target.value; renderSections(); });
+  get('format').addEventListener('change', renderSections);
+  window.addEventListener('beforeprint', () => {
+    document.querySelectorAll('details:not([open])').forEach((item) => { openForPrint.push(item); item.open = true; });
+  });
+  window.addEventListener('afterprint', () => {
+    while (openForPrint.length) openForPrint.pop().open = false;
+  });
+  window.expUpdateDesignLanguageGuide = (json) => update(JSON.parse(json));
+  window.expUpdateDesignLanguageGuide(get('guide-data').textContent);
+})();
+</script>
+</body>
+</html>

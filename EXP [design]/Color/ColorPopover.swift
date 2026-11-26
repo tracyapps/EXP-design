@@ -24,6 +24,57 @@ extension RGBAColor {
     var opaqueSwiftUI: Color { Color(.sRGB, red: r, green: g, blue: b, opacity: 1) }
 }
 
+/// AppKit attaches additional requests to an open sampling session. Allow only
+/// one destination per pick, including when a shortcut or menu action repeats.
+@MainActor
+enum ScreenEyedropper {
+    private static var isSampling = false
+
+    static func pick(for destination: String, apply: @escaping @MainActor (RGBAColor) -> Void) {
+        guard !isSampling else { return }
+        isSampling = true
+        DiagnosticLog.shared.log("[EXP eyedropper] Started: \(destination)")
+        NSColorSampler().show { picked in
+            // AppKit delivers the result on the main thread.
+            MainActor.assumeIsolated {
+                isSampling = false
+                guard let picked else {
+                    DiagnosticLog.shared.log("[EXP eyedropper] AppKit returned no color: \(destination)")
+                    return
+                }
+                guard let rgb = picked.usingColorSpace(.sRGB) else {
+                    DiagnosticLog.shared.log("[EXP eyedropper] sRGB conversion failed: \(destination)")
+                    return
+                }
+                apply(RGBAColor(r: Double(rgb.redComponent), g: Double(rgb.greenComponent),
+                                b: Double(rgb.blueComponent), a: Double(rgb.alphaComponent)))
+            }
+        }
+    }
+}
+
+/// Gives the shared shortcut a target in the picker's own window.
+/// The target goes away with the popover.
+struct ColorPickerShortcutTarget: NSViewRepresentable {
+    let pick: () -> Void
+
+    func makeNSView(context: Context) -> Target {
+        let view = Target()
+        view.pick = pick
+        return view
+    }
+
+    func updateNSView(_ view: Target, context: Context) {
+        view.pick = pick
+    }
+
+    final class Target: NSView {
+        var pick: (() -> Void)?
+
+        @objc func pickColor(_ sender: Any?) { pick?() }
+    }
+}
+
 /// The editor shown when a gradient stop's knob is clicked ON THE CANVAS
 /// (FEAT-045): the full colour picker plus the stop's exact position.
 ///
@@ -153,7 +204,6 @@ struct ColorPopover: View {
     @State private var a = 1.0
     @State private var format: ColorFormat = .hex
     @State private var code = ""
-    @State private var keyMonitor: Any?
     @State private var dlMatch: DesignAsset?
     @State private var authoredColor: RGBAColor?
 
@@ -204,7 +254,10 @@ struct ColorPopover: View {
                 if showsDesignLanguageLink { designLanguageLink }
             }
         }
-        .onAppear { loadFromColor(); installKeyMonitor(); refreshDLMatch() }
+        .background {
+            ColorPickerShortcutTarget(pick: sampleScreen).frame(width: 0, height: 0)
+        }
+        .onAppear { loadFromColor(); refreshDLMatch() }
         .onChange(of: color) { _, next in
             // External point selection reloads all channels. Our own writes keep
             // the authoring coordinates and out-of-gamut explanation intact.
@@ -212,7 +265,6 @@ struct ColorPopover: View {
             authoredColor = nil
             refreshDLMatch()
         }
-        .onDisappear(perform: removeKeyMonitor)
     }
 
     // MARK: Mode-specific controls
@@ -248,28 +300,6 @@ struct ColorPopover: View {
             }
             .padding(.vertical, 2)
         }
-    }
-
-    // MARK: Keyboard eyedropper
-
-    /// Plain `i` triggers the screen eyedropper only when the user is not typing.
-    /// This monitor receives events app-wide, including artboard/layer rename
-    /// fields outside the picker. All text editors (including color-code fields)
-    /// must keep their characters. ⌘/⌃/⌥+i are left for the system.
-    private func installKeyMonitor() {
-        guard keyMonitor == nil else { return }
-        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            guard !isTypingInTextField() else { return event }
-            let mods = event.modifierFlags.intersection([.command, .control, .option])
-            if mods.isEmpty, event.charactersIgnoringModifiers?.lowercased() == "i" {
-                sampleScreen()
-                return nil   // consume
-            }
-            return event
-        }
-    }
-    private func removeKeyMonitor() {
-        if let m = keyMonitor { NSEvent.removeMonitor(m); keyMonitor = nil }
     }
 
     // MARK: state sync
@@ -335,10 +365,10 @@ struct ColorPopover: View {
     }
 
     private func sampleScreen() {
-        NSColorSampler().show { picked in
-            guard let ns = picked?.usingColorSpace(.sRGB) else { return }
-            writeColor(RGBAColor(r: Double(ns.redComponent), g: Double(ns.greenComponent),
-                              b: Double(ns.blueComponent), a: supportsOpacity ? Double(ns.alphaComponent) : 1))
+        ScreenEyedropper.pick(for: "color editor") { picked in
+            var color = picked
+            if !supportsOpacity { color.a = 1 }
+            writeColor(color)
             loadFromColor()
         }
     }

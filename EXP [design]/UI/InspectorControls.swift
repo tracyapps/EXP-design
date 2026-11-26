@@ -67,7 +67,30 @@ struct EXPTokenChoice: Identifiable {
     let valueText: String
     /// What the token measures for the selected layer; nil when it can't be
     /// measured there (a viewport unit with no artboard, a grid track, …).
-    let resolved: CGFloat?
+    let resolved: NumericTokenValue?
+}
+
+/// Native text-field parsing for fixed radii and percentages in the current locale.
+struct EXPCornerRadiusFormat: ParseableFormatStyle {
+    var parseStrategy: Strategy { Strategy() }
+
+    func format(_ value: NumericTokenValue) -> String {
+        switch value {
+        case .points(let points): return Double(points).formatted(.number.grouping(.never).precision(.fractionLength(0...2)))
+        case .percentage(let percent): return Double(percent).formatted(.number.grouping(.never).precision(.fractionLength(0...2))) + "%"
+        }
+    }
+
+    struct Strategy: ParseStrategy {
+        func parse(_ value: String) throws -> NumericTokenValue {
+            let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            let hasPercent = text.hasSuffix("%")
+            let number = (hasPercent ? String(text.dropLast()) : text).trimmingCharacters(in: .whitespaces)
+            let parsed = try FloatingPointFormatStyle<Double>.number.parseStrategy.parse(number)
+            guard parsed.isFinite, !hasPercent || (0...1_000_000).contains(parsed) else { throw CocoaError(.formatting) }
+            return hasPercent ? .percentage(CGFloat(parsed)) : .points(CGFloat(parsed))
+        }
+    }
 }
 
 enum EXPTokenLinkState: Equatable {
@@ -80,6 +103,7 @@ enum EXPTokenLinkState: Equatable {
 /// is linked to a token, and opens the menu that links, relinks or clears it.
 /// State is carried by the glyph's SHAPE and by words, never by color alone.
 struct EXPTokenButton: View {
+    let kind: DLDimensionKind
     let fieldName: String
     let state: EXPTokenLinkState
     let linkedID: UUID?
@@ -134,12 +158,11 @@ struct EXPTokenButton: View {
                 }
             }
             Divider()
-            Button("New Token from \(Int(currentValue.rounded()))…") {
-                let item = NSMenuItem()
-                item.representedObject = String(Int(currentValue.rounded()))
-                _ = sendCanvasAction("newSpacingTokenAction:", from: item)
+            Button("New \(kind.rawValue) Token…") {
+                kind.newTokenAction(startingWith: currentValue.formatted(.number.grouping(.never).locale(Locale(identifier: "en_US_POSIX"))))
             }
             Button("Manage Tokens…") {
+                UserDefaults.standard.set(false, forKey: AppPreferences.showDesignLanguageCode)
                 UserDefaults.standard.set("designLanguage", forKey: AppPreferences.requestedSettingsPane)
                 openWindow(id: SettingsWindow.sceneID)
             }

@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 
 // Supply only the host namespace. Actual keys, policies and model are compiled
 // from the production InterfaceAccessibility.swift, not mirrored in this check.
@@ -82,5 +83,44 @@ enum AppPreferences {}
         // Defaults recovery must not silently erase the stored value.
         precondition(defaults.string(forKey: AppPreferences.interfaceTypeSize) == "unknown-future-size")
         print("Interface policy, explicit override, legacy values, target geometry, persistence and fallback checks passed.")
+        checkCodeGutterDrawing()
+    }
+
+    @MainActor private static func checkCodeGutterDrawing() {
+        let view = DLSourceTextView(source: "{\n  \"name\": \"Example\"\n}", format: .json,
+                                    onEdit: nil, controls: DLSourceControls())
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 450, height: 300),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        let host = NSHostingController(rootView: view)
+        host.sizingOptions = []
+        window.contentViewController = host
+        window.setContentSize(NSSize(width: 450, height: 300))
+        host.view.layoutSubtreeIfNeeded()
+        window.display()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+
+        func findRuler(in view: NSView) -> NSRulerView? {
+            (view as? NSRulerView) ?? view.subviews.lazy.compactMap { findRuler(in: $0) }.first
+        }
+        guard let ruler = findRuler(in: host.view) else { fatalError("Missing code gutter") }
+        guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+              let canvas = CGContext(data: nil, width: 256, height: 256, bitsPerComponent: 8,
+                                     bytesPerRow: 0, space: colorSpace,
+                                     bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { fatalError("Could not create a drawing surface") }
+        canvas.setFillColor(CGColor(red: 1, green: 0, blue: 1, alpha: 1))
+        canvas.fill(CGRect(x: 0, y: 0, width: 256, height: 256))
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: canvas, flipped: true)
+        canvas.translateBy(x: 48, y: 0)
+        ruler.drawHashMarksAndLabels(in: ruler.bounds.insetBy(dx: -100, dy: -50))
+        NSGraphicsContext.restoreGraphicsState()
+
+        guard let image = canvas.makeImage() else { fatalError("Missing gutter rendering") }
+        let bitmap = NSBitmapImageRep(cgImage: image)
+        let background = bitmap.colorAt(x: 240, y: 128)
+        precondition(bitmap.colorAt(x: 62, y: 128) != background, "The gutter should still draw")
+        precondition(bitmap.colorAt(x: 125, y: 128) == background, "The gutter must not paint over the source")
+        print("Code gutter confines an oversized AppKit redraw to its own bounds.")
     }
 }

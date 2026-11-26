@@ -41,6 +41,7 @@ enum AppPreferences {
     static let statesBarCompact    = "exp.pref.statesBarCompact"    // Bool, default false (extended chip row)
     static let artboardSpacing     = "exp.pref.artboardSpacing"     // Double (points), default 160
     static let pencilFidelity      = "exp.pref.pencilFidelity"      // Double (points of allowed deviation), default 2
+    static let showDesignLanguageCode = "exp.settings.designLanguage.showCode"
     static let requestedSettingsPane = "exp.settings.requestedPane" // String (SettingsPane raw); "" = none. Lets a window jump Settings to a pane.
     static let tooltipVerbosity     = "exp.pref.tooltipVerbosity"   // EXPTooltipVerbosity raw value
 
@@ -207,7 +208,10 @@ struct SettingsWindow: View {
     }
 
     @ViewBuilder private var detailContainer: some View {
-        if (pane ?? .general) == .about {
+        if pane == .designLanguage {
+            detail
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        } else if (pane ?? .general) == .about {
             VStack {
                 Spacer(minLength: 0)
                 detail
@@ -223,7 +227,7 @@ struct SettingsWindow: View {
                     .padding(.horizontal, 24)
                     .padding(.top, 14)
                     .padding(.bottom, 24)
-                    .frame(maxWidth: pane == .designLanguage ? .infinity : 560, alignment: .leading)
+                    .frame(maxWidth: 560, alignment: .leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }

@@ -8,6 +8,7 @@ trap 'rm -rf "$scratch"' EXIT
 xcrun swiftc \
   "$root/EXP [design]/Model/Paint.swift" \
   "$root/EXP [design]/Model/Document.swift" \
+  "$root/EXP [design]/Model/DocumentSearch.swift" \
   "$root/EXP [design]/Model/AutoLayoutEngine.swift" \
   "$root/scripts/CanvasPagesCheck.swift" \
   -o "$scratch/canvas-pages-check"

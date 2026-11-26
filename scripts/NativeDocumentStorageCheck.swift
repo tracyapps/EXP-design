@@ -30,6 +30,17 @@ private func hash(_ data: Data) -> String { SHA256.hash(data: data).map { String
         var document = Document(artboards: [], nodes: [image, Node(name: "Folder", frame: .zero, content: .group(children: [image]))],
                                 codeBridges: [bridge])
         document.pages.append(CanvasPage(name: "Second", nodes: [image]))
+        document.designLanguage.enableColorModes()
+        let dark = document.designLanguage.colorModeSet!.modes[1].id
+        var swatch = DesignAsset(name: "Accent", value: .solid(.black))
+        swatch.modeValues[dark.uuidString] = .color(.white)
+        document.designLanguage.add(swatch)
+        document.designLanguage.selectDocumentColorMode(dark)
+        var linked = Node(name: "Linked Accent", frame: CGRect(x: 0, y: 0, width: 32, height: 32),
+                          content: .rectangle(RectangleShape(fill: .black)))
+        linked.setTokenBinding(TokenBindingKey.fill, to: swatch.id)
+        document.pages[1].nodes.append(linked)
+        document.applyTokenBindings()
         let original = try NativeDocumentStorage.legacyData(document)
         if CommandLine.arguments.count > 1 {
             try original.write(to: URL(fileURLWithPath: CommandLine.arguments[1]))
@@ -43,6 +54,12 @@ private func hash(_ data: Data) -> String { SHA256.hash(data: data).map { String
         require(model.count < original.count / 10, "large preserved source bytes are externalized, not base64-encoded into the model")
         let restored = try NativeDocumentStorage.read(package)
         try require(NativeDocumentStorage.legacyData(restored) == original, "package round trip preserves the complete legacy document representation")
+        let language = restored.designLanguage
+        require(language.colorMode()?.id == dark && language.asset(swatch.id)?.modeValues == swatch.modeValues,
+                "package round trip preserves the active color mode and saved swatch override")
+        require(restored.pages[1].nodes.last?.boundTokenID(TokenBindingKey.fill) == swatch.id
+                && restored.pages[1].nodes.last?.layerPaintStyle?.fill == .white,
+                "package round trip preserves the link and its resolved paint")
         for folder in [package, package.fileWrappers!["assets"]!] {
             let finder = FileWrapper(regularFileWithContents: Data([0, 1, 2]))
             finder.preferredFilename = ".DS_Store"; folder.addFileWrapper(finder)

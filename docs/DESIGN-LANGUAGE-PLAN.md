@@ -205,9 +205,11 @@ does not resolve, because one source serves placements on different boards.
 | `autoPadding.paddingTop/Right/Bottom/Left` | `AutoPadding` | dimension/spacing | v2.9 |
 | `autoPadding.marginTop/Right/Bottom/Left` | `AutoPadding` | dimension/spacing | v2.9 |
 | `fill`, `stroke`, `autoPadding.fill`, `autoPadding.stroke` | `Paint` | color/gradient asset | v2.9 (needed for modes) |
-| `cornerRadius` (+ per corner), `strokeWidth`, `opacity`, `width`, `height` | numeric | dimension/number by role | next |
+| `cornerRadius` (+ individual rectangle corners), `strokeWidth` | numeric | dimension by role | v2.9 |
+| `opacity`, `width`, `height` | numeric | dimension/number by role | next |
 | `effects` | `[Effect]` | shadow | next |
-| `text.style` | `TextContent` | typography (`TypeStyle`) | next |
+| `text.style` | `TextContent` typography fields | typography (`TypeStyle`) | v2.9 |
+| `text.color`, `text.stroke` | whole-layer color and outline | solid color asset | v2.9 |
 | gradient stops, text run color, artboard background, layout grid | — | — | later, after survey |
 
 Link/detach behavior is exactly the table in `DESIGN-LANGUAGE-v2.9.md`.
@@ -219,7 +221,9 @@ Additions this plan settles (**RECOMMENDED**):
   stays, the selector shows "Missing token" with Relink… and Clear. Named in
   text and icon, not color alone.
 - **Existing documents are never auto-linked.** An explicit Design Language ▸
-  "Link Matching Colors…" previews exact value matches and links on confirm.
+  "Link Matching Styles…" previews exact value matches and links on confirm.
+  Properties that match more than one asset, hidden or locked layers, and
+  mode-default text colors are skipped.
 - **Seam to audit before S3:** any code that rebuilds a `Node` from scratch
   with `Node(…)` instead of copying and mutating (group/ungroup, boolean ops,
   paste, importers, `ComponentStateEditing.capture`) silently drops
@@ -256,8 +260,8 @@ Proposed starting points. Each is **OPEN** until the owner reacts; mockups in
 
 ## 6. Slices
 
-v2.9 (**RECOMMENDED scope, OPEN-3**: S1–S7; S7 can move to v2.10 if the
-release gets long). Each is one owner-verified step.
+v2.9 includes S1–S7 and the owner-selected radius and border width addition
+from November 25. Each slice has its own verification.
 
 | # | ID | Slice | Mutates documents | Check |
 | --- | --- | --- | --- | --- |
@@ -268,14 +272,16 @@ release gets long). Each is one owner-verified step.
 | S5 | FEAT-088b | Color, gradient AND type-style links by identity; Link Matching Styles; mode switch repaints | yes | script + checklist |
 | S6 | FEAT-091a | Guide: data builder + template + live in-app window | no | script + AT pass |
 | S7 | FEAT-091b | Guide export (single HTML) + copyable code + token file downloads | no | script + checklist |
+| S8 | FEAT-090b / FEAT-093 | Editable radius and border width dimensions, Inspector links, Guide and token exports | yes | script + checklist |
 
 After v2.9, in dependency order:
 
-- **FEAT-090b — full type coverage, editable:** radius, sizing, border width,
+- **FEAT-090b — remaining editable types:** sizing,
   opacity, z-index, breakpoints, duration, easing, font family/weight, shadow,
   border, transition, string, boolean. Each type = editor row + guide section +
   export + binding surface where one exists.
-- **FEAT-093 — bindings beyond spacing** (table in §4.3) and type-style links.
+- **FEAT-093 — additional bindings** for sizing, opacity and effects
+  (table in §4.3).
 - **FEAT-094 — aliases, tiers and structure:** create/edit aliases in EXP,
   nested groups, primitive → semantic → component tiers as a convention the UI
   understands (tier filter, "semantic tokens must alias" lint as advice, not a
@@ -370,8 +376,9 @@ only by its own diagram today; it changes nothing else.
 
 ### S3 — FEAT-089b: OWNER-VERIFIED November 17
 
-Follow-up built the same day, awaiting the owner's check: **commit-time
-reconcile.** `ExpDocument.setModel` and `registerUndo(restoring:)` (the two
+Follow-up built the same day. On November 23 the owner confirmed that an
+artboard resize updates the fluid gap and layout. **Commit-time reconcile.**
+`ExpDocument.setModel` and `registerUndo(restoring:)` (the two
 funnels every edit ends in) call `Document.reconcileTokenBindings(after:)`.
 A linked field that no longer matches its token is re-resolved when its number
 is unchanged since the previous state (the context moved: artboard resized,
@@ -396,9 +403,7 @@ This closes the first "known gap" below.
 - **Differences from the mockup:** the button sits beside the field rather than
   inside its border; the menu is a native menu, so there is no filter field for
   large design languages yet (groups show as menu sections).
-- **Known gaps (not built):** resizing an artboard, moving a layer to another
-  artboard, and switching modes do not yet re-resolve linked fields (a token
-  edit does); multi-selection; the `Node(…)` rebuild audit; whether a link set
+- **Remaining gaps:** multi-selection; the `Node(…)` rebuild audit; whether a link set
   while editing a component STATE survives `ComponentStateEditing.capture`;
   copy/paste across documents carries a link to a token the other document
   doesn't have (it will show as Missing).
@@ -424,6 +429,234 @@ This closes the first "known gap" below.
 10. A document with no spacing tokens: the Inspector looks exactly as in v2.8.
 11. VoiceOver on a linked field: "Top padding, linked to sm"; on the button:
     "Top padding token: sm". Check the narrow Inspector width and larger text.
+
+### S4 — FEAT-088a: Owner accepted the UI November 23
+
+- Enable color modes in Settings ▸ Design Language or Object ▸ Color Modes.
+  Light and Dark are seeded once. Add or rename modes in Settings. The Design
+  Language panel shows and uses the selected document mode for swatches.
+- The artboard control follows Notes and precedes the artboard name. Narrow
+  unselected artboards omit it when zoomed out. The Inspector and context menu
+  expose the same override and inheritance controls.
+- Saved solid colors can override the base in any mode. Missing values use
+  the base color. Library adoption adds resolvable, missing values without
+  overwriting local overrides. Unsupported source expressions remain in the
+  library snapshot. Palette formats export the active document palette.
+  The native JSON and package document model preserve the modes.
+- The owner verified enablement and selector placement on November 23. Their
+  follow-up adds a **Base** column and one column per mode in Settings. Each
+  cell says **Uses Base** or shows the override. Opening a cell starts the
+  editor on that column's value.
+- **Background** and **Text Color** are editable defaults in the row for each
+  mode. Light uses white/black at first, and Dark starts with a deep background
+  and white text. New artboards and old unmarked white artboards follow the
+  effective mode. A manual background edit is custom, including a deliberate
+  white fill. New text in a mode-enabled document follows the mode. Existing
+  text keeps its authored color until **Use Mode Text Color** is chosen.
+  Coloring a single rich-text run detaches that run. Stored paints update
+  together with the mode change so drawing, exports, and Undo use the result.
+  Owner verified that mode switches update background and text in the app.
+- The swatch and mode-default editors include **Choose Saved Color**, with
+  swatch names and hex values. Mode editors list that mode's values and offer
+  **Base Colors** when they differ. Picking a swatch copies its value into
+  the draft. Save commits it, and Cancel discards it. The owner verified this.
+- **Settings table pattern:** use a full-width native macOS Table for long
+  tabular editors, with a bounded row viewport so column headers remain
+  visible while the rows scroll. Sort data columns from the headers and let
+  users resize and reorder them. Use stable column IDs for stored order and
+  dynamically added fields. Colors & Gradients uses this pattern for Name,
+  Base, individual modes, and Category. Mode sorting uses the resolved value,
+  and Category follows the document's category order.
+
+**S4 owner verification**
+
+1. Enable modes and edit a saved solid color. In **Edit Color For**, save a
+   contrasting Dark value and leave Light on Base Color. Switch the document
+   mode and confirm the swatch and Settings value change. Try **Use Base Color**
+   and confirm Undo restores the override. Switch modes in the editor and
+   cancel a draft to check that Save is the commit boundary.
+2. Give a second artboard its own Light mode while the document is Dark.
+   Confirm the header shows Notes, the outlined mode button, then the name.
+   Open Notes, pan/zoom, rename the artboard, and confirm the mode picker and
+   title remain usable. Return to **Use Document Mode** from the Inspector.
+   Try the Object menu and right-click routes, Undo/Redo, and save/reopen.
+3. With an imported library containing mode values, choose **Adopt Library
+   Modes**. Check both modes, including a read-only alias and a locally edited
+   override. Inspect the export preview for the active palette and confirm
+   toggling macOS appearance is independent of document mode.
+4. With the keyboard and VoiceOver, verify menu names, current values,
+   inheritance, and selection. Check larger text and detached panels.
+5. In Settings, edit a Base cell and a Dark cell. Confirm a shared swatch
+   follows Base in both modes and a custom Dark cell changes only Dark.
+   Edit a mode's background and text swatches beside its name. Switch between
+   Light and Dark on two artboards. Check new text, custom paint, a manually
+   recolored run, **Use Mode Background**, and **Use Mode Text Color**.
+   Save/reopen and Undo/Redo the defaults and mode switches.
+6. Open a Base cell, a mode override, and a mode background or text default.
+   In each editor, use **Choose Saved Color** and check the preview against
+   the menu's hex value. For a swatch with distinct mode and Base values,
+   try both choices. Check Save, Cancel, and keyboard menu navigation.
+7. With more colors than fit in the table, scroll its rows and confirm the
+   headers stay in view. Click Name, Base, a mode, and Category twice each.
+   Drag a header divider to widen a column and drag a header to reposition
+   it. Close and reopen Settings to check the column order. At narrower
+   widths, scroll horizontally and confirm that values, edit/copy buttons,
+   and headers stay aligned. Check column navigation with VoiceOver.
+
+On November 23, the owner confirmed the palette table UI works in-app,
+including sticky headers, resizing, and sorting. This confirmation covers
+the reported interactions. Keyboard and VoiceOver checks remain open.
+
+### Page modes and saved swatches
+
+- A saved swatch in the Design Language panel applies a live fill or text color
+  link in both grid and list views. **Apply Without Linking** in the context
+  menu applies the previewed value directly.
+- The page-tab icon switches between two modes or opens a chooser when there
+  are more. **Use Document Mode** clears the page override from its context
+  menu. The wall uses the page mode's background and text defaults. An
+  artboard follows that page mode until explicitly overridden.
+- **Settings → Design Language → Color Modes** offers a per-mode icon picker
+  beside the name. Light defaults to a sun and Dark to a moon. Rename, icon
+  and override changes are document edits with Undo.
+- In-app check: use a saved swatch on a wall layer, drag it onto and off a
+  differently themed artboard, and confirm the link stays. Set two pages to
+  different modes, test an artboard with a mode override and one that follows
+  the page, add a third mode, customize an icon, then save and reopen. Verify
+  tab selection and the icon control separately by keyboard and VoiceOver.
+  [Apple SwiftUI accessibility fundamentals](https://developer.apple.com/documentation/SwiftUI/Accessibility-fundamentals)
+
+### S5–S7 · In-app verification
+
+The owner verified typography and gradient links, unlinking and Undo to
+restore links, linked tokens surviving reopening, Guide export, and basic
+Guide keyboard and VoiceOver use on November 25. The scenarios below can be
+reused for regression testing.
+
+1. Select a loose rectangle and use the chain button next to **Fill** to link a
+   swatch with a Dark override. Link the same swatch to text color, then link a
+   type style separately. Place linked artwork on Light and Dark artboards and
+   switch **Document Mode** with one artboard pinned. Edit and rename the
+   swatch and use **Update from Selection** on the type style. Check that text
+   style changes leave linked text color intact and resize auto-width text.
+2. Link a saved gradient to a shape or a frame's background. Edit its stops,
+   then edit one linked layer's paint directly. Verify that only that field
+   detaches. Use **Unlink** on a different property and confirm it keeps its
+   current value. Delete a still-linked swatch, inspect the use count, and test
+   both Cancel and Delete. Undo and redo, then save and reopen with both native
+   document types.
+3. Open **Link Matching Styles…** in Settings or the Design Language panel.
+   Check the preview with a unique match, two saved swatches of the same value,
+   and a locked layer. Confirming should preserve appearance and create links
+   only for unique, eligible matches. Undo the whole batch in one step.
+4. Open **Guide** from the Design Language panel. Rename a token, change its
+   value, and switch the document mode with the Guide open. Check that live
+   updates keep the search, selected format, mode filter, closed sections and
+   scroll position. Test the table headers, mode controls, keyboard focus and
+   copy confirmation with VoiceOver. Try this with the panel detached.
+5. Use **File → Export Design Language Guide…**. Open the exported HTML with the
+   network disconnected, compare modes, search, copy a reference, and download
+   the CSS, SCSS, JSON and resolver files. Check print preview. Gradient and
+   typographic exports retain EXP-specific data in extensions where the
+   standard token value has a narrower vocabulary; the Guide displays values
+   that can only be preserved for reference.
+
+### Combined Development Build Checklist
+
+**November 25 owner verification.** Guide export, Find in Document, and local
+Table / Code are accepted. Code testing covered viewing, copying, switching
+between JSON, CSS and SCSS, and editing, previewing and saving changes. The
+scenarios below can be reused for regression testing. The owner also accepted
+radius and border width tokens, the editor resizing fix, the larger Guide window,
+and the saved color, gradient and type style Edit sheets.
+
+Start with the [page modes and S5–S7 checks](#page-modes-and-saved-swatches) for
+live links, the Guide, offline HTML, Undo/Redo, and save/reopen. The wall contrast,
+swatch application from the panel, and the deletion warning and retained paint
+were already verified during the November 24 pass.
+
+#### Table / Code
+
+- Open **Settings → Design Language → Code**. Rename a linked swatch in
+  JSON while keeping its ID. Change its base value to a HEX string and add
+  a second swatch to the `assets` array. Review the changes and apply them.
+  Check the table, linked artwork and any separate mode values. Undo once.
+- Delete a linked swatch that has no swatch aliases. The review should show
+  the affected property count. Confirm that applying removes its link and
+  leaves its last paint. Try an invalid HEX string and duplicate IDs. Each
+  error should identify the input and keep the live document intact.
+- Edit JSON, switch between Table, Code, CSS and SCSS, and revisit the
+  document after viewing another file. Verify draft text survives the switches.
+  Change a token in Table during a pending draft and verify that review
+  requests reload. Copy the draft first and test cancelling reload.
+- Copy CSS and SCSS and compare the output with the equivalent Guide
+  downloads. Test keyboard navigation and VoiceOver on the format controls,
+  editable JSON, validation message, and review sheet.
+
+#### Guide and Token Files
+
+- Use **File → Export Guide and Token Files…** and confirm the dialog shows the
+  folder name and files. Export and open `index.html` offline. Compare a
+  sibling token file to the matching Guide download. Try once with modes
+  enabled and once with modes disabled to check when the resolver appears.
+- Repeat with the same folder name. Check the collision message and confirm the
+  first export is intact. Try exporting from the Guide window too.
+
+#### Find in Document
+
+- Set up two pages with identically named artboards and a component source
+  with a renamed instance nested inside a group. Open **⌘F** from the canvas
+  and use the page-tab search button too. Check the Type and Page filters and
+  **Component name only**. Search by source name and distinguish the source
+  from its renamed instance.
+- Type with focus already in search. Use Up/Down and Return to jump across
+  pages, select an artboard or a nested instance, and open a source. Drag the
+  target offscreen first to verify the viewport reveals it. Escape should
+  close search. Under VoiceOver, verify the row's name, location and kind,
+  the Open action, and focus after opening a result or cancelling.
+
+#### Radius, border width, and editor updates
+
+On November 25 the owner verified creating, applying and changing radius and
+border width tokens, the Code view redraw fix and resizing, and the larger
+initial Guide size. A follow-up supports plain percentages in rectangle and
+Auto Padding corner fields and as linked radius tokens.
+
+- In **Settings → Design Language → Table**, create one Corner Radius token
+  and one Border Width token. Link both on a rectangle, then link an
+  individual corner under **Advanced** and a border width on a second shape.
+  Change the tokens and confirm that linked fields update. A manual field
+  change should unlink that field. Undo and reopen the file, then change
+  a token to confirm it still drives the artwork.
+- Compare the Radius and Borders sections of the Guide with the generated
+  CSS, SCSS and JSON. Open the Guide on differently sized displays and
+  compare its initial size and resize behavior.
+- Switch to **Code** and resize Settings vertically. Fold a multiline
+  section with the gutter and with the **Folding** menu. Confirm that line
+  numbers keep their original positions and **Copy JSON** copies the full
+  source. Use **Expand to Edit**, edit, and review the change. Verify the
+  keyboard and VoiceOver paths to the editor and its folding controls.
+- Enter **50%** in a 200 × 100 rectangle's Corner field or apply a token
+  containing that value. Resize to 240 × 60 and confirm the rounding follows
+  both axes. Mix a fixed corner with a percentage corner in **Advanced**,
+  and check an Auto Padding background with margins. Save/reopen and verify
+  that HTML keeps the percentage and SVG preserves the current shape.
+- In both panel layouts, single-click a swatch, type style or dimension
+  token and confirm the selection outline appears without changing the
+  artwork. Use **Copy Value** to check clipboard feedback. Double-click
+  radius or border width with multiple layers or groups selected. Check
+  locked and hidden descendants, incompatible layers, and **Apply Without
+  Linking** in the context menu. Verify Option–Return and VoiceOver's
+  **Apply to Selection** action.
+- Right-click a dimension token and use **Edit…**. Rename it, pick or create
+  a category, and edit its group or notes. Save once and confirm bound
+  layers still reference the renamed token. Check the category filter,
+  Edit cancellation, and one-step Undo.
+- Right-click a color, a gradient, and a type style. In each **Details** tab,
+  edit the name, category, group, notes and deprecation. Switch back to the
+  value tab and make a change. Save, verify existing artwork links and color
+  mode overrides, then undo once. Check Guide labels and confirm a type
+  style's metadata survives **Update from Selection**.
 
 ## 7. The Design Language Guide (FEAT-091/092)
 
@@ -479,7 +712,7 @@ is already true in the codebase.
 
 | Destination | How | Status |
 | --- | --- | --- |
-| File / folder | write the guide + token files | S7 |
+| File / folder | save a standalone Guide or a named folder containing `index.html`, `tokens.css`, `_tokens.scss`, `tokens.json`, and `tokens.resolver.json` when modes exist | local Guide export owner-verified November 25 |
 | **CodePen** | prefill by form POST of `html`/`css`/`js` JSON; EXP already ships `Export/CodePenPrefillExporter.swift` with a review-then-send launch page. Reuse it: guide page as a Pen, or one token group as a live playground | small slice after S7 |
 | **Any static host** (GitHub Pages, Netlify, Vercel, Cloudflare Pages, own server) | the single file needs no build. "Export into a repo folder" lets the team's existing deploy publish it | S7 covers the file; per-host deploy buttons are NOT researched |
 | **Git repository** | write tokens + guide into a chosen folder as a normal change the team commits or opens as a PR; shares the `.expsync/changes` idea | pairs with FEAT-084; Pro adds review |

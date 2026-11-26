@@ -64,6 +64,21 @@ enum DesignLanguageIO {
 
     static let schemaVersion = 1
 
+    /// Palette interchange formats write one resolved value per saved color.
+    /// The native document is where mode definitions and aliases round-trip.
+    static func paletteSnapshot(_ language: DesignLanguage) -> DesignLanguage {
+        guard let mode = language.colorMode() else { return language }
+        var snapshot = language
+        snapshot.assets = language.assets.map { asset in
+            var entry = asset
+            entry.value = language.paint(for: asset, in: mode.id)
+            entry.modeValues = [:]
+            return entry
+        }
+        snapshot.modeSets = []
+        return snapshot
+    }
+
     /// Stable, reusable CSS identity for a Design Language paint. Exporters use
     /// these bindings for both declaration and lookup so duplicate names resolve
     /// the same way everywhere.
@@ -86,6 +101,7 @@ enum DesignLanguageIO {
     /// actually referenced by a pattern asset are written.
     static func exportJSON(_ dl: DesignLanguage,
                            patterns: [PatternSource] = []) throws -> Data {
+        let dl = paletteSnapshot(dl)
         let referenced = Set(dl.assets.compactMap { $0.value.patternValue?.patternID })
         let file = EXPDesignLanguageFile(expDesignLanguage: schemaVersion,
                                         categories: dl.categories, assets: dl.assets,
@@ -254,9 +270,10 @@ enum DesignLanguageIO {
     /// A type style is linked only when the whole text layer matches. This keeps
     /// mixed rich text honest: a paragraph-level class is never inferred from
     /// only its first run.
-    static func firstTypeStyleBinding(matching text: TextContent,
-                                      in dl: DesignLanguage) -> CSSTypeStyleBinding? {
+    static func firstTypeStyleBinding(matching text: TextContent, in dl: DesignLanguage,
+                                      linkedID: UUID? = nil) -> CSSTypeStyleBinding? {
         cssTypeStyleBindings(dl).first { binding in
+            guard linkedID == nil || binding.styleID == linkedID else { return false }
             let style = binding.style
             guard text.align == style.align,
                   text.lineHeight == style.lineHeight,
@@ -1027,7 +1044,7 @@ enum DLExportFormat: String, CaseIterable, Identifiable {
         switch self {
         case .cssVars:       return "Custom properties in a :root block, plus .type-* classes. For the web, or pasting back into EXP."
         case .scssVars:      return "$variables plus @mixin type-* blocks for Sass/SCSS codebases."
-        case .expJSON:       return "EXP's own format — everything round-trips losslessly between .design documents."
+        case .expJSON:       return "Saved colors, gradients, patterns, and type styles for import into another EXP document."
         case .designTokens:  return "W3C Design Tokens ($type/$value) — read by Style Dictionary and most token pipelines."
         case .sketchPalette: return "Sketch's palette format. Solid colors only — no gradients or type."
         }
@@ -1038,6 +1055,7 @@ enum DLExportFormat: String, CaseIterable, Identifiable {
     /// `patterns` is the document's pattern library; only the EXP JSON format
     /// carries tiles, and only the ones a pattern asset references (FEAT-065d).
     func data(for dl: DesignLanguage, patterns: [PatternSource] = []) throws -> Data {
+        let dl = DesignLanguageIO.paletteSnapshot(dl)
         switch self {
         case .cssVars:       return Data(DesignLanguageIO.exportCSS(dl).utf8)
         case .scssVars:      return Data(DesignLanguageIO.exportSCSS(dl).utf8)

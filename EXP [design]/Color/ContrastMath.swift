@@ -182,3 +182,17 @@ enum ContrastMath {
         return firstPassing(ordered)
     }
 }
+
+
+extension DLMode {
+    /// Tint the canvas surround while keeping the artboard's authored background exact.
+    var canvasWallBackground: RGBAColor {
+        let background = resolvedBackground
+        guard ContrastMath.relativeLuminance(background) >= 0.179 else { return background }
+        return ContrastMath.flatten(RGBAColor(r: 0, g: 0, b: 0, a: 0.05), over: background)
+    }
+
+    var canvasWallLabelColor: RGBAColor {
+        ContrastMath.relativeLuminance(canvasWallBackground) >= 0.179 ? .black : .white
+    }
+}

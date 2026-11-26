@@ -1,15 +1,38 @@
 # EXP [design] v2.9
 
-Development draft — not a published release. Baseline: **2.9 / build 20**.
+Version 2.9 · build 20 · macOS 26.2 or later
 
-Opened November 9, 2026 after the owner confirmed the successful v2.7→v2.8
-installed update. The selected next-release focus is Design Language: color
-modes and named spacing tokens, starting with automatic spacing and element
-margin/padding. Selecting a spacing token links the field to its value; later
-token edits update linked uses, while committing a different number detaches
-that field and restores the selector to None/default.
+## Color modes across pages and artboards
 
-These are planned capabilities, not implemented release features. Scope and
-interaction brief: `docs/DESIGN-LANGUAGE-v2.9.md`. Public v2.8/build 19, its
-release tag, ZIP, notes and updater item remain unchanged. Only verified shipping
-behavior belongs in the final public notes.
+- Set document defaults for background and text color in each mode. Change a
+  page’s mode from its tab or override it on a single artboard.
+- Give a saved color a value for a specific mode. Colors that stay the same
+  across modes can use their base value. Linked colors follow the mode when
+  you move a layer between artboards or onto the wall.
+- Sort, resize and reorder the color table’s columns. Column headers stay
+  visible as you scroll.
+
+## Reusable spacing, corners and borders
+
+- Link named spacing tokens to gaps, padding and margins. Responsive `clamp()`
+  values recalculate as the artboard resizes.
+- Link corner radius and border width to saved tokens. Percentage radii
+  follow the width and height of the shape as it resizes.
+- Double-click a token in the Design Language panel to apply it to compatible
+  selected layers. Use **Edit** in the context menu to change a saved color,
+  gradient, type style, radius or border width and edit its details.
+
+## Work with your design language in code
+
+- Switch between Table and Code in Design Language settings. View and copy
+  JSON, CSS and SCSS. Edit JSON in the resizable editor and review changes
+  before applying them. Code has syntax highlighting, line numbers and folding.
+- Open the Design Language Guide to browse tokens and compare modes. Export
+  a standalone HTML guide or a folder with the guide and its token files.
+
+## Find artwork and pick colors
+
+- Use **Find in Document** (⌘F) to jump to an artboard, layer or component
+  across pages. Narrow results by page, type or component name.
+- Fixed the eyedropper when using detached panels, including with grouped
+  and ungrouped layers selected.

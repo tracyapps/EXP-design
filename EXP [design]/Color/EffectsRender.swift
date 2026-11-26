@@ -49,7 +49,11 @@ struct Silhouette {
             return CGPath(roundedRect: rr, cornerWidth: rad, cornerHeight: rad, transform: nil)
         case .perCornerRect(let radii):
             // Each radius grows with the spread, mirroring the uniform case.
-            return radii.offset(by: spread).path(in: rect.insetBy(dx: -spread, dy: -spread))
+            let expanded = rect.insetBy(dx: -spread, dy: -spread)
+            if radii.hasPercentages {
+                return radii.clamped(to: rect.size).offset(by: spread).clamped(to: expanded.size).path(in: expanded)
+            }
+            return radii.offset(by: spread).path(in: expanded)
         case .oval:
             return CGPath(ellipseIn: rect.insetBy(dx: -spread, dy: -spread), transform: nil)
         case .custom(let p):

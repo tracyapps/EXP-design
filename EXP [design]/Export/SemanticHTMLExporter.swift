@@ -304,7 +304,7 @@ private struct HTMLWriter {
             }
 
             let baseInstance = instance.withoutActiveState
-            let children = document.semanticHTMLResolvedChildren(of: baseInstance)
+            let children = document.semanticHTMLResolvedChildren(of: baseInstance, artboard: artboard)
             let sourceNodeIDs = allNodeIDs(source.children)
             let role = source.a11y.role
             let mapping = role?.semanticHTMLMapping
@@ -416,7 +416,7 @@ private struct HTMLWriter {
             }.joined()
             var attrs = common
             let typeClass = DesignLanguageIO.firstTypeStyleBinding(
-                matching: text, in: document.designLanguage).map { " \($0.className)" } ?? ""
+                matching: text, in: document.designLanguage, linkedID: node.boundTokenID(TokenBindingKey.textStyle)).map { " \($0.className)" } ?? ""
             attrs.append(Attribute(name: "class", value: "exp-node exp-text\(typeClass)"))
             attrs.append(Attribute(name: "data-exp-content", value: "text"))
             append(relationships, to: &attrs)
@@ -477,7 +477,7 @@ private struct HTMLWriter {
             let emitted = node.isMask ? children.filter { !$0.isMaskShape } : children
             for child in emitted { collectDOMIDs(node: child, chain: chain, into: &result) }
         case .instance(let instance):
-            for child in document.semanticHTMLResolvedChildren(of: instance.withoutActiveState) {
+            for child in document.semanticHTMLResolvedChildren(of: instance.withoutActiveState, artboard: artboard) {
                 collectDOMIDs(node: child, chain: chain + [node.id], into: &result)
             }
         default:
@@ -1066,19 +1066,49 @@ private struct HTMLWriter {
 private struct CSSWriter {
     let document: Document
     private var rules: [String] = []
+    private var artboard: Artboard?
+    private let linkedVariables: [UUID: String]
+    private var effectiveLinkedPaints: [UUID: Paint] = [:]
 
     init(document: Document) {
         self.document = document
+        let bindings = DesignLanguageIO.cssAssetBindings(document.designLanguage)
+        let useCounts = document.tokenUseCounts()
+        var used = Set(bindings.map(\.variableName))
+        var linked: [UUID: String] = [:]
+        for binding in bindings where useCounts[binding.assetID, default: 0] > 0 {
+            let base = "exp-linked-" + binding.variableName
+            var name = base
+            var suffix = 2
+            while !used.insert(name).inserted {
+                name = "\(base)-\(suffix)"
+                suffix += 1
+            }
+            linked[binding.assetID] = name
+        }
+        linkedVariables = linked
     }
 
     mutating func append(artboard: Artboard,
                          topLevelNodes: [(offset: Int, element: Node)]) {
+        self.artboard = artboard
         let rootID = SemanticHTMLIdentity.artboardDOMID(artboard.id)
+        let language = document.designLanguage
+        let modeID = document.colorMode(for: artboard)?.id
+        effectiveLinkedPaints.removeAll(keepingCapacity: true)
+        let linkedDeclarations = language.assets.compactMap { asset -> String? in
+            guard let name = linkedVariables[asset.id] else { return nil }
+            let value = language.paint(for: asset, in: modeID)
+            guard !value.isMesh, !value.isPattern, (value.gradientValue?.radial?.angle ?? 0) == 0 else { return nil }
+            effectiveLinkedPaints[asset.id] = value
+            let literal = value.gradientValue == nil ? colorFallback(value.representativeColor) : paintFallback(value)
+            return "--\(name): \(literal)"
+        }
         rules.append(rule("#\(rootID)", [
             "width: \(number(artboard.frame.width))px",
             "height: \(number(artboard.frame.height))px",
             "background: \(paint(artboard.background,size: artboard.frame.size))"
-        ]))
+        ] + linkedDeclarations))
 
         for item in topLevelNodes {
             append(node: item.element,
@@ -1195,9 +1225,9 @@ private struct CSSWriter {
 
         if case .text(let text) = node.content {
             let linked = DesignLanguageIO.firstTypeStyleBinding(
-                matching: text, in: document.designLanguage) != nil
+                matching: text, in: document.designLanguage, linkedID: node.boundTokenID(TokenBindingKey.textStyle)) != nil
             for (index, run) in text.runs.enumerated() {
-                var runRules = ["color: \(color(run.color))"]
+                var runRules = ["color: \(color(run.color, linkedID: node.boundTokenID(TokenBindingKey.textColor)))"]
                 if !linked {
                     runRules.insert("font-size: \(number(run.fontSize))px", at: 0)
                     if !run.fontName.isEmpty {
@@ -1220,7 +1250,7 @@ private struct CSSWriter {
             }
         case .instance(let instance):
             let base = instance.withoutActiveState
-            let baseChildren = document.semanticHTMLResolvedChildren(of: base)
+            let baseChildren = document.semanticHTMLResolvedChildren(of: base, artboard: artboard)
             for (index, child) in baseChildren.enumerated() {
                 append(node: child, origin: child.frame.origin, zIndex: index + 1,
                        chain: chain + [node.id])
@@ -1242,7 +1272,7 @@ private struct CSSWriter {
         for state in source.states {
             var stateInstance = instance
             stateInstance.activeStateID = state.id
-            let children = document.semanticHTMLResolvedChildren(of: stateInstance)
+            let children = document.semanticHTMLResolvedChildren(of: stateInstance, artboard: artboard)
             let prefix = stateRootSelector(rootID: rootDOMID, stateName: state.name,
                                            mapping: source.a11y.role?.semanticHTMLMapping)
             for (index, child) in children.enumerated() {
@@ -1269,9 +1299,9 @@ private struct CSSWriter {
 
         if case .text(let text) = node.content {
             let linked = DesignLanguageIO.firstTypeStyleBinding(
-                matching: text, in: document.designLanguage) != nil
+                matching: text, in: document.designLanguage, linkedID: node.boundTokenID(TokenBindingKey.textStyle)) != nil
             for (index, run) in text.runs.enumerated() {
-                var runRules = ["color: \(color(run.color))"]
+                var runRules = ["color: \(color(run.color, linkedID: node.boundTokenID(TokenBindingKey.textColor)))"]
                 if !linked {
                     runRules.insert("font-size: \(number(run.fontSize))px", at: 0)
                     if !run.fontName.isEmpty { runRules.append("font-family: \(cssString(run.fontName))") }
@@ -1372,58 +1402,62 @@ private struct CSSWriter {
     private func appearance(_ node: Node) -> [String] {
         switch node.content {
         case .rectangle(let shape):
-            var d = ["background: \(paint(shape.fill,size: node.frame.size))"]
+            var d = ["background: \(paint(shape.fill, size: node.frame.size, linkedID: node.boundTokenID(TokenBindingKey.fill)))"]
             d.append(contentsOf: border(color: shape.stroke, width: shape.strokeWidth,
-                                        pattern: shape.strokePattern))
+                                        pattern: shape.strokePattern, linkedID: node.boundTokenID(TokenBindingKey.stroke)))
             let r = shape.effectiveRadii
             if !r.isZero {
-                d.append("border-radius: \(number(r.topLeft))px \(number(r.topRight))px \(number(r.bottomRight))px \(number(r.bottomLeft))px")
+                let values = Corner.allCases.map { corner in
+                    r.percentage(corner).map { "\(number($0))%" } ?? "\(number(r[corner]))px"
+                }
+                d.append("border-radius: " + values.joined(separator: " "))
             }
             return d
         case .ellipse(let shape):
-            return ["background: \(paint(shape.fill,size: node.frame.size))", "border-radius: 50%"]
+            return ["background: \(paint(shape.fill, size: node.frame.size, linkedID: node.boundTokenID(TokenBindingKey.fill)))", "border-radius: 50%"]
                 + border(color: shape.stroke, width: shape.strokeWidth,
-                         pattern: shape.strokePattern)
+                         pattern: shape.strokePattern, linkedID: node.boundTokenID(TokenBindingKey.stroke))
         case .polygon(let shape):
             if shape.cornerRadius > 0 { return [] } // Its embedded SVG carries exact curved paint.
             let points = shape.vertices(in: CGRect(origin: .zero, size: node.frame.size))
             let pairs = points.map {
                 "\(number(node.frame.width == 0 ? 0 : $0.x / node.frame.width * 100))% \(number(node.frame.height == 0 ? 0 : $0.y / node.frame.height * 100))%"
             }.joined(separator: ", ")
-            return ["background: \(paint(shape.fill,size: node.frame.size))", "clip-path: polygon(\(pairs))"]
+            return ["background: \(paint(shape.fill, size: node.frame.size, linkedID: node.boundTokenID(TokenBindingKey.fill)))", "clip-path: polygon(\(pairs))"]
         case .path(let shape):
             var declarations: [String] = []
             if shape.closed || shape.isMultiContour,
                case .solid(let fill) = shape.fill {
-                declarations.append("--exp-path-fill: \(color(fill))")
+                declarations.append("--exp-path-fill: \(color(fill, linkedID: node.boundTokenID(TokenBindingKey.fill)))")
             }
             if shape.strokeWidth > 0 {
                 // BUG-065: a custom property CAN hold a full CSS gradient, and the
                 // path SVG consumes it as its stroke — a gradient stroke survives
                 // handoff where CSS can express it.
-                declarations.append("--exp-path-stroke: \(paint(shape.stroke,size: node.frame.size))")
+                declarations.append("--exp-path-stroke: \(paint(shape.stroke, size: node.frame.size, linkedID: node.boundTokenID(TokenBindingKey.stroke)))")
             }
             return declarations
         case .line(let shape):
             // A line has no border-radius, so the plain border-top carries
             // everything the border() helper would — same flattening rule.
             return border(color: shape.stroke, width: shape.strokeWidth,
-                          pattern: shape.strokePattern)
+                          pattern: shape.strokePattern, linkedID: node.boundTokenID(TokenBindingKey.stroke))
                 .map { declaration -> String in
                     declaration.hasPrefix("border: ")
                         ? "border-top: " + declaration.dropFirst("border: ".count)
                         : declaration
                 }
         case .text(let text):
-            if DesignLanguageIO.firstTypeStyleBinding(
-                matching: text, in: document.designLanguage) != nil { return [] }
-            var d = ["text-align: \(text.align.rawValue)",
-                     "letter-spacing: \(number(text.tracking))px"]
-            switch text.lineHeightUnit {
-            case .auto:     d.append("line-height: normal")
-            case .multiple: d.append("line-height: \(number(text.lineHeight))")
-            case .px:       d.append("line-height: \(number(text.lineHeight))px")
-            case .em:       d.append("line-height: \(number(text.lineHeight))em")
+            var d: [String] = []
+            if DesignLanguageIO.firstTypeStyleBinding(matching: text, in: document.designLanguage,
+                    linkedID: node.boundTokenID(TokenBindingKey.textStyle)) == nil {
+                d = ["text-align: \(text.align.rawValue)", "letter-spacing: \(number(text.tracking))px"]
+                switch text.lineHeightUnit {
+                case .auto:     d.append("line-height: normal")
+                case .multiple: d.append("line-height: \(number(text.lineHeight))")
+                case .px:       d.append("line-height: \(number(text.lineHeight))px")
+                case .em:       d.append("line-height: \(number(text.lineHeight))em")
+                }
             }
             // FEAT-028 live-text stroke. There is no standard CSS stroke for HTML
             // text, and `paint-order` only has any effect on HTML text when the
@@ -1440,7 +1474,7 @@ private struct CSSWriter {
             if let stroke = text.paintedStroke {
                 let painted = stroke.alignment == .outside ? stroke.width * 2 : stroke.width
                 d.append("-webkit-text-stroke-width: \(number(painted))px")
-                d.append("-webkit-text-stroke-color: \(color(stroke.color))")
+                d.append("-webkit-text-stroke-color: \(color(stroke.color, linkedID: node.boundTokenID(TokenBindingKey.textStroke)))")
                 if stroke.alignment == .outside {
                     d.append("paint-order: stroke fill")
                 }
@@ -1471,11 +1505,15 @@ private struct CSSWriter {
                 let left = padding.paddingLeft + padding.marginLeft
                 d.append("padding: \(number(top))px \(number(right))px \(number(bottom))px \(number(left))px")
             }
-            if let fill = padding.fill { d.append("background: \(paint(fill,size: node.frame.size))") }
-            if padding.cornerRadius > 0 { d.append("border-radius: \(number(padding.cornerRadius))px") }
+            if let fill = padding.fill { d.append("background: \(paint(fill, size: node.frame.size, linkedID: node.boundTokenID(TokenBindingKey.paddingFill)))") }
+            if let percent = padding.cornerPercentage {
+                d.append("border-radius: \(number(percent))%")
+            } else if padding.cornerRadius > 0 {
+                d.append("border-radius: \(number(padding.cornerRadius))px")
+            }
             if let stroke = padding.stroke {
                 d += border(color: stroke, width: padding.strokeWidth,
-                            pattern: padding.strokePattern)
+                            pattern: padding.strokePattern, linkedID: node.boundTokenID(TokenBindingKey.paddingStroke))
             }
             return d
         case .instance:
@@ -1484,7 +1522,7 @@ private struct CSSWriter {
     }
 
     private func border(color: Paint, width: CGFloat,
-                        pattern: StrokePattern = .solid) -> [String] {
+                        pattern: StrokePattern = .solid, linkedID: UUID? = nil) -> [String] {
         guard width > 0 else { return [] }
         // BUG-065. A CSS border cannot carry a gradient without border-image,
         // and border-image breaks border-radius and the dash rhythms — so a
@@ -1492,20 +1530,29 @@ private struct CSSWriter {
         // comment says so. The path SVG below carries the true gradient through
         // its --exp-path-stroke custom property, so handoff fidelity survives
         // where CSS can actually express it.
-        let flat: RGBAColor
-        if case .solid(let c) = color { flat = c } else { flat = color.representativeColor }
-        return ["border: \(number(width))px \(cssStrokePattern(pattern)) \(self.color(flat))"]
+        let value: String
+        if case .solid(let color) = color { value = self.color(color, linkedID: linkedID) }
+        else { value = self.color(color.representativeColor) }
+        return ["border: \(number(width))px \(cssStrokePattern(pattern)) \(value)"]
     }
 
     private func cssStrokePattern(_ pattern: StrokePattern) -> String {
         switch pattern { case .solid: return "solid"; case .dashed: return "dashed"; case .dotted: return "dotted" }
     }
 
-    private func paint(_ value: Paint,size: CGSize = CGSize(width: 1,height: 1)) -> String {
+    private func paint(_ value: Paint, size: CGSize = CGSize(width: 1,height: 1), linkedID: UUID? = nil) -> String {
         if let mesh = value.meshValue {
             return "\((try? mesh.cssBackground(size: size)) ?? "none"); --exp-mesh-v1: \"\((try? mesh.metadata()) ?? "")\""
         }
 
+        if let linkedID {
+            if case .solid(let c) = value { return color(c, linkedID: linkedID) }
+            let fallback = paintFallback(value, size: size)
+            if effectiveLinkedPaints[linkedID] == value, let name = linkedVariables[linkedID] {
+                return "var(--\(name), \(fallback))"
+            }
+            return fallback
+        }
         if (value.gradientValue?.radial?.angle ?? 0) == 0,let binding = DesignLanguageIO.firstAssetBinding(
             matching: value, in: document.designLanguage) {
             return "var(--\(binding.variableName), \(paintFallback(value,size: size)))"
@@ -1540,7 +1587,12 @@ private struct CSSWriter {
         }
     }
 
-    private func color(_ c: RGBAColor) -> String {
+    private func color(_ c: RGBAColor, linkedID: UUID? = nil) -> String {
+        if let linkedID {
+            let literal = colorFallback(c)
+            guard effectiveLinkedPaints[linkedID] == .solid(c), let name = linkedVariables[linkedID] else { return literal }
+            return "var(--\(name), \(literal))"
+        }
         if let binding = DesignLanguageIO.firstAssetBinding(
             matching: .solid(c), in: document.designLanguage) {
             return "var(--\(binding.variableName), \(colorFallback(c)))"
@@ -1614,13 +1666,14 @@ private struct CSSWriter {
 // keeps them in the DOM with `hidden`, because stable relationships must remain
 // addressable and a later component state may reveal them.
 extension Document {
-    func semanticHTMLResolvedChildren(of instance: ComponentInstance) -> [Node] {
+    func semanticHTMLResolvedChildren(of instance: ComponentInstance, artboard: Artboard? = nil) -> [Node] {
         guard let source = source(for: instance.sourceID) else { return [] }
         let effective = instance.applyingState(instance.activeStateID.flatMap { stateID in
             source.states.first { $0.id == stateID }
         })
+        let modeID = artboard.flatMap { colorMode(for: $0)?.id }
         let resolved = source.children
-            .map { semanticHTMLResolvedNode($0, instance: effective) }
+            .map { semanticHTMLResolvedNode(appearanceResolvedNode($0, modeID: modeID), instance: effective) }
             // FEAT-017 chunk J-d. This is a PARALLEL resolver — it keeps hidden
             // layers so it can emit `hidden`, which is why it does not call
             // `resolvedChildren` — and that meant J-b's push-down never reached the
@@ -1655,6 +1708,8 @@ extension Document {
                     node.frame.size = text.measuredSize(boxWidth: node.frame.width)
                 }
             case .fill(let fill):
+                node.setTokenBinding(TokenBindingKey.fill, to: nil)
+                node.setTokenBinding(TokenBindingKey.paddingFill, to: nil)
                 switch node.content {
                 case .rectangle(var shape): shape.fill = fill; node.content = .rectangle(shape)
                 case .ellipse(var shape):   shape.fill = fill; node.content = .ellipse(shape)
@@ -1671,6 +1726,10 @@ extension Document {
                 // folding the style in here is all that handoff needs.
                 if case .text(var text) = node.content {
                     text = style.applied(to: text)
+                    if style.color != nil { node.setTokenBinding(TokenBindingKey.textColor, to: nil) }
+                    if style.affectsMetrics || style.underline != nil || style.align != nil {
+                        node.setTokenBinding(TokenBindingKey.textStyle, to: nil)
+                    }
                     node.content = .text(text)
                     if style.affectsMetrics {
                         node.frame.size = text.measuredSize(boxWidth: node.frame.width)
@@ -1685,6 +1744,8 @@ extension Document {
                 // node, so state-local compositing reaches the generated CSS.
                 node.blendMode = value
             case .stroke(let stroke):
+                node.setTokenBinding(TokenBindingKey.stroke, to: nil)
+                node.setTokenBinding(TokenBindingKey.paddingStroke, to: nil)
                 switch node.content {
                 case .rectangle(var shape): shape.stroke = stroke.paint ?? .clear; shape.strokeWidth = stroke.width; shape.strokeAlignment = stroke.alignment; shape.strokePattern = stroke.pattern ?? .solid; node.content = .rectangle(shape)
                 case .ellipse(var shape):   shape.stroke = stroke.paint ?? .clear; shape.strokeWidth = stroke.width; shape.strokeAlignment = stroke.alignment; shape.strokePattern = stroke.pattern ?? .solid; node.content = .ellipse(shape)

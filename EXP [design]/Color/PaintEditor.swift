@@ -917,6 +917,10 @@ private struct PersistentPaintPopover<Content: View>: NSViewRepresentable {
         if let popover = active as? NSPopover { return popover.isShown }
         return active != nil
     }
+    func editorWindow(anchoredTo window: NSWindow) -> NSWindow? {
+        guard isVisible, anchor?.window === window else { return nil }
+        return surface?()
+    }
     func open(_ coordinator: AnyObject, anchor: NSView? = nil,
               surface: (() -> NSWindow?)? = nil, close: @escaping () -> Void) {
         if active !== coordinator { closeActive?() }

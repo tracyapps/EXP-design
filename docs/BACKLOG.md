@@ -3475,6 +3475,52 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
   `launch/SHARING-AND-PUBLIC-PHOTOS-v2.8.md`. Gravatar deferred because automatic
   email-derived identifiers/third-party image requests need explicit member choice.
 
+### FEAT-102 — Design Language Table / Code
+
+- Status: local editor owner-verified November 25 for viewing, copying,
+  format switching, editing, preview and saving. Full-height editor,
+  syntax highlighting, line numbers and folding implemented as a v2.9
+  follow-up. Owner accepted the Code view and resizing November 25.
+  Editor VoiceOver regression coverage remains open.
+- Detail: Edit a document-scoped JSON draft alongside the graphical table.
+  Retain IDs, modes and aliases, review additions, updates and removals, and
+  apply in one undoable transaction. Copy CSS and SCSS from the Guide exporter.
+  File-backed editing follows the library adapters and changeset work.
+- Acceptance: a rename keeps a binding, invalid input keeps the document intact,
+  and changing view preserves any unapplied draft. The review lists linked
+  properties affected by removals. A stale draft can be copied before reload.
+- Accessibility references: [SwiftUI accessibility modifiers](https://developer.apple.com/documentation/SwiftUI/View-Accessibility),
+  [WCAG 2.1 error identification](https://www.w3.org/WAI/WCAG21/Understanding/error-identification.html),
+  and [WCAG 2.1 status messages](https://www.w3.org/WAI/WCAG21/Understanding/status-messages.html).
+- Owner checks: [Combined development build checklist](DESIGN-LANGUAGE-PLAN.md#combined-development-build-checklist).
+
+### FEAT-101 — Find in Document and linked libraries
+
+- Status: local document search owner-verified November 25. VoiceOver checks
+  and connected-library search remain open.
+- Detail: Search pages, artboards, component sources and visible instances.
+  Filter by type, page and component name. Results identify the page, board,
+  and group where relevant. Open a result to reveal it or edit the source.
+  Extend to connected libraries after stable source links are available.
+- Acceptance: distinguish equal names across pages and sources, navigate by
+  keyboard, and verify the destination and VoiceOver focus.
+- Accessibility references: [W3C keyboard operation](https://www.w3.org/WAI/WCAG21/Understanding/keyboard.html),
+  [W3C focus order](https://www.w3.org/WAI/WCAG21/Understanding/focus-order),
+  [Apple accessibility actions](https://developer.apple.com/documentation/swiftui/view/accessibilityaction(named:_:)).
+- Plan: [Modular libraries in EXP](MODULAR-LIBRARY-PLAN.md).
+
+### FEAT-100 — Independently versioned component library records
+
+- Status: discovery. A local prototype extends FEAT-083–085 after v2.9 acceptance.
+- Detail: Bind stable component IDs to a design record and the relevant source
+  paths. Navigate the repo hierarchy in EXP. Consumer documents use pinned,
+  read-only approved revisions and open the canonical source by ID. Drafts and
+  review retain separate design and code baselines.
+- Acceptance: prove a scoped two-component edit in Git, a source move, a shared
+  token edit, stale-baseline detection and stable consumer previews during review.
+  FEAT-086 holds the header, paired history and team workflow design.
+- Plan: [Modular libraries in EXP](MODULAR-LIBRARY-PLAN.md).
+
 ### FEAT-099 — Resize behavior for a group's children (constraints)
 - Type: feature
 - Priority: owner idea November 17, 2026; release not yet chosen
@@ -3502,11 +3548,47 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Fidelity check before building either: every option must map to something
   that survives export (CSS flex/grid sizing), or it is canvas-only behavior.
 
+### BUG-086 — Design Language gutter covers the Code view
+
+- Status: owner verified the fix and resizing on November 25, 2026.
+- Report: Settings → Design Language → Code showed line numbers while the source
+  and top controls disappeared.
+- Cause and fix: AppKit can pass a dirty rectangle larger than the view. The
+  ruler filled the entire rectangle, covering the source and nearby controls.
+  The ruler now intersects it with its own bounds and clips its drawing.
+  [Apple AppKit drawing guidance](https://developer.apple.com/videos/play/wwdc2023/10054/?time=60)
+- Verification: an oversized redraw reproduced the spill in the previous code.
+  The interface check tests containment and the offscreen pane shows source,
+  header and footer in both appearances after resizing.
+
+### BUG-085 — Eyedropper can leave selected layers unchanged
+
+- Status: fixed for v2.9. On November 23, 2026, the owner confirmed the
+  eyedropper changed grouped and ungrouped layers as expected.
+- Report: In public v2.8, clicking a color in the loupe sometimes left a selected
+  loose rectangle or text layer unchanged. Canvas and detached panels were on
+  separate displays. The report used layers on the Wall of a test page.
+- Confirmed in source and with a routing fixture: `i` was missing from the shared
+  shortcut monitor, and a color editor's own monitor could intercept it from
+  another window. The shared shortcut now targets the focused picker or canvas
+  and can reach the document canvas from a detached tray. Text editing keeps the
+  keystroke.
+- The canvas and picker share a single system sampling session per invocation.
+  The canvas applies a valid result through its undo-aware commit in the original
+  document/page or source editing context. The diagnostic report distinguishes an
+  empty system result, a conversion failure, a changed context, an ineligible
+  selection and an applied result.
+- Verification checklist: with the canvas and Layers on separate displays, select a
+  loose rectangle, text, and a plain folder. Try `i` after selecting on the canvas
+  and after selecting in Layers, and sample pixels on either display. Verify Undo,
+  Escape, and that `i` remains typeable in a layer name or the color-code field.
+- AppKit callback contract: [NSColorSampler.show(selectionHandler:)](https://developer.apple.com/documentation/appkit/nscolorsampler/show(selectionhandler:)).
+
 ### BUG-084 — Script/swash fonts look cut off in auto-sized text boxes
 - Type: bug
-- Priority: owner-added to v2.9, November 17, 2026
+- Priority: follow-up after v2.9, agreed November 25, 2026
 - Area: text · measurement · rendering
-- Status: reported by owner; cause NOT yet identified
+- Status: intermittent. The owner is gathering reproduction details.
 - Report: "some of the more script-y fonts seem to appear cut off even when the
   text box is auto sized."
 - Verified in source: `TextContent.measuredSize` (UI/Typography.swift) sizes an
@@ -3524,7 +3606,7 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 
 ### FEAT-098 — Make the text box trim preference do something
 - Type: feature
-- Priority: owner-added to v2.9, November 17, 2026
+- Priority: follow-up after v2.9 and BUG-084, agreed November 25, 2026
 - Area: text · measurement · settings · export
 - Status: planned — needs a short design pass before code
 - Finding (November 17): `exp.pref.textBoxTrim` is read only by its own
@@ -3540,8 +3622,8 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: feature
 - Priority: owner-requested November 16, 2026; follows the guide export (S7)
 - Area: design language · guide · export · integrations
-- Status: planned — destination research partly done; see the NOT researched
-  and NOT verified rows in the plan before promising any vendor integration
+- Status: local Guide and token folder export owner-verified November 25.
+  See the plan for the remaining destinations and research.
 - Detail: one Export to… menu fed by the guide HTML and the token files:
   file/folder, CodePen (reuse `CodePenPrefillExporter`), a repo folder for
   static hosts and pull requests, token pipelines, documentation platforms,
@@ -3584,10 +3666,20 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: feature
 - Priority: planned; follows FEAT-089 acceptance
 - Area: design language · inspector · model
-- Status: planned
-- Detail: corner radius, stroke width, opacity, size, effects (shadow tokens),
-  type-style links by identity; survey gradient stops, run color, artboard
+- Status: the owner verified creating, applying and changing radius and
+  border width tokens on November 25. Opacity, size and effects remain planned.
+- Detail: uniform or per-corner rectangle radius, polygon and auto-padding
+  radius, and stroke width. Reuse numeric linking, mode resolution and
+  unlinking behavior from spacing.
+  Type-style links by identity landed in S5. Survey gradient stops, run color, artboard
   background and layout grids before promising them.
+- Percentage radius implemented for rectangle corners and Auto Padding
+  backgrounds. Horizontal and vertical radii resolve against the shape's
+  box as it resizes. CSS keeps the percentage, and SVG uses two arc radii.
+  The Design Language panel selects entries on one click and applies them
+  on double-click. Dimension menus offer linked and unlinked application.
+  [AppKit/SwiftUI tap gesture](https://developer.apple.com/documentation/swiftui/view/ontapgesture(count:perform:))
+  [CSS Backgrounds and Borders §4.1](https://www.w3.org/TR/css-backgrounds-3/#border-radius)
 - Plan: `DESIGN-LANGUAGE-PLAN.md` §4.3.
 
 ### FEAT-092 — Design Language Guide share link
@@ -3604,23 +3696,29 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: feature
 - Priority: owner-requested November 16, 2026; recommended v2.9 slices S6–S7
 - Area: design language · guide · export · accessibility
-- Status: planned
-- Detail: auto-generated reference of every token. One HTML template fed by a
-  pure `GuideBuilder` JSON, shown live in a window and exported as a single
-  self-contained file. Per-token copy buttons (CSS, SCSS, DTCG reference, raw)
-  and whole-set downloads, using the same naming code as file exports.
-- Accessibility: requirements listed in the plan §7. NOT yet verified against
-  WAI-ARIA 1.2 / WCAG 2.1 AA; verify and record citations here before coding
-  (copy-confirmation status message, mode switcher, tables).
+- Status: Guide export, basic keyboard and VoiceOver checks, and the larger
+  initial window size owner-verified November 25.
+- Detail: one bundled HTML template and a Swift data builder power both the
+  live reference and the self-contained export. Both include mode values,
+  contrast text, library revisions, alias chains and use counts. Per-token
+  copy supports CSS, SCSS, DTCG references and raw values. Whole-set downloads
+  use the same identifiers and retain unsupported data for reference.
+- Accessibility references: [WAI-ARIA 1.2 status](https://www.w3.org/TR/wai-aria-1.2/#status),
+  [WCAG 2.1 status messages](https://www.w3.org/WAI/WCAG21/Understanding/status-messages.html),
+  [WAI table header guidance](https://www.w3.org/WAI/tutorials/tables/two-headers/),
+  and [WAI form labels](https://www.w3.org/WAI/tutorials/forms/labels/).
+- File format references: [DTCG 2025.10 format](https://www.designtokens.org/tr/2025.10/format/)
+  and [DTCG 2025.10 resolver](https://www.designtokens.org/tr/2025.10/resolver/).
 - Plan: `DESIGN-LANGUAGE-PLAN.md` §7.
 
 ### FEAT-090 — Unified editable token + binding model
 - Type: feature
 - Priority: foundation for FEAT-088/089/091; S1 of v2.9
 - Area: design language · model · bindings
-- Status: FEAT-090a (model, resolver, propagation; no UI) built November 16,
-  2026 — awaiting the Mac check script, both scheme builds and owner acceptance.
-  FEAT-090b (every remaining token type editable) planned.
+- Status: FEAT-090a (model, resolver, propagation; no UI) owner-verified
+  November 17, 2026, with the S1/S2 checks.
+  FEAT-090b radius and border width are implemented in v2.9. Remaining token
+  types are planned.
 - Detail: `DLToken` (type + role, per-mode values, aliases, preserved raw),
   `DLModeSet`, `Node.tokenBindings` keyed by property path. Bound fields keep
   their resolved value (materialized), so rendering/export/older versions are
@@ -3634,7 +3732,9 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Type: feature
 - Priority: owner-selected v2.9 focus, November 9, 2026
 - Area: design language · color · model · inspector · export
-- Status: planned — no v2.9 feature implementation yet
+- Status: Owner accepted the S4 mode controls and palette table UI on
+  November 23, and the S5 color, gradient and type-style links, unlink/Undo
+  and save/reopen behavior on November 25.
 - Detail: Turn preserved imported color modes into usable/editable named modes
   in Design Language. Define selection scope, alias/fallback behavior, local edits,
   linked-color updates and accurate exports before implementation. App appearance
@@ -3642,14 +3742,32 @@ ROADMAP.md (which holds the phase plan + the Progress Log). Use ROADMAP for
 - Acceptance: modes and edits survive JSON/package save/reopen and Undo/Redo;
   linked use updates predictably, legacy artwork remains unchanged, exports
   retain supported mode information and report limits; keyboard/VoiceOver usable.
-- Scope and decisions: `DESIGN-LANGUAGE-v2.9.md`. Light/dark are examples;
-  the exact initial mode vocabulary and scope remain to design.
+- Scope and decisions: `DESIGN-LANGUAGE-PLAN.md` §4.2 and §6. First mode set
+  starts with Light and Dark. Saved solid colors share a base fallback,
+  and adopted mode aliases retain their target identity when available.
+  Palette export writes the selected document mode and native files retain the
+  editable modes. The guide and its multi-mode export are later slices.
+- Accessibility references: [SwiftUI accessibility modifiers](https://developer.apple.com/documentation/swiftui/view-accessibility),
+  [APG Menu Button](https://www.w3.org/WAI/ARIA/apg/patterns/menu-button/) and
+  [WCAG 2.1 SC 4.1.2](https://www.w3.org/WAI/WCAG21/Understanding/name-role-value).
+  Native menu keyboard and VoiceOver behavior await the running-app check.
+- November 23 review: owner verified enablement and selector placement.
+  Settings now shows Base and individual mode columns and editable defaults
+  for board background and text. Swatch values and inheritance are in visible
+  text and accessibility values [WCAG 2.1 SC 1.4.1](https://www.w3.org/WAI/WCAG21/Understanding/use-of-color.html).
+  The owner checked the layout in-app. VoiceOver remains to be checked.
+- Palette table uses the native [SwiftUI Table](https://developer.apple.com/documentation/swiftui/table)
+  and [TableColumnCustomization](https://developer.apple.com/documentation/swiftui/tablecolumncustomization)
+  for scrolling, sorting and persistent column arrangement. Verify keyboard
+  and [VoiceOver table navigation](https://support.apple.com/guide/voiceover/mchlp2723/mac)
+  in the running editor.
 
 ### FEAT-089 — Named spacing tokens with live layout bindings
 - Type: feature
 - Priority: owner-selected v2.9 focus, November 9, 2026
 - Area: design language · spacing · auto layout · margin/padding · model
-- Status: planned — owner's interaction captured; implementation not started
+- Status: S2 and S3 owner-verified. Owner confirmed fluid gap reflow when
+  resizing an artboard on November 23.
 - Detail: Create/edit named spacing values and add an optional named-token
   selector beside existing numeric fields. First surfaces: fixed automatic
   spacing/gap and supported element margin/padding controls. Selecting a token

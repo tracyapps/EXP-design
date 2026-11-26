@@ -895,14 +895,23 @@ enum LibraryTokenResolver {
     /// hop. Cycles and dangling references resolve to nil, never loop.
     static func resolvedRaw(_ id: String, mode: String, in tokens: [LibraryToken]) -> String? {
         let byID = Dictionary(tokens.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return resolvedValue(id, mode: mode, indexedByID: byID)?.raw
+    }
+
+    /// Also records whether any hop declared the mode, including implicit
+    /// overrides that a base alias inherits from its target.
+    static func resolvedValue(_ id: String, mode: String, indexedByID byID: [String: LibraryToken])
+        -> (raw: String, usesMode: Bool)? {
         var visited = Set<String>()
         var current = id
+        var usesMode = false
         while visited.insert(current).inserted, let token = byID[current] {
+            usesMode = usesMode || token.modes[mode] != nil
             guard let value = token.modes[mode] ?? token.modes[LibraryTokenMode.base] else { return nil }
-            guard let next = value.aliasOf else { return value.raw }
+            guard let next = value.aliasOf else { return (value.raw, usesMode) }
             if byID[next] == nil {
                 // `var(--undefined, fallback)` — the fallback is what the browser uses.
-                return cssFallback(value.raw)
+                return cssFallback(value.raw).map { ($0, usesMode) }
             }
             current = next
         }
@@ -1206,4 +1215,69 @@ extension Document {
     }
 
     func libraryTokenLink(forAsset id: UUID) -> LibraryTokenLink? { libraryTokenLinks[id] }
+
+    var hasLibraryColorModes: Bool {
+        guard codeBridges.contains(where: { $0.connector == LibraryTokenSnapshot.connector && !$0.bindings.isEmpty })
+        else { return false }
+        return librarySnapshots.contains { snapshot in
+            snapshot.tokens.contains { token in
+                (token.type == .color || token.isAlias)
+                    && (token.modes[LibraryTokenMode.light] != nil || token.modes[LibraryTokenMode.dark] != nil)
+            }
+        }
+    }
+
+    /// Bring source mode values into the editable Design Language on explicit
+    /// request. The original snapshot and any local edits remain authoritative
+    /// for their respective uses.
+    @discardableResult
+    mutating func adoptLibraryColorModes() -> Bool {
+        let indices = Dictionary(designLanguage.assets.indices.compactMap { index -> (UUID, Int)? in
+            let asset = designLanguage.assets[index]
+            guard case .solid = asset.value else { return nil }
+            return (asset.id, index)
+        }, uniquingKeysWith: { first, _ in first })
+        var language = designLanguage
+        var changed = false
+        for bridge in codeBridges where bridge.connector == LibraryTokenSnapshot.connector {
+            guard let resource = bridge.resources.first(where: { $0.role == LibraryTokenSnapshot.resourceRole }),
+                  let snapshot = LibraryTokenSnapshotCache.snapshot(for: resource) else { continue }
+            let tokens = Dictionary(snapshot.tokens.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            let assetsByToken = Dictionary(bridge.bindings.compactMap { binding -> (String, Int)? in
+                guard let assetID = binding.metadata[LibraryTokenBindingKey.assetID].flatMap(UUID.init(uuidString:)),
+                      let index = indices[assetID] else { return nil }
+                return (binding.externalID, index)
+            }, uniquingKeysWith: { first, _ in first })
+            for modeKey in [LibraryTokenMode.light, LibraryTokenMode.dark] {
+                for (tokenID, index) in assetsByToken {
+                    guard let result = LibraryTokenResolver.resolvedValue(tokenID, mode: modeKey, indexedByID: tokens),
+                          result.usesMode, let color = LibraryTokenClassifier.color(from: result.raw) else { continue }
+                    language.enableColorModes()
+                    let title = modeKey.capitalized
+                    let modes = language.modeSets[0].modes
+                    let modeIndex = modes.firstIndex { $0.libraryKey == modeKey }
+                        ?? modes.firstIndex { $0.libraryKey == nil && $0.name.caseInsensitiveCompare(title) == .orderedSame }
+                    let mode: DLMode
+                    if let modeIndex {
+                        language.modeSets[0].modes[modeIndex].libraryKey = modeKey
+                        mode = language.modeSets[0].modes[modeIndex]
+                    } else {
+                        mode = DLMode(name: title, libraryKey: modeKey)
+                        language.modeSets[0].modes.append(mode)
+                    }
+                    let key = mode.id.uuidString
+                    guard language.assets[index].modeValues[key] == nil else { continue }
+                    let source = tokens[tokenID]?.modes[modeKey] ?? tokens[tokenID]?.baseValue
+                    if let targetID = source?.aliasOf, let target = assetsByToken[targetID] {
+                        language.assets[index].modeValues[key] = .alias(language.assets[target].id)
+                    } else {
+                        language.assets[index].modeValues[key] = .color(color)
+                    }
+                    changed = true
+                }
+            }
+        }
+        if changed { designLanguage = language }
+        return changed
+    }
 }

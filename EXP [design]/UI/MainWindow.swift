@@ -499,6 +499,13 @@ private struct CanvasPageTabs: View {
                     ForEach(document.model.pages) { page in
                         CanvasPageTab(
                             page: page,
+                            language: document.model.designLanguage,
+                            editMode: { edit in
+                                if document.model.pageID(resolving: app.activeCanvasPageID) == page.id {
+                                    app.finishInlineTextEditing?()
+                                }
+                                edit.commit(to: document, undoManager: undoManager)
+                            },
                             isActive: document.model.pageID(resolving: app.activeCanvasPageID) == page.id,
                             canDelete: document.model.pages.count > 1,
                             canMoveLeft: document.model.pages.first?.id != page.id,
@@ -517,6 +524,15 @@ private struct CanvasPageTabs: View {
             .scrollIndicators(.hidden)
 
             Divider().frame(height: 20)
+            Button {
+                sendCanvasAction("findInDocumentAction:")
+            } label: {
+                Image(systemName: "magnifyingglass")
+                    .frame(width: 26, height: 24)
+            }
+            .buttonStyle(.plain)
+            .help("Find in Document (⌘F)")
+            .accessibilityLabel("Find in Document")
             Button(action: addPage) {
                 Image(systemName: "plus")
                     .frame(width: 26, height: 24)
@@ -608,6 +624,8 @@ private struct CanvasPageTabs: View {
 
 private struct CanvasPageTab: View {
     let page: CanvasPage
+    let language: DesignLanguage
+    let editMode: (DLColorModeEdit) -> Void
     let isActive: Bool
     let canDelete: Bool
     let canMoveLeft: Bool
@@ -623,7 +641,8 @@ private struct CanvasPageTab: View {
     @FocusState private var focused: Bool
 
     var body: some View {
-        Group {
+        HStack(spacing: 0) {
+            DLPageColorModeControl(page: page, language: language, edit: editMode)
             if editing {
                 TextField("Page name", text: $draft)
                     .textFieldStyle(.plain)
@@ -637,7 +656,8 @@ private struct CanvasPageTab: View {
                     Text(page.name)
                         .font(.system(size: EXPType.small, weight: isActive ? .semibold : .regular))
                         .lineLimit(1)
-                        .padding(.horizontal, 11)
+                        .padding(.leading, (language.colorModeSet?.modes.count ?? 0) > 1 ? 2 : 11)
+                        .padding(.trailing, 11)
                         .frame(height: 25)
                 }
                 .buttonStyle(.plain)
@@ -647,6 +667,11 @@ private struct CanvasPageTab: View {
                 // double-click also switches to the page, which is what you want —
                 // you can't sensibly rename a page you aren't looking at.
                 .simultaneousGesture(TapGesture(count: 2).onEnded { beginRename() })
+                .accessibilityLabel("Canvas page \(page.name)")
+                .accessibilityAddTraits(isActive ? .isSelected : [])
+                .accessibilityAction(named: "Rename", beginRename)
+                .help(isActive ? "Current canvas page · Double-click to rename"
+                               : "Switch to \(page.name) · Double-click to rename")
             }
         }
         .foregroundStyle(isActive ? EXPColor.accent : EXPColor.textSecondary)
@@ -656,6 +681,11 @@ private struct CanvasPageTab: View {
             Rectangle().fill(isActive ? EXPColor.accent : Color.clear).frame(height: 2)
         }
         .contextMenu {
+            if let set = language.colorModeSet, let documentMode = language.colorMode() {
+                Button("Use Document Mode (\(documentMode.name))") { editMode(.page(nil, page.id)) }
+                    .disabled(!set.modes.contains { $0.id == page.modeOverrides?[set.id.uuidString] })
+                Divider()
+            }
             Button("Rename…", action: beginRename)
             Button("Duplicate Page", action: duplicate)
             Divider()
@@ -664,17 +694,7 @@ private struct CanvasPageTab: View {
             Divider()
             Button("Delete Page", role: .destructive, action: delete).disabled(!canDelete)
         }
-        // While editing, the field must stay its own element — combining children
-        // over a TextField hides the text from VoiceOver as you type.
-        .accessibilityElement(children: editing ? .contain : .combine)
-        .accessibilityLabel(editing ? "Page name" : "Canvas page \(page.name)")
-        .accessibilityValue(editing ? "" : (isActive ? "Selected" : "Not selected"))
-        // Double-click is a mouse-only affordance, so name the same action for
-        // assistive technology instead of leaving the context menu as the only route.
-        .accessibilityAction(named: "Rename", beginRename)
-        .help(editing ? "Press Return to rename, Escape to cancel"
-                      : (isActive ? "Current canvas page — double-click to rename"
-                                  : "Switch to \(page.name) — double-click to rename"))
+        .accessibilityElement(children: .contain)
     }
 
     private func beginRename() {
@@ -842,6 +862,11 @@ struct EditorMenuModel {
     var pageTransferChoices: [CanvasPageChoice]
     var selectedNodeIDs: Set<UUID>
     var selectedArtboardIDs: Set<UUID>
+    var documentColorMode: DLMode?
+    var pageColorMode: DLMode?
+    var colorModes: [DLMode]
+    var canEnableColorModes: Bool
+    var canAdoptLibraryColorModes: Bool
 
     var canGroup: Bool
     var canUngroup: Bool
@@ -883,8 +908,10 @@ struct EditorMenuModel {
     var canRoundToPixel: Bool
     var canEyedropper: Bool
     var canAskSanaa: Bool
+    var canFindInDocument: Bool
 
     var canTypeActions: Bool
+    var canUseModeTextColor: Bool
     var canConvertTextToOutlines: Bool
     /// Align/Distribute are ONE command for boards and nodes alike — CanvasNSView
     /// routes by what's selected — so these flags cover both cases.
@@ -1119,6 +1146,11 @@ func makeEditorMenuModel(document: ExpDocument, app: AppState, scope: CanvasScop
         pageTransferChoices: pageTransferChoices,
         selectedNodeIDs: selectedIDs,
         selectedArtboardIDs: app.selectedArtboardIDs,
+        documentColorMode: model.designLanguage.colorMode(),
+        pageColorMode: model.designLanguage.colorMode(on: model.page(for: activePageID)),
+        colorModes: model.designLanguage.colorModeSet?.modes ?? [],
+        canEnableColorModes: model.designLanguage.colorModeSet == nil,
+        canAdoptLibraryColorModes: model.hasLibraryColorModes,
         canGroup: selectedIDs.count >= 2,
         canUngroup: hasGroup,
         canMask: selectedIDs.count >= 2,
@@ -1161,7 +1193,10 @@ func makeEditorMenuModel(document: ExpDocument, app: AppState, scope: CanvasScop
         canRoundToPixel: hasNodes || hasArtboards,
         canEyedropper: hasNodes,
         canAskSanaa: scope == .document && (hasNodes || hasArtboards),
+        canFindInDocument: scope == .document,
         canTypeActions: isSingleText,
+        canUseModeTextColor: scope == .document && isSingleText && singleNode?.isLocked == false
+            && model.designLanguage.colorMode() != nil,
         canConvertTextToOutlines: hasTextToOutline,
         canAlign: canAlign,
         canDistribute: selectedIDs.isEmpty
@@ -1207,7 +1242,7 @@ func makeEditorMenuModel(document: ExpDocument, app: AppState, scope: CanvasScop
 /// preconditions anyway.
 // MARK: - Tool letter shortcuts (BUG-028)
 
-/// Single-letter tool shortcuts (V, A, P, T, R, O, G, L, F, H, plus ⇧A) handled in
+/// Single-letter tool shortcuts (including the eyedropper) handled in
 /// ONE place, so they work from any focus location — canvas, Layers, inspector, a
 /// floating tray — instead of only when the canvas happens to hold focus.
 ///
@@ -1262,11 +1297,33 @@ enum ToolShortcuts {
         if FontPickerKeyboardSession.isActive { return false }
         // The user is typing. This check is the entire reason this is a monitor.
         if isTypingInTextField() { return false }
+        guard let key = event.charactersIgnoringModifiers?.lowercased(), key.count == 1 else { return false }
+        if key == "i" {
+            guard let window = event.window ?? NSApp.keyWindow, let root = window.contentView else { return false }
+            let pickerAction = #selector(ColorPickerShortcutTarget.Target.pickColor(_:))
+            if let picker = firstView(in: root, responding: pickerAction) {
+                return NSApp.sendAction(pickerAction, to: picker, from: nil)
+            }
+            // An attached paint editor can be open before it takes key focus.
+            // An on-canvas stop editor must still recolor the stop in this case.
+            if let editorRoot = PaintPopoverActivity.shared.editorWindow(anchoredTo: window)?.contentView,
+               let picker = firstView(in: editorRoot, responding: pickerAction) {
+                return NSApp.sendAction(pickerAction, to: picker, from: nil)
+            }
+            let canvasAction = #selector(CanvasNSView.eyedropperAction(_:))
+            if let canvas = firstView(in: root, responding: canvasAction) {
+                return NSApp.sendAction(canvasAction, to: canvas, from: nil)
+            }
+            // With a tray key, the owning document's canvas is in the main window.
+            if PanelWindowManager.isTrayWindow(window) {
+                return sendCanvasAction(NSStringFromSelector(canvasAction))
+            }
+            return false
+        }
         // The canvas already handles these in its own keyDown when it has focus.
         // Declining here leaves the common path bit-for-bit unchanged, so this can
         // only ADD the missing routes, never alter existing behaviour.
         if NSApp.keyWindow?.firstResponder is CanvasNSView { return false }
-        guard let key = event.charactersIgnoringModifiers?.lowercased(), key.count == 1 else { return false }
         // ⇧A is the Sketch/XD Artboard alias; every other tool letter is unshifted.
         if mods.contains(.shift) {
             guard key == "a" else { return false }
@@ -1313,7 +1370,7 @@ func sendCanvasAction(_ selectorName: String, from sender: Any? = nil) -> Bool {
     where !tried.contains(where: { $0 === window }) {
         tried.append(window)
         guard let root = window.contentView,
-              let target = canvasDescendant(of: root, responding: sel) else { continue }
+              let target = firstView(in: root, responding: sel) else { continue }
         if NSApp.sendAction(sel, to: target, from: sender) { return true }
     }
 
@@ -1324,9 +1381,8 @@ func sendCanvasAction(_ selectorName: String, from sender: Any? = nil) -> Bool {
     return false
 }
 
-/// Breadth-first, so a direct child of the content view (the canvas) wins over some
-/// deeply nested control that happens to answer the same selector.
-private func canvasDescendant(of root: NSView, responding sel: Selector) -> NSView? {
+/// Breadth-first, so controls nearer the window root take precedence.
+private func firstView(in root: NSView, responding sel: Selector) -> NSView? {
     var queue = root.subviews
     while !queue.isEmpty {
         let view = queue.removeFirst()
@@ -2021,11 +2077,29 @@ struct RightPanel: View {
                         DimField(label: "W", value: artboardBinding(\.size.width, action: "Resize Artboard"), min: 0)
                         DimField(label: "H", value: artboardBinding(\.size.height, action: "Resize Artboard"), min: 0)
                     }
+                    if let board = selectedArtboard, document.model.designLanguage.colorMode() != nil {
+                        HStack {
+                            Text("Color Mode")
+                            Spacer()
+                            DLColorModePicker(language: document.model.designLanguage, artboard: board,
+                                              page: document.model.page(for: app.activeCanvasPageID)) {
+                                $0.sendToCanvas()
+                            }
+                        }
+                    }
                     Divider()
                     PaintWell(label: "Background", paint: artboardBackgroundBinding,
                               supportsOpacity: false,
                               gradientSize: selectedArtboard?.frame.size,patternBounds: selectedArtboard?.frame,
                               selectedGradientStopID: gradientStopSelection)
+                    if let board = selectedArtboard, document.model.designLanguage.colorMode() != nil {
+                        if board.followsModeBackground {
+                            Text("Follows Mode Background").font(.caption).foregroundStyle(EXPColor.textSecondary)
+                        } else {
+                            Button("Use Mode Background") { DLColorModeEdit.artboardBackground([board.id]).sendToCanvas() }
+                                .buttonStyle(.expCompact())
+                        }
+                    }
                 }
                 .font(.callout)
                 .padding(12)
@@ -2581,7 +2655,7 @@ struct RightPanel: View {
     }
     private var alGapBinding: Binding<Double> {
         Binding(get: { Double(selectedAutoLayout?.gap ?? 0) },
-                set: { v in commitSpacingNumber(v, key: TokenBindingKey.gap, action: "Layout Gap") })
+                set: { v in commitNumericField(v, key: TokenBindingKey.gap, action: "Layout Gap") })
     }
 
     // MARK: Spacing tokens on gap / padding / margin (FEAT-089b)
@@ -2590,7 +2664,7 @@ struct RightPanel: View {
 
     /// Where the selected layer resolves tokens: its artboard's modes and size,
     /// or the document's modes when it isn't on an artboard (wall, source editor).
-    private var spacingTokenContext: DLResolveContext {
+    private var numericTokenContext: DLResolveContext {
         let model = document.model
         let language = model.designLanguage
         var boardID = selectedNode?.artboardID
@@ -2600,80 +2674,95 @@ struct RightPanel: View {
         if let boardID {
             for page in model.pages {
                 if let board = page.artboards.first(where: { $0.id == boardID }) {
-                    return DLResolveContext(modeIDs: language.activeModeIDs(overrides: board.modeOverrides),
+                    return DLResolveContext(modeIDs: language.activeModeIDs(overrides: board.modeOverrides, pageOverrides: page.modeOverrides),
                                             viewport: board.frame.size)
                 }
             }
         }
-        return DLResolveContext(modeIDs: language.activeModeIDs)
+        let page = scope == .document ? model.page(for: app.activeCanvasPageID) : nil
+        return DLResolveContext(modeIDs: language.activeModeIDs(overrides: nil, pageOverrides: page?.modeOverrides))
     }
 
-    /// The spacing tokens offered to the selected layer, built ONCE per render
-    /// of a control group and shared by its fields. Empty when the document has
-    /// no spacing tokens, which keeps every field exactly as it was.
-    private func spacingTokenChoices() -> [EXPTokenChoice] {
+    /// Compatible tokens resolved in the selection's page or artboard context.
+    private func numericTokenChoices(_ kind: DLDimensionKind = .spacing) -> [EXPTokenChoice] {
         let language = document.model.designLanguage
-        let tokens = language.tokens(role: .spacing)
+        let tokens = language.tokens(role: kind.role)
         guard !tokens.isEmpty else { return [] }
-        let context = spacingTokenContext
+        let context = numericTokenContext
         return tokens.map { token in
-            let resolved = language.resolvedNumber(token.id, context: context)
+            let resolved = language.numericTokenValue(token.id, context: context)
             var text = token.value.aliasTarget != nil ? "alias" : token.value.authoredText
             if text.isEmpty { text = "preserved value" }
-            if let resolved {
+            if case .points(let resolved) = resolved {
                 let number = resolved == resolved.rounded()
                     ? String(Int(resolved)) : String(format: "%.2f", Double(resolved))
                 if text != number && text != number + "px" { text += " · " + number }
             }
+            let compatible: NumericTokenValue?
+            if case .percentage = resolved, kind != .radius ||
+                selectedNode?.supportsPercentageRadius(for: TokenBindingKey.cornerRadius) != true {
+                compatible = nil
+            } else {
+                compatible = resolved
+            }
             return EXPTokenChoice(id: token.id, name: token.name, group: token.group,
-                                  valueText: text, resolved: resolved)
+                                  valueText: text, resolved: compatible)
         }
     }
 
-    private func spacingLinkState(_ key: String) -> (state: EXPTokenLinkState, id: UUID?) {
+    private func numericLinkState(_ key: String) -> (state: EXPTokenLinkState, id: UUID?) {
         guard let id = selectedNode?.boundTokenID(key) else { return (.unlinked, nil) }
         guard let token = document.model.designLanguage.token(id) else { return (.missing, id) }
         return (.linked(token.name.isEmpty ? "Unnamed" : token.name), id)
     }
 
-    /// The token button for one field, or nil when there is nothing to offer
-    /// (no spacing tokens and the field isn't linked).
-    private func spacingTokenButton(_ key: String, fieldName: String,
-                                    choices: [EXPTokenChoice]) -> EXPTokenButton? {
-        let link = spacingLinkState(key)
+    /// Show the link or offer tokens compatible with this field.
+    private func numericTokenButton(_ key: String, fieldName: String,
+                                    choices: [EXPTokenChoice]? = nil) -> EXPTokenButton? {
+        guard let role = TokenBindingKey.numericRole(key),
+              let kind = DLDimensionKind.allCases.first(where: { $0.role == role }) else { return nil }
+        let choices = choices ?? numericTokenChoices(kind)
+        let link = numericLinkState(key)
         guard !choices.isEmpty || link.state != .unlinked else { return nil }
-        return EXPTokenButton(fieldName: fieldName, state: link.state, linkedID: link.id,
+        return EXPTokenButton(kind: kind, fieldName: fieldName, state: link.state, linkedID: link.id,
                               choices: choices,
                               currentValue: Double(selectedNode?.numericValue(forBindingKey: key) ?? 0),
-                              onSelect: { tokenID in setSpacingToken(key, to: tokenID, choices: choices) })
+                              onSelect: { tokenID in setNumericToken(key, kind: kind, to: tokenID, choices: choices) })
     }
 
     /// Link a field to a token (writing the token's resolved number), or clear
     /// the link (keeping the number). One undo step either way.
-    private func setSpacingToken(_ key: String, to tokenID: UUID?, choices: [EXPTokenChoice]) {
+    private func setNumericToken(_ key: String, kind: DLDimensionKind, to tokenID: UUID?, choices: [EXPTokenChoice]) {
         guard let id = app.singleSelectedNodeID else { return }
         let value = tokenID.flatMap { wanted in choices.first { $0.id == wanted }?.resolved }
         if tokenID != nil, value == nil { return }      // can't be measured here
-        mutateScopedNode(id, action: tokenID == nil ? "Unlink Spacing Token" : "Link Spacing Token") { node in
+        let action = tokenID == nil ? "Unlink \(kind.rawValue) Token" : "Link \(kind.rawValue) Token"
+        mutateScopedNode(id, action: action) { node in
+            if let value {
+                node.replaceCornerBindingScope(for: key)
+                switch value {
+                case .points(let length): node.setNumericValue(length, forBindingKey: key)
+                case .percentage(let percent): node.setRadiusPercentage(percent, for: key)
+                }
+            }
             node.setTokenBinding(key, to: tokenID)
-            if let value { node.setNumericValue(value, forBindingKey: key) }
         }
     }
 
-    /// A number committed in a gap/padding/margin field. Committing a DIFFERENT
-    /// number detaches that one field from its token; committing the same value
-    /// (including the rounded figure the field displays for a fractional token)
-    /// changes nothing and keeps the link.
-    private func commitSpacingNumber(_ v: Double, key: String, action: String) {
-        guard let id = app.singleSelectedNodeID, let node = selectedNode,
-              let current = node.numericValue(forBindingKey: key) else { return }
-        let new = Swift.max(0, CGFloat(v))
-        let linked = node.boundTokenID(key) != nil
-        if linked, new == current.rounded(), abs(new - current) < 0.5 { return }
-        guard abs(new - current) > 0.0001 else { return }
+    /// Manual changes detach the field. Re-entering the displayed value keeps the link.
+    private func commitNumericField(_ v: Double, key: String, action: String) {
+        guard v.isFinite, let id = app.singleSelectedNodeID, let node = selectedNode else { return }
+        let new = node.limitedBindingNumber(CGFloat(v), for: key)
+        if node.radiusPercentage(for: key) == nil, let current = node.numericValue(forBindingKey: key) {
+            let precision: CGFloat = TokenBindingKey.spacing.contains(key) ? 1 : 100
+            let displayed = (current * precision).rounded() / precision
+            if node.boundTokenID(key) != nil, new == displayed { return }
+            guard abs(new - current) > 0.0001 else { return }
+        }
         mutateScopedNode(id, action: action) { node in
-            node.setNumericValue(new, forBindingKey: key)
-            if linked { node.setTokenBinding(key, to: nil) }
+            guard node.setNumericValue(new, forBindingKey: key) else { return }
+            node.replaceCornerBindingScope(for: key)
+            node.setTokenBinding(key, to: nil)
         }
     }
 
@@ -2759,8 +2848,8 @@ struct RightPanel: View {
 
     @ViewBuilder private var autoLayoutGap: some View {
         if selectedAutoLayout?.distribution == .packed {
-            let token = spacingTokenButton(TokenBindingKey.gap, fieldName: "Gap",
-                                           choices: spacingTokenChoices())
+            let token = numericTokenButton(TokenBindingKey.gap, fieldName: "Gap",
+                                           choices: numericTokenChoices())
             HStack(spacing: 1) {
                 TextField("Auto layout gap", value: alGapBinding, format: .number.precision(.fractionLength(0)))
                     .labelsHidden().textFieldStyle(.exp)
@@ -2804,15 +2893,11 @@ struct RightPanel: View {
     }
     private func apPadBinding(_ kp: WritableKeyPath<AutoPadding, CGFloat>, key: String) -> Binding<Double> {
         Binding(get: { Double(selectedAutoPadding?[keyPath: kp] ?? 0) },
-                set: { v in commitSpacingNumber(v, key: key, action: "Padding") })
+                set: { v in commitNumericField(v, key: key, action: "Padding") })
     }
     private var apFillBinding: Binding<Paint> {
         Binding(get: { selectedAutoPadding?.fill ?? .clear },
                 set: { p in mutateAP("Frame Fill") { $0.fill = p } })
-    }
-    private var apCornerBinding: Binding<Double> {
-        Binding(get: { Double(selectedAutoPadding?.cornerRadius ?? 0) },
-                set: { v in mutateAP("Frame Corner") { $0.cornerRadius = Swift.max(0, CGFloat(v)) } })
     }
     private var apStrokeBinding: Binding<Paint> {
         Binding(get: { selectedAutoPadding?.stroke ?? .black },
@@ -2820,7 +2905,7 @@ struct RightPanel: View {
     }
     private var apStrokeWidthBinding: Binding<Double> {
         Binding(get: { Double(selectedAutoPadding?.strokeWidth ?? 0) },
-                set: { v in mutateAP("Frame Stroke Width") { $0.strokeWidth = Swift.max(0, CGFloat(v)) } })
+                set: { v in commitNumericField(v, key: TokenBindingKey.borderWidth, action: "Frame Stroke Width") })
     }
     private var apStrokeAlignmentBinding: Binding<StrokeAlignment> {
         Binding(get: { selectedAutoPadding?.strokeAlignment ?? .center },
@@ -2851,26 +2936,32 @@ struct RightPanel: View {
                     .help("Space outside the background")
                 apInsets(margin: true)
                 spacingChips(Self.spacingEdgeFields(margin: true))
-                PaintWell(label: "Fill", paint: apFillBinding,
-                          gradientSize: selectedNode?.frame.size,patternBounds: selectedPatternBounds,
-                          selectedGradientStopID: gradientStopSelection)
+                HStack {
+                    PaintWell(label: "Fill", paint: apFillBinding,
+                              gradientSize: selectedNode?.frame.size,patternBounds: selectedPatternBounds,
+                              selectedGradientStopID: gradientStopSelection)
+                    appearanceLink(TokenBindingKey.paddingFill)
+                }
                 HStack(spacing: 8) {
                     Text("Corner").foregroundStyle(EXPColor.textSecondary)
-                    TextField("Auto padding corner radius", value: apCornerBinding, format: .number.precision(.fractionLength(0)))
+                    TextField("Auto padding corner radius", value: radiusField(TokenBindingKey.cornerRadius, fallback: selectedAutoPadding?.cornerRadius ?? 0), format: EXPCornerRadiusFormat())
                         .labelsHidden().textFieldStyle(.exp)
                         .multilineTextAlignment(.trailing).monospacedDigit()
-                        .frame(width: 52).numericStepping(apCornerBinding, min: 0)
+                        .frame(width: 56 * EXPType.scale).numericStepping(radiusStepper(TokenBindingKey.cornerRadius), min: 0)
                         .accessibilityLabel("Background corner radius")
+                if let token = numericTokenButton(TokenBindingKey.cornerRadius, fieldName: "Background corner radius") { token }
                     Spacer(minLength: 0)
                 }
                 HStack(spacing: 8) {
                     PaintWell(label: "Stroke", paint: apStrokeBinding)
                         .accessibilityLabel("Background stroke paint")
-                    TextField("Auto padding stroke width", value: apStrokeWidthBinding, format: .number.precision(.fractionLength(0)))
+                    appearanceLink(TokenBindingKey.paddingStroke)
+                    TextField("Auto padding stroke width", value: apStrokeWidthBinding, format: .number.precision(.fractionLength(0...2)))
                         .labelsHidden().textFieldStyle(.exp)
                         .multilineTextAlignment(.trailing).monospacedDigit()
                         .frame(width: 40).numericStepping(apStrokeWidthBinding, min: 0)
                         .accessibilityLabel("Background stroke width")
+                if let token = numericTokenButton(TokenBindingKey.borderWidth, fieldName: "Background stroke width") { token }
                 }
                 if (selectedAutoPadding?.strokeWidth ?? 0) > 0 {
                     EXPSegmented(selection: apStrokePatternBinding,
@@ -2899,7 +2990,7 @@ struct RightPanel: View {
 
     @ViewBuilder
     private func apInsets(margin: Bool) -> some View {
-        let choices = spacingTokenChoices()
+        let choices = numericTokenChoices()
         ViewThatFits(in: .horizontal) {
             HStack(spacing: 2) {
                 apInsetPair(first: true, margin: margin, choices: choices)
@@ -2933,7 +3024,7 @@ struct RightPanel: View {
                              _ kp: WritableKeyPath<AutoPadding, CGFloat>, _ key: String,
                              _ choices: [EXPTokenChoice]) -> EXPEdgeField {
         EXPEdgeField(name: name, edge: edge, value: apPadBinding(kp, key: key),
-                     token: spacingTokenButton(key, fieldName: name, choices: choices))
+                     token: numericTokenButton(key, fieldName: name, choices: choices))
     }
 
     /// Opacity shown as 0–100% in the Inspector, stored as 0–1 on the model.
@@ -3378,7 +3469,7 @@ struct RightPanel: View {
                 PaintWell(label: "Paint", paint: multiStrokeBinding)
                 HStack(spacing: 8) {
                     Text("Width").foregroundStyle(EXPColor.textSecondary)
-                    TextField("Stroke width", value: multiStrokeWidthBinding, format: .number.precision(.fractionLength(0)))
+                    TextField("Stroke width", value: multiStrokeWidthBinding, format: .number.precision(.fractionLength(0...2)))
                         .labelsHidden().textFieldStyle(.exp).frame(width: 56 * EXPType.scale)
                         .multilineTextAlignment(.trailing).monospacedDigit()
                         .numericStepping(multiStrokeWidthBinding, min: 0)
@@ -4442,6 +4533,58 @@ struct RightPanel: View {
         return value
     }
 
+    @ViewBuilder private func appearanceLink(_ key: String) -> some View {
+        if let node = selectedNode, !node.isLocked, activeEditingState == nil,
+           node.appearanceBindingKeys.contains(key) {
+            let language = document.model.designLanguage
+            let linkedID = node.boundTokenID(key)
+            let isType = key == TokenBindingKey.textStyle
+            let options: [(id: UUID, name: String)] = isType
+                ? language.typeStyles.map { ($0.id, $0.name.isEmpty ? $0.fallbackLabel : $0.name) }
+                : language.assets.filter { node.acceptsAppearanceBinding(key, paint: $0.value) }
+                    .map { ($0.id, $0.name.isEmpty ? "Unnamed Swatch" : $0.name) }
+            if linkedID != nil || !options.isEmpty {
+                let label = TokenBindingKey.appearanceLabel(key)
+                let name = linkedID.flatMap { id in options.first { $0.id == id }?.name }
+                Menu {
+                    ForEach(options, id: \.id) { option in
+                        Button {
+                            setAppearanceLink(key, nodeID: node.id, to: option.id)
+                        } label: {
+                            if option.id == linkedID { Label(option.name, systemImage: "checkmark") }
+                            else { Text(option.name) }
+                        }
+                    }
+                    if linkedID != nil {
+                        Divider()
+                        Button("Unlink \(label)") { setAppearanceLink(key, nodeID: node.id, to: nil) }
+                    }
+                } label: {
+                    if linkedID != nil {
+                        Label(name ?? "Missing or incompatible style", systemImage: name == nil ? "exclamationmark.triangle" : "link")
+                            .lineLimit(1)
+                    } else {
+                        Image(systemName: "link")
+                    }
+                }
+                .font(.caption)
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .accessibilityLabel(name.map { "\(label) linked to \($0)" }
+                                    ?? (linkedID == nil ? "Link \(label)" : "\(label) linked to a missing or incompatible style"))
+                .help("Link \(label) to a saved Design Language style")
+            }
+        }
+    }
+
+    private func setAppearanceLink(_ key: String, nodeID: UUID, to id: UUID?) {
+        app.finishInlineTextEditing?()
+        let language = document.model.designLanguage
+        commitScoped(id == nil ? "Unlink \(TokenBindingKey.appearanceLabel(key))" : "Link \(TokenBindingKey.appearanceLabel(key))") {
+            _ = Node.linkAppearance(in: &$0, selection: [nodeID], key: key, to: id, language: language)
+        }
+    }
+
     // MARK: Text controls (single text shape selected)
 
     @ViewBuilder
@@ -4450,6 +4593,7 @@ struct RightPanel: View {
             Divider()
             HStack {
                 InspectorSectionTitle(title: "Type", icon: "textformat")
+                appearanceLink(TokenBindingKey.textStyle)
                 Spacer()
                 Button { sendCanvasAction("saveTypeStyleAction:") } label: {
                     Image(systemName: "plus.circle").frame(width: 28, height: 28)
@@ -4506,7 +4650,18 @@ struct RightPanel: View {
                 }
                 Spacer()
             }
-            ColorWell(label: "Color", color: colorBinding)
+            HStack {
+                ColorWell(label: "Color", color: colorBinding)
+                appearanceLink(TokenBindingKey.textColor)
+            }
+            if scope == .document, document.model.designLanguage.colorMode() != nil {
+                if selectedTextContent?.runs.allSatisfy({ $0.usesModeForeground == true }) == true {
+                    Text("Follows Mode Text Color").font(.caption).foregroundStyle(EXPColor.textSecondary)
+                } else {
+                    Button("Use Mode Text Color") { sendCanvasAction("useModeTextColorAction:") }
+                        .buttonStyle(.expCompact())
+                }
+            }
 
             Divider()
             // Box mode + alignment + line height + letter spacing.
@@ -4575,11 +4730,15 @@ struct RightPanel: View {
                     .numericStepping(textStrokeWidthBinding, min: 0)
                     .accessibilityLabel("Text stroke width")
                     .accessibilityHint("Zero removes the stroke.")
+                if let token = numericTokenButton(TokenBindingKey.borderWidth, fieldName: "Text stroke width") { token }
                 Text("px").foregroundStyle(EXPColor.textSecondary).font(.caption2)
                 Spacer()
             }
             if (selectedTextContent?.strokeWidth ?? 0) > 0 {
-                ColorWell(label: "Stroke color", color: textStrokeColorBinding)
+                HStack {
+                    ColorWell(label: "Stroke color", color: textStrokeColorBinding)
+                    appearanceLink(TokenBindingKey.textStroke)
+                }
                 HStack(spacing: 6) {
                     Text("Align").foregroundStyle(EXPColor.textSecondary).font(.callout)
                     EXPSegmented(selection: textStrokeAlignmentBinding, segments: [
@@ -4688,9 +4847,15 @@ struct RightPanel: View {
     }
     private var textStrokeWidthBinding: Binding<Double> {
         Binding(get: { Double(selectedTextContent?.strokeWidth ?? 0) },
-                set: { w in updateTextContent(action: "Text Stroke", remeasure: false) {
-                    $0.strokeWidth = max(0, CGFloat(w))
-                } })
+                set: { w in
+                    guard w.isFinite else { return }
+                    let current = Double(selectedTextContent?.strokeWidth ?? 0)
+                    if selectedNode?.boundTokenID(TokenBindingKey.borderWidth) != nil,
+                       w == (current * 10).rounded() / 10 { return }
+                    updateTextContent(action: "Text Stroke", remeasure: false) {
+                        $0.strokeWidth = max(0, CGFloat(w))
+                    }
+                })
     }
     private var textStrokeColorBinding: Binding<RGBAColor> {
         Binding(get: { selectedTextContent?.strokeColor ?? .black },
@@ -4828,14 +4993,18 @@ struct RightPanel: View {
             InspectorSectionTitle(title: "Stroke", icon: "pencil.line")
             HStack(spacing: 8) {
                 Text("Width").foregroundStyle(EXPColor.textSecondary).font(.callout)
-                TextField("Stroke width", value: strokeWidthBinding, format: .number.precision(.fractionLength(0)))
+                TextField("Stroke width", value: strokeWidthBinding, format: .number.precision(.fractionLength(0...2)))
                     .textFieldStyle(.exp)
                     .frame(width: 56 * EXPType.scale)
                     .multilineTextAlignment(.trailing)
                     .numericStepping(strokeWidthBinding, min: 0)
+                if let token = numericTokenButton(TokenBindingKey.borderWidth, fieldName: "Stroke width") { token }
                 Spacer()
             }
-            PaintWell(label: "Paint", paint: strokeColorBinding,supportsMesh: false)
+            HStack {
+                PaintWell(label: "Paint", paint: strokeColorBinding,supportsMesh: false)
+                appearanceLink(TokenBindingKey.stroke)
+            }
             EXPSegmented(selection: lineStrokePatternBinding,
                          segments: StrokePattern.allCases.map { .init(value: $0, label: $0.label) })
                 .help("Use a solid, dashed, or dotted line")
@@ -4867,7 +5036,7 @@ struct RightPanel: View {
 
     private var strokeWidthBinding: Binding<Double> {
         Binding(get: { Double(selectedLineShape?.strokeWidth ?? 2) },
-                set: { newValue in updateLineContent { $0.strokeWidth = max(1, CGFloat(newValue)) } })
+                set: { v in commitNumericField(v, key: TokenBindingKey.borderWidth, action: "Stroke Width") })
     }
     private var strokeColorBinding: Binding<Paint> {
         Binding(get: { selectedLineShape?.stroke ?? .black },
@@ -5351,17 +5520,21 @@ struct RightPanel: View {
     private func shapeControls(corner: Bool) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Divider()
-            PaintWell(label: "Fill", paint: shapeFillBinding,
-                      gradientSize: selectedNode?.frame.size,patternBounds: selectedPatternBounds,
-                      selectedGradientStopID: gradientStopSelection)
+            HStack {
+                PaintWell(label: "Fill", paint: shapeFillBinding,
+                          gradientSize: selectedNode?.frame.size,patternBounds: selectedPatternBounds,
+                          selectedGradientStopID: gradientStopSelection)
+                appearanceLink(TokenBindingKey.fill)
+            }
             if corner {
                 HStack(spacing: 8) {
                     Text("Corner").foregroundStyle(EXPColor.textSecondary).font(.callout)
-                    TextField("Corner radius", value: cornerRadiusBinding, format: .number.precision(.fractionLength(0)))
+                    TextField("Corner radius", value: radiusField(TokenBindingKey.cornerRadius, fallback: rectCornerRadius), format: EXPCornerRadiusFormat())
                         .textFieldStyle(.exp).frame(width: 56 * EXPType.scale).multilineTextAlignment(.trailing)
-                        .numericStepping(cornerRadiusBinding, min: 0)
+                        .numericStepping(radiusStepper(TokenBindingKey.cornerRadius, fallback: rectCornerRadius), min: 0)
                         .expFieldTip("Corner radius",
                                      "Rounds all four corners at once — the everyday control. Open Advanced below to set each corner separately.")
+                if let token = numericTokenButton(TokenBindingKey.cornerRadius, fieldName: "Corner radius") { token }
                     Spacer()
                 }
                 // v1.3: per-corner radii behind an Advanced disclosure (default
@@ -5384,12 +5557,12 @@ struct RightPanel: View {
                         ? "Hide per-corner radius settings" : "Show per-corner radius settings")
                     if cornersAdvancedOpen {
                         HStack(spacing: 4) {
-                            cornerField("TL", \.topLeft, tip: "Top-left corner radius")
-                            cornerField("TR", \.topRight, tip: "Top-right corner radius")
+                            cornerField("TL", TokenBindingKey.topLeftRadius, tip: "Top-left corner radius")
+                            cornerField("TR", TokenBindingKey.topRightRadius, tip: "Top-right corner radius")
                         }
                         HStack(spacing: 4) {
-                            cornerField("BL", \.bottomLeft, tip: "Bottom-left corner radius")
-                            cornerField("BR", \.bottomRight, tip: "Bottom-right corner radius")
+                            cornerField("BL", TokenBindingKey.bottomLeftRadius, tip: "Bottom-left corner radius")
+                            cornerField("BR", TokenBindingKey.bottomRightRadius, tip: "Bottom-right corner radius")
                         }
                         EXPPanelHelp("Matching all four snaps back to the single Corner field.")
                             .font(.caption2).foregroundStyle(EXPColor.textTertiary)
@@ -5398,12 +5571,16 @@ struct RightPanel: View {
             }
             Divider()
             InspectorSectionTitle(title: "Stroke", icon: "pencil.line")
-            PaintWell(label: "Paint", paint: shapeStrokeBinding,gradientSize: selectedNode?.frame.size,patternBounds: selectedPatternBounds)
+            HStack {
+                PaintWell(label: "Paint", paint: shapeStrokeBinding,gradientSize: selectedNode?.frame.size,patternBounds: selectedPatternBounds)
+                appearanceLink(TokenBindingKey.stroke)
+            }
             HStack(spacing: 8) {
                 Text("Width").foregroundStyle(EXPColor.textSecondary).font(.callout)
-                TextField("Stroke width", value: strokeWidthShapeBinding, format: .number.precision(.fractionLength(0)))
+                TextField("Stroke width", value: strokeWidthShapeBinding, format: .number.precision(.fractionLength(0...2)))
                     .textFieldStyle(.exp).frame(width: 56 * EXPType.scale).multilineTextAlignment(.trailing)
                     .numericStepping(strokeWidthShapeBinding, min: 0)
+                if let token = numericTokenButton(TokenBindingKey.borderWidth, fieldName: "Stroke width") { token }
                 Spacer()
             }
             EXPSegmented(selection: shapeStrokePatternBinding,
@@ -5424,17 +5601,17 @@ struct RightPanel: View {
 
     /// One per-corner radius field (v1.3 Advanced corners).
     @ViewBuilder
-    private func cornerField(_ label: String, _ kp: WritableKeyPath<CornerRadii, CGFloat>, tip: String) -> some View {
+    private func cornerField(_ label: String, _ key: String, tip: String) -> some View {
         HStack(spacing: 2) {
             Text(label).foregroundStyle(EXPColor.textSecondary).font(.caption2)
-            TextField(tip, value: cornerRadiiBinding(kp), format: .number.precision(.fractionLength(0)))
+            TextField(tip, value: radiusField(key), format: EXPCornerRadiusFormat())
                 .labelsHidden().textFieldStyle(.exp)
                 .multilineTextAlignment(.trailing).monospacedDigit()
-                .frame(width: 44).numericStepping(cornerRadiiBinding(kp), min: 0)
+                .frame(width: 44 * EXPType.scale).numericStepping(radiusStepper(key), min: 0)
+                .accessibilityLabel(tip)
+            if let token = numericTokenButton(key, fieldName: tip) { token }
         }
         .help(tip)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel(tip)
     }
 
     // Read helpers (fill/stroke/width exist on both rect + ellipse).
@@ -5493,53 +5670,41 @@ struct RightPanel: View {
     }
     private var strokeWidthShapeBinding: Binding<Double> {
         Binding(get: { Double(shapeStrokeWidth) },
-                set: { v in updateShape("Stroke Width") { $0.strokeWidth = max(0, CGFloat(v)) } })
+                set: { v in commitNumericField(v, key: TokenBindingKey.borderWidth, action: "Stroke Width") })
     }
     private var shapeStrokePatternBinding: Binding<StrokePattern> {
         Binding(get: { shapeStrokePattern },
                 set: { value in updateShape("Stroke Pattern") { $0.strokePattern = value } })
     }
-    private var cornerRadiusBinding: Binding<Double> {
-        Binding(get: { Double(rectCornerRadius) },
-                set: { v in
-                    guard let id = app.singleSelectedNodeID else { return }
-                    mutateScopedNode(id, action: "Corner Radius") { node in
-                        guard case .rectangle(var s) = node.content else { return }
-                        s.cornerRadius = max(0, CGFloat(v))
-                        // The simple field is the uniform control: setting it
-                        // dissolves any per-corner overrides (v1.3 spec).
-                        s.cornerRadii = nil
-                        node.content = .rectangle(s)
-                    }
-                })
+    private func radiusField(_ key: String, fallback: CGFloat = 0) -> Binding<NumericTokenValue> {
+        Binding(get: {
+            if let percent = selectedNode?.radiusPercentage(for: key) { return .percentage(percent) }
+            return .points(selectedNode?.numericValue(forBindingKey: key) ?? fallback)
+        }, set: { input in
+            switch input {
+            case .points(let value):
+                commitNumericField(Double(value), key: key, action: "Corner Radius")
+            case .percentage(let percent):
+                guard percent.isFinite, (0...1_000_000).contains(percent), let id = app.singleSelectedNodeID else { return }
+                mutateScopedNode(id, action: "Corner Radius") { node in
+                    guard node.setRadiusPercentage(percent, for: key) else { return }
+                    node.replaceCornerBindingScope(for: key)
+                    node.setTokenBinding(key, to: nil)
+                }
+            }
+        })
     }
 
-    /// Effective per-corner radii of the selected rectangle (v1.3).
-    private var rectRadii: CornerRadii {
-        if case .rectangle(let s)? = selectedNode?.content { return s.effectiveRadii }
-        return CornerRadii()
-    }
-
-    /// One corner's binding. Diverging any corner switches the shape to
-    /// per-corner mode; making all four match again collapses back to the
-    /// single uniform `cornerRadius` (so the simple field stays truthful).
-    private func cornerRadiiBinding(_ kp: WritableKeyPath<CornerRadii, CGFloat>) -> Binding<Double> {
-        Binding(get: { Double(rectRadii[keyPath: kp]) },
-                set: { v in
-                    guard let id = app.singleSelectedNodeID else { return }
-                    mutateScopedNode(id, action: "Corner Radius") { node in
-                        guard case .rectangle(var s) = node.content else { return }
-                        var r = s.effectiveRadii
-                        r[keyPath: kp] = max(0, CGFloat(v))
-                        if r.isUniform {
-                            s.cornerRadius = r.topLeft
-                            s.cornerRadii = nil
-                        } else {
-                            s.cornerRadii = r
-                        }
-                        node.content = .rectangle(s)
-                    }
-                })
+    private func radiusStepper(_ key: String, fallback: CGFloat = 0) -> Binding<Double> {
+        let field = radiusField(key, fallback: fallback)
+        return Binding(get: {
+            switch field.wrappedValue {
+            case .points(let value), .percentage(let value): return Double(value)
+            }
+        }, set: { value in
+            if case .percentage = field.wrappedValue { field.wrappedValue = .percentage(CGFloat(value)) }
+            else { field.wrappedValue = .points(CGFloat(value)) }
+        })
     }
 
     /// Selected shape's stroke alignment (single selection; v1.3).
@@ -5589,6 +5754,9 @@ struct RightPanel: View {
             return 0
         },set: { radius in
             guard radius.isFinite else { return }
+            if let selectedNode, selectedNode.boundTokenID(TokenBindingKey.cornerRadius) != nil,
+               let current = selectedNode.numericValue(forBindingKey: TokenBindingKey.cornerRadius),
+               radius == Double((current * 100).rounded() / 100) { return }
             sendCanvasAction("setPolygonCornerRadiusAction:",from: NSNumber(value: min(1_000_000,max(0,radius))))
         })
     }
@@ -5610,6 +5778,7 @@ struct RightPanel: View {
                     .textFieldStyle(.exp).frame(width: 64 * EXPType.scale).multilineTextAlignment(.trailing)
                     .numericStepping(polygonRadiusBinding,min: 0,max: 1_000_000)
                     .help("Rounds the polygon's corners in document points. Oversized radii stop where adjacent corners meet.")
+                if let token = numericTokenButton(TokenBindingKey.cornerRadius, fieldName: "Polygon corner radius") { token }
                 Spacer(minLength: 0)
             }
         }
@@ -5689,18 +5858,25 @@ extension RightPanel {
                 Toggle("Closed", isOn: pathClosedBinding)
                     .font(.callout)
                 if ps.closed {
-                    PaintWell(label: "Fill", paint: pathFillBinding,
-                              gradientSize: ps.fill.gradientValue?.kind == .radial ? ExportRenderView.nsPath(ps,origin: .zero).safeBounds.size : selectedNode?.frame.size,patternBounds: selectedPatternBounds,
-                              selectedGradientStopID: gradientStopSelection)
+                    HStack {
+                        PaintWell(label: "Fill", paint: pathFillBinding,
+                                  gradientSize: ps.fill.gradientValue?.kind == .radial ? ExportRenderView.nsPath(ps,origin: .zero).safeBounds.size : selectedNode?.frame.size,patternBounds: selectedPatternBounds,
+                                  selectedGradientStopID: gradientStopSelection)
+                        appearanceLink(TokenBindingKey.fill)
+                    }
                 }
                 Divider()
                 InspectorSectionTitle(title: "Stroke", icon: "pencil.line")
-                PaintWell(label: "Paint", paint: pathStrokeBinding,gradientSize: selectedNode?.frame.size,patternBounds: selectedPatternBounds)
+                HStack {
+                    PaintWell(label: "Paint", paint: pathStrokeBinding,gradientSize: selectedNode?.frame.size,patternBounds: selectedPatternBounds)
+                    appearanceLink(TokenBindingKey.stroke)
+                }
                 HStack(spacing: 8) {
                     Text("Width").foregroundStyle(EXPColor.textSecondary).font(.callout)
-                    TextField("Path stroke width", value: pathStrokeWidthBinding, format: .number.precision(.fractionLength(0)))
+                    TextField("Path stroke width", value: pathStrokeWidthBinding, format: .number.precision(.fractionLength(0...2)))
                         .textFieldStyle(.exp).frame(width: 56 * EXPType.scale).multilineTextAlignment(.trailing)
                         .numericStepping(pathStrokeWidthBinding, min: 0)
+                if let token = numericTokenButton(TokenBindingKey.borderWidth, fieldName: "Path stroke width") { token }
                     Spacer()
                 }
                 EXPSegmented(selection: pathStrokePatternBinding,
@@ -5775,7 +5951,7 @@ extension RightPanel {
     }
     var pathStrokeWidthBinding: Binding<Double> {
         Binding(get: { Double(selectedPathShape?.strokeWidth ?? 2) },
-                set: { v in updatePath("Stroke Width") { $0.strokeWidth = max(0, CGFloat(v)) } })
+                set: { v in commitNumericField(v, key: TokenBindingKey.borderWidth, action: "Stroke Width") })
     }
     var pathStrokePatternBinding: Binding<StrokePattern> {
         Binding(get: { selectedPathShape?.strokePattern ?? .solid },

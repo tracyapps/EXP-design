@@ -4,5 +4,7 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 scratch="$(mktemp -d /tmp/exp-interface-check.XXXXXX)"
 trap 'rm -rf "$scratch"' EXIT
 xcrun swiftc -parse-as-library "$root/EXP [design]/UI/InterfaceAccessibility.swift" \
+  "$root/EXP [design]/UI/DLSourceTextView.swift" \
+  "$root/EXP [design]/Color/DLCodeSyntax.swift" \
   "$root/scripts/InterfaceAccessibilityCheck.swift" -o "$scratch/check"
 "$scratch/check"

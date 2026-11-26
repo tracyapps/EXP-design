@@ -32,6 +32,7 @@ struct DesignLanguageSettingsPane: View {
                     }
                 }
             }
+            .padding(24)
         }
     }
 }
@@ -42,51 +43,49 @@ private struct DesignLanguageEditor: View {
     @ObservedObject var document: ExpDocument
     let undoManager: UndoManager?
 
+    @AppStorage(AppPreferences.showDesignLanguageCode) private var showsCode = false
     @State private var draftPaint: Paint = .solid(RGBAColor(r: 0.55, g: 0.55, b: 0.6, a: 1))
     @State private var draftName = ""
     @State private var draftCategory: UUID?
     @State private var newCategoryName = ""
     @State private var pasteText = ""
     @State private var showingPaste = false
+    @State private var showingMatchingStyles = false
     @State private var mergeMode: DesignLanguage.MergeMode = .keepBoth
     @State private var draggingCategory: UUID?
-    @State private var editingColor: DesignAsset?
-    @State private var sortColumn: PaintColumn = .category
-    @State private var ascending = true
+    @State private var editingColor: PaintEdit?
+    @State private var sortOrder = [DLPaletteSort(column: .category)]
+    @AppStorage("exp.dl.settingsPaletteColumns") private var paletteColumns: TableColumnCustomization<DLPaletteRow>
     @AppStorage("exp.dl.settingsColorFormat") private var colorFormat: ColorFormat = .hex
 
-    private enum PaintColumn: String {
-        case name = "Name"
-        case value = "Value"
-        case category = "Category"
-    }
-
     private var dl: DesignLanguage { document.model.designLanguage }
+    private var colorModes: [DLMode] { dl.colorModeSet?.modes ?? [] }
 
-    private func valueString(_ asset: DesignAsset) -> String {
-        if case .solid(let color) = asset.value { return ColorMath.string(color, colorFormat) }
-        return DesignLanguageIO.css(for: asset.value)
+    private struct PaintEdit: Identifiable {
+        let asset: DesignAsset
+        let selection: DLSavedColorEditorMode
+        var id: UUID { asset.id }
     }
 
-    private var orderedAssets: [(asset: DesignAsset, value: String)] {
+    private func valueString(_ paint: Paint) -> String {
+        if case .solid(let color) = paint { return ColorMath.string(color, colorFormat) }
+        return DesignLanguageIO.css(for: paint)
+    }
+
+    private func paletteRows(modes: [DLMode]) -> [DLPaletteRow] {
         let rank = Dictionary(uniqueKeysWithValues: dl.categories.enumerated().map { ($1.id, $0) })
-        return dl.assets.map { (asset: $0, value: valueString($0)) }.sorted { a, b in
-            let order: ComparisonResult
-            switch sortColumn {
-            case .name:
-                order = a.asset.name.localizedStandardCompare(b.asset.name)
-            case .value:
-                order = a.value.localizedStandardCompare(b.value)
-            case .category:
-                let ra = a.asset.categoryID.flatMap { rank[$0] } ?? Int.max
-                let rb = b.asset.categoryID.flatMap { rank[$0] } ?? Int.max
-                order = ra == rb ? .orderedSame : (ra < rb ? .orderedAscending : .orderedDescending)
+        let links = document.model.libraryTokenLinks
+        let language = dl
+        return language.assets.map { asset in
+            let colors = modes.map { mode in
+                let paint = language.paint(for: asset, in: mode.id)
+                return (mode.id, DLPaletteModeValue(paint: paint, text: valueString(paint)))
             }
-            if order == .orderedSame {
-                return a.asset.name.localizedStandardCompare(b.asset.name) == .orderedAscending
-            }
-            return order == (ascending ? .orderedAscending : .orderedDescending)
-        }
+            return DLPaletteRow(asset: asset, base: valueString(asset.value),
+                                categoryRank: asset.categoryID.flatMap { rank[$0] } ?? Int.max,
+                                modes: Dictionary(colors, uniquingKeysWith: { first, _ in first }),
+                                isReadOnly: links[asset.id]?.writable == false)
+        }.sorted(using: sortOrder + [DLPaletteSort(column: .name)])
     }
 
     /// Type styles follow the same category/name reading order as paints so the
@@ -104,17 +103,64 @@ private struct DesignLanguageEditor: View {
     }
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Picker("Design Language view", selection: $showsCode) {
+                Text("Table").tag(false)
+                Text("Code").tag(true)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .fixedSize()
+            .accessibilityIdentifier("designLanguage.view")
+            .padding(.horizontal, 24)
+            .padding(.top, 14)
+
+            if showsCode {
+                DesignLanguageCodeEditor(document: document, undoManager: undoManager,
+                                         session: document.designLanguageCodeSession)
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 16)
+            } else {
+                ScrollView {
+                    tableView
+                        .padding(.horizontal, 24)
+                        .padding(.bottom, 24)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private var tableView: some View {
         VStack(alignment: .leading, spacing: 24) {
+            DLColorModeSettingsGroup(document: document, undoManager: undoManager)
+            HStack {
+                Button("Link Matching Styles…") { showingMatchingStyles = true }
+                    .disabled(dl.assets.isEmpty && dl.typeStyles.isEmpty)
+                Button("Open Guide", systemImage: "book") {
+                    let hub = PanelHub.shared
+                    let title = hub.activeDocument === document
+                        ? hub.activeFileURL?.deletingPathExtension().lastPathComponent ?? "Untitled"
+                        : "Untitled"
+                    DesignLanguageGuideWindow.show(document: document, title: title)
+                }
+            }
+            .sheet(isPresented: $showingMatchingStyles) {
+                DLMatchingStylesSheet(document: document, undoManager: undoManager)
+            }
             entriesGroup
             addGroup
             categoriesGroup
             importExportGroup
             typeStylesGroup
-            DLSpacingSettingsGroup(document: document, undoManager: undoManager)
+            ForEach(DLDimensionKind.allCases) { kind in
+                DLDimensionSettingsGroup(kind: kind, document: document, undoManager: undoManager)
+            }
         }
         .sheet(isPresented: $showingPaste) { pasteSheet }
-        .sheet(item: $editingColor) { asset in
-            DLSavedColorEditor(document: document, asset: asset, undoManager: undoManager)
+        .sheet(item: $editingColor) { edit in
+            DLSavedColorEditor(document: document, asset: edit.asset, undoManager: undoManager, startingIn: edit.selection)
         }
     }
 
@@ -129,7 +175,9 @@ private struct DesignLanguageEditor: View {
                 Spacer()
                 Button("Export EXP JSON\u{2026}") { exportToFile() }
                     .buttonStyle(.exp(.secondary)).disabled(dl.assets.isEmpty && dl.typeStyles.isEmpty)
-                Button("Copy CSS") { copy(DesignLanguageIO.exportCSS(dl)) }
+                Button(dl.colorMode().map { "Copy CSS (\($0.name))" } ?? "Copy CSS") {
+                    copy(DesignLanguageIO.exportCSS(DesignLanguageIO.paletteSnapshot(dl)))
+                }
                     .buttonStyle(.exp(.secondary)).disabled(dl.assets.isEmpty && dl.typeStyles.isEmpty)
             }
         }
@@ -189,66 +237,106 @@ private struct DesignLanguageEditor: View {
     // MARK: Entries table (bulk edit)
 
     private var entriesGroup: some View {
-        SettingsGroup("Colors & Gradients (\(dl.assets.count))") {
+        SettingsGroup("Colors & Gradients (\(dl.assets.count))",
+                      footnote: colorModes.isEmpty ? nil : "Base is shared by all modes. Edit a mode cell to override it.") {
             if dl.assets.isEmpty {
                 Text("Nothing saved yet.").foregroundStyle(.secondary)
             } else {
-                let links = document.model.libraryTokenLinks
-                HStack(spacing: 8) {
-                    Color.clear.frame(width: 34, height: 1).accessibilityHidden(true)
-                    sortButton(.name).frame(minWidth: 76, maxWidth: .infinity, alignment: .leading)
-                    HStack(spacing: 4) {
-                        sortButton(.value)
-                        Picker("Color format", selection: $colorFormat) {
-                            ForEach(ColorFormat.allCases) { format in
-                                Text(format == .rgba ? "RGB/A" : format.rawValue).tag(format)
-                            }
+                HStack {
+                    Spacer(minLength: 0)
+                    Picker("Color format", selection: $colorFormat) {
+                        ForEach(ColorFormat.allCases) { format in
+                            Text(format == .rgba ? "RGB/A" : format.rawValue).tag(format)
                         }
-                        .labelsHidden()
-                        .accessibilityLabel("Color value format")
                     }
-                    .frame(minWidth: 145, maxWidth: .infinity, alignment: .leading)
-                    sortButton(.category).frame(width: 96, alignment: .leading)
-                    Color.clear.frame(width: 24, height: 1).accessibilityHidden(true)
+                    .fixedSize()
                 }
-                Divider()
-                LazyVStack(spacing: 6) {
-                    ForEach(orderedAssets, id: \.asset.id) { entry in
-                        let asset = entry.asset
-                        DLEntryRow(
-                            asset: asset,
-                            categories: dl.categories,
-                            value: entry.value,
-                            isReadOnly: links[asset.id]?.writable == false,
-                            onEdit: { editingColor = asset },
-                            onCopy: { copy(entry.value) },
-                            onRename: { name in commit("Rename Swatch") { $0.rename(asset.id, to: name) } },
-                            onSetCategory: { cid in commit("Set Category") { $0.setCategory(asset.id, to: cid) } },
-                            onDelete: { commit("Delete Swatch") { $0.remove(asset.id) } })
-                        Divider().opacity(0.4)
-                    }
-                }
+                entriesTable
             }
         }
     }
 
-    private func sortButton(_ column: PaintColumn) -> some View {
-        Button {
-            if sortColumn == column { ascending.toggle() }
-            else { sortColumn = column; ascending = true }
-        } label: {
-            HStack(spacing: 3) {
-                Text(column.rawValue)
-                if sortColumn == column {
-                    Image(systemName: ascending ? "chevron.up" : "chevron.down")
-                        .accessibilityHidden(true)
+    // A native Table owns both scroll axes. Its headers stay with its viewport
+    // and its stable column IDs let macOS restore the user's arrangement.
+    private var entriesTable: some View {
+        let modes = colorModes
+        let rows = paletteRows(modes: modes)
+        let rowHeight = EXPInterfaceAccessibility.shared.targetHeight(30)
+        return Table(rows, sortOrder: $sortOrder, columnCustomization: $paletteColumns) {
+            TableColumn("Name", sortUsing: DLPaletteSort(column: .name)) { row in
+                DLPaletteNameCell(asset: row.asset) { name in
+                    commit("Rename Swatch") { $0.rename(row.id, to: name) }
                 }
             }
-            .font(.caption.weight(.semibold))
+            .width(min: 95, ideal: 220)
+            .customizationID("name")
+            .disabledCustomizationBehavior(.visibility)
+
+            TableColumn(modes.isEmpty ? "Value" : "Base", sortUsing: DLPaletteSort(column: .base)) { row in
+                DLPaletteBaseCell(row: row,
+                                  onEdit: { editingColor = PaintEdit(asset: row.asset, selection: .base) },
+                                  onCopy: { copy(row.base) })
+            }
+            .width(min: 120, ideal: 230)
+            .customizationID("base")
+            .disabledCustomizationBehavior(.visibility)
+
+            TableColumnForEach(modes) { mode in
+                TableColumn(mode.name, sortUsing: DLPaletteSort(column: .mode(mode.id))) { row in
+                    modeCell(row, mode: mode)
+                }
+                .width(min: 92, ideal: 142)
+                .customizationID("mode.\(mode.id.uuidString)")
+                .disabledCustomizationBehavior(.visibility)
+            }
+
+            TableColumn("Category", sortUsing: DLPaletteSort(column: .category)) { row in
+                categoryMenu(selection: Binding(
+                    get: { dl.asset(row.id)?.categoryID },
+                    set: { id in commit("Set Category") { $0.setCategory(row.id, to: id) } }
+                ), fillsColumn: true)
+                .accessibilityLabel("Category")
+                .accessibilityValue(dl.category(row.asset.categoryID)?.name ?? "Other")
+                .accessibilityIdentifier("dl.category.\(row.id.uuidString)")
+            }
+            .width(min: 96, ideal: 150)
+            .customizationID("category")
+            .disabledCustomizationBehavior(.visibility)
+
+            TableColumn("Actions") { row in
+                Button(role: .destructive) {
+                    deleteDesignLanguageAsset(row.id, name: row.asset.name.isEmpty ? "Unnamed Swatch" : row.asset.name,
+                                              typeStyle: false, document: document, undoManager: undoManager)
+                } label: {
+                    Image(systemName: "trash")
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel("Delete swatch")
+            }
+            .width(min: 60, ideal: 68, max: 105)
+            .customizationID("actions")
+            .disabledCustomizationBehavior(.visibility)
         }
-        .buttonStyle(.borderless)
-        .accessibilityLabel("Sort by \(column.rawValue)")
-        .accessibilityValue(sortColumn == column ? (ascending ? "Ascending" : "Descending") : "")
+        .tableStyle(.inset)
+        .alternatingRowBackgrounds()
+        .frame(maxWidth: .infinity)
+        .containerRelativeFrame(.vertical) { viewportHeight, _ in
+            min(CGFloat(rows.count) * (rowHeight + 6) + 44, max(180, viewportHeight * 0.7))
+        }
+        .accessibilityLabel("Colors and gradients")
+    }
+
+    private func modeCell(_ row: DLPaletteRow, mode: DLMode) -> DLModePaintCell {
+        let asset = row.asset
+        let value = row.modes[mode.id] ?? DLPaletteModeValue(paint: asset.value, text: row.base)
+        let inherited = asset.modeValues[mode.id.uuidString] == nil
+        let edit: (() -> Void)?
+        if case .solid = asset.value, !row.isReadOnly {
+            edit = { editingColor = PaintEdit(asset: asset, selection: .override(mode.id)) }
+        } else { edit = nil }
+        return DLModePaintCell(modeName: mode.name, assetName: asset.name,
+                               paint: value.paint, value: value.text, inheritsBase: inherited,
+                               edit: edit, copy: { copy(value.text) })
     }
 
     private var typeStylesGroup: some View {
@@ -270,7 +358,8 @@ private struct DesignLanguageEditor: View {
                             commit("Set Type Style Category") { $0.setTypeStyleCategory(style.id, to: cid) }
                         },
                         onDelete: {
-                            commit("Delete Type Style") { $0.removeTypeStyle(style.id) }
+                            deleteDesignLanguageAsset(style.id, name: style.name.isEmpty ? style.fallbackLabel : style.name,
+                                                      typeStyle: true, document: document, undoManager: undoManager)
                         })
                     Divider().opacity(0.4)
                 }
@@ -280,7 +369,7 @@ private struct DesignLanguageEditor: View {
 
     // MARK: Category menu (shared by add + rows)
 
-    private func categoryMenu(selection: Binding<UUID?>) -> some View {
+    private func categoryMenu(selection: Binding<UUID?>, fillsColumn: Bool = false) -> some View {
         Menu {
             Button("Other") { selection.wrappedValue = nil }
             if !dl.categories.isEmpty { Divider() }
@@ -293,9 +382,9 @@ private struct DesignLanguageEditor: View {
                 }
             }
         } label: {
-            Text(dl.category(selection.wrappedValue)?.name ?? "Other")
+            Text(dl.category(selection.wrappedValue)?.name ?? "Other").lineLimit(1)
         }
-        .fixedSize()
+        .fixedSize(horizontal: !fillsColumn, vertical: true)
     }
 
     // MARK: Paste sheet
@@ -369,7 +458,8 @@ private struct DesignLanguageEditor: View {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.json]
         panel.nameFieldStringValue = "design-language.json"
-        panel.message = "Export this document's design language as EXP JSON."
+        panel.message = dl.colorMode().map { "Exports the \($0.name) palette. The EXP document keeps all color modes." }
+            ?? "Export this document's design language as EXP JSON."
         guard panel.runModal() == .OK, let url = panel.url,
               let data = try? DesignLanguageIO.exportJSON(dl, patterns: document.model.patterns)
         else { return }
@@ -558,106 +648,161 @@ private struct CategoryDrop: DropDelegate {
     }
 }
 
-/// One entry: swatch + inline-rename + category menu + delete.
-private struct DLEntryRow: View {
-    let asset: DesignAsset
-    let categories: [DLCategory]
-    let value: String
-    let isReadOnly: Bool
-    let onEdit: () -> Void
-    let onCopy: () -> Void
-    let onRename: (String) -> Void
-    let onSetCategory: (UUID?) -> Void
-    let onDelete: () -> Void
+private nonisolated struct DLPaletteModeValue: Sendable {
+    let paint: Paint
+    let text: String
+}
 
+private nonisolated struct DLPaletteRow: Identifiable, Sendable {
+    let asset: DesignAsset
+    let base: String
+    let categoryRank: Int
+    let modes: [UUID: DLPaletteModeValue]
+    let isReadOnly: Bool
+    var id: UUID { asset.id }
+}
+
+private nonisolated struct DLPaletteSort: SortComparator {
+    enum Column: Hashable {
+        case name, base, category, mode(UUID)
+    }
+    let column: Column
+    var order: SortOrder = .forward
+
+    func compare(_ lhs: DLPaletteRow, _ rhs: DLPaletteRow) -> ComparisonResult {
+        let result: ComparisonResult
+        switch column {
+        case .name:
+            result = lhs.asset.name.localizedStandardCompare(rhs.asset.name)
+        case .base:
+            result = lhs.base.localizedStandardCompare(rhs.base)
+        case .category:
+            if lhs.categoryRank == rhs.categoryRank { return .orderedSame }
+            result = lhs.categoryRank < rhs.categoryRank ? .orderedAscending : .orderedDescending
+        case .mode(let id):
+            let first = lhs.modes[id]?.text ?? lhs.base
+            let second = rhs.modes[id]?.text ?? rhs.base
+            result = first.localizedStandardCompare(second)
+        }
+        guard order == .reverse, result != .orderedSame else { return result }
+        return result == .orderedAscending ? .orderedDescending : .orderedAscending
+    }
+}
+
+private struct DLPaletteNameCell: View {
+    let asset: DesignAsset
+    let onRename: (String) -> Void
     @State private var name = ""
     @FocusState private var focused: Bool
 
-    private var categoryLabel: String {
-        categories.first { $0.id == asset.categoryID }?.name ?? "Other"
-    }
-
-    private var canEdit: Bool {
-        !isReadOnly
-    }
-
-    private var swatch: some View {
-        PaintSwatch(paint: asset.value).frame(width: 30, height: 20)
-    }
-
     var body: some View {
-        HStack(spacing: 8) {
-            Group {
-                if canEdit {
-                    Button(action: onEdit) { swatch }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Edit \(asset.name.isEmpty ? "saved color" : asset.name)")
-                        .help(asset.value.savedPaintEditLabel)
-                } else {
-                    swatch
-                        .overlay(alignment: .bottomTrailing) {
-                            if isReadOnly { Image(systemName: "lock.fill").font(.caption2) }
-                        }
-                        .accessibilityLabel(isReadOnly ? "Read-only library color" : "Gradient preview")
-                        .help(isReadOnly ? "Edit the source token this alias points to" : "Gradient preview")
-                }
-            }
-            .frame(width: 34)
-            .contextMenu {
-                if canEdit { Button(asset.value.savedPaintEditLabel, action: onEdit) }
-                Button("Copy Value", action: onCopy)
-            }
-            TextField("Name", text: $name)
-                .textFieldStyle(.roundedBorder).frame(minWidth: 76, maxWidth: .infinity)
-                .focused($focused)
-                .onSubmit(commit)
-                .onChange(of: focused) { _, f in if !f { commit() } }
-            HStack(spacing: 4) {
-                Text(value)
-                    .font(.system(.caption, design: .monospaced))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .textSelection(.enabled)
-                    .accessibilityIdentifier("dl.value.\(asset.id.uuidString)")
-                    .help(value)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .clipped()
-                Button(action: onCopy) { Image(systemName: "doc.on.doc") }
-                    .buttonStyle(.borderless)
-                    .accessibilityLabel("Copy value for \(asset.name.isEmpty ? "unnamed swatch" : asset.name)")
-                    .help("Copy Value")
-            }
-            .frame(minWidth: 145, maxWidth: .infinity, alignment: .leading)
-            .clipped()
-            Menu {
-                Button("Other") { onSetCategory(nil) }
-                if !categories.isEmpty { Divider() }
-                ForEach(categories) { c in
-                    Button {
-                        onSetCategory(c.id)
-                    } label: {
-                        if asset.categoryID == c.id { Label(c.name, systemImage: "checkmark") }
-                        else { Text(c.name) }
-                    }
-                }
-            } label: {
-                Text(categoryLabel).lineLimit(1)
-            }
-            .frame(width: 96)
-            .accessibilityLabel("Category")
-            .accessibilityValue(categoryLabel)
-            .accessibilityIdentifier("dl.category.\(asset.id.uuidString)")
-            Button(role: .destructive) { onDelete() } label: { Image(systemName: "trash") }
-                .buttonStyle(.borderless)
-                .frame(width: 24)
-                .accessibilityLabel("Delete swatch")
-        }
-        .onAppear { name = asset.name }
-        .onChange(of: asset.name) { _, n in if !focused { name = n } }
+        TextField("Swatch name", text: $name)
+            .textFieldStyle(.roundedBorder)
+            .focused($focused)
+            .onSubmit(commit)
+            .onChange(of: focused) { _, focused in if !focused { commit() } }
+            .onAppear { name = asset.name }
+            .onChange(of: asset.name) { _, updated in if !focused { name = updated } }
     }
 
     private func commit() {
-        let t = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        if t != asset.name { onRename(t) }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed != asset.name { onRename(trimmed) }
+    }
+}
+
+private struct DLPaletteBaseCell: View {
+    let row: DLPaletteRow
+    let onEdit: () -> Void
+    let onCopy: () -> Void
+
+    private var name: String { row.asset.name.isEmpty ? "saved color" : row.asset.name }
+    private var swatch: some View {
+        PaintSwatch(paint: row.asset.value).frame(width: 28, height: 18)
+    }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Group {
+                if row.isReadOnly {
+                    swatch
+                        .overlay(alignment: .bottomTrailing) {
+                            Image(systemName: "lock.fill").font(.caption2)
+                        }
+                        .accessibilityLabel("Read-only library color")
+                        .help("Edit the source token this alias points to")
+                } else {
+                    Button(action: onEdit) { swatch }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Edit \(name)")
+                        .help(row.asset.value.savedPaintEditLabel)
+                }
+            }
+            .layoutPriority(1)
+            Text(row.base)
+                .font(.system(.caption, design: .monospaced))
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+                .accessibilityIdentifier("dl.value.\(row.id.uuidString)")
+                .help(row.base)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .clipped()
+            Button(action: onCopy) { Image(systemName: "doc.on.doc") }
+                .buttonStyle(.borderless)
+                .accessibilityLabel("Copy value for \(name)")
+                .help("Copy Value")
+                .layoutPriority(1)
+        }
+        .clipped()
+        .contextMenu {
+            if !row.isReadOnly { Button(row.asset.value.savedPaintEditLabel, action: onEdit) }
+            Button("Copy Value", action: onCopy)
+        }
+    }
+}
+
+private struct DLModePaintCell: View {
+    let modeName: String
+    let assetName: String
+    let paint: Paint
+    let value: String
+    let inheritsBase: Bool
+    let edit: (() -> Void)?
+    let copy: () -> Void
+
+    private var label: String { "\(assetName.isEmpty ? "Unnamed swatch" : assetName), \(modeName)" }
+    private var detail: String { inheritsBase ? "Uses Base, \(value)" : value }
+
+    var body: some View {
+        Group {
+            if let edit {
+                Button(action: edit) { cell }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel("Edit \(label)")
+                    .accessibilityValue(detail)
+            } else {
+                cell.accessibilityElement(children: .ignore)
+                    .accessibilityLabel(label)
+                    .accessibilityValue(detail)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .clipped()
+        .help(detail)
+        .contextMenu {
+            if let edit { Button("Edit \(modeName) Value…", action: edit) }
+            Button("Copy Value", action: copy)
+        }
+    }
+
+    private var cell: some View {
+        HStack(spacing: 4) {
+            PaintSwatch(paint: paint).frame(width: 20, height: 14)
+            Text(inheritsBase ? "Uses Base" : value)
+                .font(.caption)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
     }
 }

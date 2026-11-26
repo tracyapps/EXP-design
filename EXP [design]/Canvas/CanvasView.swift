@@ -2410,17 +2410,25 @@ final class CanvasNSView: NSView {
         applyTypeStyle(style, toTextNode: id)
     }
 
-    /// Apply a type style to a text node (one undo step). Same re-hug rule as
-    /// every whole-text styling op (`toggleWholeText`).
     func applyTypeStyle(_ style: TypeStyle, toTextNode id: UUID) {
-        guard let n = node(id), case .text(var tc) = n.content else { return }
-        style.apply(to: &tc)
+        guard let language = document?.model.designLanguage else { return }
+        if editingNodeID != nil { commitTextEditing() }
         var nodes = currentNodes
-        guard let i = nodes.firstIndex(where: { $0.id == id }) else { return }
+        if activeEditingState != nil {
+            guard let selected = node(id), !selected.isLocked, case .text(var text) = selected.content else { return }
+            style.apply(to: &text)
+            guard Self.mutateNested(id, in: &nodes, { node in
+                node.content = .text(text)
+                node.frame.size = text.measuredSize(boxWidth: node.frame.width)
+            }) else { return }
+            app?.rememberTextStyle(fontName: style.fontName, fontSize: style.fontSize)
+            commitNodes(nodes, actionName: "Apply Type Style")
+            return
+        }
+        guard Node.linkAppearance(in: &nodes, selection: [id], key: TokenBindingKey.textStyle,
+                                  to: style.id, language: language) else { return }
         app?.rememberTextStyle(fontName: style.fontName, fontSize: style.fontSize)
-        nodes[i].content = .text(tc)
-        nodes[i].frame.size = tc.measuredSize(boxWidth: nodes[i].frame.width)
-        commitNodes(nodes, actionName: "Apply Type Style")
+        commitNodes(nodes, actionName: "Link Type Style")
     }
 
     @objc func convertTextToShapesAction(_ sender: Any?) { convertSelectedTextToShapes() }
@@ -3819,7 +3827,7 @@ final class CanvasNSView: NSView {
         popover.contentViewController?.view.window?.hidesOnDeactivate = true
         popover.contentViewController?.view.window?.orderFront(nil)
         gradientStopPopover = popover
-        PaintPopoverActivity.shared.open(popover, anchor: nil,
+        PaintPopoverActivity.shared.open(popover, anchor: self,
                                          surface: { [weak popover] in popover?.contentViewController?.view.window },
                                          close: { [weak popover] in
             PaintPopoverActivity.releaseFocus(popoverWindow: popover?.contentViewController?.view.window,
@@ -4284,7 +4292,8 @@ final class CanvasNSView: NSView {
         guard let document, !isSourceScope else { return nil }
         for ab in currentArtboards.reversed() {
             let r = docToView(ab.frame)
-            let band = CGRect(x: r.minX, y: r.minY - 22, width: max(r.width, 80), height: 20)
+            let inset = artboardNameInset(ab)
+            let band = CGRect(x: r.minX + inset, y: r.minY - 22, width: max(r.width - inset, 80), height: 20)
             if band.contains(point) { return ab }
         }
         return nil
@@ -5059,7 +5068,7 @@ final class CanvasNSView: NSView {
     private func drawPanZoomBlit(into ctx: CGContext) -> Bool {
         guard let app, panZoomBlitActive, let snap = panZoomSnapshot,
               panZoomSnapshotSize.width > 0 else { return false }
-        NSColor.underPageBackgroundColor.setFill()
+        wallBackgroundColor.setFill()
         bounds.fill()
         let k = app.zoom / panZoomSnapshotZoom
         // A snapshot pixel at capture-view point v maps to k·v + (pan1 − k·pan0);
@@ -5238,7 +5247,7 @@ final class CanvasNSView: NSView {
         // BELOW: opaque base — background, boards, nodes under the dragged ones.
         let belowStarted = CFAbsoluteTimeGetCurrent()
         dragBlitBelow = renderLayer { ctx in
-            NSColor.underPageBackgroundColor.setFill()
+            wallBackgroundColor.setFill()
             bounds.fill()
             for artboard in currentArtboards {
                 guard docToView(artboard.frame).insetBy(dx: -24, dy: -24).intersects(visible)
@@ -5513,7 +5522,7 @@ final class CanvasNSView: NSView {
         }
 
         perf.measure("draw-bg") {
-            NSColor.underPageBackgroundColor.setFill()
+            wallBackgroundColor.setFill()
             region.fill()
         }
 
@@ -6574,7 +6583,7 @@ final class CanvasNSView: NSView {
         }
 
         if artboard.id != editingArtboardID {
-            drawLabel(artboard.name, above: rect)
+            drawLabel(artboard.name, above: rect, inset: artboardNameInset(artboard))
         }
     }
 
@@ -6689,11 +6698,55 @@ final class CanvasNSView: NSView {
     private var matrixPixelDependencyGeneration = 0
     private var matrixCapturePixelScale: CGFloat?
 
+    private var drawingAppearanceModeID: UUID?
+    private var canvasModeCache: (document: ObjectIdentifier, generation: Int, page: UUID?,
+                                  wall: DLMode?, artboards: [UUID: UUID])?
+
+    private var canvasModes: (wall: DLMode?, artboards: [UUID: UUID]) {
+        guard scope == .document, let document else { return (nil, [:]) }
+        let pageID = app?.activeCanvasPageID
+        let id = ObjectIdentifier(document)
+        if let cache = canvasModeCache, cache.document == id,
+           cache.generation == document.resolveGeneration, cache.page == pageID {
+            return (cache.wall, cache.artboards)
+        }
+        let language = document.model.designLanguage
+        let page = document.model.page(for: pageID)
+        let wall = language.colorMode(on: page)
+        var artboards: [UUID: UUID] = [:]
+        if let wall {
+            for board in page?.artboards ?? [] {
+                if let id = language.colorMode(for: board, on: page)?.id, id != wall.id {
+                    artboards[board.id] = id
+                }
+            }
+        }
+        canvasModeCache = (id, document.resolveGeneration, pageID, wall, artboards)
+        return (wall, artboards)
+    }
+
+    private var wallBackgroundColor: NSColor {
+        canvasModes.wall.map { PaintRender.nsColor($0.canvasWallBackground) } ?? .underPageBackgroundColor
+    }
+
     private func drawNode(_ node: Node, offset: CGPoint, in ctx: CGContext) {
         guard let app else { return }
         if node.id == editingNodeID { return }
+        let inheritedMode = drawingAppearanceModeID
+        if matrixRenderPath.isEmpty {
+            switch node.content {
+            case .group, .instance:
+                let modes = canvasModes
+                drawingAppearanceModeID = node.artboardID.flatMap { modes.artboards[$0] } ?? modes.wall?.id
+            default:
+                break
+            }
+        }
         matrixRenderPath.append(node.id)
-        defer { matrixRenderPath.removeLast() }
+        defer {
+            matrixRenderPath.removeLast()
+            drawingAppearanceModeID = inheritedMode
+        }
         if let index = node.effects.lastIndex(where: { $0.isEnabled && $0.kind == .colorMatrix }) {
             let rect = docToView(node.frame.offsetBy(dx: offset.x, dy: offset.y))
             guard node.effects.filter({ $0.isEnabled && $0.kind == .colorMatrix }).count <= 32 else {
@@ -7186,8 +7239,7 @@ final class CanvasNSView: NSView {
                 let box = CGRect(x: rect.minX + pad.marginLeft * z, y: rect.minY + pad.marginTop * z,
                                  width: max(0, rect.width - pad.marginW * z),
                                  height: max(0, rect.height - pad.marginH * z))
-                let radius = pad.cornerRadius * z
-                let path = NSBezierPath(roundedRect: box, xRadius: radius, yRadius: radius)
+                let path = NSBezierPath(cgPath: pad.effectiveRadii.path(in: box, scale: z))
                 if let fill = pad.fill {
                     PaintRender.fill(fill, path: path, bounds: box, in: ctx, patterns: patterns,
                                      patternSpace: patternSpace)
@@ -7271,7 +7323,7 @@ final class CanvasNSView: NSView {
     // every visible instance every frame for ZERO model change. We cache the resolved
     // children by the instance node's id, valid for one `resolveGeneration`: any edit
     // bumps the generation and clears the cache, so a hit is never stale.
-    private var instanceResolveCache: [UUID: [Node]] = [:]
+    private var instanceResolveCache: [UUID: (mode: UUID?, children: [Node])] = [:]
     private var instanceResolveGen: Int = -1
     private var instanceTopLevelIDs: Set<UUID> = []
 
@@ -7352,12 +7404,15 @@ final class CanvasNSView: NSView {
             }
         }
         guard instanceTopLevelIDs.contains(node.id) else {
-            return document.model.resolvedChildren(of: inst)
+            return document.model.resolvedChildren(of: inst, appearanceModeID: drawingAppearanceModeID)
         }
-        if let hit = instanceResolveCache[node.id] { perfCacheHit += 1; return hit }
+        if let hit = instanceResolveCache[node.id], hit.mode == drawingAppearanceModeID {
+            perfCacheHit += 1
+            return hit.children
+        }
         perfCacheMiss += 1
-        let resolved = document.model.resolvedChildren(of: inst)
-        instanceResolveCache[node.id] = resolved
+        let resolved = document.model.resolvedChildren(of: inst, appearanceModeID: drawingAppearanceModeID)
+        instanceResolveCache[node.id] = (drawingAppearanceModeID, resolved)
         return resolved
     }
 
@@ -8127,13 +8182,20 @@ final class CanvasNSView: NSView {
         return nil
     }
 
-    private func drawLabel(_ text: String, above rect: CGRect) {
+    private func artboardNameInset(_ board: Artboard) -> CGFloat {
+        DLArtboardModeHeader.nameInset(board, enabled: document?.model.designLanguage.colorMode() != nil,
+                                      zoom: app?.zoom ?? 1, selected: app?.selectedArtboardIDs.contains(board.id) == true)
+    }
+
+    private func drawLabel(_ text: String, above rect: CGRect, inset: CGFloat) {
+        let foreground = canvasModes.wall.map { PaintRender.nsColor($0.canvasWallLabelColor) }
+            ?? .secondaryLabelColor
         let attrs: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 11, weight: .medium),
-            .foregroundColor: NSColor.secondaryLabelColor
+            .foregroundColor: foreground
         ]
         let string = NSAttributedString(string: text, attributes: attrs)
-        string.draw(at: CGPoint(x: rect.minX, y: rect.minY - string.size().height - 6))
+        string.draw(at: CGPoint(x: rect.minX + inset, y: rect.minY - string.size().height - 6))
     }
 
     // MARK: Pan / zoom
@@ -8525,7 +8587,6 @@ final class CanvasNSView: NSView {
             case "k": setTool(.knife);     return
             case "t": setTool(.text);      return
             case "f": setTool(.artboard);  return   // Figma's Frame key
-            case "i": eyedropToSelection(); return   // sample → apply to selection
             default: break
             }
 
@@ -9659,13 +9720,20 @@ final class CanvasNSView: NSView {
     /// Seed a new node from the type tool's app-wide memory. A remembered face may
     /// have been removed since the prior launch; fall back to System for creation
     /// rather than writing an unavailable PostScript name into the document.
-    private func rememberedTextContent() -> TextContent {
+    private func rememberedTextContent(at point: CGPoint) -> TextContent {
         let style = app?.rememberedTextStyle ?? RememberedTextStyle()
         let fontName = style.fontName.isEmpty
             || NSFont(name: style.fontName, size: style.fontSize) != nil
             ? style.fontName : ""
-        return TextContent(string: "", fontSize: style.fontSize,
-                           color: style.color, fontName: fontName)
+        let board = currentArtboards.last { $0.frame.contains(point) }
+        let mode = isSourceScope ? nil : document.flatMap {
+            $0.model.designLanguage.colorMode(for: board, on: $0.model.page(for: activePageID))
+        }
+        var text = TextContent(string: "", fontSize: style.fontSize, color: style.color, fontName: fontName)
+        if !isSourceScope && (mode != nil || style.color == .black) {
+            text.runs[0].setModeForeground(mode?.resolvedForeground ?? .black)
+        }
+        return text
     }
 
     /// Place a new text node at a click and immediately edit it.
@@ -9673,7 +9741,7 @@ final class CanvasNSView: NSView {
         guard let app, let document else { return }
         textEditBaseline = document.model
         let origin = pxSnap(viewToDoc(viewPoint))   // whole-pixel text placement
-        let content = rememberedTextContent()
+        let content = rememberedTextContent(at: origin)
         let size = content.measuredSize()   // placeholder box (font-aware)
         let node = Node(name: "Text",
                         frame: CGRect(origin: origin, size: size),
@@ -9695,7 +9763,7 @@ final class CanvasNSView: NSView {
         textEditBaseline = document.model
         let viewRect = CGRect(x: min(start.x, end.x), y: min(start.y, end.y),
                               width: abs(end.x - start.x), height: abs(end.y - start.y))
-        var content = rememberedTextContent()
+        var content = rememberedTextContent(at: viewToDoc(start))
         content.box = .fixed
         let node = Node(name: "Text", frame: pxSnapRect(viewToDoc(viewRect)), content: .text(content))
         withNodes { $0.append(node) }
@@ -9719,7 +9787,7 @@ final class CanvasNSView: NSView {
               case .text(let tc) = target.content else { return }
         app?.rememberTextStyle(fontName: tc.firstRun.fontName,
                                fontSize: tc.firstRun.fontSize,
-                               color: tc.firstRun.color)
+                               color: tc.firstRun.usesModeForeground == true ? nil : tc.firstRun.color)
         if editingNodeID != nil { commitTextEditing() }
         if textEditBaseline == nil { textEditBaseline = document.model }
 
@@ -9749,11 +9817,13 @@ final class CanvasNSView: NSView {
             tv.textContainer?.widthTracksTextView = true
             tv.textContainer?.containerSize = CGSize(width: base.width, height: .greatestFiniteMagnitude)
         }
-        tv.textStorage?.setAttributedString(tc.attributedString(scale: textEditScale, applyCase: false))
+        tv.textStorage?.setAttributedString(tc.attributedString(scale: textEditScale, applyCase: false,
+                                                               includeModeForeground: true))
         tv.typingAttributes = [
             .font: tc.firstRun.nsFont(scale: textEditScale),
             .foregroundColor: PaintRender.nsColor(tc.firstRun.color)
         ]
+        if tc.firstRun.usesModeForeground == true { tv.typingAttributes[.expModeForeground] = true }
         tv.delegate = self
         addSubview(tv)
         window?.makeFirstResponder(tv)
@@ -9762,6 +9832,10 @@ final class CanvasNSView: NSView {
         // nothing to select, so it just gets a caret.
         let length = tv.string.utf16.count
         tv.setSelectedRange(NSRange(location: 0, length: length))
+        if isNew && tc.firstRun.usesModeForeground == true {
+            tv.typingAttributes[.foregroundColor] = PaintRender.nsColor(tc.firstRun.color)
+            tv.typingAttributes[.expModeForeground] = true
+        }
         // Announce the opening selection explicitly. AppKit posts this for ordinary
         // selection changes, but the range is set here as part of taking focus, and
         // a VoiceOver user needs to hear that the text is selected before typing
@@ -9775,6 +9849,7 @@ final class CanvasNSView: NSView {
         captureTextEditSnapshot()
         // Inspector controls call this directly (synchronously) while editing.
         app?.applyTextStyle = { [weak self] op in self?.applyTextStyleOp(op) }
+        app?.finishInlineTextEditing = { [weak self] in self?.commitTextEditing() }
         publishTextSelection()
         needsDisplay = true
     }
@@ -9824,6 +9899,7 @@ final class CanvasNSView: NSView {
         // of truth here. Tear down the live hook so stray calls can't target a
         // committed editor.
         app?.applyTextStyle = nil
+        app?.finishInlineTextEditing = nil
 
         // Text/style delegate paths update this snapshot synchronously. It is the
         // source of truth at commit so AppKit's first-responder teardown cannot
@@ -9861,6 +9937,7 @@ final class CanvasNSView: NSView {
                 node.frame.size = newSize
             }
             if let baseline {
+                if !isSourceScope { document.model.reconcileArtboardOwnership(on: activePageID) }
                 document.registerUndo(restoring: baseline, undoManager: undoManager,
                                       actionName: wasNew ? "Add Text" : "Edit Text")
             }
@@ -9887,6 +9964,29 @@ final class CanvasNSView: NSView {
     // (text sizing now lives on TextContent.measuredSize() — font-aware)
 
     // MARK: Text styling (Bold / Italic / Underline)
+
+    private var canUseModeTextColor: Bool {
+        guard !isSourceScope, document?.model.designLanguage.colorMode() != nil,
+              let id = app?.singleSelectedNodeID, let selected = node(id), !selected.isLocked,
+              case .text = selected.content else { return false }
+        return true
+    }
+
+    @objc func useModeTextColorAction(_ sender: Any?) {
+        guard canUseModeTextColor, let id = app?.singleSelectedNodeID else { return }
+        if editingNodeID != nil { commitTextEditing() }
+        var nodes = currentNodes
+        var changed = false
+        Self.mutateNested(id, in: &nodes) { node in
+            guard case .text(var text) = node.content,
+                  text.runs.contains(where: { $0.usesModeForeground != true }) else { return }
+            text.applyToAllRuns { $0.usesModeForeground = true }
+            node.setTokenBinding(TokenBindingKey.textColor, to: nil)
+            node.content = .text(text)
+            changed = true
+        }
+        if changed { commitNodes(nodes, actionName: "Use Mode Text Color") }
+    }
     //
     // While editing, these affect the NSTextView's selection (or typing
     // attributes when nothing is selected). Otherwise they toggle the whole
@@ -9968,7 +10068,7 @@ final class CanvasNSView: NSView {
         guard let i = nodes.firstIndex(where: { $0.id == id }) else { return }
         app?.rememberTextStyle(fontName: tc.firstRun.fontName,
                                fontSize: tc.firstRun.fontSize,
-                               color: tc.firstRun.color)
+                               color: tc.firstRun.usesModeForeground == true ? nil : tc.firstRun.color)
         nodes[i].content = .text(tc)
         nodes[i].frame.size = tc.measuredSize(boxWidth: nodes[i].frame.width)
         commitNodes(nodes, actionName: "Text Style")
@@ -10034,6 +10134,7 @@ final class CanvasNSView: NSView {
             if sel.length == 0 {
                 if case .color(let c) = op {
                     tv.typingAttributes[.foregroundColor] = PaintRender.nsColor(c)
+                    tv.typingAttributes[.expModeForeground] = nil
                 } else {
                     let f = (tv.typingAttributes[.font] as? NSFont) ?? .systemFont(ofSize: 16)
                     tv.typingAttributes[.font] = newFont(f)
@@ -10042,6 +10143,7 @@ final class CanvasNSView: NSView {
                 storage.beginEditing()
                 if case .color(let c) = op {
                     storage.addAttribute(.foregroundColor, value: PaintRender.nsColor(c), range: sel)
+                    storage.removeAttribute(.expModeForeground, range: sel)
                 } else {
                     storage.enumerateAttribute(.font, in: sel, options: []) { val, sub, _ in
                         let f = (val as? NSFont) ?? .systemFont(ofSize: 16)
@@ -10077,9 +10179,10 @@ final class CanvasNSView: NSView {
             guard let self else { return }
             if s != nil, self.editingNodeID == nil { return }
             if let s {
+                let usesMode = !self.isSourceScope && self.document?.model.designLanguage.colorMode() != nil
                 self.app?.rememberTextStyle(fontName: s.fontName,
                                             fontSize: s.fontSize,
-                                            color: s.color)
+                                            color: usesMode ? nil : s.color)
             }
             guard self.app?.textSelection != s else { return }
             self.app?.textSelection = s
@@ -12099,7 +12202,8 @@ final class CanvasNSView: NSView {
               let ab = currentArtboards.first(where: { $0.id == id }) else { return }
         commitArtboardRename()   // finish any prior edit
         let r = docToView(ab.frame)
-        let frame = CGRect(x: r.minX, y: max(0, r.minY - 22), width: max(r.width, 120), height: 18)
+        let inset = artboardNameInset(ab)
+        let frame = CGRect(x: r.minX + inset, y: max(0, r.minY - 22), width: max(r.width - inset, 120), height: 18)
         let tf = NSTextField(frame: frame)
         tf.stringValue = ab.name
         tf.font = .systemFont(ofSize: 11)
@@ -12338,6 +12442,64 @@ final class CanvasNSView: NSView {
         // visibly above it without owning keyboard input (see PanelWindow.open).
         window.makeKey()
         window.makeFirstResponder(self)
+    }
+
+    @objc func findInDocumentAction(_ sender: Any?) {
+        guard !isSourceScope, let document, let window, window.attachedSheet == nil else { return }
+        commitTextEditing(keepNodeSelected: true)
+        let model = document.model
+        let sheet = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 600, height: 420),
+                             styleMask: [.titled], backing: .buffered, defer: false)
+        sheet.title = "Find in Document"
+        var target: DocumentSearch.Target?
+        sheet.contentViewController = NSHostingController(rootView: DocumentSearchView(
+            pages: model.pages,
+            search: DocumentSearch(document: model),
+            finish: { [weak window, weak sheet] result in
+                guard let window, let sheet, window.attachedSheet === sheet else { return }
+                target = result
+                window.endSheet(sheet, returnCode: result == nil ? .cancel : .OK)
+            }
+        ))
+        window.beginSheet(sheet) { [weak self, weak document] response in
+            guard let self, let document, self.document === document else { return }
+            if response == .OK, let target { self.revealDocumentSearchResult(target) }
+            else { self.focusCanvasAction(nil) }
+        }
+    }
+
+    private func revealDocumentSearchResult(_ target: DocumentSearch.Target) {
+        guard let app, let model = document?.model else { return }
+        let pageID: UUID
+        switch target {
+        case .source(let id):
+            if model.sources.contains(where: { $0.id == id }) { openSourceEditor(id) }
+            return
+        case .page(let id), .artboard(let id, _), .instance(let id, _):
+            pageID = id
+        }
+        guard model.pages.contains(where: { $0.id == pageID }) else { return }
+        if app.activeCanvasPageID != pageID {
+            app.activeCanvasPageID = pageID
+            syncActivePageIfNeeded()
+        }
+        app.selectedNodeIDs = []
+        app.selectedArtboardIDs = []
+        app.selectionAnchorID = nil
+        switch target {
+        case .artboard(_, let id):
+            if currentArtboards.contains(where: { $0.id == id }) { app.selectedArtboardIDs = [id] }
+        case .instance(_, let id):
+            if let node = node(id), node.isVisible, case .instance = node.content {
+                app.selectedNodeIDs = [id]
+                app.selectionAnchorID = id
+            }
+        case .page, .source:
+            break
+        }
+        revealInViewport(selectionBounds())
+        needsDisplay = true
+        focusCanvasAction(nil)
     }
 
     @objc func toggleRulersAction(_ sender: Any?) {
@@ -12611,6 +12773,23 @@ final class CanvasNSView: NSView {
 
     /// The artboard an export targets: the selected artboard, else the owning
     /// artboard of a selected shape, else the first artboard.
+    @objc func openDesignLanguageGuideAction(_ sender: Any?) {
+        guard let document else { return }
+        DesignLanguageGuideWindow.show(document: document, title: documentURL?.deletingPathExtension().lastPathComponent ?? "Untitled")
+    }
+
+    @objc func exportDesignLanguageFolderAction(_ sender: Any?) {
+        guard let document else { return }
+        DesignLanguageGuideWindow.exportFolder(document: document,
+            title: documentURL?.deletingPathExtension().lastPathComponent ?? "Untitled", parent: window)
+    }
+
+    @objc func exportDesignLanguageGuideAction(_ sender: Any?) {
+        guard let document else { return }
+        DesignLanguageGuideWindow.export(document: document,
+            title: documentURL?.deletingPathExtension().lastPathComponent ?? "Untitled", parent: window)
+    }
+
     private func targetExportArtboard() -> Artboard? {
         guard let document else { return nil }
         if let id = app?.selectedArtboardID, let ab = currentArtboards.first(where: { $0.id == id }) { return ab }
@@ -12764,12 +12943,15 @@ final class CanvasNSView: NSView {
         panel.canCreateDirectories = true
         panel.allowedContentTypes = [.json]
         panel.nameFieldStringValue = "tokens.json"
-        panel.message = "Export this document's Design Language as portable design tokens."
+        panel.message = document.model.designLanguage.colorMode().map {
+            "Exports the \($0.name) palette. The EXP document keeps all color modes."
+        } ?? "Export this document's Design Language as portable design tokens."
 
         let complete: (NSApplication.ModalResponse) -> Void = { [weak self] response in
             guard let self, response == .OK, let url = panel.url else { return }
             do {
-                let data = try DesignLanguageIO.exportDesignTokensJSON(document.model.designLanguage)
+                let palette = DesignLanguageIO.paletteSnapshot(document.model.designLanguage)
+                let data = try DesignLanguageIO.exportDesignTokensJSON(palette)
                 try data.write(to: url, options: .atomic)
                 UsageMetrics.shared.output(document, kind: .tokens)
             } catch {
@@ -13223,16 +13405,28 @@ final class CanvasNSView: NSView {
     /// text color for text, and the frame background for an auto-padding group.
     /// Triggered by `i` with a selection; one undo step. No-op if nothing selected.
     private func eyedropToSelection() {
-        guard let app, !app.selectedNodeIDs.isEmpty else { return }
+        guard let app, let document, let window, !app.selectedNodeIDs.isEmpty else { return }
         let ids = app.selectedNodeIDs
-        NSColorSampler().show { [weak self] picked in
-            guard let self, let ns = picked?.usingColorSpace(.sRGB) else { return }   // nil = cancelled
-            let rgba = RGBAColor(r: Double(ns.redComponent), g: Double(ns.greenComponent),
-                                 b: Double(ns.blueComponent), a: Double(ns.alphaComponent))
+        let scope = scope
+        let pageID = activePageID
+        let stateID = activeEditingState?.id
+        ScreenEyedropper.pick(for: "canvas selection") { [weak self, weak document, weak window] rgba in
+            // Key focus can move to a tray or a different display during the pick.
+            // Only a change to the originating edit context invalidates the result.
+            guard let self, let document, let window, self.window === window,
+                  self.document === document, self.scope == scope, self.activePageID == pageID,
+                  self.activeEditingState?.id == stateID else {
+                DiagnosticLog.shared.log("[EXP eyedropper] Canvas edit context changed during pick")
+                return
+            }
             var nodes = self.currentNodes
-            guard Self.eyedropFill(rgba, into: ids, in: &nodes) else { return }
+            guard Self.eyedropFill(rgba, into: ids, in: &nodes) else {
+                DiagnosticLog.shared.log("[EXP eyedropper] No editable paint in the original canvas selection")
+                return
+            }
             self.commitNodes(nodes, actionName: "Eyedropper Fill")
             self.needsDisplay = true
+            DiagnosticLog.shared.log("[EXP eyedropper] Applied to canvas selection")
         }
     }
 
@@ -13956,6 +14150,8 @@ final class CanvasNSView: NSView {
         add(menu, "New Empty Pattern…", #selector(newEmptyPatternAction(_:)))
         if isSourceScope {
             add(menu, "Fit Source to Artwork", #selector(fitSourceToArtworkAction(_:)))
+        } else {
+            add(menu, "Find in Document…", #selector(findInDocumentAction(_:)))
         }
         menu.addItem(.separator())
 
@@ -14062,6 +14258,9 @@ final class CanvasNSView: NSView {
             switch hit.content {
             case .text:
                 add(menu, "Save as Type Style…", #selector(saveTypeStyleAction(_:)))
+                if canUseModeTextColor {
+                    add(menu, "Use Mode Text Color", #selector(useModeTextColorAction(_:)))
+                }
                 let roleItem = NSMenuItem(title: "Content Role", action: nil, keyEquivalent: "")
                 let roleMenu = NSMenu()
                 let currentRole: TextContentRole = {
@@ -14146,6 +14345,7 @@ final class CanvasNSView: NSView {
                 needsDisplay = true
             }
             add(menu, "Rename", #selector(renameArtboardAction(_:)))
+            if let modes = artboardColorModeMenu(for: board) { menu.addItem(modes) }
             add(menu, "Center in View", #selector(centerSelectionAction(_:)))
             add(menu, "Round to Pixel", #selector(roundToPixelAction(_:)))
             if (app?.selectedArtboardIDs.count ?? 0) >= 2 {
@@ -14258,6 +14458,31 @@ final class CanvasNSView: NSView {
         item.target = self
         menu.addItem(item)
     }
+
+    private func artboardColorModeMenu(for board: Artboard) -> NSMenuItem? {
+        guard let language = document?.model.designLanguage, let set = language.colorModeSet,
+              let mode = language.colorMode(on: document?.model.page(for: activePageID)) else { return nil }
+        let choices = NSMenu()
+        let storedOverride = board.modeOverrides?[set.id.uuidString]
+        let overrideID = set.modes.first { $0.id == storedOverride }?.id
+        let entries: [(title: String, mode: UUID?)] = [("Use Page Mode (\(mode.name))", nil)]
+            + set.modes.map { ($0.name, $0.id) }
+        for entry in entries {
+            let item = NSMenuItem(title: entry.title, action: #selector(editColorModeAction(_:)), keyEquivalent: "")
+            item.target = self
+            item.state = entry.mode == overrideID ? .on : .off
+            item.representedObject = DLColorModeEdit.artboards(entry.mode, [board.id])
+            choices.addItem(item)
+        }
+        choices.addItem(.separator())
+        let background = NSMenuItem(title: "Use Mode Background", action: #selector(editColorModeAction(_:)), keyEquivalent: "")
+        background.target = self
+        background.representedObject = DLColorModeEdit.artboardBackground([board.id])
+        choices.addItem(background)
+        let parent = NSMenuItem(title: "Artboard Color Mode", action: nil, keyEquivalent: "")
+        parent.submenu = choices
+        return parent
+    }
 }
 
 // MARK: - Inline text editing delegate
@@ -14309,6 +14534,35 @@ extension CanvasNSView: NSMenuItemValidation {
         let hasNodes = !(app?.selectedNodeIDs.isEmpty ?? true)
         let hasArtboards = !(app?.selectedArtboardIDs.isEmpty ?? true)
         switch item.action {
+        case #selector(applyDimensionTokenAction(_:)):
+            guard scope == .document, let request = item.representedObject as? DLApplyDimensionToken,
+                  var model = document?.model, let app else { return false }
+            return model.applyNumericToken(request.id, on: app.activeCanvasPageID,
+                                           selection: app.selectedNodeIDs, linked: request.linked)
+
+        case #selector(findInDocumentAction(_:)):
+            return !isSourceScope && document != nil && window != nil && window?.attachedSheet == nil
+        case #selector(useModeTextColorAction(_:)):
+            return canUseModeTextColor
+        case #selector(editColorModeAction(_:)):
+            guard let model = document?.model, let edit = item.representedObject as? DLColorModeEdit else { return false }
+            switch edit {
+            case .enable: return model.designLanguage.colorModeSet == nil
+            case .adoptLibrary: return model.hasLibraryColorModes
+            case .name: return model.designLanguage.colorModeSet != nil
+            case .defaultColor(_, _, let id), .icon(_, let id):
+                return model.designLanguage.colorModeSet?.modes.contains { $0.id == id } == true
+            case .document(let id): return model.designLanguage.colorModeSet?.modes.contains { $0.id == id } == true
+            case .page(let id, let pageID):
+                return scope == .document && model.pages.contains { $0.id == pageID }
+                    && (id == nil || model.designLanguage.colorModeSet?.modes.contains { $0.id == id } == true)
+            case .artboards(let id, let boards):
+                return !isSourceScope && currentArtboards.contains { boards.contains($0.id) }
+                    && (id == nil || model.designLanguage.colorModeSet?.modes.contains { $0.id == id } == true)
+            case .artboardBackground(let boards):
+                return !isSourceScope && model.designLanguage.colorMode() != nil
+                    && currentArtboards.contains { boards.contains($0.id) && !$0.followsModeBackground }
+            }
         case #selector(copy(_:)), #selector(cut(_:)), #selector(delete(_:)):
             return hasNodes || hasArtboards
         case #selector(lockSelection(_:)):
@@ -14533,12 +14787,13 @@ extension CanvasNSView: NSMenuItemValidation {
              #selector(importXDAction(_:)), #selector(importRenderedHTMLAction(_:)),
              #selector(importCodePenPackageAction(_:)), #selector(importStorybookPackageAction(_:)),
              #selector(importLibraryTokensAction(_:)),
-             #selector(newSpacingTokenAction(_:)),
+             #selector(newDimensionTokenAction(_:)),
              #selector(savePackageCopyAction(_:)), #selector(saveLegacyCopyAction(_:)),
              #selector(importFigmaAction(_:)),
              #selector(runGeometryAuditAction(_:)), #selector(saveDiagnosticReportAction(_:)),
              #selector(exportHandoffPackage(_:)), #selector(exportSemanticHTMLAction(_:)),
              #selector(exportCurrentArtboardToCodePen(_:)),
+             #selector(exportDesignLanguageGuideAction(_:)), #selector(exportDesignLanguageFolderAction(_:)),
              #selector(exportDesignTokensAction(_:)):
             return document != nil
         case #selector(exportSelectedArtboard(_:)):

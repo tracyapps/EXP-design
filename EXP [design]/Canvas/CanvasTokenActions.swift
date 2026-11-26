@@ -2,7 +2,7 @@
 //  CanvasTokenActions.swift
 //  EXP [design]
 //
-//  FEAT-089a (v2.9): create, edit and delete Design Language spacing tokens.
+//  FEAT-089a (v2.9): create, edit and delete Design Language dimension tokens.
 //  Plan: docs/DESIGN-LANGUAGE-PLAN.md. App target only.
 //
 //  These live on the canvas view because every user-facing action has ONE
@@ -11,52 +11,67 @@
 //
 
 import AppKit
+import SwiftUI
+
+struct DLApplyDimensionToken {
+    let id: UUID
+    let linked: Bool
+}
 
 extension CanvasNSView {
 
-    /// Object ▸ New Spacing Token… and the panel's + button. An NSMenuItem
-    /// sender may carry a starting value string in `representedObject`.
-    @objc func newSpacingTokenAction(_ sender: Any?) {
+    @objc func applyDimensionTokenAction(_ sender: Any?) {
+        guard let request = (sender as? NSMenuItem)?.representedObject as? DLApplyDimensionToken,
+              scope == .document, let document, let app else { return }
+        app.finishInlineTextEditing?()
+        var model = document.model
+        guard model.applyNumericToken(request.id, on: app.activeCanvasPageID,
+                                      selection: app.selectedNodeIDs, linked: request.linked) else { return }
+        let title = model.designLanguage.token(request.id)?.name ?? "Dimension Token"
+        document.setModel(model, undoManager: undoManager,
+                          actionName: request.linked ? "Link \(title)" : "Apply \(title)")
+    }
+
+    /// Object ▸ New \(kind.rawValue) Token… and the panel's + button. An NSMenuItem can
+    /// carry the dimension kind and a starting value.
+    @objc func newDimensionTokenAction(_ sender: Any?) {
         guard let document else { return }
-        let existing = document.model.designLanguage.tokens(role: .spacing).count
-        let startValue = ((sender as? NSMenuItem)?.representedObject as? String) ?? "16"
-        promptForSpacingToken(title: "New Spacing Token", confirm: "Create",
-                              name: "Space \(existing + 1)", value: startValue) { [weak self, weak document] name, value in
+        let request = (sender as? NSMenuItem)?.representedObject as? DLNewDimensionToken
+        let kind = request?.kind ?? .spacing
+        let existing = document.model.designLanguage.tokens(role: kind.role).count
+        let startValue = request?.value ?? kind.defaultValue
+        promptForDimensionToken(title: "New \(kind.rawValue) Token", confirm: "Create",
+                              name: "\(kind.namePrefix) \(existing + 1)", value: startValue) { [weak self, weak document] name, value in
             guard let self, let document else { return }
             var model = document.model
-            model.designLanguage.addToken(DLToken(name: name, type: .dimension, role: .spacing, value: value))
-            document.setModel(model, undoManager: self.undoManager, actionName: "New Spacing Token")
+            model.designLanguage.addToken(DLToken(name: name, type: .dimension, role: kind.role, value: value))
+            document.setModel(model, undoManager: self.undoManager, actionName: "New \(kind.rawValue) Token")
         }
     }
 
-    /// Edit a token's name and value. The sender is an NSMenuItem whose
-    /// `representedObject` is the token's UUID. Everything linked to the token
-    /// updates and reflows in the same undo step.
-    @objc func editSpacingTokenAction(_ sender: Any?) {
-        guard let document, let id = (sender as? NSMenuItem)?.representedObject as? UUID,
-              let token = document.model.designLanguage.token(id) else { return }
-        promptForSpacingToken(title: "Edit Spacing Token", confirm: "Save",
-                              name: token.name, value: token.value.authoredText) { [weak self, weak document] name, value in
-            guard let self, let document else { return }
-            var model = document.model
-            guard model.designLanguage.token(id) != nil else { return }
-            model.designLanguage.renameToken(id, to: name)
-            model.setTokenValue(id, to: value)
-            document.setModel(model, undoManager: self.undoManager, actionName: "Edit Spacing Token")
+    /// Edit a saved token in one sheet. The menu item carries its stable ID.
+    @objc func editDimensionTokenAction(_ sender: Any?) {
+        guard let document, let window, window.attachedSheet == nil,
+              let id = (sender as? NSMenuItem)?.representedObject as? UUID,
+              let token = document.model.designLanguage.token(id),
+              let kind = DLDimensionKind.allCases.first(where: { $0.role == token.role }) else { return }
+        window.beginSheet {
+            DLDimensionTokenEditor(document: document, token: token, kind: kind, undoManager: undoManager)
         }
     }
 
     /// Delete a token. Linked properties keep their current numbers and become
     /// unlinked; when anything is linked, say so and ask first.
-    @objc func deleteSpacingTokenAction(_ sender: Any?) {
+    @objc func deleteDimensionTokenAction(_ sender: Any?) {
         guard let document, let id = (sender as? NSMenuItem)?.representedObject as? UUID,
-              let token = document.model.designLanguage.token(id) else { return }
+              let token = document.model.designLanguage.token(id),
+              let kind = DLDimensionKind.allCases.first(where: { $0.role == token.role }) else { return }
         let uses = document.model.tokenUseCount(id)
         let delete = { [weak self, weak document] in
             guard let self, let document else { return }
             var model = document.model
             model.removeToken(id)
-            document.setModel(model, undoManager: self.undoManager, actionName: "Delete Spacing Token")
+            document.setModel(model, undoManager: self.undoManager, actionName: "Delete \(kind.rawValue) Token")
         }
         guard uses > 0, let window else { delete(); return }
         let alert = NSAlert()
@@ -72,9 +87,9 @@ extension CanvasNSView {
         }
     }
 
-    /// One sheet for New and Edit: a name and a value. The value accepts a plain
+    /// The quick-add sheet takes a name and a value. The value accepts a plain
     /// number or any CSS length; what is typed is what is stored.
-    private func promptForSpacingToken(title: String, confirm: String, name: String, value: String,
+    private func promptForDimensionToken(title: String, confirm: String, name: String, value: String,
                                        onSave: @escaping (String, DLTokenValue) -> Void) {
         guard let window else { return }
         let alert = NSAlert()

@@ -259,6 +259,7 @@ enum AutoLayoutEngine {
            let style = backgroundStyle(of: kids[bgIdx]) {
             pad.fill = style.fill
             pad.cornerRadius = style.corner
+            pad.cornerPercentage = style.cornerPercentage
             pad.stroke = style.stroke
             pad.strokeWidth = style.strokeWidth
             kids.remove(at: bgIdx)
@@ -289,11 +290,14 @@ enum AutoLayoutEngine {
 
     /// The frame-style of a filled shape we can absorb as a frame background.
     static func backgroundStyle(of node: Node)
-        -> (fill: Paint?, corner: CGFloat, stroke: Paint?, strokeWidth: CGFloat)? {
+        -> (fill: Paint?, corner: CGFloat, cornerPercentage: CGFloat?, stroke: Paint?, strokeWidth: CGFloat)? {
         switch node.content {
-        case .rectangle(let s): return (s.fill, s.cornerRadius, s.stroke, s.strokeWidth)
-        case .ellipse(let s):   return (s.fill, 0, s.stroke, s.strokeWidth)
-        case .path(let s):      return (s.fill, 0, s.stroke, s.strokeWidth)
+        case .rectangle(let s):
+            let radii = s.effectiveRadii
+            guard !radii.hasPercentages || radii.isUniform else { return nil }
+            return (s.fill, s.cornerRadius, radii.percentage(.topLeft), s.stroke, s.strokeWidth)
+        case .ellipse(let s):   return (s.fill, 0, nil, s.stroke, s.strokeWidth)
+        case .path(let s):      return (s.fill, 0, nil, s.stroke, s.strokeWidth)
         default:                return nil
         }
     }

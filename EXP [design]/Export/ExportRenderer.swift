@@ -54,6 +54,7 @@ enum ExportFormat: String, CaseIterable {
 struct ExportRenderer {
     let document: Document
     private var svgPatternOffset: CGPoint = .zero
+    private var svgAppearanceModeID: UUID?
     init(document: Document) { self.document = document }
 
     func data(for artboard: Artboard, format: ExportFormat, scale: CGFloat,
@@ -185,7 +186,9 @@ struct ExportRenderer {
         // own `background` is intentionally NOT emitted — add a shape layer if
         // you want a real background.) PNG/PDF still fill via `drawBackground`.
         var body = ""
-        var renderer = self; renderer.svgPatternOffset = origin
+        var renderer = self
+        renderer.svgPatternOffset = origin
+        renderer.svgAppearanceModeID = document.colorMode(for: artboard)?.id
         let page = document.page(containingArtboard: artboard.id)
         for node in page?.nodes ?? [] where node.isVisible
             && document.owningArtboard(of: node, on: page?.id)?.id == artboard.id {
@@ -227,7 +230,7 @@ struct ExportRenderer {
             if s.strokeWidth > 0, s.strokeAlignment != .center {
                 let d = s.strokeWidth / 2 * (s.strokeAlignment == .inside ? 1 : -1)
                 let sr = f.insetBy(dx: d, dy: d)
-                let radius = s.effectiveRadii.clamped(to: f.size).topLeft
+                let radius = s.effectiveRadii.clamped(to: f.size).topLeft.width
                 let srx = min(max(0, radius - d),
                               max(0, min(sr.width, sr.height) / 2))
                 let fillRx = radius > 0 ? " rx=\"\(num(radius))\"" : ""
@@ -235,7 +238,7 @@ struct ExportRenderer {
                 inner = "<rect x=\"\(num(f.minX))\" y=\"\(num(f.minY))\" width=\"\(num(f.width))\" height=\"\(num(f.height))\"\(fillRx)\(paintFillAttr(s.fill, &defs, rect: f))/>\n"
                     + "<rect x=\"\(num(sr.minX))\" y=\"\(num(sr.minY))\" width=\"\(num(sr.width))\" height=\"\(num(sr.height))\"\(strokeRx) fill=\"none\"\(strokePaintAttr(s.stroke, s.strokeWidth, s.strokePattern, defs: &defs, rect: sr))/>\n"
             } else {
-                let radius = s.effectiveRadii.clamped(to: f.size).topLeft
+                let radius = s.effectiveRadii.clamped(to: f.size).topLeft.width
                 let rx = radius > 0 ? " rx=\"\(num(radius))\"" : ""
                 inner = "<rect x=\"\(num(f.minX))\" y=\"\(num(f.minY))\" width=\"\(num(f.width))\" height=\"\(num(f.height))\"\(rx)\(paintFillAttr(s.fill, &defs, rect: f))\(strokePaintAttr(s.stroke, s.strokeWidth, s.strokePattern, defs: &defs, rect: f))/>\n"
             }
@@ -328,15 +331,19 @@ struct ExportRenderer {
                 let bx = f.minX + pad.marginLeft, by = f.minY + pad.marginTop
                 let bw = max(0, f.width - pad.marginW), bh = max(0, f.height - pad.marginH)
                 let baseRect = "<rect x=\"\(num(bx))\" y=\"\(num(by))\" width=\"\(num(bw))\" height=\"\(num(bh))\""
-                let rx = pad.cornerRadius > 0 ? " rx=\"\(num(pad.cornerRadius))\"" : ""
-                prefix = "\(baseRect)\(rx)\(fillStr)/>\n"
+                let radii = pad.effectiveRadii.clamped(to: CGSize(width: bw, height: bh))
+                func radiusAttributes(_ radius: CGSize) -> String {
+                    guard ResolvedCornerRadii.curved(radius) else { return "" }
+                    let x = " rx=\"\(num(radius.width))\""
+                    return radius.width == radius.height ? x : x + " ry=\"\(num(radius.height))\""
+                }
+                prefix = "\(baseRect)\(radiusAttributes(radii.topLeft))\(fillStr)/>\n"
                 if pad.strokeWidth > 0, let stroke = pad.stroke {
                     let delta = pad.strokeAlignment == .center ? 0
                         : pad.strokeWidth / 2 * (pad.strokeAlignment == .inside ? 1 : -1)
                     let sx = bx + delta, sy = by + delta
                     let sw = max(0, bw - 2 * delta), sh = max(0, bh - 2 * delta)
-                    let sr = max(0, pad.cornerRadius - delta)
-                    let srx = sr > 0 ? " rx=\"\(num(sr))\"" : ""
+                    let srx = radiusAttributes(radii.offset(by: -delta).clamped(to: CGSize(width: sw, height: sh)).topLeft)
                     prefix += "<rect x=\"\(num(sx))\" y=\"\(num(sy))\" width=\"\(num(sw))\" height=\"\(num(sh))\"\(srx) fill=\"none\"\(strokePaintAttr(stroke, pad.strokeWidth, pad.strokePattern, defs: &defs, rect: CGRect(x: sx, y: sy, width: sw, height: sh)))/>\n"
                 }
             }
@@ -380,7 +387,7 @@ struct ExportRenderer {
             }
         case .instance(let inst):
             var out = ""
-            for child in document.resolvedChildren(of: inst) {
+            for child in document.resolvedChildren(of: inst, appearanceModeID: svgAppearanceModeID) {
                 out += svgElement(child, offset: f.origin, defs: &defs)
             }
             inner = out
@@ -623,7 +630,9 @@ struct ExportRenderer {
         let slot = defs.count
         defs.append("  <!-- \(marker) -->\n")
 
-        var tileRenderer = self; tileRenderer.svgPatternOffset = .zero
+        var tileRenderer = self
+        tileRenderer.svgPatternOffset = .zero
+        tileRenderer.svgAppearanceModeID = nil
         var body = source.children.filter { $0.isVisible }
             .map { tileRenderer.svgElement($0, offset: .zero, defs: &defs) }.joined()
 
@@ -822,18 +831,14 @@ struct ExportRenderer {
     /// zero-radius corners emitted as plain line joins).
     private func svgRoundedRectData(_ r: CGRect, _ radii: CornerRadii) -> String {
         let c = radii.clamped(to: r.size)
-        func arc(_ radius: CGFloat, _ x: CGFloat, _ y: CGFloat) -> String {
-            "A\(num(radius)),\(num(radius)) 0 0 1 \(num(x)),\(num(y))"
+        func arc(_ radius: CGSize, _ x: CGFloat, _ y: CGFloat) -> String {
+            ResolvedCornerRadii.curved(radius) ? "A\(num(radius.width)),\(num(radius.height)) 0 0 1 \(num(x)),\(num(y))" : ""
         }
-        var d = "M\(num(r.minX + c.topLeft)),\(num(r.minY))"
-        d += "H\(num(r.maxX - c.topRight))"
-        if c.topRight > 0 { d += arc(c.topRight, r.maxX, r.minY + c.topRight) }
-        d += "V\(num(r.maxY - c.bottomRight))"
-        if c.bottomRight > 0 { d += arc(c.bottomRight, r.maxX - c.bottomRight, r.maxY) }
-        d += "H\(num(r.minX + c.bottomLeft))"
-        if c.bottomLeft > 0 { d += arc(c.bottomLeft, r.minX, r.maxY - c.bottomLeft) }
-        d += "V\(num(r.minY + c.topLeft))"
-        if c.topLeft > 0 { d += arc(c.topLeft, r.minX + c.topLeft, r.minY) }
+        var d = "M\(num(r.minX + c.topLeft.width)),\(num(r.minY))"
+        d += "H\(num(r.maxX - c.topRight.width))" + arc(c.topRight, r.maxX, r.minY + c.topRight.height)
+        d += "V\(num(r.maxY - c.bottomRight.height))" + arc(c.bottomRight, r.maxX - c.bottomRight.width, r.maxY)
+        d += "H\(num(r.minX + c.bottomLeft.width))" + arc(c.bottomLeft, r.minX, r.maxY - c.bottomLeft.height)
+        d += "V\(num(r.minY + c.topLeft.height))" + arc(c.topLeft, r.minX + c.topLeft.width, r.minY)
         return d + "Z"
     }
 
@@ -1004,6 +1009,7 @@ final class ExportRenderView: NSView {
     /// the pattern-tile initialiser below. `draw(_:)` is an artboard render and
     /// does nothing without one.
     let artboard: Artboard?
+    private let appearanceModeID: UUID?
     let drawBackground: Bool
 
     override var isFlipped: Bool { true }
@@ -1011,6 +1017,7 @@ final class ExportRenderView: NSView {
     init(document: Document, artboard: Artboard, drawBackground: Bool = true) {
         self.document = document
         self.artboard = artboard
+        self.appearanceModeID = document.colorMode(for: artboard)?.id
         self.drawBackground = drawBackground
         super.init(frame: CGRect(origin: .zero, size: artboard.frame.size))
     }
@@ -1022,6 +1029,7 @@ final class ExportRenderView: NSView {
     fileprivate init(document: Document, tileSize: CGSize) {
         self.document = document
         self.artboard = nil
+        self.appearanceModeID = nil
         self.drawBackground = false
         super.init(frame: CGRect(origin: .zero, size: tileSize))
     }
@@ -1085,7 +1093,7 @@ final class ExportRenderView: NSView {
             // Export draws instance children UNCLIPPED (unlike the canvas, which
             // clips to the viewBox), so bound by the resolved children's union.
             var b = rect
-            for child in document.resolvedChildren(of: inst) where child.isVisible {
+            for child in document.resolvedChildren(of: inst, appearanceModeID: appearanceModeID) where child.isVisible {
                 b = b.union(exportPaintBounds(child, offset: rect.origin))
             }
             return b.insetBy(dx: -2, dy: -2)
@@ -1614,7 +1622,7 @@ final class ExportRenderView: NSView {
                 let box = CGRect(x: rect.minX + pad.marginLeft, y: rect.minY + pad.marginTop,
                                  width: max(0, rect.width - pad.marginW),
                                  height: max(0, rect.height - pad.marginH))
-                let path = NSBezierPath(roundedRect: box, xRadius: pad.cornerRadius, yRadius: pad.cornerRadius)
+                let path = NSBezierPath(cgPath: pad.effectiveRadii.path(in: box))
                 if let fill = pad.fill {
                     PaintRender.fill(fill, path: path, bounds: box, in: ctx,
                                      pdfSafeAlpha: true, patterns: patterns,
@@ -1642,7 +1650,7 @@ final class ExportRenderView: NSView {
                 for child in children where child.isVisible { drawExportNode(child, offset: rect.origin, in: ctx) }
             }
         case .instance(let inst):
-            for child in document.resolvedChildren(of: inst) {
+            for child in document.resolvedChildren(of: inst, appearanceModeID: appearanceModeID) {
                 drawExportNode(child, offset: rect.origin, in: ctx)
             }
         case .image(let img):

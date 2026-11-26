@@ -18,13 +18,59 @@ import UniformTypeIdentifiers
 /// other tokens) — the sticky bottom bar has room for more view settings.
 enum DLViewMode: String, CaseIterable { case swatches, list }
 
+enum DLPanelEntry: Equatable {
+    case asset(UUID)
+    case typeStyle(UUID)
+    case dimension(UUID)
+    case recent(Paint)
+}
+
+/// Single click and keyboard selection affect only the panel. A double-click
+/// or the named accessibility action explicitly applies the entry to artwork.
+struct DLPanelEntryInteraction: ViewModifier {
+    let isSelected: Bool
+    let select: () -> Void
+    let apply: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .overlay {
+                if isSelected {
+                    RoundedRectangle(cornerRadius: EXPMetric.radiusRow)
+                        .strokeBorder(EXPColor.accent, lineWidth: 2)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+            }
+            .contentShape(Rectangle())
+            .gesture(TapGesture(count: 2).exclusively(before: TapGesture()).onEnded { result in
+                select()
+                if case .first = result { apply() }
+            })
+            .focusable()
+            .onKeyPress(phases: [.down]) { press in
+                guard press.key == .return || press.key == .space else { return .ignored }
+                select()
+                if press.modifiers.contains(.option) { apply() }
+                return .handled
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+            .accessibilityAction { select() }
+            .accessibilityAction(named: Text("Apply to Selection")) { apply() }
+    }
+}
+
 struct DesignLanguagePanel: View {
     @ObservedObject var document: ExpDocument
     @Environment(AppState.self) private var app
     @Environment(\.undoManager) private var undoManager
     @Environment(\.openWindow) private var openWindow
 
+    @State private var selectedEntry: DLPanelEntry?
+    @State private var copyFeedback: UUID?
     @State private var editingColor: DesignAsset?
+    @State private var editingTypeStyle: TypeStyle?
     @State private var renaming: DesignAsset?
     @State private var renameDraft = ""
     @State private var renamingStyle: TypeStyle?
@@ -41,6 +87,7 @@ struct DesignLanguagePanel: View {
     @State private var showingPaste = false
     @State private var pasteText = ""
     @State private var showingTransfer = false
+    @State private var showingMatchingStyles = false
     @State private var transferMode: DLTransferMode = .importing
     @State private var mergeMode: DesignLanguage.MergeMode = .keepBoth
     @State private var showingGenerate = false
@@ -56,6 +103,20 @@ struct DesignLanguagePanel: View {
     var body: some View {
         VStack(spacing: 0) {
             toolbar
+            if dl.colorMode() != nil {
+                HStack {
+                    Text("Document Mode").font(.caption)
+                    DLColorModePicker(language: dl) { $0.sendToCanvas() }
+                    Spacer()
+                    if let mode = paletteMode, mode.id != dl.colorMode()?.id {
+                        Label(mode.name, systemImage: mode.resolvedIconSymbol)
+                            .font(.caption)
+                            .accessibilityLabel("Page palette, \(mode.name)")
+                            .help("Swatches preview the page’s \(mode.name) mode")
+                    }
+                }
+                .padding(.horizontal, 8).padding(.bottom, 6)
+            }
             Divider()
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -64,6 +125,10 @@ struct DesignLanguagePanel: View {
                 .background(EXPColor.surfacePanelSolid)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .sheet(isPresented: $showingMatchingStyles) {
+            DLMatchingStylesSheet(document: document, undoManager: undoManager)
+        }
+        .onChange(of: selectedEntry) { copyFeedback = nil }
         .alert("Rename swatch", isPresented: renameActive) {
             TextField("Name", text: $renameDraft)
             Button("Save") { commitRename() }
@@ -92,6 +157,9 @@ struct DesignLanguagePanel: View {
         .sheet(item: $editingColor) { asset in
             DLSavedColorEditor(document: document, asset: asset, undoManager: undoManager)
         }
+        .sheet(item: $editingTypeStyle) { style in
+            DLTypeStyleEditor(document: document, style: style, undoManager: undoManager)
+        }
     }
 
     @ViewBuilder private var content: some View {
@@ -103,7 +171,8 @@ struct DesignLanguagePanel: View {
                     typeSection("Colors", dl.solids)
                     typeSection("Gradients", dl.gradients)
                     typeStylesSection
-                    DLSpacingSection(document: document)
+                    DLDimensionSections(document: document, selection: $selectedEntry,
+                                        hiddenCategories: hiddenCategories, copy: copy)
                     libraryTokensSection
                     recentsSection
                 }
@@ -126,6 +195,32 @@ struct DesignLanguagePanel: View {
             .fixedSize()
             .help("View as swatches or list")
             Spacer(minLength: 0)
+            Button {
+                if let value = selectedEntryCopyValue { copy(value) }
+            } label: {
+                Label("Copy Value", systemImage: copyFeedback == nil ? "doc.on.doc" : "checkmark")
+                    .labelStyle(.iconOnly)
+            }
+            .buttonStyle(.expCompact())
+            .disabled(selectedEntryCopyValue == nil)
+            .help(copyFeedback == nil ? "Copy the selected value" : "Copied to clipboard")
+            .accessibilityLabel("Copy selected value")
+            Button {
+                let hub = PanelHub.shared
+                let title = hub.activeDocument === document
+                    ? hub.activeFileURL?.deletingPathExtension().lastPathComponent ?? "Untitled"
+                    : "Untitled"
+                DesignLanguageGuideWindow.show(document: document, title: title)
+            } label: {
+                Label("Guide", systemImage: "book")
+            }
+            .buttonStyle(.expCompact())
+            .help("Open the live Design Language Guide")
+        }
+        .task(id: copyFeedback) {
+            guard let stamp = copyFeedback else { return }
+            try? await Task.sleep(for: .seconds(1.5))
+            if !Task.isCancelled, copyFeedback == stamp { copyFeedback = nil }
         }
         .padding(.horizontal, 8).padding(.vertical, 5)
         .background(EXPColor.surfaceToolbar)
@@ -162,7 +257,7 @@ struct DesignLanguagePanel: View {
                         .help("New category")
                     }
                 } else {
-                    Text("\(dl.assets.count + dl.typeStyles.count) saved")
+                    Text("\(dl.assets.count + dl.typeStyles.count + dl.tokens.count) saved")
                         .font(.system(size: EXPType.micro))
                         .foregroundStyle(EXPColor.textTertiary)
                 }
@@ -206,9 +301,24 @@ struct DesignLanguagePanel: View {
         // (Paste Palette / Import from File / Export JSON / Copy CSS) — those
         // flows live INSIDE the sheet now, with room for format options and a
         // real preview.
+        Button("Edit Code…") {
+            UserDefaults.standard.set(true, forKey: AppPreferences.showDesignLanguageCode)
+            UserDefaults.standard.set("designLanguage", forKey: AppPreferences.requestedSettingsPane)
+            openWindow(id: SettingsWindow.sceneID)
+        }
+        Divider()
         Button("Import…") { transferMode = .importing; showingTransfer = true }
         Button("Export…") { transferMode = .exporting; showingTransfer = true }
+        Button("Export Guide and Token Files…") {
+            sendCanvasAction("exportDesignLanguageFolderAction:")
+        }
+        Divider()
+        Button("Link Matching Styles…") { showingMatchingStyles = true }
+            .disabled(dl.assets.isEmpty && dl.typeStyles.isEmpty)
         Button("Import Library Tokens…") { _ = sendCanvasAction("importLibraryTokensAction:") }
+        if document.model.hasLibraryColorModes {
+            Button("Adopt Library Modes") { DLColorModeEdit.adoptLibrary.sendToCanvas() }
+        }
         Divider()
         Button("Generate from Color...") { seed = generatorSeed(); showingGenerate = true }
         Button("New Category...") { categoryDraft = ""; assignAfterCreate = nil; creatingCategory = true }
@@ -225,7 +335,7 @@ struct DesignLanguagePanel: View {
                         .font(.system(size: 26)).foregroundStyle(EXPColor.textTertiary)
                         .accessibilityHidden(true)
                     Text("Nothing saved yet").font(.expLabel).foregroundStyle(EXPColor.textSecondary)
-                    Text("Add a color, a type style or a spacing token. Colors you apply from here also collect under Recents.")
+                    Text("Add a color, a type style or a dimension token. Colors you apply from here also collect under Recents.")
                         .font(.system(size: EXPType.mini)).foregroundStyle(EXPColor.textTertiary)
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
@@ -233,7 +343,9 @@ struct DesignLanguagePanel: View {
                         Button("Color…") { addNewColor() }
                         Button("Type Style from Selected Text…") { saveTypeStyleFromSelection() }
                             .disabled(selectedTextContent == nil)
-                        Button("Spacing Token…") { _ = sendCanvasAction("newSpacingTokenAction:") }
+                        ForEach(DLDimensionKind.allCases) { kind in
+                            Button("\(kind.rawValue) Token…") { kind.newTokenAction() }
+                        }
                         Divider()
                         Button("Everything in the Selection") { saveFromSelection() }
                             .disabled(addableSelectionFills.isEmpty && addableSelectionTypeStyles.isEmpty)
@@ -242,7 +354,7 @@ struct DesignLanguagePanel: View {
                     }
                     .menuStyle(.button)
                     .fixedSize()
-                    .help("Add a color, a type style or a spacing token")
+                    .help("Add a color, a type style or a dimension token")
                     .accessibilityLabel("Add new")
                 }
                 .frame(maxWidth: .infinity)
@@ -312,7 +424,7 @@ struct DesignLanguagePanel: View {
                         ForEach(Array(dl.recents.enumerated()), id: \.offset) { _, paint in
                             PaintSwatch(paint: paint)
                                 .frame(width: 22, height: 16)
-                                .onTapGesture(count: 2) { apply(paint) }
+                                .modifier(interact(.recent(paint)) { apply(paint) })
                                 .contextMenu { recentMenu(paint) }
                                 .help("Double-click to apply")
                         }
@@ -411,10 +523,9 @@ struct DesignLanguagePanel: View {
         .frame(height: 38)
         .background(RoundedRectangle(cornerRadius: EXPMetric.radiusRow).fill(EXPColor.rowHover.opacity(0.45)))
         .contentShape(RoundedRectangle(cornerRadius: EXPMetric.radiusRow))
-        .onTapGesture(count: 2) { applyTypeStyle(style) }
+        .modifier(interact(.typeStyle(style.id)) { applyTypeStyle(style) })
         .contextMenu { typeStyleMenu(style) }
         .help("\(title) — \(typeStyleDetail(style)) · double-click to apply")
-        .accessibilityElement(children: .combine)
         .accessibilityLabel("\(title), type style, \(typeStyleDetail(style))")
     }
 
@@ -433,11 +544,14 @@ struct DesignLanguagePanel: View {
     }
 
     @ViewBuilder private func typeStyleMenu(_ style: TypeStyle) -> some View {
-        Button("Apply to Selection") { applyTypeStyle(style) }
+        Button("Link Type Style to Selection") { linkSelection(TokenBindingKey.textStyle, to: style.id) }
+            .disabled(app.selectedNodeIDs.isEmpty)
+        Button("Apply Values to Selection") { applyTypeStyle(style) }
             .disabled(app.selectedNodeIDs.isEmpty)
         Button("Update from Selection") { updateTypeStyleFromSelection(style) }
             .disabled(selectedTextContent == nil)
         Divider()
+        Button("Edit Type Style…") { editingTypeStyle = style }
         Menu("Category") {
             Button("Other") { commit("Set Category") { $0.setTypeStyleCategory(style.id, to: nil) } }
                 .disabled(style.categoryID == nil)
@@ -461,7 +575,10 @@ struct DesignLanguagePanel: View {
             copy(DesignLanguageIO.cssTypeStyles(solo))
         }
         Divider()
-        Button("Delete", role: .destructive) { commit("Delete Type Style") { $0.removeTypeStyle(style.id) } }
+        Button("Delete", role: .destructive) {
+            deleteDesignLanguageAsset(style.id, name: style.name.isEmpty ? style.fallbackLabel : style.name,
+                                      typeStyle: true, document: document, undoManager: undoManager)
+        }
     }
 
     // MARK: Type style apply / save
@@ -487,20 +604,10 @@ struct DesignLanguagePanel: View {
         guard !ids.isEmpty else { return }
         var model = document.model
         guard let pageIndex = model.pageIndex(for: app.activeCanvasPageID) else { return }
+        guard Node.linkAppearance(in: &model.pages[pageIndex].nodes, selection: ids,
+                                  key: TokenBindingKey.textStyle, to: style.id,
+                                  language: model.designLanguage, linked: false) else { return }
         app.rememberTextStyle(fontName: style.fontName, fontSize: style.fontSize)
-        func walk(_ nodes: inout [Node]) {
-            for i in nodes.indices {
-                if ids.contains(nodes[i].id), case .text(var tc) = nodes[i].content {
-                    style.apply(to: &tc)
-                    nodes[i].content = .text(tc)
-                    nodes[i].frame.size = tc.measuredSize(boxWidth: nodes[i].frame.width)
-                }
-                if case .group(var kids) = nodes[i].content {
-                    walk(&kids); nodes[i].content = .group(children: kids)
-                }
-            }
-        }
-        walk(&model.pages[pageIndex].nodes)
         model.pages[pageIndex].nodes = model.reflowed(model.pages[pageIndex].nodes)
         document.setModel(model, undoManager: undoManager, actionName: "Apply Type Style")
     }
@@ -532,10 +639,13 @@ struct DesignLanguagePanel: View {
     // MARK: Swatch cell + menus
 
     private func assetCell(_ asset: DesignAsset, link: LibraryTokenLink? = nil) -> some View {
-        PaintSwatch(paint: asset.value)
+        PaintSwatch(paint: modePaint(asset))
             .frame(height: 30)
             .overlay(alignment: .bottomTrailing) { darkModeCorner(link, size: 11) }
-            .onTapGesture(count: 2) { apply(asset.value) }
+            .modifier(interact(.asset(asset.id)) { applySavedSwatch(asset) })
+            .accessibilityLabel(asset.name.isEmpty ? "Unnamed swatch" : asset.name)
+            .accessibilityValue(paintListValue(modePaint(asset)))
+            .accessibilityHint("Selects this swatch. Apply to Selection changes the artwork.")
             .contextMenu { assetMenu(asset) }
             .help(assetHelp(asset, link: link))
     }
@@ -543,7 +653,7 @@ struct DesignLanguagePanel: View {
     /// A library token's dark-mode value as a small corner chip, so light and
     /// dark read together. Decorative: the same value is in the help/detail text.
     @ViewBuilder private func darkModeCorner(_ link: LibraryTokenLink?, size: CGFloat) -> some View {
-        if let hex = link?.darkHex, let dark = ColorMath.parseHex(hex) {
+        if dl.colorModeSet == nil, let hex = link?.darkHex, let dark = ColorMath.parseHex(hex) {
             PaintSwatch(paint: .solid(dark))
                 .frame(width: size, height: size)
                 .overlay(RoundedRectangle(cornerRadius: 2).stroke(EXPColor.textTertiary.opacity(0.6), lineWidth: 0.5))
@@ -555,7 +665,7 @@ struct DesignLanguagePanel: View {
 
     private func assetListRow(_ asset: DesignAsset, link: LibraryTokenLink? = nil) -> some View {
         HStack(spacing: 8) {
-            PaintSwatch(paint: asset.value)
+            PaintSwatch(paint: modePaint(asset))
                 .frame(width: 30, height: 20)
                 .overlay(alignment: .bottomTrailing) { darkModeCorner(link, size: 9) }
             VStack(alignment: .leading, spacing: 1) {
@@ -569,16 +679,17 @@ struct DesignLanguagePanel: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 0)
-            Image(systemName: "square.and.arrow.down")
+            Image(systemName: asset.value.isPattern ? "square.and.arrow.down" : "link")
                 .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(EXPColor.textTertiary)
-                .help("Double-click to apply")
+                .accessibilityHidden(true)
         }
         .padding(.horizontal, 6)
         .frame(height: 34)
         .background(RoundedRectangle(cornerRadius: EXPMetric.radiusRow).fill(EXPColor.rowHover.opacity(0.45)))
         .contentShape(RoundedRectangle(cornerRadius: EXPMetric.radiusRow))
-        .onTapGesture(count: 2) { apply(asset.value) }
+        .modifier(interact(.asset(asset.id)) { applySavedSwatch(asset) })
+        .accessibilityHint("Selects this swatch. Apply to Selection changes the artwork.")
         .contextMenu { assetMenu(asset) }
         .help(assetHelp(asset, link: link))
     }
@@ -602,18 +713,18 @@ struct DesignLanguagePanel: View {
         .frame(height: 26)
         .background(RoundedRectangle(cornerRadius: EXPMetric.radiusRow).fill(EXPColor.rowHover.opacity(0.28)))
         .contentShape(RoundedRectangle(cornerRadius: EXPMetric.radiusRow))
-        .onTapGesture(count: 2) { apply(paint) }
+        .modifier(interact(.recent(paint)) { apply(paint) })
         .contextMenu { recentMenu(paint) }
         .help("Double-click to apply")
     }
 
     private func assetListDetail(_ asset: DesignAsset, link: LibraryTokenLink? = nil) -> String {
-        let value = paintListValue(asset.value)
+        let value = paintListValue(modePaint(asset))
         if let link {
             // The library category is already the cluster label; lead with the
             // name a developer writes.
             var parts = [link.token, value]
-            if let dark = link.darkHex { parts.append("dark \(dark.uppercased())") }
+            if dl.colorModeSet == nil, let dark = link.darkHex { parts.append("dark \(dark.uppercased())") }
             if !link.writable { parts.append("alias") }
             return parts.joined(separator: " · ")
         }
@@ -625,15 +736,23 @@ struct DesignLanguagePanel: View {
         (paint.isGradient || paint.isMesh) ? "Gradient" : ColorMath.string(paint.representativeColor, .hex)
     }
 
+    private var paletteMode: DLMode? {
+        dl.colorMode(on: document.model.page(for: app.activeCanvasPageID))
+    }
+
+    private func modePaint(_ asset: DesignAsset) -> Paint {
+        dl.paint(for: asset, in: paletteMode?.id)
+    }
+
     private func assetHelp(_ asset: DesignAsset, link: LibraryTokenLink? = nil) -> String {
         let name = asset.name.isEmpty ? "Unnamed" : asset.name
-        let value = (asset.value.isGradient || asset.value.isMesh) ? "gradient" : ColorMath.string(asset.representativeColor, .hex)
+        let value = paintListValue(modePaint(asset))
         let cat = dl.categoryLabel(for: asset)
         let catPart = cat.isEmpty ? "" : " · \(cat)"
         var library = ""
         if let link {
             library = " · library token \(link.token) from \(link.library)"
-            if let dark = link.darkHex { library += " · dark mode \(dark.uppercased())" }
+            if dl.colorModeSet == nil, let dark = link.darkHex { library += " · dark mode \(dark.uppercased())" }
             if !link.writable { library += " · alias: edit the token it points to" }
         }
         return "\(name) — \(value)\(catPart)\(library) · double-click to apply"
@@ -728,7 +847,11 @@ struct DesignLanguagePanel: View {
     }
 
     @ViewBuilder private func assetMenu(_ asset: DesignAsset) -> some View {
-        Button("Apply to Selection") { apply(asset.value) }
+        Button("Link Fill to Selection") { linkSelection(TokenBindingKey.fill, to: asset.id) }
+            .disabled(app.selectedNodeIDs.isEmpty || asset.value.isPattern)
+        Button("Link Stroke to Selection") { linkSelection(TokenBindingKey.stroke, to: asset.id) }
+            .disabled(app.selectedNodeIDs.isEmpty || asset.value.isPattern)
+        Button("Apply Without Linking") { apply(modePaint(asset)) }
             .disabled(app.selectedNodeIDs.isEmpty)
         let canEdit = document.model.libraryTokenLink(forAsset: asset.id)?.writable != false
         Button(asset.value.savedPaintEditLabel) { editingColor = asset }.disabled(!canEdit)
@@ -753,9 +876,12 @@ struct DesignLanguagePanel: View {
         }
         Button("Rename...") { renameDraft = asset.name; renaming = asset }
         Button("Duplicate") { duplicate(asset) }
-        copyMenu(paint: asset.value, name: asset.name)
+        copyMenu(paint: modePaint(asset), name: asset.name)
         Divider()
-        Button("Delete", role: .destructive) { commit("Delete Swatch") { $0.remove(asset.id) } }
+        Button("Delete", role: .destructive) {
+            deleteDesignLanguageAsset(asset.id, name: asset.name.isEmpty ? "Unnamed Swatch" : asset.name,
+                                      typeStyle: false, document: document, undoManager: undoManager)
+        }
     }
 
     @ViewBuilder private func recentMenu(_ paint: Paint) -> some View {
@@ -849,34 +975,71 @@ struct DesignLanguagePanel: View {
 
     // MARK: Apply / save
 
+    private func applySavedSwatch(_ asset: DesignAsset) {
+        if asset.value.isPattern { apply(modePaint(asset)) }
+        else { linkSelection(TokenBindingKey.fill, to: asset.id) }
+    }
+
+    private func linkSelection(_ key: String, to id: UUID) {
+        app.finishInlineTextEditing?()
+        let language = dl
+        var model = document.model
+        guard let page = model.pageIndex(for: app.activeCanvasPageID),
+              Node.linkAppearance(in: &model.pages[page].nodes, selection: app.selectedNodeIDs,
+                                  key: key, to: id, language: language) else { return }
+        document.setModel(model, undoManager: undoManager,
+                          actionName: "Link \(TokenBindingKey.appearanceLabel(key))")
+    }
+
     private func apply(_ paint: Paint) {
         let ids = app.selectedNodeIDs
         guard !ids.isEmpty else { return }
         var model = document.model
         guard let pageIndex = model.pageIndex(for: app.activeCanvasPageID) else { return }
-        func walk(_ nodes: inout [Node]) {
-            for i in nodes.indices {
-                if ids.contains(nodes[i].id) { setFill(&nodes[i], paint) }
-                if case .group(var kids) = nodes[i].content {
-                    walk(&kids); nodes[i].content = .group(children: kids)
+        func walk(_ nodes: inout [Node], inherited: Bool = false) -> Bool {
+            var changed = false
+            for i in nodes.indices where nodes[i].isVisible && !nodes[i].isLocked {
+                let selected = inherited || ids.contains(nodes[i].id)
+                if selected, setFill(&nodes[i], paint) { changed = true }
+                if case .group(var kids) = nodes[i].content,
+                   walk(&kids, inherited: selected && nodes[i].autoPadding == nil) {
+                    nodes[i].content = .group(children: kids)
+                    changed = true
                 }
             }
+            return changed
         }
-        walk(&model.pages[pageIndex].nodes)
+        guard walk(&model.pages[pageIndex].nodes) else { return }
         model.designLanguage.remember(paint)
         document.setModel(model, undoManager: undoManager, actionName: "Apply Color")
     }
 
-    private func setFill(_ node: inout Node, _ p: Paint) {
+    private func setFill(_ node: inout Node, _ p: Paint) -> Bool {
+        guard node.appearanceBindingKeys.contains(TokenBindingKey.fill) ||
+              node.appearanceBindingKeys.contains(TokenBindingKey.textColor) ||
+              node.appearanceBindingKeys.contains(TokenBindingKey.paddingFill) else { return false }
+        let beforePaint = node.layerPaintStyle?.fill
+        let wasLinked = [TokenBindingKey.fill, TokenBindingKey.paddingFill, TokenBindingKey.textColor]
+            .contains { node.boundTokenID($0) != nil }
+        for key in [TokenBindingKey.fill, TokenBindingKey.paddingFill, TokenBindingKey.textColor] {
+            node.setTokenBinding(key, to: nil)
+        }
         switch node.content {
         case .rectangle(var s): s.fill = p; node.content = .rectangle(s)
         case .ellipse(var s):   s.fill = p; node.content = .ellipse(s)
         case .polygon(var s):   s.fill = p; node.content = .polygon(s)
         case .path(var s):      s.fill = p; node.content = .path(s)
-        case .text(var t):      t.applyToAllRuns { $0.color = p.representativeColor }; node.content = .text(t)
+        case .text(var t):
+            let color = p.representativeColor
+            guard wasLinked || t.runs.contains(where: { $0.color != color || $0.usesModeForeground == true })
+                else { return false }
+            t.applyToAllRuns { $0.color = color }
+            node.content = .text(t)
+            return true
         case .group:            if node.autoPadding != nil { node.autoPadding?.fill = p }
-        default: break
+        default: return false
         }
+        return wasLinked || beforePaint != p
     }
 
     private func selectionFill() -> Paint? {
@@ -1041,11 +1204,40 @@ struct DesignLanguagePanel: View {
         Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })
     }
 
-    // MARK: Copy helper
+    // MARK: Panel selection and clipboard
+
+    private func interact(_ entry: DLPanelEntry, apply: @escaping () -> Void) -> DLPanelEntryInteraction {
+        DLPanelEntryInteraction(isSelected: selectedEntry == entry, select: {
+            selectedEntry = entry
+            copyFeedback = nil
+        }, apply: apply)
+    }
+
+    private var selectedEntryCopyValue: String? {
+        switch selectedEntry {
+        case .asset(let id):
+            return dl.asset(id).map { DesignLanguageIO.css(for: modePaint($0)) }
+        case .typeStyle(let id):
+            guard let style = dl.typeStyle(id) else { return nil }
+            return DesignLanguageIO.cssTypeStyles(DesignLanguage(typeStyles: [style]))
+        case .dimension(let id):
+            let context = DLResolveContext(modeIDs: dl.activeModeIDs(overrides: nil,
+                pageOverrides: document.model.page(for: app.activeCanvasPageID)?.modeOverrides))
+            let value = dl.resolvedTokenValue(id, context: context)?.authoredText
+            return value?.isEmpty == false ? value : nil
+        case .recent(let paint):
+            return DesignLanguageIO.css(for: paint)
+        case nil:
+            return nil
+        }
+    }
 
     private func copy(_ s: String) {
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(s, forType: .string)
+        if NSPasteboard.general.setString(s, forType: .string) {
+            copyFeedback = UUID()
+            AccessibilityNotification.Announcement("Copied to clipboard").post()
+        }
     }
 
     // MARK: Import / export

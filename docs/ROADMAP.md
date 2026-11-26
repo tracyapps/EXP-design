@@ -1294,14 +1294,14 @@ immutable. The website continues to advertise the public 2.8 release.
 
 **Selected focus: Design Language — color modes, spacing tokens and practical
 bindings.** Interaction brief and implementation gates: `DESIGN-LANGUAGE-v2.9.md`.
-This setup records the next-release to-do; these capabilities are not built yet.
+The checklist tracks what is built and verified for the development release.
 
 - [x] Close native v2.8; record owner update acceptance and installed-app checks.
 - [x] Open 2.9/build 20 across app, thumbnail and runtime build configurations.
 - [x] Record the Design Language focus and the owner's spacing-token interaction.
-- [ ] FEAT-088 — named color modes, usable/editable mode values and predictable
-      linked-color application. Decide mode scope, aliases/fallback and exports.
-- [ ] FEAT-089 — named spacing tokens and live numeric bindings. First surfaces:
+- [x] FEAT-088 — named color modes, editable mode values and linked-color
+      application owner-verified in S4 and S5.
+- [x] FEAT-089 — named spacing tokens and live numeric bindings. First surfaces:
       fixed automatic spacing/gap and existing element margin/padding controls.
       Selecting a token displays its value and keeps a link; token edits update
       every linked use. Committing a different number detaches that field and
@@ -1323,28 +1323,53 @@ This setup records the next-release to-do; these capabilities are not built yet.
       removed (Accent → General, Text box trim → Canvas).
 - [x] S3 · FEAT-089b — token fields on gap/padding/margin. **Owner-verified
       November 17** ("went through the list and everything is working").
-- [ ] S3 follow-up: commit-time reconcile so an artboard resize, a move to
+- [x] S3 follow-up: commit-time reconcile so an artboard resize, a move to
       another board or a mode switch re-resolves linked fields, and a number
-      changed outside the Inspector detaches its link. Built November 17;
-      awaiting owner check (resize an artboard holding a `clamp()` gap).
-- [ ] BUG-084 — script/swash fonts cut off in auto-sized text (logged to
-      revisit; owner will supply an example font. Not started).
+      changed outside the Inspector detaches its link. **Owner-verified
+      November 23** that resizing an artboard updates the `clamp()` gap and layout.
+- [x] BUG-085 — eyedropper with detached panels. **Owner-verified November 23**
+      for grouped and ungrouped layers.
 - [ ] FEAT-099 — resize behavior for a group's children (owner idea November
       17). Sized in BACKLOG; owner to choose v2.9 small slice vs later.
-- [ ] FEAT-098 — make the text box trim preference take effect (owner-added to
-      v2.9 November 17; design pass first; do BUG-084 before it).
-- [ ] S4 · FEAT-088a — mode sets, per-mode color values, active mode.
-- [ ] S5 · FEAT-088b — color, gradient and type-style links by identity.
-- [ ] S6 · FEAT-091a — Design Language Guide: builder, template, live window.
-- [ ] S7 · FEAT-091b — Guide export (single HTML), copyable code, token files.
-- [ ] Implement and owner-verify each mutating slice sequentially, with reflow,
-      detach, Undo/Redo, JSON/package persistence, compatibility, export and AT checks.
+- [x] S4 · FEAT-088a — named document and artboard modes, per-mode saved solid
+      colors and explicit library adoption. The owner verified enablement,
+      selector placement, live background/text mode switching, and saved-color
+      selection on November 23, then accepted the palette table's layout and
+      interactions in-app. See `DESIGN-LANGUAGE-PLAN.md` §6.
+- [x] S5 · FEAT-088b — the owner verified color, gradient and type-style
+      links, the deletion warning and retained paint, unlinking, Undo to
+      restore the link, and linked tokens surviving save/reopen.
+- [x] S6 · FEAT-091a — Guide owner-verified with basic keyboard and VoiceOver
+      checks on November 25.
+- [x] S7 · FEAT-091b — Guide export owner-verified November 25.
+      Detailed offline, download and print checks are in the test plan.
+- [x] FEAT-097 (local folder) — Guide and Token Files export owner-verified
+      November 25. Hosted integrations remain planned.
+- [x] S8 · FEAT-090b/093 (radius and border width) — owner verified creating,
+      linking and changing both token types on November 25.
+- [x] FEAT-102 editor follow-up — owner accepted the Code view and its
+      vertical resizing on November 25. The larger Guide default was also
+      owner-verified. The editor accessibility regression checklist remains
+      available in the Design Language plan.
+- [x] BUG-086 — owner verified the Code view redraw fix on November 25.
+- [x] FEAT-093 panel follow-up — owner accepted percentage corners and
+      universal double-click application on November 25.
+- [x] FEAT-093 dimension token Edit sheet — owner approved corner radius
+      and border width editing on November 25.
+- [x] FEAT-093 saved entry Edit parity — the owner approved the color,
+      gradient and type style Edit sheets on November 25.
+- [ ] Finish signing, notarizing and verifying the universal v2.9 candidate,
+      then publish the ZIP and Sparkle feed. See `RELEASE-CHECKLIST-v2.9.md`.
 
-Later Design Language queue (planned, not v2.9 commitments): FEAT-090b full
-editable type coverage, FEAT-092 guide share link (hosted gate), FEAT-093
-bindings beyond spacing, FEAT-094 aliases/tiers/groups, FEAT-095 import adapters
-(DTCG resolver, Figma variables, Tokens Studio, Style Dictionary), FEAT-096
-standards-complete export.
+The owner moved script-font clipping (BUG-084) and text box trim (FEAT-098)
+to a follow-up on November 25. Investigate the intermittent clipping first,
+once the owner has a reproducible example.
+
+Later Design Language queue: elevation (shadow styles), opacity, sizing and
+the remaining FEAT-090b/093 token types and Inspector links. FEAT-092
+(hosted Guide sharing), FEAT-094
+(aliases/tiers/groups), FEAT-095 (import adapters), and FEAT-096
+(standards-complete export) have separate follow-up scope.
 
 FEAT-083–085/087 component sync and hosted/commercial/performance follow-ups keep
 separate queues. They are not automatically added to this Design Language release.
@@ -1426,6 +1451,22 @@ Sequencing rule applies: owner-verify each slice before the next mutating one.
 - [ ] FEAT-085 — refresh from a newer library revision.
 - [ ] FEAT-086 — Pro collaboration layer: planned only, not v2.8.
 - [ ] FEAT-087 — Storybook args/argTypes adapter (after FEAT-085).
+
+### Follow-up discovery · modular library workspace
+
+Owner direction November 24. The proposed mapping between repo folders, component
+boards, independently versioned design records and approved library instances is
+in [MODULAR-LIBRARY-PLAN.md](MODULAR-LIBRARY-PLAN.md). v2.9 acceptance continues.
+
+- [ ] FEAT-100 — local prototype of component-scoped files, stable code mappings,
+      and pinned approved revisions, using the FEAT-083–085 contract and changesets.
+- [x] FEAT-101 (local search) — Find in Document owner-verified November 25.
+      Connected-library search remains a follow-up.
+- [x] FEAT-102 (local editor) — Table / Code owner-verified November 25
+      for viewing, copying, format switching, editing, preview and save.
+      VoiceOver and the detailed regression checks remain on the test plan.
+- [ ] FEAT-086 design follow-up — component header, approved/draft views, paired
+      history and permission-aware submit, merge and publish actions.
 
 ## v2.7 — native RELEASED AND COMPLETE; self-launch follow-ups retained
 
@@ -3669,6 +3710,201 @@ font import → Phase 9, shadows → Phase 10._
 ---
 
 ## Progress Log
+
+- **2026-11-25 — v2.9 owner export verified and packaged.**
+  The owner exported the Developer ID app. Xcode confirmed the distribution
+  was ready. The export matches the archive UUIDs on arm64 and x86_64, and
+  the strict signatures, entitlements and ZIP extraction pass. The same
+  stapled notarization ticket is present after extraction. The release ZIP
+  and remaining Sparkle steps are recorded in `RELEASE-CHECKLIST-v2.9.md`.
+
+- **2026-11-25 — v2.9 release scope and website feature.**
+  The owner moved script-font clipping and text box trim to a follow-up and
+  selected Design Language as the launch focus. The homepage and News story
+  activate with the build 20 Sparkle feed. Added the four owner-supplied modes,
+  Guide, CSS and JSON screenshots as WebP. The website builds and React render
+  checks pass with both feed states. Browser layout and accessibility testing
+  remains open because Chromium could not register its Mach port. The retry
+  of the Release archive hit the same SwiftPM cache permission error even with
+  a project-local cache path. Signed archive, notarization, publication and
+  installed-update verification remain open in `RELEASE-CHECKLIST-v2.9.md`.
+
+- **2026-11-25 — v2.9 release readiness review.**
+  The owner approved the saved color, gradient and type style Edit sheets.
+  Updated the draft v2.9 release notes to reflect the accepted native scope.
+  Design tokens (46 checks), canvas pages, interface policy and code-gutter
+  clipping, the 2.9/20 Sparkle preflight, and the website build passed. The
+  local review matrix passed 8 of 14 checks. Five failing runtime checks
+  reproduced at the immutable v2.8 tag in the same environment (WebKit, native
+  storage, effect export, Mesh, and SVG token bridge). Both Xcode configurations
+  stopped at denied writes to the Sparkle manifest cache. Run the full matrix
+  and verify the universal signed and notarized candidate in a normal macOS
+  session. The two text items originally assigned to v2.9 remain open. Script
+  clipping (BUG-084) awaits an example and precedes text box trim (FEAT-098).
+  The release source and public distribution steps remain pending.
+
+- **2026-11-25 — Color, gradient and type style Edit parity.**
+  The owner approved the radius and border width edit sheets. Color and
+  gradient editors have a Details tab, and the Type Style right-click menu
+  opens typography values and the same Details. All four editors share name,
+  category, group, notes and deprecation fields. Edits retain entry IDs, and
+  Update from Selection keeps typography metadata. The Guide displays the new
+  metadata and DTCG output includes group paths and deprecation.
+
+- **2026-11-25 — Dimension token Edit sheet.**
+  The owner accepted percentage corners and universal double-click application.
+  Right-click Edit now opens a single draft for the token's name, base value,
+  category, group, notes and deprecation. Saving keeps the token ID and mode
+  values. Dimension rows show their category and group and follow the panel
+  category filter. Category deletion moves those tokens to Other.
+
+- **2026-11-25 — Percentage radii and Design Language panel interactions.**
+  Plain percentages work in rectangle and Auto Padding corner fields and
+  linked radius tokens. Corners resolve along both axes as the shape resizes.
+  HTML keeps percent values and SVG uses elliptical arcs. Panel entries
+  select on one click and apply on double-click. Copy Value is explicit.
+  Dimension menus can link or apply without linking. Group and mixed-selection
+  application skips incompatible, hidden and locked layers. The 44 Design
+  Language checks pass, including geometry, export and selection regressions.
+
+- **2026-11-25 — Owner accepts Code redraw, Guide size and dimension tokens.**
+  The owner confirmed the Code view renders and resizes, the Guide opens at
+  a more useful size, and creating, linking and updating Corner Radius and
+  Border Width tokens works. Percentage corner radii remain a geometry
+  follow-up under FEAT-093. CSS resolves each percentage against the
+  corresponding axis of the element's border box.
+
+- **2026-11-25 — Fixed Code view redraw (BUG-086).**
+  The gutter filled an oversized AppKit redraw region, obscuring the code
+  and toolbar. The gutter and editor now clip to their own bounds. A drawing
+  regression check covers the oversized region. Offscreen renders show the
+  source, header and footer at both window sizes in light and dark appearance.
+  The app sources compiled and linked directly.
+
+- **2026-11-25 — Radius and border width added to v2.9.**
+  The owner accepted typography, gradient links, unlink and Undo, binding
+  persistence after reopening, and basic keyboard and VoiceOver use of the
+  Guide. Radius and border width are now editable Design Language dimensions,
+  with Inspector links and token-file exports. Code fills the available
+  Settings height, shows language-aware highlighting and original line
+  numbers, and can fold JSON, CSS and SCSS blocks. Use Expand to Edit to
+  resume typing in folded JSON. The Guide now sizes itself to the display
+  where it opens. The 42 token, export and code checks and the offscreen
+  editor and window sizing checks passed. App and thumbnail sources compiled
+  and linked directly. The full Xcode build hit the SwiftPM diagnostics cache
+  permission error. The new controls and initial window size await owner review.
+
+- **2026-11-25 — Owner accepts Guide export, Table / Code and Find in Document.**
+  The owner verified the Guide export and local search and tested Code viewing
+  and copying, JSON/CSS/SCSS switching, and the edit, preview and save flow.
+  Corner radius, border width and elevation remain in the additional token
+  authoring and binding work under FEAT-090b and FEAT-093. The v2.9 checklist
+  retains the binding, live Guide and accessibility checks awaiting evidence.
+
+- **2026-11-24 — Guide folder export and local Find in Document built.**
+  A named export folder combines the standalone Guide with its sibling token
+  files and keeps an existing folder intact. Find in Document searches the
+  open file and jumps to pages, artboards, component sources and instances.
+  The app and thumbnail sources compiled and linked. The token, library,
+  canvas-page and offscreen AppKit search checks passed, including navigation
+  across pages to an artboard and a nested instance. The packaged Xcode build
+  was blocked by the SwiftPM diagnostics cache permissions in this environment.
+  The combined in-app checklist is in
+  [DESIGN-LANGUAGE-PLAN.md](DESIGN-LANGUAGE-PLAN.md#combined-development-build-checklist).
+
+- **2026-11-24 — Design Language Table / Code built.** The owner confirmed the
+  artboard picker contrast, swatch linking from the panel, and in-use deletion
+  warning and unlink behavior. Settings now switches between the existing
+  table and editable JSON, with draft review and one-step apply. CSS and SCSS
+  use the Guide exports. Document-scoped drafts survive view switches. The
+  model checks cover link identity, invalid input, read-only swatches, stale
+  drafts and artwork preservation after removal. Native owner check is next.
+
+- **2026-11-24 — Linked palette activation and page modes.** Saved swatches
+  apply live links from the Design Language panel. A page can set the wall
+  and inherited artboard mode, with a toggle or menu beside its tab name.
+  Settings exposes each mode's icon. See the page-mode verification in
+  `DESIGN-LANGUAGE-PLAN.md`.
+
+- **2026-11-23 — S5–S7 ready for owner verification.** Live paint and type-style
+  links resolve by identity. The Guide opens from the panel and exports one
+  offline HTML file with copy and token downloads. Model, library sync,
+  semantic handoff and offline browser checks pass. Native app and thumbnail
+  sources compile and link directly. Xcode package resolution is blocked by a
+  SwiftPM diagnostics cache permission, and the on-disk package fixture hits
+  the same LaunchServices error as the baseline. The in-memory package round
+  trip preserves links and their resolved artwork. See the in-app checklist in
+  `DESIGN-LANGUAGE-PLAN.md`.
+
+- **2026-11-23 — S4 palette table accepted in-app.** Owner confirmed the
+  Settings table layout and interactions, including sticky headers, column
+  resizing, and sorting. Next on the roadmap: S5 links for colors, gradients,
+  and type styles. Keyboard and VoiceOver checks remain on the checklist.
+
+- **2026-11-23 — Native palette table in Design Language Settings.** Owner
+  confirmed saved-color selection and requested column resizing, header
+  sorting, column reordering, and sticky headers. Colors & Gradients now uses
+  the full pane width and a native macOS Table. The table has a bounded
+  viewport with fixed headers for row scrolling, native column resizing and
+  reordering, and saved column customization. All data headers sort in both
+  directions. Mode headers sort resolved values, including inherited ones.
+  The sort probe passed in both directions for every data column. All 29
+  token/model checks passed and the app sources compiled and linked. The
+  Settings pattern and the owner check are in the Design Language plan.
+
+- **2026-11-23 — S4 saved color selection.** Owner confirmed that the artboard
+  mode toggle updates background and text correctly. The dimmed Settings
+  window made its swatches unusable as color-sampler targets. Added **Choose
+  Saved Color** inside the Base, override, and mode-default editors. Each menu
+  uses the document's exact saved values for the edited mode and offers Base
+  values when those differ. The chosen color changes the draft until Save.
+  All 29 token/model checks passed, including Base, mode overrides, aliases,
+  and excluding the edited entry. App and thumbnail sources compiled and
+  linked. The owner subsequently confirmed the native menu works.
+
+- **2026-11-23 — S4 Settings columns and mode defaults.** Owner verified
+  enabling modes and the position of the artboard selector. Added a Base
+  column for shared saved colors and one editable column per mode in Settings.
+  Added editable background and text defaults beside the mode names. Default
+  artboard fills and inheriting text runs resolve against the board override
+  or the document mode. Explicit paint and text edits detach. Existing text
+  can opt in from Type or the Inspector. The defaults are materialized for
+  exporters and participate in the same undo transaction. Added model checks
+  for inheritance, old files, custom white/black, save/reopen and inline
+  text-run attribute preservation. Token (28) and library (19) checks passed.
+  App and thumbnail sources compiled and linked. Native control verification
+  remains open.
+
+- **2026-11-23 — S3 resize check accepted, S4 color modes built.** Owner verified
+  that resizing an artboard updates the linked `clamp()` gap and layout. Built
+  Light/Dark mode setup with add and rename, a document mode, per-artboard
+  inheritance or override beside Notes and in the Inspector, per-mode saved
+  solid-color edits, and explicit adoption from preserved library snapshots.
+  Mode switches use the existing undo and spacing-reflow transaction. Palette
+  exports use the document mode. The native document retains all modes.
+  Token (25), library (19), legacy JSON and in-memory package checks passed.
+  The on-disk package check hit the same LaunchServices error as the baseline
+  fixture. The app and thumbnail sources compiled and linked directly.
+  Xcode scheme packaging was blocked by SwiftPM cache permissions.
+  Owner checks for the native controls, save/reopen and Undo/Redo are in the S4
+  checklist. Next after acceptance: S5 live color, gradient and type-style links.
+
+- **2026-11-23 — BUG-085 owner-verified.** The owner confirmed the eyedropper
+  works as expected on grouped and ungrouped layers. Design Language resumes
+  with the live check that an artboard resize updates a linked `clamp()` gap
+  and reflows the layout. S4 color modes follow that check.
+
+- **2026-11-23 — BUG-085: Eyedropper with detached panels.** The v2.8 shortcut
+  could miss the canvas from a detached Layers tray, and an open color editor
+  could capture `i` from another window. Routed the shortcut through the focused
+  editor or tray and limited each native sampling session to one destination.
+  Recorded sample and commit outcomes in Help ▸ Save Diagnostic Report.
+  Verified the v2.8 tray failure and its fix with a simulated window-routing
+  check. Cancellation, Display P3 conversion, rectangle/text paint and nested
+  folder rules passed focused checks. All 86 app Swift files compiled and linked
+  against the cached Sparkle framework.
+  Xcode packaging was blocked by the Swift package cache write permissions.
+  The owner verified the fix later that day.
 
 ### 2026-11-17 — private team-research inbox and activation setup
 

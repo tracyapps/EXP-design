@@ -315,16 +315,18 @@ struct CanvasPage: Identifiable, Codable, Sendable {
     var nodes: [Node]
     var guides: [Guide]
     var anchoredRelationships: [AnchoredRelationship]
+    var modeOverrides: [String: UUID]?
 
     init(id: UUID = UUID(), name: String = "Page 1",
          artboards: [Artboard] = [], nodes: [Node] = [], guides: [Guide] = [],
-         anchoredRelationships: [AnchoredRelationship] = []) {
+         anchoredRelationships: [AnchoredRelationship] = [], modeOverrides: [String: UUID]? = nil) {
         self.id = id
         self.name = name
         self.artboards = artboards
         self.nodes = nodes
         self.guides = guides
         self.anchoredRelationships = anchoredRelationships
+        self.modeOverrides = modeOverrides
     }
 }
 
@@ -972,7 +974,7 @@ struct Document: Codable, Sendable {
             return copy
         }
         return CanvasPage(name: name, artboards: artboards, nodes: ownedNodes,
-                          guides: guides, anchoredRelationships: anchors)
+                          guides: guides, anchoredRelationships: anchors, modeOverrides: page.modeOverrides)
     }
 
     /// Duplicate selected layers beside their originals in the SAME parent array.
@@ -1583,7 +1585,7 @@ struct Document: Codable, Sendable {
     }
 
     private func resolvedLayout(of inst: ComponentInstance,
-                                depth: Int = 0) -> (children: [Node], bounds: CGRect)? {
+                                depth: Int = 0, appearanceModeID: UUID? = nil) -> (children: [Node], bounds: CGRect)? {
         guard let source = source(for: inst.sourceID) else { return nil }
         // Fold in the instance's selected state (nil = base) before resolving, so
         // an instance placed on the wall can display any of the source's states.
@@ -1592,7 +1594,7 @@ struct Document: Codable, Sendable {
         })
         let resolved = source.children
             .filter { eff.isLayerVisible($0.id, sourceDefault: $0.isVisible) }
-            .map { eff.applyingOverrides(to: $0) }
+            .map { eff.applyingOverrides(to: appearanceResolvedNode($0, modeID: appearanceModeID)) }
             // FEAT-017 chunk J-b. Hand each nested instance the overrides addressed
             // to it, BEFORE the reflow below — so a re-hug measures the overridden
             // content rather than the source's original, which is the same ordering
@@ -1673,8 +1675,27 @@ struct Document: Codable, Sendable {
     /// auto-layout/padding engine so a button frame re-hugs an overridden label.
     /// Children are normalised to start at (0,0) in instance-local space, so the
     /// instance draws them at its own origin. Empty if the source is missing.
-    func resolvedChildren(of inst: ComponentInstance) -> [Node] {
-        resolvedLayout(of: inst)?.children ?? []
+    func resolvedChildren(of inst: ComponentInstance, appearanceModeID: UUID? = nil) -> [Node] {
+        resolvedLayout(of: inst, appearanceModeID: appearanceModeID)?.children ?? []
+    }
+
+    /// A placed instance inherits the artboard's paint mode. Work on a resolved
+    /// copy before applying state/instance overrides so those edits still win.
+    func appearanceResolvedNode(_ original: Node, modeID: UUID?) -> Node {
+        guard let modeID, modeID != designLanguage.colorMode()?.id else { return original }
+        func apply(_ node: inout Node) {
+            for (key, id) in node.tokenBindings ?? [:]
+                where key != TokenBindingKey.textStyle && node.appearanceBindingKeys.contains(key) {
+                _ = node.syncAppearanceBinding(key, id: id, language: designLanguage, modeID: modeID, previous: nil)
+            }
+            if case .group(var children) = node.content {
+                for i in children.indices { apply(&children[i]) }
+                node.content = .group(children: children)
+            }
+        }
+        var node = original
+        apply(&node)
+        return node
     }
 
     /// The size an instance occupies: the source viewBox, or a re-hugged managed
@@ -1915,9 +1936,19 @@ struct Artboard: Identifiable, Codable, Sendable {
     /// Travels with the board on move/duplicate/delete because it lives here.
     var notes: String = ""
 
-    /// The board's background fill (solid or gradient). Defaults to white (a board
-    /// is a screen, not a themed surface — see the architecture note).
-    var background: Paint = .white
+    /// Materialized so the canvas, export, and older readers use the same paint.
+    var background: Paint = .white {
+        didSet { usesModeBackground = background == .white ? false : nil }
+    }
+    /// Old white boards are inferred defaults. An explicit white edit stores
+    /// false so save/reopen keeps it custom.
+    var usesModeBackground: Bool? = nil
+    var followsModeBackground: Bool { usesModeBackground ?? (background == .white) }
+
+    mutating func setModeBackground(_ color: RGBAColor) {
+        background = .solid(color)
+        usesModeBackground = true
+    }
 
     /// Layout grids (columns / rows / baseline) drawn over this board.
     var layoutGrids: [LayoutGrid] = []
@@ -1928,18 +1959,19 @@ struct Artboard: Identifiable, Codable, Sendable {
     var modeOverrides: [String: UUID]? = nil
 
     init(id: UUID = UUID(), name: String, frame: CGRect, notes: String = "",
-         background: Paint = .white, layoutGrids: [LayoutGrid] = []) {
+         background: Paint? = nil, layoutGrids: [LayoutGrid] = []) {
         self.id = id
         self.name = name
         self.frame = frame
         self.notes = notes
-        self.background = background
+        self.background = background ?? .white
+        if background == .white { usesModeBackground = false }
         self.layoutGrids = layoutGrids
     }
 
     // Custom decode so files saved before these fields existed still open.
     enum CodingKeys: String, CodingKey {
-        case id, name, frame, notes, background, layoutGrids, modeOverrides
+        case id, name, frame, notes, background, layoutGrids, modeOverrides, usesModeBackground
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -1948,6 +1980,7 @@ struct Artboard: Identifiable, Codable, Sendable {
         frame = try c.decode(CGRect.self, forKey: .frame)
         notes = try c.decodeIfPresent(String.self, forKey: .notes) ?? ""
         background = try c.decodeIfPresent(Paint.self, forKey: .background) ?? .white
+        usesModeBackground = try? c.decodeIfPresent(Bool.self, forKey: .usesModeBackground)
         layoutGrids = try c.decodeIfPresent([LayoutGrid].self, forKey: .layoutGrids) ?? []
         let modes = (try? c.decodeIfPresent([String: UUID].self, forKey: .modeOverrides)) ?? nil
         modeOverrides = (modes?.isEmpty ?? true) ? nil : modes
@@ -2477,6 +2510,10 @@ struct AutoPadding: Codable, Equatable, Sendable {
     // nil fill = transparent.
     var fill: Paint? = nil
     var cornerRadius: CGFloat = 0
+    var cornerPercentage: CGFloat?
+    var effectiveRadii: CornerRadii {
+        cornerPercentage.map { CornerRadii(percent: $0, fallback: cornerRadius) } ?? CornerRadii(all: cornerRadius)
+    }
     // BUG-065. A full Paint, so a frame stroke can be a gradient (or pattern)
     // like any shape stroke; nil = no stroke. Paint's decoder reads the bare
     // {r,g,b,a} an older file stored here as `.solid`, so old documents open
@@ -2491,7 +2528,7 @@ struct AutoPadding: Codable, Equatable, Sendable {
     enum CodingKeys: String, CodingKey {
         case paddingTop, paddingRight, paddingBottom, paddingLeft
         case marginTop, marginRight, marginBottom, marginLeft
-        case fill, cornerRadius, stroke, strokeWidth, strokeAlignment, strokePattern
+        case fill, cornerRadius, cornerPercentage, stroke, strokeWidth, strokeAlignment, strokePattern
     }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -2505,6 +2542,8 @@ struct AutoPadding: Codable, Equatable, Sendable {
         marginLeft = try c.decodeIfPresent(CGFloat.self, forKey: .marginLeft) ?? 0
         fill = try c.decodeIfPresent(Paint.self, forKey: .fill)
         cornerRadius = try c.decodeIfPresent(CGFloat.self, forKey: .cornerRadius) ?? 0
+        cornerPercentage = try c.decodeIfPresent(CGFloat.self, forKey: .cornerPercentage)
+        if let p = cornerPercentage, !p.isFinite || p < 0 || p > 1_000_000 { cornerPercentage = nil }
         stroke = try c.decodeIfPresent(Paint.self, forKey: .stroke)
         strokeWidth = try c.decodeIfPresent(CGFloat.self, forKey: .strokeWidth) ?? 0
         strokeAlignment = try c.decodeIfPresent(StrokeAlignment.self, forKey: .strokeAlignment) ?? .center
@@ -2517,6 +2556,7 @@ struct AutoPadding: Codable, Equatable, Sendable {
         try c.encode(marginTop, forKey: .marginTop); try c.encode(marginRight, forKey: .marginRight)
         try c.encode(marginBottom, forKey: .marginBottom); try c.encode(marginLeft, forKey: .marginLeft)
         try c.encodeIfPresent(fill, forKey: .fill); try c.encode(cornerRadius, forKey: .cornerRadius)
+        try c.encodeIfPresent(cornerPercentage, forKey: .cornerPercentage)
         try c.encodeIfPresent(stroke, forKey: .stroke); try c.encode(strokeWidth, forKey: .strokeWidth)
         try c.encode(strokeAlignment, forKey: .strokeAlignment)
         if strokePattern != .solid { try c.encode(strokePattern, forKey: .strokePattern) }
@@ -2672,7 +2712,7 @@ extension Node {
             if let padding = autoPadding {
                 return LayerPaintStyle(fill: padding.fill, stroke: padding.stroke ?? .clear,
                     strokeWidth: padding.strokeWidth, strokeAlignment: padding.strokeAlignment,
-                    strokePattern: padding.strokePattern, cornerRadius: padding.cornerRadius)
+                    strokePattern: padding.strokePattern, cornerRadius: padding.cornerRadius, cornerRadii: padding.cornerPercentage.map { CornerRadii(percent: $0, fallback: padding.cornerRadius) })
             }
             return children.lazy.compactMap { $0.layerPaintStyle }.first
         default: return nil
@@ -2740,7 +2780,10 @@ extension Node {
             padding.fill = style.fill; padding.stroke = style.stroke
             padding.strokeWidth = style.strokeWidth; padding.strokeAlignment = style.strokeAlignment
             padding.strokePattern = style.strokePattern
-            if let radius = style.cornerRadius { padding.cornerRadius = radius }
+            if let radius = style.cornerRadius {
+                padding.cornerRadius = radius
+                padding.cornerPercentage = style.cornerRadii?.percentage(.topLeft)
+            }
             autoPadding = padding
         default: return false
         }
@@ -3036,11 +3079,18 @@ struct ImageContent: Codable, Sendable {
 /// it collapses back to nil the moment all four match again (so the simple
 /// field keeps working with zero extra actions, per the owner's spec).
 /// Corner names are visual (y-down document space): topLeft = min-x/min-y.
+enum Corner: String, Codable, Hashable, CaseIterable, Sendable {
+    case topLeft, topRight, bottomRight, bottomLeft
+}
+
+/// Percentages are authored values. The numeric fields remain as compatible
+/// fallbacks in native files and supply the absolute radius where no % is set.
 struct CornerRadii: Codable, Equatable, Sendable {
     var topLeft: CGFloat = 0
     var topRight: CGFloat = 0
     var bottomRight: CGFloat = 0
     var bottomLeft: CGFloat = 0
+    private var percentages: [String: CGFloat]?
 
     init(topLeft: CGFloat = 0, topRight: CGFloat = 0,
          bottomRight: CGFloat = 0, bottomLeft: CGFloat = 0) {
@@ -3048,68 +3098,140 @@ struct CornerRadii: Codable, Equatable, Sendable {
         self.bottomRight = max(0, bottomRight); self.bottomLeft = max(0, bottomLeft)
     }
     init(all r: CGFloat) { self.init(topLeft: r, topRight: r, bottomRight: r, bottomLeft: r) }
+    init(percent: CGFloat, fallback: CGFloat) {
+        self.init(all: fallback)
+        percentages = Dictionary(uniqueKeysWithValues: Corner.allCases.map { ($0.rawValue, percent) })
+    }
 
-    var isUniform: Bool { topLeft == topRight && topRight == bottomRight && bottomRight == bottomLeft }
-    var isZero: Bool { topLeft == 0 && topRight == 0 && bottomRight == 0 && bottomLeft == 0 }
+    subscript(_ corner: Corner) -> CGFloat {
+        get {
+            switch corner {
+            case .topLeft: topLeft
+            case .topRight: topRight
+            case .bottomRight: bottomRight
+            case .bottomLeft: bottomLeft
+            }
+        }
+        set {
+            switch corner {
+            case .topLeft: topLeft = newValue
+            case .topRight: topRight = newValue
+            case .bottomRight: bottomRight = newValue
+            case .bottomLeft: bottomLeft = newValue
+            }
+        }
+    }
+
+    var hasPercentages: Bool { percentages?.isEmpty == false }
+    func percentage(_ corner: Corner) -> CGFloat? { percentages?[corner.rawValue] }
+    mutating func setPercentage(_ value: CGFloat?, for corner: Corner) {
+        var values = percentages ?? [:]
+        values[corner.rawValue] = value
+        percentages = values.isEmpty ? nil : values
+    }
+    var isUniform: Bool {
+        if let p = percentage(.topLeft) { return Corner.allCases.allSatisfy { percentage($0) == p } }
+        return !hasPercentages && topLeft == topRight && topRight == bottomRight && bottomRight == bottomLeft
+    }
+    var isZero: Bool { Corner.allCases.allSatisfy { (percentage($0) ?? self[$0]) == 0 } }
 
     func scaled(by s: CGFloat) -> CornerRadii {
-        CornerRadii(topLeft: topLeft * s, topRight: topRight * s,
-                    bottomRight: bottomRight * s, bottomLeft: bottomLeft * s)
+        var copy = self
+        for corner in Corner.allCases { copy[corner] = Swift.max(0, self[corner] * s) }
+        return copy
     }
-    /// Grow/shrink every radius (spread, stroke offsets); clamps at 0.
     func offset(by d: CGFloat) -> CornerRadii {
-        CornerRadii(topLeft: max(0, topLeft + d), topRight: max(0, topRight + d),
-                    bottomRight: max(0, bottomRight + d), bottomLeft: max(0, bottomLeft + d))
+        var copy = self
+        for corner in Corner.allCases { copy[corner] = Swift.max(0, self[corner] + d) }
+        return copy
     }
-    /// CSS overlap rule: if two adjacent radii overflow their shared edge, scale
-    /// ALL radii by the worst ratio so arcs never cross.
-    func clamped(to size: CGSize) -> CornerRadii {
-        var f: CGFloat = 1
-        func limit(_ a: CGFloat, _ b: CGFloat, _ edge: CGFloat) {
-            let sum = a + b
-            if sum > edge, sum > 0 { f = Swift.min(f, edge / sum) }
+
+    func clamped(to size: CGSize) -> ResolvedCornerRadii {
+        func axes(_ corner: Corner) -> CGSize {
+            if let percent = percentage(corner) {
+                let fraction = percent / 100
+                return CGSize(width: size.width * fraction, height: size.height * fraction)
+            }
+            let radius = self[corner]
+            return CGSize(width: radius, height: radius)
         }
-        limit(topLeft, topRight, size.width)
-        limit(bottomLeft, bottomRight, size.width)
-        limit(topLeft, bottomLeft, size.height)
-        limit(topRight, bottomRight, size.height)
-        return f < 1 ? scaled(by: f) : self
+        return ResolvedCornerRadii(topLeft: axes(.topLeft), topRight: axes(.topRight),
+                                   bottomRight: axes(.bottomRight), bottomLeft: axes(.bottomLeft)).clamped(to: size)
     }
 
-    /// The rounded-rect outline (CoreGraphics only — safe for the shared
-    /// model target). `scale` multiplies the radii first (view = doc × zoom).
+    /// The shared canvas/raster outline. Zoom scales absolute lengths; relative
+    /// corners use the size of the drawing box, which is already zoomed.
     func path(in rect: CGRect, scale: CGFloat = 1) -> CGPath {
-        let c = scaled(by: scale).clamped(to: rect.size)
-        let p = CGMutablePath()
-        p.move(to: CGPoint(x: rect.minX + c.topLeft, y: rect.minY))
-        if c.topRight > 0 {
-            p.addArc(tangent1End: CGPoint(x: rect.maxX, y: rect.minY),
-                     tangent2End: CGPoint(x: rect.maxX, y: rect.maxY), radius: c.topRight)
-        } else { p.addLine(to: CGPoint(x: rect.maxX, y: rect.minY)) }
-        if c.bottomRight > 0 {
-            p.addArc(tangent1End: CGPoint(x: rect.maxX, y: rect.maxY),
-                     tangent2End: CGPoint(x: rect.minX, y: rect.maxY), radius: c.bottomRight)
-        } else { p.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY)) }
-        if c.bottomLeft > 0 {
-            p.addArc(tangent1End: CGPoint(x: rect.minX, y: rect.maxY),
-                     tangent2End: CGPoint(x: rect.minX, y: rect.minY), radius: c.bottomLeft)
-        } else { p.addLine(to: CGPoint(x: rect.minX, y: rect.maxY)) }
-        if c.topLeft > 0 {
-            p.addArc(tangent1End: CGPoint(x: rect.minX, y: rect.minY),
-                     tangent2End: CGPoint(x: rect.maxX, y: rect.minY), radius: c.topLeft)
-        } else { p.addLine(to: CGPoint(x: rect.minX, y: rect.minY)) }
-        p.closeSubpath()
-        return p
+        if isZero { return CGPath(rect: rect, transform: nil) }
+        if !hasPercentages, isUniform {
+            let radius = Swift.min(topLeft * scale, Swift.max(0, Swift.min(rect.width, rect.height) / 2))
+            return CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil)
+        }
+        return scaled(by: scale).clamped(to: rect.size).path(in: rect)
     }
 
-    // Tolerant decode (future fields never break older builds).
-    enum CodingKeys: String, CodingKey { case topLeft, topRight, bottomRight, bottomLeft }
+    enum CodingKeys: String, CodingKey { case topLeft, topRight, bottomRight, bottomLeft, percentages }
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         topLeft = max(0, try c.decodeIfPresent(CGFloat.self, forKey: .topLeft) ?? 0)
         topRight = max(0, try c.decodeIfPresent(CGFloat.self, forKey: .topRight) ?? 0)
         bottomRight = max(0, try c.decodeIfPresent(CGFloat.self, forKey: .bottomRight) ?? 0)
         bottomLeft = max(0, try c.decodeIfPresent(CGFloat.self, forKey: .bottomLeft) ?? 0)
+        percentages = try c.decodeIfPresent([String: CGFloat].self, forKey: .percentages)?
+            .filter { Corner(rawValue: $0.key) != nil && $0.value.isFinite && $0.value >= 0 && $0.value <= 1_000_000 }
+    }
+}
+
+struct ResolvedCornerRadii {
+    let topLeft: CGSize
+    let topRight: CGSize
+    let bottomRight: CGSize
+    let bottomLeft: CGSize
+
+    var isZero: Bool { [topLeft, topRight, bottomRight, bottomLeft].allSatisfy { !Self.curved($0) } }
+    static func curved(_ size: CGSize) -> Bool { size.width > 0 && size.height > 0 }
+
+    func offset(by distance: CGFloat) -> ResolvedCornerRadii {
+        func grow(_ size: CGSize) -> CGSize {
+            CGSize(width: Swift.max(0, size.width + distance), height: Swift.max(0, size.height + distance))
+        }
+        return ResolvedCornerRadii(topLeft: grow(topLeft), topRight: grow(topRight),
+                                   bottomRight: grow(bottomRight), bottomLeft: grow(bottomLeft))
+    }
+
+    /// CSS applies the same reduction to every axis of every corner.
+    func clamped(to size: CGSize) -> ResolvedCornerRadii {
+        var factor: CGFloat = 1
+        func limit(_ sum: CGFloat, by edge: CGFloat) {
+            if sum > edge, sum > 0 { factor = Swift.min(factor, Swift.max(0, edge) / sum) }
+        }
+        limit(topLeft.width + topRight.width, by: size.width)
+        limit(bottomLeft.width + bottomRight.width, by: size.width)
+        limit(topLeft.height + bottomLeft.height, by: size.height)
+        limit(topRight.height + bottomRight.height, by: size.height)
+        guard factor < 1 else { return self }
+        func scale(_ size: CGSize) -> CGSize { CGSize(width: size.width * factor, height: size.height * factor) }
+        return ResolvedCornerRadii(topLeft: scale(topLeft), topRight: scale(topRight),
+                                   bottomRight: scale(bottomRight), bottomLeft: scale(bottomLeft))
+    }
+
+    func path(in rect: CGRect) -> CGPath {
+        let points = PathShape.roundedRectPoints(size: rect.size, resolved: self)
+        let path = CGMutablePath()
+        guard let first = points.first else { return path }
+        func offset(_ point: CGPoint) -> CGPoint {
+            CGPoint(x: rect.minX + point.x, y: rect.minY + point.y)
+        }
+        path.move(to: offset(first.point))
+        for (previous, next) in zip(points, points.dropFirst() + [first]) {
+            if let start = previous.controlOut, let end = next.controlIn {
+                path.addCurve(to: offset(next.point), control1: offset(start), control2: offset(end))
+            } else {
+                path.addLine(to: offset(next.point))
+            }
+        }
+        path.closeSubpath()
+        return path
     }
 }
 
@@ -3239,7 +3361,7 @@ struct RectangleShape: Codable, Sendable {
     /// True when corners genuinely differ (drives the per-corner render path).
     var hasPerCornerRadii: Bool {
         guard let r = cornerRadii else { return false }
-        return !r.isUniform
+        return r.hasPercentages || !r.isUniform
     }
 
     init(fill: Paint = .white, cornerRadius: CGFloat = 0,
@@ -3564,33 +3686,36 @@ struct PathShape: Codable, Sendable {
     /// approximation; a zero corner stays one plain anchor. Clockwise from
     /// the top-left, matching the un-rounded conversion's winding.
     static func roundedRectPoints(size: CGSize, radii: CornerRadii) -> [PathPoint] {
+        roundedRectPoints(size: size, resolved: radii.clamped(to: size))
+    }
+
+    static func roundedRectPoints(size: CGSize, resolved c: ResolvedCornerRadii) -> [PathPoint] {
         let w = size.width, h = size.height
-        let c = radii.clamped(to: size)
         let k: CGFloat = 0.5522847498   // circle-to-bézier constant
         var pts: [PathPoint] = []
         // Top-left
-        if c.topLeft > 0 {
+        if ResolvedCornerRadii.curved(c.topLeft) {
             let r = c.topLeft
-            pts.append(PathPoint(point: CGPoint(x: 0, y: r), controlOut: CGPoint(x: 0, y: r * (1 - k))))
-            pts.append(PathPoint(point: CGPoint(x: r, y: 0), controlIn: CGPoint(x: r * (1 - k), y: 0)))
+            pts.append(PathPoint(point: CGPoint(x: 0, y: r.height), controlOut: CGPoint(x: 0, y: r.height * (1 - k))))
+            pts.append(PathPoint(point: CGPoint(x: r.width, y: 0), controlIn: CGPoint(x: r.width * (1 - k), y: 0)))
         } else { pts.append(PathPoint(point: .zero)) }
         // Top-right
-        if c.topRight > 0 {
+        if ResolvedCornerRadii.curved(c.topRight) {
             let r = c.topRight
-            pts.append(PathPoint(point: CGPoint(x: w - r, y: 0), controlOut: CGPoint(x: w - r * (1 - k), y: 0)))
-            pts.append(PathPoint(point: CGPoint(x: w, y: r), controlIn: CGPoint(x: w, y: r * (1 - k))))
+            pts.append(PathPoint(point: CGPoint(x: w - r.width, y: 0), controlOut: CGPoint(x: w - r.width * (1 - k), y: 0)))
+            pts.append(PathPoint(point: CGPoint(x: w, y: r.height), controlIn: CGPoint(x: w, y: r.height * (1 - k))))
         } else { pts.append(PathPoint(point: CGPoint(x: w, y: 0))) }
         // Bottom-right
-        if c.bottomRight > 0 {
+        if ResolvedCornerRadii.curved(c.bottomRight) {
             let r = c.bottomRight
-            pts.append(PathPoint(point: CGPoint(x: w, y: h - r), controlOut: CGPoint(x: w, y: h - r * (1 - k))))
-            pts.append(PathPoint(point: CGPoint(x: w - r, y: h), controlIn: CGPoint(x: w - r * (1 - k), y: h)))
+            pts.append(PathPoint(point: CGPoint(x: w, y: h - r.height), controlOut: CGPoint(x: w, y: h - r.height * (1 - k))))
+            pts.append(PathPoint(point: CGPoint(x: w - r.width, y: h), controlIn: CGPoint(x: w - r.width * (1 - k), y: h)))
         } else { pts.append(PathPoint(point: CGPoint(x: w, y: h))) }
         // Bottom-left
-        if c.bottomLeft > 0 {
+        if ResolvedCornerRadii.curved(c.bottomLeft) {
             let r = c.bottomLeft
-            pts.append(PathPoint(point: CGPoint(x: r, y: h), controlOut: CGPoint(x: r * (1 - k), y: h)))
-            pts.append(PathPoint(point: CGPoint(x: 0, y: h - r), controlIn: CGPoint(x: 0, y: h - r * (1 - k))))
+            pts.append(PathPoint(point: CGPoint(x: r.width, y: h), controlOut: CGPoint(x: r.width * (1 - k), y: h)))
+            pts.append(PathPoint(point: CGPoint(x: 0, y: h - r.height), controlIn: CGPoint(x: 0, y: h - r.height * (1 - k))))
         } else { pts.append(PathPoint(point: CGPoint(x: 0, y: h))) }
         return pts
     }
@@ -3643,7 +3768,10 @@ struct TextRun: Codable, Equatable, Sendable {
     var string: String
     var fontName: String = ""
     var fontSize: CGFloat = 16
-    var color: RGBAColor = .black
+    var color: RGBAColor = .black {
+        didSet { usesModeForeground = nil }
+    }
+    var usesModeForeground: Bool? = nil
     var underline: Bool = false
     /// Optional destination for an imported inline link. Keeping this on the run
     /// preserves one manageable rich-text box instead of overlapping link/text
@@ -3652,9 +3780,15 @@ struct TextRun: Codable, Equatable, Sendable {
 
     init(string: String, fontName: String = "", fontSize: CGFloat = 16,
          color: RGBAColor = .black, underline: Bool = false,
-         linkURL: String? = nil) {
+         linkURL: String? = nil, usesModeForeground: Bool? = nil) {
         self.string = string; self.fontName = fontName; self.fontSize = fontSize
         self.color = color; self.underline = underline; self.linkURL = linkURL
+        self.usesModeForeground = usesModeForeground
+    }
+
+    mutating func setModeForeground(_ color: RGBAColor) {
+        self.color = color
+        usesModeForeground = true
     }
 }
 
@@ -3831,8 +3965,10 @@ struct TextContent: Codable, Sendable {
 
     /// Replace all text with a single run, keeping the first run's styling.
     mutating func setPlainString(_ s: String) {
-        let a = firstRun
-        runs = [TextRun(string: s, fontName: a.fontName, fontSize: a.fontSize, color: a.color, underline: a.underline)]
+        var run = firstRun
+        run.string = s
+        run.linkURL = nil
+        runs = [run]
     }
     mutating func applyToAllRuns(_ change: (inout TextRun) -> Void) {
         for i in runs.indices { change(&runs[i]) }
@@ -5172,6 +5308,8 @@ extension ComponentInstance {
                     node.frame.size = tc.measuredSize(boxWidth: node.frame.width)
                 }
             case .fill(let paint):
+                node.setTokenBinding(TokenBindingKey.fill, to: nil)
+                node.setTokenBinding(TokenBindingKey.paddingFill, to: nil)
                 switch node.content {
                 case .rectangle(var shape): shape.fill = paint; node.content = .rectangle(shape)
                 case .ellipse(var shape):   shape.fill = paint; node.content = .ellipse(shape)
@@ -5185,6 +5323,10 @@ extension ComponentInstance {
             case .textStyle(let style):
                 if case .text(var tc) = node.content {
                     tc = style.applied(to: tc)
+                    if style.color != nil { node.setTokenBinding(TokenBindingKey.textColor, to: nil) }
+                    if style.affectsMetrics || style.underline != nil || style.align != nil {
+                        node.setTokenBinding(TokenBindingKey.textStyle, to: nil)
+                    }
                     node.content = .text(tc)
                     // Reflow only when typography metrics can actually change.
                     // A color-only state/instance override is paint, not layout.
@@ -5197,6 +5339,8 @@ extension ComponentInstance {
             case .blendMode(let value):
                 node.blendMode = value
             case .stroke(let stroke):
+                node.setTokenBinding(TokenBindingKey.stroke, to: nil)
+                node.setTokenBinding(TokenBindingKey.paddingStroke, to: nil)
                 switch node.content {
                 case .rectangle(var shape): shape.stroke = stroke.paint ?? .clear; shape.strokeWidth = stroke.width; shape.strokeAlignment = stroke.alignment; shape.strokePattern = stroke.pattern ?? .solid; node.content = .rectangle(shape)
                 case .ellipse(var shape):   shape.stroke = stroke.paint ?? .clear; shape.strokeWidth = stroke.width; shape.strokeAlignment = stroke.alignment; shape.strokePattern = stroke.pattern ?? .solid; node.content = .ellipse(shape)
@@ -5390,9 +5534,11 @@ struct DesignLanguage: Codable, Equatable, Sendable {
     func count(in categoryID: UUID?) -> Int {
         assets.reduce(0) { $0 + ($1.categoryID == categoryID ? 1 : 0) }
             + typeStyles.reduce(0) { $0 + ($1.categoryID == categoryID ? 1 : 0) }
+            + tokens.reduce(0) { $0 + ($1.categoryID == categoryID ? 1 : 0) }
     }
     var hasUncategorized: Bool {
-        assets.contains { $0.categoryID == nil } || typeStyles.contains { $0.categoryID == nil }
+        assets.contains { $0.categoryID == nil } || typeStyles.contains { $0.categoryID == nil } ||
+            tokens.contains { $0.categoryID == nil }
     }
 
     /// The first saved entry whose value exactly matches (used by the picker link).
@@ -5455,6 +5601,9 @@ struct DesignLanguage: Codable, Equatable, Sendable {
         updated.id = typeStyles[i].id
         updated.name = typeStyles[i].name
         updated.categoryID = typeStyles[i].categoryID
+        updated.notes = typeStyles[i].notes
+        updated.group = typeStyles[i].group
+        updated.deprecated = typeStyles[i].deprecated
         typeStyles[i] = updated
     }
     mutating func removeTypeStyle(_ id: UUID) { typeStyles.removeAll { $0.id == id } }
@@ -5512,11 +5661,12 @@ struct DesignLanguage: Codable, Equatable, Sendable {
         guard let i = categories.firstIndex(where: { $0.id == id }) else { return }
         categories[i].name = name.trimmingCharacters(in: .whitespaces)
     }
-    /// Delete a category; its assets fall back to uncategorized (colors are kept).
+    /// Delete a category and move its entries to Other.
     mutating func removeCategory(_ id: UUID) {
         categories.removeAll { $0.id == id }
         for i in assets.indices where assets[i].categoryID == id { assets[i].categoryID = nil }
         for i in typeStyles.indices where typeStyles[i].categoryID == id { typeStyles[i].categoryID = nil }
+        for i in tokens.indices where tokens[i].categoryID == id { tokens[i].categoryID = nil }
     }
     mutating func moveCategory(fromOffsets source: IndexSet, toOffset destination: Int) {
         let moved = source.map { categories[$0] }
@@ -5601,7 +5751,12 @@ struct DesignAsset: Codable, Equatable, Identifiable, Sendable {
     /// The user category this belongs to (nil = uncategorized / "Other").
     var categoryID: UUID?
     var value: Paint
+    /// Sparse color overrides by stable mode ID. The base paint remains usable
+    /// on its own in older readers and when a mode has no override.
+    var modeValues: [String: DLTokenValue] = [:]
     var notes: String
+    var group: String?
+    var deprecated: String?
     var tags: [String]
     var provenance: String
 
@@ -5610,12 +5765,15 @@ struct DesignAsset: Codable, Equatable, Identifiable, Sendable {
     var legacyStatus: String?
 
     init(id: UUID = UUID(), name: String = "", categoryID: UUID? = nil,
-         value: Paint, notes: String = "", tags: [String] = [], provenance: String = "") {
+         value: Paint, notes: String = "", tags: [String] = [], provenance: String = "",
+         group: String? = nil, deprecated: String? = nil) {
         self.id = id
         self.name = name
         self.categoryID = categoryID
         self.value = value
         self.notes = notes
+        self.group = group
+        self.deprecated = deprecated
         self.tags = tags
         self.provenance = provenance
         self.legacyStatus = nil
@@ -5624,7 +5782,7 @@ struct DesignAsset: Codable, Equatable, Identifiable, Sendable {
     var representativeColor: RGBAColor { value.representativeColor }
 
     // `status` is decode-only (old files); `legacyStatus` is never encoded.
-    enum CodingKeys: String, CodingKey { case id, name, categoryID, value, notes, tags, provenance, status }
+    enum CodingKeys: String, CodingKey { case id, name, categoryID, value, modeValues, notes, group, deprecated, tags, provenance, status }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -5632,7 +5790,10 @@ struct DesignAsset: Codable, Equatable, Identifiable, Sendable {
         name  = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
         categoryID = try c.decodeIfPresent(UUID.self, forKey: .categoryID)
         value = try c.decode(Paint.self, forKey: .value)
+        modeValues = (try? c.decodeIfPresent([String: DLTokenValue].self, forKey: .modeValues)) ?? [:]
         notes = try c.decodeIfPresent(String.self, forKey: .notes) ?? ""
+        group = try c.decodeIfPresent(String.self, forKey: .group)
+        deprecated = try c.decodeIfPresent(String.self, forKey: .deprecated)
         tags  = try c.decodeIfPresent([String].self, forKey: .tags) ?? []
         provenance = try c.decodeIfPresent(String.self, forKey: .provenance) ?? ""
         legacyStatus = try c.decodeIfPresent(String.self, forKey: .status)   // old files only
@@ -5644,7 +5805,10 @@ struct DesignAsset: Codable, Equatable, Identifiable, Sendable {
         try c.encode(name, forKey: .name)
         try c.encodeIfPresent(categoryID, forKey: .categoryID)
         try c.encode(value, forKey: .value)
+        if !modeValues.isEmpty { try c.encode(modeValues, forKey: .modeValues) }
         try c.encode(notes, forKey: .notes)
+        try c.encodeIfPresent(group, forKey: .group)
+        try c.encodeIfPresent(deprecated, forKey: .deprecated)
         try c.encode(tags, forKey: .tags)
         try c.encode(provenance, forKey: .provenance)
         // legacyStatus intentionally NOT encoded.
@@ -5671,6 +5835,8 @@ struct TypeStyle: Codable, Equatable, Identifiable, Sendable {
     /// Shares the SAME cross-cutting categories as colors/gradients.
     var categoryID: UUID?
     var notes: String
+    var group: String?
+    var deprecated: String?
     var provenance: String
 
     // Character (TextRun minus color)
@@ -5690,9 +5856,10 @@ struct TypeStyle: Codable, Equatable, Identifiable, Sendable {
          fontName: String = "", fontSize: CGFloat = 16, underline: Bool = false,
          align: TextAlign = .left, lineHeight: CGFloat = 1.3,
          lineHeightUnit: LineHeightUnit = .auto, tracking: CGFloat = 0,
-         textCase: TextCase = .none) {
+         textCase: TextCase = .none, group: String? = nil, deprecated: String? = nil) {
         self.id = id; self.name = name; self.categoryID = categoryID
         self.notes = notes; self.provenance = provenance
+        self.group = group; self.deprecated = deprecated
         self.fontName = fontName; self.fontSize = fontSize; self.underline = underline
         self.align = align; self.lineHeight = lineHeight
         self.lineHeightUnit = lineHeightUnit; self.tracking = tracking
@@ -5701,7 +5868,7 @@ struct TypeStyle: Codable, Equatable, Identifiable, Sendable {
 
     // Tolerant decode so future fields never break older builds.
     enum CodingKeys: String, CodingKey {
-        case id, name, categoryID, notes, provenance
+        case id, name, categoryID, notes, provenance, group, deprecated
         case fontName, fontSize, underline
         case align, lineHeight, lineHeightUnit, tracking, textCase
     }
@@ -5712,6 +5879,8 @@ struct TypeStyle: Codable, Equatable, Identifiable, Sendable {
         categoryID = try c.decodeIfPresent(UUID.self, forKey: .categoryID)
         notes = try c.decodeIfPresent(String.self, forKey: .notes) ?? ""
         provenance = try c.decodeIfPresent(String.self, forKey: .provenance) ?? ""
+        group = try c.decodeIfPresent(String.self, forKey: .group)
+        deprecated = try c.decodeIfPresent(String.self, forKey: .deprecated)
         fontName = try c.decodeIfPresent(String.self, forKey: .fontName) ?? ""
         fontSize = try c.decodeIfPresent(CGFloat.self, forKey: .fontSize) ?? 16
         underline = try c.decodeIfPresent(Bool.self, forKey: .underline) ?? false
@@ -5896,16 +6065,18 @@ enum DLJSON: Codable, Equatable, Sendable {
 enum DLTokenValue: Codable, Equatable, Sendable {
     case dimension(DLDimension)
     case number(Double)
+    case color(RGBAColor)
     case alias(UUID)
     case raw(String)
     case preserved(DLJSON)
 
-    private enum Keys: String, CodingKey { case dimension, number, alias, raw }
+    private enum Keys: String, CodingKey { case dimension, number, color, alias, raw }
 
     init(from decoder: Decoder) throws {
         if let c = try? decoder.container(keyedBy: Keys.self) {
             if let d = try? c.decode(DLDimension.self, forKey: .dimension) { self = .dimension(d); return }
             if let n = try? c.decode(Double.self, forKey: .number) { self = .number(n); return }
+            if let color = try? c.decode(RGBAColor.self, forKey: .color) { self = .color(color); return }
             if let a = try? c.decode(UUID.self, forKey: .alias) { self = .alias(a); return }
             if let r = try? c.decode(String.self, forKey: .raw) { self = .raw(r); return }
         }
@@ -5917,6 +6088,8 @@ enum DLTokenValue: Codable, Equatable, Sendable {
             var c = encoder.container(keyedBy: Keys.self); try c.encode(d, forKey: .dimension)
         case .number(let n):
             var c = encoder.container(keyedBy: Keys.self); try c.encode(n, forKey: .number)
+        case .color(let color):
+            var c = encoder.container(keyedBy: Keys.self); try c.encode(color, forKey: .color)
         case .alias(let id):
             var c = encoder.container(keyedBy: Keys.self); try c.encode(id, forKey: .alias)
         case .raw(let s):
@@ -6022,7 +6195,42 @@ struct DLToken: Codable, Equatable, Identifiable, Sendable {
 struct DLMode: Codable, Equatable, Identifiable, Sendable {
     var id: UUID
     var name: String
-    init(id: UUID = UUID(), name: String) { self.id = id; self.name = name }
+    /// A source-library mode key survives user renaming of the display name.
+    var libraryKey: String?
+    var backgroundColor: RGBAColor? = nil
+    var foregroundColor: RGBAColor? = nil
+    var iconSymbol: String? = nil
+    init(id: UUID = UUID(), name: String, libraryKey: String? = nil) {
+        self.id = id; self.name = name; self.libraryKey = libraryKey
+    }
+
+    var resolvedIconSymbol: String {
+        if let iconSymbol, !iconSymbol.isEmpty { return iconSymbol }
+        switch libraryKey {
+        case "light": return "sun.max"
+        case "dark": return "moon"
+        default: return "circle.lefthalf.filled"
+        }
+    }
+
+    var resolvedBackground: RGBAColor {
+        backgroundColor ?? (libraryKey == "dark" ? RGBAColor(r: 0.067, g: 0.094, b: 0.125) : .white)
+    }
+    var resolvedForeground: RGBAColor {
+        foregroundColor ?? (libraryKey == "dark" ? .white : .black)
+    }
+}
+
+enum DLModeColorRole: String, CaseIterable, Identifiable, Sendable {
+    case background, foreground
+    var id: Self { self }
+
+    func color(in mode: DLMode) -> RGBAColor {
+        switch self {
+        case .background: mode.resolvedBackground
+        case .foreground: mode.resolvedForeground
+        }
+    }
 }
 
 /// One axis of variation and its modes ("Color scheme": Light, Dark). The
@@ -6266,11 +6474,33 @@ enum TokenBindingKey {
     static let marginRight = "autoPadding.marginRight"
     static let marginBottom = "autoPadding.marginBottom"
     static let marginLeft = "autoPadding.marginLeft"
+    static let cornerRadius = "cornerRadius"
+    static let topLeftRadius = "cornerRadius.topLeft"
+    static let topRightRadius = "cornerRadius.topRight"
+    static let bottomRightRadius = "cornerRadius.bottomRight"
+    static let bottomLeftRadius = "cornerRadius.bottomLeft"
+    static let borderWidth = "strokeWidth"
 
     static let padding = [paddingTop, paddingRight, paddingBottom, paddingLeft]
     static let margin = [marginTop, marginRight, marginBottom, marginLeft]
-    /// Every key v2.9 can resolve. All take a spacing-role number.
     static let spacing = [gap] + padding + margin
+    static let corners = [topLeftRadius, topRightRadius, bottomRightRadius, bottomLeftRadius]
+
+    static func corner(_ key: String) -> Corner? {
+        switch key {
+        case topLeftRadius: .topLeft
+        case topRightRadius: .topRight
+        case bottomRightRadius: .bottomRight
+        case bottomLeftRadius: .bottomLeft
+        default: nil
+        }
+    }
+
+    static func numericRole(_ key: String) -> DLTokenRole? {
+        if key == borderWidth { return .borderWidth }
+        if key == cornerRadius || corners.contains(key) { return .radius }
+        return spacing.contains(key) ? .spacing : nil
+    }
 
     static func autoPaddingKeyPath(_ key: String) -> WritableKeyPath<AutoPadding, CGFloat>? {
         switch key {
@@ -6293,6 +6523,7 @@ extension Node {
 
     /// Link (`id`) or unlink (`nil`) one property. Never touches the number.
     mutating func setTokenBinding(_ key: String, to id: UUID?) {
+        guard tokenBindings?[key] != id else { return }
         var map = tokenBindings ?? [:]
         map[key] = id
         tokenBindings = map.isEmpty ? nil : map
@@ -6303,17 +6534,139 @@ extension Node {
     /// one this build can't resolve.
     func numericValue(forBindingKey key: String) -> CGFloat? {
         if key == TokenBindingKey.gap { return autoLayout?.gap }
+        if let corner = TokenBindingKey.corner(key), case .rectangle(let shape) = content {
+            return shape.effectiveRadii[corner]
+        }
+        if key == TokenBindingKey.cornerRadius {
+            switch content {
+            case .rectangle(let shape): return shape.effectiveRadii.isUniform ? shape.cornerRadius : nil
+            case .polygon(let shape): return shape.cornerRadius
+            case .group: return autoPadding?.cornerRadius
+            default: return nil
+            }
+        }
+        if key == TokenBindingKey.borderWidth {
+            switch content {
+            case .rectangle, .ellipse, .polygon, .path, .line, .text: return layerPaintStyle?.strokeWidth
+            case .group: return autoPadding?.strokeWidth
+            default: return nil
+            }
+        }
         guard let kp = TokenBindingKey.autoPaddingKeyPath(key) else { return nil }
         return autoPadding?[keyPath: kp]
     }
 
+    func supportsPercentageRadius(for key: String) -> Bool {
+        switch content {
+        case .rectangle: return TokenBindingKey.numericRole(key) == .radius
+        case .group: return autoPadding != nil && key == TokenBindingKey.cornerRadius
+        default: return false
+        }
+    }
+
+    func radiusPercentage(for key: String) -> CGFloat? {
+        switch content {
+        case .rectangle(let shape):
+            let radii = shape.effectiveRadii
+            if let corner = TokenBindingKey.corner(key) { return radii.percentage(corner) }
+            return key == TokenBindingKey.cornerRadius && radii.isUniform ? radii.percentage(.topLeft) : nil
+        case .group: return key == TokenBindingKey.cornerRadius ? autoPadding?.cornerPercentage : nil
+        default: return nil
+        }
+    }
+
+    @discardableResult
+    mutating func setRadiusPercentage(_ value: CGFloat, for key: String) -> Bool {
+        guard value.isFinite, value >= 0, value <= 1_000_000,
+              supportsPercentageRadius(for: key), radiusPercentage(for: key) != value else { return false }
+        let insetWidth = frame.width - (autoPadding?.marginW ?? 0)
+        let insetHeight = frame.height - (autoPadding?.marginH ?? 0)
+        let fallback = Swift.max(0, Swift.min(insetWidth, insetHeight)) * Swift.min(0.5, value / 100)
+        if case .rectangle(var shape) = content {
+            if let corner = TokenBindingKey.corner(key) {
+                var radii = shape.effectiveRadii
+                radii[corner] = fallback
+                radii.setPercentage(value, for: corner)
+                shape.cornerRadii = radii
+                if radii.isUniform { shape.cornerRadius = fallback }
+            } else {
+                shape.cornerRadius = fallback
+                shape.cornerRadii = CornerRadii(percent: value, fallback: fallback)
+            }
+            content = .rectangle(shape)
+        } else {
+            autoPadding?.cornerPercentage = value
+            autoPadding?.cornerRadius = fallback
+        }
+        return true
+    }
+
+    func limitedBindingNumber(_ number: CGFloat, for key: String) -> CGFloat {
+        if key == TokenBindingKey.borderWidth, case .line = content { return Swift.max(1, number) }
+        if key == TokenBindingKey.cornerRadius, case .polygon = content {
+            return Swift.min(1_000_000, Swift.max(0, number))
+        }
+        return Swift.max(0, number)
+    }
+
+    /// The uniform rectangle control replaces the individual links. A corner
+    /// control starts from the current radii and takes over just that corner.
+    mutating func replaceCornerBindingScope(for key: String) {
+        guard case .rectangle = content else { return }
+        if key == TokenBindingKey.cornerRadius {
+            for corner in TokenBindingKey.corners { setTokenBinding(corner, to: nil) }
+        } else if TokenBindingKey.corners.contains(key) {
+            setTokenBinding(TokenBindingKey.cornerRadius, to: nil)
+        }
+    }
+
     /// Write a resolved number into the field a binding key names. Returns true
-    /// only when the stored number actually changed. Spacing can't be negative,
-    /// matching the Inspector's own clamp.
+    /// only when the stored number actually changed. Uses the Inspector's limits.
     @discardableResult
     mutating func setNumericValue(_ raw: CGFloat, forBindingKey key: String) -> Bool {
         guard raw.isFinite else { return false }
-        let v = Swift.max(0, raw)
+        let v = limitedBindingNumber(raw, for: key)
+        if key == TokenBindingKey.cornerRadius {
+            switch content {
+            case .rectangle(var shape):
+                guard shape.cornerRadii != nil || shape.cornerRadius != v else { return false }
+                shape.cornerRadius = v
+                shape.cornerRadii = nil
+                content = .rectangle(shape)
+            case .polygon(var shape) where shape.cornerRadius != v:
+                shape.cornerRadius = v
+                content = .polygon(shape)
+            case .group where autoPadding != nil && (autoPadding?.cornerRadius != v || autoPadding?.cornerPercentage != nil):
+                autoPadding?.cornerRadius = v
+                autoPadding?.cornerPercentage = nil
+            default: return false
+            }
+            return true
+        }
+        if let corner = TokenBindingKey.corner(key), case .rectangle(var shape) = content {
+            var radii = shape.effectiveRadii
+            guard radii[corner] != v || radii.percentage(corner) != nil else { return false }
+            radii[corner] = v
+            radii.setPercentage(nil, for: corner)
+            if radii.isUniform { shape.cornerRadius = v }
+            shape.cornerRadii = radii.isUniform && !radii.hasPercentages ? nil : radii
+            content = .rectangle(shape)
+            return true
+        }
+        if key == TokenBindingKey.borderWidth {
+            guard let current = numericValue(forBindingKey: key), current != v else { return false }
+            switch content {
+            case .rectangle(var shape): shape.strokeWidth = v; content = .rectangle(shape)
+            case .ellipse(var shape): shape.strokeWidth = v; content = .ellipse(shape)
+            case .polygon(var shape): shape.strokeWidth = v; content = .polygon(shape)
+            case .path(var shape): shape.strokeWidth = v; content = .path(shape)
+            case .line(var shape): shape.strokeWidth = v; content = .line(shape)
+            case .text(var text): text.strokeWidth = v; content = .text(text)
+            case .group: autoPadding?.strokeWidth = v
+            default: return false
+            }
+            return true
+        }
         if key == TokenBindingKey.gap {
             guard var al = autoLayout, abs(al.gap - v) > 0.0001 else { return false }
             al.gap = v
@@ -6326,6 +6679,233 @@ extension Node {
         autoPadding = ap
         return true
     }
+}
+
+extension TokenBindingKey {
+    static let fill = "fill"
+    static let stroke = "stroke"
+    static let paddingFill = "autoPadding.fill"
+    static let paddingStroke = "autoPadding.stroke"
+    static let textColor = "text.color"
+    static let textStroke = "text.stroke"
+    static let textStyle = "text.style"
+}
+
+private enum AppearanceBindingValue: Equatable {
+    case paint(Paint?)
+    case textColors([RunColor])
+    case font([FontValues], ParagraphValues)
+
+    struct RunColor: Equatable {
+        let color: RGBAColor
+        let inheritsMode: Bool
+    }
+
+    struct FontValues: Equatable {
+        let name: String
+        let size: CGFloat
+        let underline: Bool
+    }
+
+    struct ParagraphValues: Equatable {
+        let align: TextAlign
+        let height: CGFloat
+        let unit: LineHeightUnit
+        let tracking: CGFloat
+        let textCase: TextCase
+        let centeredLeading: Bool
+    }
+
+    static func font(_ style: TypeStyle, against text: TextContent) -> Self {
+        .font([FontValues(name: style.fontName, size: style.fontSize, underline: style.underline)],
+              ParagraphValues(align: style.align, height: style.lineHeight, unit: style.lineHeightUnit,
+                              tracking: style.tracking, textCase: style.textCase,
+                              centeredLeading: style.lineHeightUnit == .px || style.lineHeightUnit == .em
+                                || text.centersFixedLineHeightLeading == true))
+    }
+}
+
+extension Node {
+    var appearanceBindingKeys: [String] {
+        switch content {
+        case .rectangle, .ellipse, .polygon:
+            return [TokenBindingKey.fill, TokenBindingKey.stroke]
+        case .path(let shape) where shape.closed:
+            return [TokenBindingKey.fill, TokenBindingKey.stroke]
+        case .line, .path:
+            return [TokenBindingKey.stroke]
+        case .text:
+            return [TokenBindingKey.textColor, TokenBindingKey.textStroke, TokenBindingKey.textStyle]
+        case .group where autoPadding != nil:
+            return [TokenBindingKey.paddingFill, TokenBindingKey.paddingStroke]
+        default:
+            return []
+        }
+    }
+
+    func acceptsAppearanceBinding(_ key: String, paint: Paint) -> Bool {
+        guard appearanceBindingKeys.contains(key), key != TokenBindingKey.textStyle else { return false }
+        if case .solid = paint { return true }
+        if case .line = content, paint.isMesh { return false }
+        switch key {
+        case TokenBindingKey.textColor, TokenBindingKey.textStroke:
+            return false
+        default:
+            return paint.isGradient || paint.isMesh
+        }
+    }
+
+    fileprivate func appearanceValue(for key: String) -> AppearanceBindingValue? {
+        guard appearanceBindingKeys.contains(key) else { return nil }
+        switch key {
+        case TokenBindingKey.textColor:
+            guard case .text(let text) = content else { return nil }
+            return .textColors(Self.distinct(text.runs.map {
+                .init(color: $0.color, inheritsMode: $0.usesModeForeground == true)
+            }))
+        case TokenBindingKey.textStyle:
+            guard case .text(let text) = content else { return nil }
+            let fonts = Self.distinct(text.runs.map {
+                AppearanceBindingValue.FontValues(name: $0.fontName, size: $0.fontSize, underline: $0.underline)
+            })
+            return .font(fonts, .init(align: text.align, height: text.lineHeight, unit: text.lineHeightUnit,
+                                      tracking: text.tracking, textCase: text.textCase,
+                                      centeredLeading: text.centersFixedLineHeightLeading == true))
+        case TokenBindingKey.textStroke:
+            guard case .text(let text) = content else { return nil }
+            return .paint(.solid(text.strokeColor))
+        case TokenBindingKey.paddingFill:
+            return .paint(autoPadding?.fill)
+        case TokenBindingKey.paddingStroke:
+            return .paint(autoPadding?.stroke)
+        case TokenBindingKey.fill:
+            return .paint(layerPaintStyle?.fill)
+        default:
+            return layerPaintStyle.map { .paint($0.stroke) }
+        }
+    }
+
+    private static func distinct<T: Equatable>(_ values: [T]) -> [T] {
+        var seen: [T] = []
+        for value in values where !seen.contains(value) { seen.append(value) }
+        return seen
+    }
+
+    fileprivate mutating func syncAppearanceBinding(_ key: String, id: UUID, language: DesignLanguage,
+                                                    modeID: UUID?, previous: AppearanceBindingValue?) -> Bool {
+        let current = appearanceValue(for: key)
+        let style = key == TokenBindingKey.textStyle ? language.typeStyle(id) : nil
+        let paint = style == nil ? language.asset(id).map { language.paint(for: $0, in: modeID) } : nil
+        let resolved: AppearanceBindingValue?
+        if let style, case .text(let text) = content {
+            resolved = .font(style, against: text)
+        } else if let paint, acceptsAppearanceBinding(key, paint: paint) {
+            if key == TokenBindingKey.textColor, case .solid(let color) = paint {
+                resolved = .textColors([.init(color: color, inheritsMode: false)])
+            } else {
+                resolved = .paint(paint)
+            }
+        } else {
+            resolved = nil
+        }
+        if let previous, current != previous, current != resolved {
+            setTokenBinding(key, to: nil)
+            return true
+        }
+        guard let resolved, resolved != current else { return false }
+        if let style, case .text(var text) = content {
+            style.apply(to: &text)
+            content = .text(text)
+            frame.size = text.measuredSize(boxWidth: frame.width)
+            return true
+        }
+        guard let paint else { return false }
+        return setLinkedPaint(paint, for: key)
+    }
+
+    private mutating func setLinkedPaint(_ paint: Paint, for key: String) -> Bool {
+        switch key {
+        case TokenBindingKey.paddingFill: autoPadding?.fill = paint
+        case TokenBindingKey.paddingStroke: autoPadding?.stroke = paint
+        case TokenBindingKey.textColor, TokenBindingKey.textStroke:
+            guard case .text(var text) = content, case .solid(let color) = paint else { return false }
+            if key == TokenBindingKey.textColor { text.applyToAllRuns { $0.color = color } }
+            else { text.strokeColor = color }
+            content = .text(text)
+        default:
+            guard var style = layerPaintStyle else { return false }
+            if key == TokenBindingKey.fill { style.fill = paint }
+            else { style.stroke = paint }
+            return applyPaintStyle(style)
+        }
+        return true
+    }
+
+    /// A selection can include both a folder and its descendants. Apply each
+    /// eligible field once and honor locked/hidden ancestors.
+    static func linkAppearance(in nodes: inout [Node], selection: Set<UUID>, key: String,
+                               to id: UUID?, language: DesignLanguage, inherited: Bool = false, linked: Bool = true) -> Bool {
+        var changed = false
+        for index in nodes.indices where nodes[index].isVisible && !nodes[index].isLocked {
+            let selected = inherited || selection.contains(nodes[index].id)
+            let targetKey: String
+            if key == TokenBindingKey.fill {
+                switch nodes[index].content {
+                case .text: targetKey = TokenBindingKey.textColor
+                case .group: targetKey = TokenBindingKey.paddingFill
+                default: targetKey = key
+                }
+            } else if key == TokenBindingKey.stroke {
+                switch nodes[index].content {
+                case .text: targetKey = TokenBindingKey.textStroke
+                case .group: targetKey = TokenBindingKey.paddingStroke
+                default: targetKey = key
+                }
+            } else {
+                targetKey = key
+            }
+            if selected, nodes[index].appearanceBindingKeys.contains(targetKey),
+               !linked || nodes[index].boundTokenID(targetKey) != id {
+                let eligible: Bool
+                if let id, targetKey == TokenBindingKey.textStyle {
+                    eligible = language.typeStyle(id) != nil
+                } else if let id, let asset = language.asset(id) {
+                    eligible = nodes[index].acceptsAppearanceBinding(targetKey, paint: asset.value)
+                } else {
+                    eligible = id == nil
+                }
+                if eligible {
+                    if linked {
+                        nodes[index].setTokenBinding(targetKey, to: id)
+                        changed = true
+                    } else if let id {
+                        let applied = nodes[index].syncAppearanceBinding(targetKey, id: id, language: language,
+                                                                         modeID: language.colorMode()?.id, previous: nil)
+                        if applied || nodes[index].boundTokenID(targetKey) != nil {
+                            nodes[index].setTokenBinding(targetKey, to: nil)
+                            changed = true
+                        }
+                    }
+                }
+            }
+            let inheritsSelection = selected && (
+                key == TokenBindingKey.textStyle ||
+                (nodes[index].autoPadding == nil && (key == TokenBindingKey.fill || key == TokenBindingKey.stroke))
+            )
+            if case .group(var children) = nodes[index].content,
+               linkAppearance(in: &children, selection: selection, key: key, to: id,
+                              language: language, inherited: inheritsSelection, linked: linked) {
+                nodes[index].content = .group(children: children)
+                changed = true
+            }
+        }
+        return changed
+    }
+}
+
+enum NumericTokenValue: Equatable {
+    case points(CGFloat)
+    case percentage(CGFloat)
 }
 
 extension DesignLanguage {
@@ -6341,15 +6921,109 @@ extension DesignLanguage {
     /// The mode each mode set is showing document-wide, in mode-set order.
     var activeModeIDs: [UUID] { modeSets.compactMap(\.resolvedActiveModeID) }
 
-    /// The active modes on one artboard: the document's, with that board's own
-    /// choices substituted where it has made one that still exists.
-    func activeModeIDs(overrides: [String: UUID]?) -> [UUID] {
-        guard let overrides, !overrides.isEmpty else { return activeModeIDs }
-        return modeSets.compactMap { set in
-            if let chosen = overrides[set.id.uuidString],
-               set.modes.contains(where: { $0.id == chosen }) { return chosen }
-            return set.resolvedActiveModeID
+    /// The first mode axis is the one edited by the color-mode UI.
+    var colorModeSet: DLModeSet? { modeSets.first }
+
+    @discardableResult
+    mutating func setModeColor(_ color: RGBAColor, for role: DLModeColorRole, modeID: UUID) -> Bool {
+        guard let i = colorModeSet?.modes.firstIndex(where: { $0.id == modeID }) else { return false }
+        let mode = modeSets[0].modes[i]
+        var next = color
+        if role == .background { next.a = 1 }
+        guard role.color(in: mode) != next else { return false }
+        switch role {
+        case .background: modeSets[0].modes[i].backgroundColor = next
+        case .foreground: modeSets[0].modes[i].foregroundColor = next
         }
+        return true
+    }
+
+    @discardableResult
+    mutating func enableColorModes() -> Bool {
+        guard modeSets.isEmpty else { return false }
+        let light = DLMode(name: "Light", libraryKey: "light")
+        let dark = DLMode(name: "Dark", libraryKey: "dark")
+        modeSets = [DLModeSet(name: "Color scheme", modes: [light, dark], defaultModeID: light.id)]
+        return true
+    }
+
+    @discardableResult
+    mutating func nameColorMode(_ proposed: String, id: UUID? = nil) -> Bool {
+        let name = proposed.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard var set = colorModeSet, !name.isEmpty,
+              !set.modes.contains(where: { $0.id != id && $0.name.caseInsensitiveCompare(name) == .orderedSame })
+        else { return false }
+        if let id {
+            guard let i = set.modes.firstIndex(where: { $0.id == id }), set.modes[i].name != name else { return false }
+            set.modes[i].name = name
+        } else {
+            set.modes.append(DLMode(name: name))
+        }
+        modeSets[0] = set
+        return true
+    }
+
+    @discardableResult
+    mutating func selectDocumentColorMode(_ id: UUID) -> Bool {
+        guard let set = colorModeSet, set.resolvedActiveModeID != id,
+              set.modes.contains(where: { $0.id == id }) else { return false }
+        modeSets[0].activeModeID = id
+        return true
+    }
+
+    @discardableResult
+    mutating func setModeIcon(_ symbol: String?, modeID: UUID) -> Bool {
+        guard let i = colorModeSet?.modes.firstIndex(where: { $0.id == modeID }),
+              modeSets[0].modes[i].iconSymbol != symbol else { return false }
+        modeSets[0].modes[i].iconSymbol = symbol
+        return true
+    }
+
+    func colorMode(for artboard: Artboard? = nil, on page: CanvasPage? = nil) -> DLMode? {
+        guard let set = colorModeSet else { return nil }
+        let id = resolvedModeID(in: set, overrides: artboard?.modeOverrides, pageOverrides: page?.modeOverrides)
+        return set.modes.first { $0.id == id }
+    }
+
+    private func resolvedModeID(in set: DLModeSet, overrides: [String: UUID]?,
+                                pageOverrides: [String: UUID]?) -> UUID? {
+        let key = set.id.uuidString
+        if let id = overrides?[key], set.modes.contains(where: { $0.id == id }) { return id }
+        if let id = pageOverrides?[key], set.modes.contains(where: { $0.id == id }) { return id }
+        return set.resolvedActiveModeID
+    }
+
+    /// Resolve a solid-color mode override and its local alias chain. Invalid
+    /// values, cycles and missing targets fall back to the original asset's base.
+    func paint(for asset: DesignAsset, in modeID: UUID?) -> Paint {
+        guard case .solid = asset.value, let key = modeID?.uuidString else { return asset.value }
+        var current = asset
+        var visited = Set<UUID>()
+        while visited.insert(current.id).inserted {
+            switch current.modeValues[key] {
+            case nil: return current.value
+            case .color(let color): return .solid(color)
+            case .alias(let id):
+                guard let target = self.asset(id),
+                      case .solid = target.value else { return asset.value }
+                current = target
+            default: return asset.value
+            }
+        }
+        return asset.value
+    }
+
+    /// Solid swatches available for copying into another color field.
+    func savedColorChoices(in modeID: UUID?, excluding assetID: UUID? = nil) -> [(asset: DesignAsset, color: RGBAColor)] {
+        assets.compactMap { asset in
+            guard asset.id != assetID, case .solid(let color) = paint(for: asset, in: modeID) else { return nil }
+            return (asset, color)
+        }
+    }
+
+    /// Artboard overrides take precedence over page overrides for each mode set.
+    func activeModeIDs(overrides: [String: UUID]?, pageOverrides: [String: UUID]? = nil) -> [UUID] {
+        modeSets.compactMap { resolvedModeID(in: $0, overrides: overrides, pageOverrides: pageOverrides) }
     }
 
     /// A token's literal value after following aliases. nil when the token (or
@@ -6369,6 +7043,14 @@ extension DesignLanguage {
         resolvedTokenValue(id, context: DLResolveContext(modeIDs: modeID.map { [$0] } ?? []))
     }
 
+    func numericTokenValue(_ id: UUID, context: DLResolveContext) -> NumericTokenValue? {
+        if case .dimension(let value) = resolvedTokenValue(id, context: context), value.unit == "%" {
+            guard value.value.isFinite, (0...1_000_000).contains(value.value) else { return nil }
+            return .percentage(CGFloat(value.value))
+        }
+        return resolvedNumber(id, context: context).map(NumericTokenValue.points)
+    }
+
     /// A token as canvas points. Fixed units resolve as written; `rem` uses
     /// `settings.remBase`; `em`, viewport units and `%` use the context; and
     /// `calc()`/`min()`/`max()`/`clamp()` are evaluated (see `DLLength`). nil
@@ -6386,7 +7068,7 @@ extension DesignLanguage {
             return CGFloat(d.value * scale)
         case .raw(let css):
             return DLLength.points(css, context: context, remBase: settings.remBase)
-        case .alias, .preserved:
+        case .alias, .color, .preserved:
             return nil
         }
     }
@@ -6419,6 +7101,105 @@ extension DesignLanguage {
 }
 
 extension Document {
+    func colorMode(for artboard: Artboard) -> DLMode? {
+        designLanguage.colorMode(for: artboard, on: page(containingArtboard: artboard.id))
+    }
+
+    @discardableResult
+    mutating func selectPageColorMode(_ id: UUID?, on pageID: UUID) -> Bool {
+        guard let set = designLanguage.colorModeSet, !set.modes.isEmpty,
+              id == nil || set.modes.contains(where: { $0.id == id }),
+              let index = pages.firstIndex(where: { $0.id == pageID }) else { return false }
+        let key = set.id.uuidString
+        var overrides = pages[index].modeOverrides ?? [:]
+        guard overrides[key] != id else { return false }
+        overrides[key] = id
+        pages[index].modeOverrides = overrides.isEmpty ? nil : overrides
+        return true
+    }
+
+    /// Keep default paints concrete for export and thumbnail rendering. Custom
+    /// artboard paints and individual runs with explicit colors stay independent.
+    @discardableResult
+    mutating func applyColorModeDefaults() -> Bool {
+        let language = designLanguage
+        guard let documentMode = language.colorMode() else { return false }
+        var changed = false
+        for page in pages.indices {
+            let pageMode = language.colorMode(on: pages[page]) ?? documentMode
+            var foregrounds: [UUID: RGBAColor] = [:]
+            for i in pages[page].artboards.indices {
+                let board = pages[page].artboards[i]
+                let mode = language.colorMode(for: board, on: pages[page]) ?? pageMode
+                foregrounds[board.id] = mode.resolvedForeground
+                if board.followsModeBackground && board.background != .solid(mode.resolvedBackground) {
+                    pages[page].artboards[i].setModeBackground(mode.resolvedBackground)
+                    changed = true
+                }
+            }
+            var nodes = pages[page].nodes
+            var changedNodes = false
+            for i in nodes.indices {
+                let foreground = nodes[i].artboardID.flatMap { foregrounds[$0] } ?? pageMode.resolvedForeground
+                if Self.applyModeForeground(foreground, to: &nodes[i]) { changedNodes = true }
+            }
+            if changedNodes {
+                pages[page].nodes = nodes
+                changed = true
+            }
+        }
+        return changed
+    }
+
+    private static func applyModeForeground(_ color: RGBAColor, to node: inout Node) -> Bool {
+        switch node.content {
+        case .text(var text):
+            let inheriting = text.runs.indices.filter { text.runs[$0].usesModeForeground == true && text.runs[$0].color != color }
+            guard !inheriting.isEmpty else { return false }
+            for i in inheriting { text.runs[i].setModeForeground(color) }
+            node.content = .text(text)
+            return true
+        case .group(var children):
+            var changed = false
+            for i in children.indices {
+                if applyModeForeground(color, to: &children[i]) { changed = true }
+            }
+            if changed { node.content = .group(children: children) }
+            return changed
+        default:
+            return false
+        }
+    }
+
+    @discardableResult
+    mutating func selectArtboardColorMode(_ id: UUID?, for boards: Set<UUID>, on pageID: UUID?) -> Bool {
+        guard let set = designLanguage.colorModeSet, !set.modes.isEmpty,
+              id == nil || set.modes.contains(where: { $0.id == id }),
+              let page = pageIndex(for: pageID) else { return false }
+        let key = set.id.uuidString
+        var changed = false
+        for i in pages[page].artboards.indices where boards.contains(pages[page].artboards[i].id) {
+            var overrides = pages[page].artboards[i].modeOverrides ?? [:]
+            guard overrides[key] != id else { continue }
+            overrides[key] = id
+            pages[page].artboards[i].modeOverrides = overrides.isEmpty ? nil : overrides
+            changed = true
+        }
+        return changed
+    }
+
+    @discardableResult
+    mutating func useModeBackground(for boards: Set<UUID>, on pageID: UUID?) -> Bool {
+        guard designLanguage.colorMode() != nil, let page = pageIndex(for: pageID) else { return false }
+        var changed = false
+        for i in pages[page].artboards.indices where boards.contains(pages[page].artboards[i].id) {
+            guard !pages[page].artboards[i].followsModeBackground else { continue }
+            pages[page].artboards[i].usesModeBackground = true
+            changed = true
+        }
+        return changed
+    }
+
     /// Re-resolve every token binding in the document and write any number that
     /// changed, then reflow what moved. Pure and idempotent: a second call right
     /// after the first changes nothing. Call it in the SAME model transaction as
@@ -6439,7 +7220,13 @@ extension Document {
     /// The numbers bound fields held in an earlier state: node id → key →
     /// (token, value). Lets a sync tell "the context changed" from "someone
     /// edited this number".
-    typealias BoundFieldValues = [UUID: [String: (token: UUID, value: CGFloat)]]
+    private struct BoundFieldValue {
+        let id: UUID
+        var number: CGFloat?
+        var percentage: CGFloat?
+        var appearance: AppearanceBindingValue?
+    }
+    private typealias BoundFieldValues = [UUID: [String: BoundFieldValue]]
 
     /// Bring every linked field back in line after an edit that went from `old`
     /// to this document — the commit-time companion to `applyTokenBindings()`.
@@ -6454,16 +7241,18 @@ extension Document {
     /// Free when the document has no tokens.
     @discardableResult
     mutating func reconcileTokenBindings(after old: Document) -> Bool {
-        guard !designLanguage.tokens.isEmpty else { return false }
+        guard !designLanguage.tokens.isEmpty || !designLanguage.assets.isEmpty ||
+                !old.designLanguage.tokens.isEmpty ||
+                !designLanguage.typeStyles.isEmpty || !old.designLanguage.assets.isEmpty ||
+                !old.designLanguage.typeStyles.isEmpty else { return false }
         var before: BoundFieldValues = [:]
         func record(_ nodes: [Node]) {
             for node in nodes {
                 if let bindings = node.tokenBindings {
-                    var fields: [String: (token: UUID, value: CGFloat)] = [:]
-                    for (key, token) in bindings {
-                        if let value = node.numericValue(forBindingKey: key) {
-                            fields[key] = (token: token, value: value)
-                        }
+                    var fields: [String: BoundFieldValue] = [:]
+                    for (key, id) in bindings {
+                        fields[key] = BoundFieldValue(id: id, number: node.numericValue(forBindingKey: key),
+                                                      percentage: node.radiusPercentage(for: key), appearance: node.appearanceValue(for: key))
                     }
                     before[node.id] = fields
                 }
@@ -6472,27 +7261,39 @@ extension Document {
         }
         for page in old.pages { record(page.nodes) }
         for source in old.sources { record(source.children) }
+        for pattern in old.patterns { record(pattern.children) }
         return syncTokenBindings(before: before)
     }
 
     private mutating func syncTokenBindings(before: BoundFieldValues?) -> Bool {
         let language = designLanguage
-        func resolver(_ context: DLResolveContext) -> (UUID) -> CGFloat? {
-            var cache: [UUID: CGFloat?] = [:]
+        func resolver(_ context: DLResolveContext) -> (UUID) -> NumericTokenValue? {
+            var cache: [UUID: NumericTokenValue?] = [:]
             return { id in
                 if let hit = cache[id] { return hit }
-                let value = language.resolvedNumber(id, context: context)
+                let value = language.numericTokenValue(id, context: context)
                 cache.updateValue(value, forKey: id)
                 return value
             }
         }
         let documentResolver = resolver(DLResolveContext(modeIDs: language.activeModeIDs))
+        let documentModeID = language.colorMode()?.id
         var changed = false
+        for pi in patterns.indices {
+            var children = patterns[pi].children
+            var touched = false
+            for ci in children.indices where Self.applyTokenBindings(to: &children[ci], resolve: documentResolver,
+                            language: language, modeID: documentModeID, before: before) {
+                touched = true
+            }
+            if touched { patterns[pi].children = reflowed(children); changed = true }
+        }
         // Sources first: page reflow measures instances from their sources.
         for si in sources.indices {
             var children = sources[si].children
             var touched = false
-            for ci in children.indices where Self.applyTokenBindings(to: &children[ci], resolve: documentResolver, before: before) {
+            for ci in children.indices where Self.applyTokenBindings(to: &children[ci], resolve: documentResolver,
+                            language: language, modeID: documentModeID, before: before) {
                 touched = true
             }
             guard touched else { continue }
@@ -6506,17 +7307,24 @@ extension Document {
             changed = true
         }
         for pi in pages.indices {
-            var boards: [UUID: (UUID) -> CGFloat?] = [:]
-            for board in pages[pi].artboards {
-                boards[board.id] = resolver(DLResolveContext(
-                    modeIDs: language.activeModeIDs(overrides: board.modeOverrides),
+            let page = pages[pi]
+            let pageModeID = language.colorMode(on: page)?.id
+            let pageResolver = page.modeOverrides == nil ? documentResolver : resolver(DLResolveContext(
+                modeIDs: language.activeModeIDs(overrides: nil, pageOverrides: page.modeOverrides)))
+            var boards: [UUID: (resolve: (UUID) -> NumericTokenValue?, modeID: UUID?)] = [:]
+            for board in page.artboards {
+                let resolve = resolver(DLResolveContext(
+                    modeIDs: language.activeModeIDs(overrides: board.modeOverrides, pageOverrides: page.modeOverrides),
                     viewport: board.frame.size))
+                boards[board.id] = (resolve, language.colorMode(for: board, on: page)?.id)
             }
             var nodes = pages[pi].nodes
             var touched = false
             for ni in nodes.indices {
-                let resolve = nodes[ni].artboardID.flatMap { boards[$0] } ?? documentResolver
-                if Self.applyTokenBindings(to: &nodes[ni], resolve: resolve, before: before) { touched = true }
+                let board = nodes[ni].artboardID.flatMap { boards[$0] }
+                if Self.applyTokenBindings(to: &nodes[ni], resolve: board?.resolve ?? pageResolver,
+                                           language: language, modeID: board?.modeID ?? pageModeID,
+                                           before: before) { touched = true }
             }
             // A source that changed size can move page content even when no page
             // node holds a binding of its own.
@@ -6528,31 +7336,129 @@ extension Document {
     }
 
     private static func applyTokenBindings(to node: inout Node,
-                                           resolve: (UUID) -> CGFloat?,
+                                           resolve: (UUID) -> NumericTokenValue?,
+                                           language: DesignLanguage, modeID: UUID?,
                                            before: BoundFieldValues?) -> Bool {
         var changed = false
         if let bindings = node.tokenBindings {
             for (key, tokenID) in bindings {
-                guard let value = resolve(tokenID) else { continue }
-                if let earlier = before?[node.id]?[key], earlier.token == tokenID,
-                   let current = node.numericValue(forBindingKey: key),
-                   abs(current - Swift.max(0, value)) > 0.0001,
-                   abs(current - earlier.value) > 0.0001 {
-                    // This edit changed the number itself: keep it, drop the link.
+                let earlier = before?[node.id]?[key].flatMap { $0.id == tokenID ? $0 : nil }
+                if node.appearanceBindingKeys.contains(key) {
+                    if node.syncAppearanceBinding(key, id: tokenID, language: language, modeID: modeID,
+                                                  previous: earlier?.appearance) { changed = true }
+                    continue
+                }
+                guard TokenBindingKey.numericRole(key) != nil, let resolved = resolve(tokenID) else { continue }
+                let percentage = node.radiusPercentage(for: key)
+                let matchesResolved: Bool
+                switch resolved {
+                case .percentage(let value): matchesResolved = percentage == value
+                case .points(let value):
+                    matchesResolved = percentage == nil &&
+                        node.numericValue(forBindingKey: key).map {
+                            abs($0 - node.limitedBindingNumber(value, for: key)) <= 0.0001
+                        } == true
+                }
+                if let earlier, percentage != earlier.percentage, !matchesResolved {
                     node.setTokenBinding(key, to: nil)
                     changed = true
                     continue
                 }
-                if node.setNumericValue(value, forBindingKey: key) { changed = true }
+                switch resolved {
+                case .percentage(let percent):
+                    guard node.supportsPercentageRadius(for: key) else { continue }
+                    if percentage == nil, let old = earlier?.number, node.numericValue(forBindingKey: key) != old {
+                        node.setTokenBinding(key, to: nil)
+                        changed = true
+                    } else if node.setRadiusPercentage(percent, for: key) { changed = true }
+                case .points(let length):
+                    let value = node.limitedBindingNumber(length, for: key)
+                    if percentage == nil, let old = earlier?.number,
+                       node.numericValue(forBindingKey: key).map({
+                           abs($0 - value) > 0.0001 && abs($0 - old) > 0.0001
+                       }) ?? true {
+                        node.setTokenBinding(key, to: nil)
+                        changed = true
+                    } else if node.setNumericValue(value, forBindingKey: key) { changed = true }
+                }
             }
         }
         if case .group(var children) = node.content {
             var inner = false
-            for ci in children.indices where applyTokenBindings(to: &children[ci], resolve: resolve, before: before) {
+            for ci in children.indices where applyTokenBindings(to: &children[ci], resolve: resolve, language: language, modeID: modeID, before: before) {
                 inner = true
             }
             if inner { node.content = .group(children: children); changed = true }
         }
+        return changed
+    }
+
+    /// Apply a dimension to each compatible selection target in its own page or
+    /// artboard context. A styled group has its own border; ordinary groups
+    /// pass the selection to their visible, unlocked children.
+    @discardableResult
+    mutating func applyNumericToken(_ id: UUID, on pageID: UUID?, selection: Set<UUID>, linked: Bool) -> Bool {
+        guard !selection.isEmpty, let index = pageIndex(for: pageID),
+              let token = designLanguage.token(id) else { return false }
+        let key: String
+        switch token.role {
+        case .radius: key = TokenBindingKey.cornerRadius
+        case .borderWidth: key = TokenBindingKey.borderWidth
+        case .spacing: key = TokenBindingKey.gap
+        default: return false
+        }
+        let language = designLanguage
+        let page = pages[index]
+        let boards = Dictionary(page.artboards.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let pageValue = language.numericTokenValue(id, context: DLResolveContext(
+            modeIDs: language.activeModeIDs(overrides: nil, pageOverrides: page.modeOverrides)))
+
+        func apply(_ node: inout Node, inherited: Bool, value: NumericTokenValue?) -> Bool {
+            guard node.isVisible, !node.isLocked else { return false }
+            let selected = inherited || selection.contains(node.id)
+            var changed = false
+            var compatible = false
+            if selected, let value {
+                switch value {
+                case .points(let amount):
+                    compatible = (node.numericValue(forBindingKey: key) != nil ||
+                                  node.supportsPercentageRadius(for: key)) &&
+                        (key != TokenBindingKey.gap || node.autoLayout?.distribution == .packed)
+                    if compatible { changed = node.setNumericValue(amount, forBindingKey: key) }
+                case .percentage(let percent):
+                    compatible = node.supportsPercentageRadius(for: key)
+                    if compatible { changed = node.setRadiusPercentage(percent, for: key) }
+                }
+                if compatible {
+                    let bindingsBefore = node.tokenBindings
+                    node.replaceCornerBindingScope(for: key)
+                    node.setTokenBinding(key, to: linked ? id : nil)
+                    changed = changed || node.tokenBindings != bindingsBefore
+                }
+            }
+            if case .group(var children) = node.content {
+                let inherits = selected && !compatible
+                var childChanged = false
+                for child in children.indices where apply(&children[child], inherited: inherits, value: value) {
+                    childChanged = true
+                }
+                if childChanged { node.content = .group(children: children); changed = true }
+            }
+            return changed
+        }
+
+        var nodes = page.nodes
+        var changed = false
+        for root in nodes.indices {
+            var value = pageValue
+            if let boardID = nodes[root].artboardID, let board = boards[boardID] {
+                value = language.numericTokenValue(id, context: DLResolveContext(
+                    modeIDs: language.activeModeIDs(overrides: board.modeOverrides, pageOverrides: page.modeOverrides),
+                    viewport: board.frame.size))
+            }
+            if apply(&nodes[root], inherited: false, value: value) { changed = true }
+        }
+        if changed { pages[index].nodes = reflowed(nodes) }
         return changed
     }
 
@@ -6565,7 +7471,9 @@ extension Document {
                 return n
             }
         }
-        return pages.reduce(0) { $0 + count($1.nodes) } + sources.reduce(0) { $0 + count($1.children) }
+        return pages.reduce(0) { $0 + count($1.nodes) }
+            + sources.reduce(0) { $0 + count($1.children) }
+            + patterns.reduce(0) { $0 + count($1.children) }
     }
 
     /// Change a token's value and update everything linked to it. One call = one
@@ -6580,11 +7488,36 @@ extension Document {
     /// exactly as they are. Returns how many links were removed.
     @discardableResult
     mutating func removeToken(_ id: UUID) -> Int {
+        designLanguage.removeToken(id)
+        return removeBindingReferences(to: [id])
+    }
+
+    mutating func removeAppearanceAsset(_ id: UUID, typeStyle: Bool) {
+        if typeStyle { designLanguage.removeTypeStyle(id) }
+        else {
+            // Keep other swatches' resolved colors when they alias this asset.
+            let language = designLanguage
+            for i in designLanguage.assets.indices where designLanguage.assets[i].id != id {
+                let other = language.assets[i]
+                for (mode, value) in other.modeValues where value == .alias(id) {
+                    if let modeID = UUID(uuidString: mode), case .solid(let color) = language.paint(for: other, in: modeID) {
+                        designLanguage.assets[i].modeValues[mode] = .color(color)
+                    }
+                }
+            }
+            designLanguage.remove(id)
+        }
+        removeBindingReferences(to: [id])
+    }
+
+    @discardableResult
+    mutating func removeBindingReferences(to ids: Set<UUID>) -> Int {
+        guard !ids.isEmpty else { return 0 }
         func strip(_ nodes: inout [Node]) -> Int {
             var removed = 0
             for i in nodes.indices {
                 if let bindings = nodes[i].tokenBindings {
-                    let kept = bindings.filter { $0.value != id }
+                    let kept = bindings.filter { !ids.contains($0.value) }
                     removed += bindings.count - kept.count
                     nodes[i].tokenBindings = kept.isEmpty ? nil : kept
                 }
@@ -6598,7 +7531,7 @@ extension Document {
         var removed = 0
         for pi in pages.indices { removed += strip(&pages[pi].nodes) }
         for si in sources.indices { removed += strip(&sources[si].children) }
-        designLanguage.removeToken(id)
+        for pi in patterns.indices { removed += strip(&patterns[pi].children) }
         return removed
     }
 }
@@ -6631,7 +7564,7 @@ extension DLTokenValue {
         case .dimension(let d): return plain(d.value) + d.unit
         case .number(let n): return plain(n)
         case .raw(let css): return css
-        case .alias, .preserved: return ""
+        case .alias, .color, .preserved: return ""
         }
     }
 }
@@ -6651,6 +7584,124 @@ extension Document {
         }
         for page in pages { visit(page.nodes) }
         for source in sources { visit(source.children) }
+        for pattern in patterns { visit(pattern.children) }
         return counts
+    }
+}
+
+extension Document {
+    struct AppearanceMatch {
+        let nodeID: UUID
+        let layer: String
+        let key: String
+        let tokenID: UUID
+        let name: String
+    }
+
+    struct AppearanceMatchPreview {
+        var matches: [AppearanceMatch] = []
+        var ambiguousCount = 0
+    }
+
+    func matchingAppearanceBindings() -> AppearanceMatchPreview {
+        let language = designLanguage
+        guard !language.assets.isEmpty || !language.typeStyles.isEmpty else { return .init() }
+        var preview = AppearanceMatchPreview()
+        var palettes: [UUID?: [(DesignAsset, Paint)]] = [:]
+
+        func visit(_ node: Node, modeID: UUID?) {
+            guard node.isVisible, !node.isLocked else { return }
+            if palettes[modeID] == nil {
+                palettes[modeID] = language.assets.map { ($0, language.paint(for: $0, in: modeID)) }
+            }
+            for key in node.appearanceBindingKeys where node.boundTokenID(key) == nil {
+                guard let current = node.appearanceValue(for: key) else { continue }
+                if [TokenBindingKey.stroke, TokenBindingKey.paddingStroke, TokenBindingKey.textStroke].contains(key),
+                   (node.layerPaintStyle?.strokeWidth ?? 0) == 0 { continue }
+                var candidates: [(UUID, String)] = []
+                if key == TokenBindingKey.textStyle, case .text(let text) = node.content {
+                    candidates = language.typeStyles.compactMap { style in
+                        current == .font(style, against: text)
+                            ? (style.id, style.name.isEmpty ? style.fallbackLabel : style.name) : nil
+                    }
+                } else {
+                    candidates = (palettes[modeID] ?? []).compactMap { asset, paint in
+                        guard node.acceptsAppearanceBinding(key, paint: paint) else { return nil }
+                        switch current {
+                        case .paint(let currentPaint):
+                            guard let currentPaint, currentPaint.isExactStyleMatch(for: paint) else { return nil }
+                        case .textColors(let colors):
+                            guard case .solid(let color) = paint,
+                                  colors == [.init(color: color, inheritsMode: false)] else { return nil }
+                        case .font: return nil
+                        }
+                        return (asset.id, asset.name)
+                    }
+                }
+                if candidates.count == 1, let (id, name) = candidates.first {
+                    preview.matches.append(.init(nodeID: node.id, layer: node.name, key: key,
+                                                 tokenID: id, name: name))
+                } else if candidates.count > 1 {
+                    preview.ambiguousCount += 1
+                }
+            }
+            if case .group(let children) = node.content {
+                for child in children { visit(child, modeID: modeID) }
+            }
+        }
+
+        for page in pages {
+            let boards = Dictionary(page.artboards.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+            for node in page.nodes {
+                visit(node, modeID: language.colorMode(for: node.artboardID.flatMap { boards[$0] }, on: page)?.id)
+            }
+        }
+        let documentMode = language.colorMode()?.id
+        for source in sources { for child in source.children { visit(child, modeID: documentMode) } }
+        for pattern in patterns { for child in pattern.children { visit(child, modeID: documentMode) } }
+        return preview
+    }
+
+    @discardableResult
+    mutating func linkMatchingAppearance(_ preview: AppearanceMatchPreview) -> Bool {
+        var byNode: [UUID: [String: UUID]] = [:]
+        for match in preview.matches { byNode[match.nodeID, default: [:]][match.key] = match.tokenID }
+        guard !byNode.isEmpty else { return false }
+
+        func link(_ nodes: inout [Node]) -> Bool {
+            var changed = false
+            for i in nodes.indices where nodes[i].isVisible && !nodes[i].isLocked {
+                for (key, id) in byNode[nodes[i].id] ?? [:]
+                where nodes[i].boundTokenID(key) == nil && nodes[i].appearanceBindingKeys.contains(key) {
+                    nodes[i].setTokenBinding(key, to: id)
+                    changed = true
+                }
+                if case .group(var children) = nodes[i].content, link(&children) {
+                    nodes[i].content = .group(children: children)
+                    changed = true
+                }
+            }
+            return changed
+        }
+
+        var changed = false
+        for i in pages.indices where link(&pages[i].nodes) { changed = true }
+        for i in sources.indices where link(&sources[i].children) { changed = true }
+        for i in patterns.indices where link(&patterns[i].children) { changed = true }
+        return changed
+    }
+}
+
+private extension Paint {
+    func isExactStyleMatch(for other: Paint) -> Bool {
+        switch (self, other) {
+        case (.gradient(var a), .gradient(let b)) where a.stops.count == b.stops.count:
+            for i in a.stops.indices { a.stops[i].id = b.stops[i].id }
+            return a == b
+        case (.mesh(var a), .mesh(let b)) where a.points.count == b.points.count:
+            for i in a.points.indices { a.points[i].id = b.points[i].id }
+            return a == b
+        default: return self == other
+        }
     }
 }

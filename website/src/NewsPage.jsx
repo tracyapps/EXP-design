@@ -3,11 +3,17 @@ import './account.css';
 
 // Curated public copy from RELEASE-NOTES-v2.6.md and the shipped release receipt.
 // Internal roadmap/progress entries and account data are never this feed's source.
-export default function NewsPage() {
+export default function NewsPage({ hasDesignLanguageRelease }) {
   useEffect(()=>{document.title='News and updates — EXP [design]';},[]);
   return <section className="account-page" aria-labelledby="news-title">
     <p className="section-label">EXP [design]</p><h1 id="news-title">News and updates.</h1>
     <p className="account-lead">Release notes and occasional notes from the workbench. Read them here without an account.</p>
+    {hasDesignLanguageRelease && <article id="release-29" className="account-card" aria-labelledby="release-29-title">
+      <h2 id="release-29-title">EXP 2.9 gives your design language more room to work.</h2>
+      <p>Switch color modes by page or artboard, and link reusable spacing, corner radius, and border width to the artwork that uses them.</p>
+      <p>Compare modes and contrast in a live Guide, export it with your token files, and switch between the token table and code whenever you need to edit or copy values.</p>
+      <p><a href="/#design-language">See the new Design Language tools</a> · <a href="https://github.com/tracyapps/EXP-design/releases/tag/v2.9">Read the full release notes</a></p>
+    </article>}
     <article className="account-card" aria-labelledby="release-26-title">
       <p>Release · <time dateTime="2026-10-02">October 2, 2026</time></p>
       <h2 id="release-26-title">EXP 2.6: a smoother canvas, and tools for everyday work.</h2>

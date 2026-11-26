@@ -1929,6 +1929,8 @@ struct WindowMenuItems: View {
                     .disabled(menu == nil)
             }
         }
+        Button("Design Language Guide") { sendCanvasAction("openDesignLanguageGuideAction:") }
+            .disabled(menu == nil)
         Divider()
         // Single-window dock column visibility — label flips Show ⇄ Hide.
         Button { menu?.toggleLeft() } label: {

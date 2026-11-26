@@ -44,6 +44,8 @@ final class ExpDocument: ReferenceFileDocument {
 
     typealias Snapshot = Document
 
+    let designLanguageCodeSession = DLCodeSession()
+
     /// Session classification only; never stored in a .design file or transmitted
     /// as a document identifier. Registration waits for the usable editor view.
     private(set) var usageOrigin: UsageSource = .newDocument
@@ -110,6 +112,7 @@ final class ExpDocument: ReferenceFileDocument {
         }
         Self.stripBackgroundBlurEffects(&decoded)
         Self.sanitizePDFImages(&decoded)
+        decoded.applyColorModeDefaults()
         model = decoded
         usageOrigin = .openedDocument
     }
@@ -209,6 +212,7 @@ final class ExpDocument: ReferenceFileDocument {
         // Undo/redo restore exact snapshots, so they are left alone.
         if undoManager?.isUndoing != true, undoManager?.isRedoing != true {
             next.reconcileTokenBindings(after: oldModel)
+            next.applyColorModeDefaults()
         }
         model = next
         undoManager?.registerUndo(withTarget: self) { document in
@@ -233,7 +237,9 @@ final class ExpDocument: ReferenceFileDocument {
         // A live gesture just ended (e.g. an artboard was dragged to a new size):
         // settle linked fields once, as part of the same undo step.
         var settled = model
-        if settled.reconcileTokenBindings(after: baseline) { model = settled }
+        let linksChanged = settled.reconcileTokenBindings(after: baseline)
+        let colorsChanged = settled.applyColorModeDefaults()
+        if linksChanged || colorsChanged { model = settled }
         undoManager?.registerUndo(withTarget: self) { document in
             document.setModel(baseline, undoManager: undoManager, actionName: actionName, usage: .none)
         }

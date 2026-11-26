@@ -136,7 +136,7 @@ enum VectorPathGeometry {
                           CGPoint(x: w, y: h), CGPoint(x: 0, y: h)]
                     .map { PathPoint(point: $0) }
             } else {
-                points = PathShape.roundedRectPoints(size: size, radii: radii)
+                points = PathShape.roundedRectPoints(size: size, resolved: radii)
             }
             return PathShape(points: points, closed: true, fill: s.fill,
                              stroke: s.stroke, strokeWidth: s.strokeWidth,
